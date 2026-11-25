@@ -5,13 +5,51 @@ public final class DocumentCacheManager: @unchecked Sendable {
     public static let shared = DocumentCacheManager()
     
     private let fileManager = FileManager.default
-    private let cacheDirectory: URL
+    private let baseDirectory: URL
+    private let lock = NSLock()
+    private var storageNamespace: String = ""
+
+    private var cacheDirectory: URL {
+        lock.lock()
+        let ns = storageNamespace
+        lock.unlock()
+        return directory(forNamespace: ns)
+    }
+
+    private func directory(forNamespace ns: String) -> URL {
+        if ns.isEmpty {
+            return baseDirectory
+        }
+        let dir = baseDirectory.appendingPathComponent("profiles", isDirectory: true).appendingPathComponent(ns, isDirectory: true)
+        try? fileManager.createDirectory(at: dir, withIntermediateDirectories: true)
+        return dir
+    }
+
+    public func switchStorageNamespace(_ namespace: String) {
+        lock.lock()
+        storageNamespace = namespace
+        lock.unlock()
+        _ = directory(forNamespace: namespace)
+    }
+
+    public func clearStorage(forNamespace namespace: String) {
+        let dir = directory(forNamespace: namespace)
+        if namespace.isEmpty {
+            if let items = try? fileManager.contentsOfDirectory(at: dir, includingPropertiesForKeys: nil) {
+                for item in items where item.lastPathComponent != "profiles" && item.lastPathComponent != "wechat_archives" {
+                    try? fileManager.removeItem(at: item)
+                }
+            }
+        } else {
+            try? fileManager.removeItem(at: dir)
+        }
+    }
     
     private init() {
         let baseCaches = fileManager.urls(for: .cachesDirectory, in: .userDomainMask).first ?? fileManager.temporaryDirectory
         let docsDir = baseCaches.appendingPathComponent("antigravity_documents", isDirectory: true)
         try? fileManager.createDirectory(at: docsDir, withIntermediateDirectories: true)
-        self.cacheDirectory = docsDir
+        self.baseDirectory = docsDir
     }
     
     /// Computes deterministic target URL in the cache directory based on uri and file name

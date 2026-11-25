@@ -39,6 +39,8 @@ type liveActivityMember struct {
 type LiveActivityAttributes struct {
 	ConversationTitle string `json:"conversationTitle"`
 	CascadeID         string `json:"cascadeId"`
+	GatewayID         string `json:"gatewayId,omitempty"`
+	GatewayLabel      string `json:"gatewayLabel,omitempty"`
 }
 
 // LiveActivityTaskSnapshot mirrors Swift AgentTaskSnapshot inside AgentActivityAttributes.ContentState.
@@ -81,6 +83,8 @@ type LiveActivityDispatcher struct {
 	mu               sync.Mutex
 	client           *APNsRelayClient
 	enabled          bool
+	gatewayID        string
+	gatewayName      string
 	nowFunc          func() time.Time
 	tracks           map[string]*liveActivityTrack  // cascadeID -> tracking state
 	endedAt          map[string]time.Time           // cascadeID -> recent EndSession timestamp
@@ -142,6 +146,17 @@ func NewLiveActivityDispatcher(client *APNsRelayClient, enabled bool) *LiveActiv
 		pendingLatest:    make(map[string]*proxy.TrajectoryDetails),
 		coalesceInFlight: make(map[string]bool),
 	}
+}
+
+// SetGatewayIdentity configures the stable gateway ID and display name embedded in Live Activity Push-to-Start attributes.
+func (d *LiveActivityDispatcher) SetGatewayIdentity(gatewayID, gatewayName string) {
+	if d == nil {
+		return
+	}
+	d.mu.Lock()
+	d.gatewayID = strings.TrimSpace(gatewayID)
+	d.gatewayName = strings.TrimSpace(gatewayName)
+	d.mu.Unlock()
 }
 
 func (d *LiveActivityDispatcher) lockCascade(cascadeID string) func() {
@@ -522,9 +537,23 @@ func (d *LiveActivityDispatcher) SyncFromDetails(ctx context.Context, details *p
 			req.Event = "start"
 			req.Priority = 10
 			req.AttributesType = "AgentActivityAttributes"
+			d.mu.Lock()
+			gwID := d.gatewayID
+			gwName := d.gatewayName
+			d.mu.Unlock()
+			gwLabel := ""
+			if target.ShowGatewayLabel {
+				gwLabel = strings.TrimSpace(target.GatewayLabel)
+				if gwLabel == "" {
+					gwLabel = gwName
+				}
+				gwLabel = truncateString(SanitizePushText(gwLabel), 24)
+			}
 			req.Attributes = &LiveActivityAttributes{
 				ConversationTitle: targetState.ConversationTitle,
 				CascadeID:         cascadeID,
+				GatewayID:         gwID,
+				GatewayLabel:      gwLabel,
 			}
 			// Apple liveactivitiesd strictly requires an aps.alert dictionary on event="start" (Push-to-Start);
 			// omit Sound so starting a Live Activity stays silent and only completion/action alerts chime.

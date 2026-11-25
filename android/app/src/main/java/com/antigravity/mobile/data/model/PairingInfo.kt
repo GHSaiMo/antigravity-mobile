@@ -145,6 +145,8 @@ data class PairResponse(
     val endpoints: List<EndpointInfo>? = null,
     val os: String? = null,
     val platform: String? = null,
+    @SerialName("gateway_id") val gatewayId: String? = null,
+    @SerialName("gateway_name") val gatewayName: String? = null,
     @SerialName("e2ee_gateway_pub") val e2eeGatewayPub: String? = null,
     @SerialName("e2ee_salt") val e2eeSalt: String? = null,
     @SerialName("relay_cloud_url") val relayCloudUrl: String? = null

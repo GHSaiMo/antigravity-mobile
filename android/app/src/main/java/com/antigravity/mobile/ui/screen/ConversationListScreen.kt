@@ -2,10 +2,23 @@ package com.antigravity.mobile.ui.screen
 
 import com.antigravity.mobile.ui.util.L10n
 import com.antigravity.mobile.ui.util.loc
+import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutVertically
+import androidx.compose.ui.geometry.Rect
+import androidx.compose.ui.layout.boundsInRoot
+import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.platform.LocalHapticFeedback
+import com.antigravity.mobile.data.model.GatewayProfile
+import com.antigravity.mobile.data.service.GatewayProfileStore
+import com.antigravity.mobile.data.service.GatewaySwitcher
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
@@ -85,7 +98,8 @@ fun ConversationListScreen(
     dismissModalsTrigger: Int = 0,
     openQuotaRequested: Boolean = false,
     onConsumeOpenQuota: () -> Unit = {},
-    onSelectSideQuestionFromSearch: ((parentId: String, sideId: String, sideTitle: String, lastModifiedTime: String?) -> Unit)? = null
+    onSelectSideQuestionFromSearch: ((parentId: String, sideId: String, sideTitle: String, lastModifiedTime: String?) -> Unit)? = null,
+    onAddGateway: () -> Unit = {}
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
     val searchQuery by viewModel.searchQuery.collectAsStateWithLifecycle()
@@ -167,10 +181,47 @@ fun ConversationListScreen(
     var editingAliasProject by remember { mutableStateOf<ProjectItem?>(null) }
     var aliasInputText by remember { mutableStateOf("") }
 
+    val gwStore = remember { GatewayProfileStore.sharedOrNull() }
+    val emptyProfilesFlow = remember { kotlinx.coroutines.flow.MutableStateFlow<List<GatewayProfile>>(emptyList()) }
+    val emptyActiveIdFlow = remember { kotlinx.coroutines.flow.MutableStateFlow<String?>(null) }
+    val emptySummariesFlow = remember { kotlinx.coroutines.flow.MutableStateFlow<Map<String, com.antigravity.mobile.data.model.GatewaySummarySnapshot>>(emptyMap()) }
+    val gatewayProfiles by (gwStore?.profilesFlow ?: emptyProfilesFlow).collectAsStateWithLifecycle()
+    val activeGatewayId by (gwStore?.activeProfileIdFlow ?: emptyActiveIdFlow).collectAsStateWithLifecycle()
+    val gatewaySummaries by (gwStore?.summariesFlow ?: emptySummariesFlow).collectAsStateWithLifecycle()
+    val switchBannerText by GatewaySwitcher.switchBannerText.collectAsStateWithLifecycle()
+    val gatewayPickerState = remember { GatewaySlidePickerState() }
+    val composeHaptic = LocalHapticFeedback.current
+    var inlineTitleBounds by remember { mutableStateOf(Rect.Zero) }
+    var largeTitleBounds by remember { mutableStateOf(Rect.Zero) }
+    var renamingGateway by remember { mutableStateOf<GatewayProfile?>(null) }
+    var renameGatewayText by remember { mutableStateOf("") }
+    var removingGateway by remember { mutableStateOf<GatewayProfile?>(null) }
+
+    val handleSelectGatewayProfile: (GatewayProfile) -> Unit = { profile ->
+        val convs = (uiState as? ConversationListUiState.Success)?.conversations
+        GatewaySwitcher.switchTo(
+            profileId = profile.id,
+            currentConversations = convs,
+            showToast = true
+        )
+    }
+
+    val handleHeroLongPressOpened: () -> Unit = {
+        swipedConversationId = null
+        val convs = (uiState as? ConversationListUiState.Success)?.conversations
+        if (convs != null) {
+            gwStore?.updateActiveSummary(convs)
+        }
+        gwStore?.refreshInactiveSummaries(force = false, minIntervalMs = 8_000L)
+    }
+
     var lastSeenDismissTrigger by remember { mutableIntStateOf(dismissModalsTrigger) }
     LaunchedEffect(dismissModalsTrigger) {
         if (dismissModalsTrigger != lastSeenDismissTrigger) {
             lastSeenDismissTrigger = dismissModalsTrigger
+            gatewayPickerState.dismiss()
+            renamingGateway = null
+            removingGateway = null
             showQuotaSheet = false
             showBackgroundTasksSheet = false
             showNewConvSheet = false
@@ -243,6 +294,7 @@ fun ConversationListScreen(
                     viewModel.startAutoRefresh()
                     // Don't trust an old green dot after the app was suspended.
                     viewModel.reconnectEventsIfStale()
+                    gwStore?.refreshInactiveSummaries(force = false, minIntervalMs = 45_000L)
                 }
                 androidx.lifecycle.Lifecycle.Event.ON_STOP, androidx.lifecycle.Lifecycle.Event.ON_PAUSE -> {
                     viewModel.stopAutoRefresh()
@@ -297,6 +349,7 @@ fun ConversationListScreen(
         modifier = modifier
             .fillMaxSize()
             .background(colors.background)
+            .onSizeChanged { gatewayPickerState.containerSize = it }
     ) {
         // Content Area with PullToRefresh and Bottom Floating Search Bar
         PullToRefreshBox(
@@ -459,6 +512,13 @@ fun ConversationListScreen(
                             largeTitleAlpha = largeTitleAlpha,
                             topPadding = topBarHeight,
                             onEasterEggTap = handleEasterEggTap,
+                            gatewayPickerState = gatewayPickerState,
+                            largeTitleBoundsProvider = { largeTitleBounds },
+                            onLargeTitleBoundsChanged = { largeTitleBounds = it },
+                            gatewayProfilesProvider = { gatewayProfiles },
+                            onHeroLongPressOpened = handleHeroLongPressOpened,
+                            onSelectGatewayProfile = handleSelectGatewayProfile,
+                            onAddGateway = onAddGateway,
                             onQuotaTap = {
                                 swipedConversationId = null
                                 showQuotaSheet = true
@@ -630,16 +690,24 @@ fun ConversationListScreen(
                 textAlign = TextAlign.Center,
                 modifier = Modifier
                     .align(Alignment.Center)
+                    .onGloballyPositioned { inlineTitleBounds = it.boundsInRoot() }
                     .graphicsLayer {
                         alpha = inlineTitleAlpha
                         translationY = (1f - inlineTitleAlpha) * 8.dp.toPx()
                     }
                     .clip(RoundedCornerShape(8.dp))
-                    .clickable(
-                        interactionSource = remember { MutableInteractionSource() },
-                        indication = null,
-                        enabled = inlineTitleAlpha > 0.5f,
-                        onClick = handleEasterEggTap
+                    .heroGatewayLongPressGesture(
+                        enabled = inlineTitleAlpha > 0.5f && viewModel.prefs.isPaired(),
+                        pickerState = gatewayPickerState,
+                        anchorRectProvider = { inlineTitleBounds },
+                        profileCountProvider = { gatewayProfiles.size },
+                        profilesProvider = { gatewayProfiles },
+                        density = density,
+                        haptic = composeHaptic,
+                        onShortTap = handleEasterEggTap,
+                        onLongPressOpened = handleHeroLongPressOpened,
+                        onSelectProfile = handleSelectGatewayProfile,
+                        onAddGateway = onAddGateway
                     )
             )
 
@@ -695,6 +763,151 @@ fun ConversationListScreen(
                     .background(colors.border.copy(alpha = topBarDividerAlpha))
             )
         }
+
+        // 3. Hidden Hero Long-Press Multi-Gateway Switcher Overlay (mirrored to bottom model picker)
+        GatewaySlidePickerOverlay(
+            state = gatewayPickerState,
+            profiles = gatewayProfiles,
+            activeProfileId = activeGatewayId,
+            summaries = gatewaySummaries,
+            onSelectProfile = handleSelectGatewayProfile,
+            onAddGateway = onAddGateway,
+            onRenameProfile = { profile ->
+                renamingGateway = profile
+                renameGatewayText = profile.resolvedDisplayName
+            },
+            onRemoveProfile = { profile ->
+                removingGateway = profile
+            }
+        )
+
+        // 4. Subtle 1.5s switch toast banner at top
+        AnimatedVisibility(
+            visible = !switchBannerText.isNullOrBlank(),
+            enter = slideInVertically { -it } + fadeIn(),
+            exit = slideOutVertically { -it } + fadeOut(),
+            modifier = Modifier
+                .align(Alignment.TopCenter)
+                .statusBarsPadding()
+                .padding(top = 10.dp)
+                .zIndex(600f)
+        ) {
+            Surface(
+                shape = CircleShape,
+                color = colors.surface.copy(alpha = 0.94f),
+                shadowElevation = 8.dp,
+                tonalElevation = 2.dp
+            ) {
+                Row(
+                    modifier = Modifier
+                        .border(0.8.dp, colors.border.copy(alpha = 0.85f), CircleShape)
+                        .padding(horizontal = 14.dp, vertical = 8.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Sync,
+                        contentDescription = null,
+                        tint = colors.accentIndigo,
+                        modifier = Modifier.size(14.dp)
+                    )
+                    Text(
+                        text = switchBannerText.orEmpty(),
+                        fontSize = 13.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        color = colors.textPrimary,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                }
+            }
+        }
+    }
+
+    // Rename Gateway Dialog
+    renamingGateway?.let { target ->
+        AlertDialog(
+            onDismissRequest = { renamingGateway = null },
+            title = { Text("重命名主机".loc, color = colors.textPrimary, fontWeight = FontWeight.Bold) },
+            text = {
+                OutlinedTextField(
+                    value = renameGatewayText,
+                    onValueChange = { renameGatewayText = it },
+                    placeholder = { Text("输入主机名称".loc, color = colors.textSecondary) },
+                    singleLine = true,
+                    colors = OutlinedTextFieldDefaults.colors(
+                        focusedContainerColor = colors.surface,
+                        unfocusedContainerColor = colors.surface,
+                        focusedBorderColor = colors.accentIndigo,
+                        unfocusedBorderColor = colors.border,
+                        focusedTextColor = colors.textPrimary,
+                        unfocusedTextColor = colors.textPrimary
+                    ),
+                    modifier = Modifier.fillMaxWidth()
+                )
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        if (renameGatewayText.isNotBlank()) {
+                            gwStore?.renameProfile(target.id, renameGatewayText)
+                        }
+                        renamingGateway = null
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = colors.accentIndigo)
+                ) {
+                    Text("保存".loc)
+                }
+            },
+            dismissButton = {
+                TextButton(
+                    onClick = { renamingGateway = null },
+                    colors = ButtonDefaults.textButtonColors(contentColor = colors.textSecondary)
+                ) {
+                    Text("取消".loc)
+                }
+            },
+            containerColor = colors.surface
+        )
+    }
+
+    // Remove Gateway Confirmation Dialog
+    removingGateway?.let { target ->
+        AlertDialog(
+            onDismissRequest = { removingGateway = null },
+            title = { Text("移除主机".loc, color = colors.textPrimary, fontWeight = FontWeight.Bold) },
+            text = {
+                Text(
+                    text = "确定移除「%s」吗？将通知该网关解绑此设备并清除该主机的本地缓存。".loc(target.resolvedDisplayName),
+                    color = colors.textSecondary,
+                    fontSize = 14.sp
+                )
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        removingGateway = null
+                        if (target.id == gwStore?.activeProfileId) {
+                            onNavigateToPair()
+                        } else {
+                            gwStore?.removeProfile(target.id)
+                        }
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = colors.accentRed)
+                ) {
+                    Text("移除".loc)
+                }
+            },
+            dismissButton = {
+                TextButton(
+                    onClick = { removingGateway = null },
+                    colors = ButtonDefaults.textButtonColors(contentColor = colors.textSecondary)
+                ) {
+                    Text("取消".loc)
+                }
+            },
+            containerColor = colors.surface
+        )
     }
 
     // Sheets & Dialogs
@@ -1070,6 +1283,13 @@ private fun ConversationListContent(
     largeTitleAlpha: Float,
     topPadding: Dp,
     onEasterEggTap: () -> Unit,
+    gatewayPickerState: GatewaySlidePickerState,
+    largeTitleBoundsProvider: () -> Rect,
+    onLargeTitleBoundsChanged: (Rect) -> Unit,
+    gatewayProfilesProvider: () -> List<GatewayProfile>,
+    onHeroLongPressOpened: () -> Unit,
+    onSelectGatewayProfile: (GatewayProfile) -> Unit,
+    onAddGateway: () -> Unit,
     onQuotaTap: () -> Unit,
     onBackgroundTasksTap: () -> Unit,
     onRefresh: () -> Unit,
@@ -1207,6 +1427,8 @@ private fun ConversationListContent(
     ) {
         // Large Title Header (matches iOS large title below settings button)
         item(key = "header_large_title") {
+            val titleDensity = LocalDensity.current
+            val titleHaptic = LocalHapticFeedback.current
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -1222,12 +1444,20 @@ private fun ConversationListContent(
                     letterSpacing = (-0.5).sp,
                     color = colors.textPrimary,
                     modifier = Modifier
+                        .onGloballyPositioned { onLargeTitleBoundsChanged(it.boundsInRoot()) }
                         .clip(RoundedCornerShape(8.dp))
-                        .clickable(
-                            interactionSource = remember { MutableInteractionSource() },
-                            indication = null,
+                        .heroGatewayLongPressGesture(
                             enabled = largeTitleAlpha > 0.5f,
-                            onClick = onEasterEggTap
+                            pickerState = gatewayPickerState,
+                            anchorRectProvider = largeTitleBoundsProvider,
+                            profileCountProvider = { gatewayProfilesProvider().size },
+                            profilesProvider = gatewayProfilesProvider,
+                            density = titleDensity,
+                            haptic = titleHaptic,
+                            onShortTap = onEasterEggTap,
+                            onLongPressOpened = onHeroLongPressOpened,
+                            onSelectProfile = onSelectGatewayProfile,
+                            onAddGateway = onAddGateway
                         )
                 )
             }

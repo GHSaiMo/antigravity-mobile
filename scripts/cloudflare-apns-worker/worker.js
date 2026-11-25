@@ -155,7 +155,7 @@ export default {
       return jsonResponse({
         status: configured ? "ok" : "unconfigured",
         service: "Multigravity APNs Stateless Push Relay",
-        version: "1.2.0",
+        version: "1.2.1",
         configured,
       });
     }
@@ -287,6 +287,9 @@ async function handleAlertPush(body, env) {
   if (body.cascade_id && String(body.cascade_id).trim()) {
     apnsPayload.cascadeId = String(body.cascade_id).trim();
   }
+  if (body.gateway_id && /^[a-zA-Z0-9_-]{4,64}$/.test(String(body.gateway_id).trim())) {
+    apnsPayload.gatewayId = String(body.gateway_id).trim();
+  }
   if (body.url && String(body.url).trim()) {
     apnsPayload.url = String(body.url).trim();
   }
@@ -349,6 +352,9 @@ async function handleBackgroundPush(body, env) {
   };
   if (body.cascade_id && String(body.cascade_id).trim()) {
     apnsPayload.cascadeId = String(body.cascade_id).trim().slice(0, 128);
+  }
+  if (body.gateway_id && /^[a-zA-Z0-9_-]{4,64}$/.test(String(body.gateway_id).trim())) {
+    apnsPayload.gatewayId = String(body.gateway_id).trim();
   }
   if (body.collapse_id && String(body.collapse_id).trim()) {
     apnsPayload.collapseId = String(body.collapse_id).trim().slice(0, 64);

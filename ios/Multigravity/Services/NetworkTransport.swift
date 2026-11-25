@@ -43,12 +43,20 @@ public final class NetworkTransport: Sendable {
     }
     
     /// Decorates HTTPURLResponse with X-Antigravity-Interface header to indicate actual interface used
-    private func decorateResponse(_ response: URLResponse, url: URL?, forcedCellular: Bool = false, trustedByE2EE: Bool = false) -> URLResponse {
+    private func decorateResponse(
+        _ response: URLResponse,
+        url: URL?,
+        forcedCellular: Bool = false,
+        trustedByE2EE: Bool = false,
+        requestEpoch: UInt64? = nil
+    ) -> URLResponse {
         guard let http = response as? HTTPURLResponse, let targetURL = url ?? http.url else {
             return response
         }
         E2EECrypto.shared.observeServerCapabilities(from: http, url: targetURL)
         // Self-heal primary Cloud URL only when advertised by an authenticated, configured/local gateway over HTTPS
+        // AND the active gateway epoch has not changed since this request started.
+        let expectedEpoch = requestEpoch ?? GatewayRuntimeState.shared.epoch
         if let rawCloudHeader = http.value(forHTTPHeaderField: "X-Antigravity-Cloud-URL")?.trimmingCharacters(in: .whitespacesAndNewlines),
            !rawCloudHeader.isEmpty {
             let cloudHeader = rawCloudHeader.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
@@ -59,6 +67,7 @@ public final class NetworkTransport: Sendable {
                     E2EECrypto.shared.markHostRequiresE2EE(host)
                 }
                 Task { @MainActor in
+                    guard GatewayRuntimeState.shared.epoch == expectedEpoch else { return }
                     let current = AppSettings.shared.primaryCloudURL?.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
                     if current != cloudHeader {
                         AppSettings.shared.primaryCloudURL = cloudHeader
@@ -677,6 +686,7 @@ public final class NetworkTransport: Sendable {
     /// which App Transport Security blocks. Cleartext HTTP to public internet hosts is rejected.
     /// Requests targeting E2EE relay hosts are transparently wrapped inside AES-256-GCM envelopes.
     public func send(request: URLRequest, preferCellular: Bool = false) async throws -> (Data, URLResponse) {
+        let reqEpoch = GatewayRuntimeState.shared.epoch
         var req = request
         if let url = req.url, url.scheme?.lowercased() == "http" {
             let host = url.host ?? ""
@@ -705,12 +715,16 @@ public final class NetworkTransport: Sendable {
            let host = req.url?.host,
            !Self.isLocalOrPrivateHost(host),
            req.url?.path.hasPrefix("/api/v1/e2ee/") != true {
+            guard GatewayRuntimeState.shared.epoch == reqEpoch else {
+                return (data, decorateResponse(response, url: req.url, forcedCellular: usedCellular, requestEpoch: reqEpoch))
+            }
             E2EECrypto.shared.markHostRequiresE2EE(host)
             return try await sendOverE2EE(req, preferCellular: preferCellular)
         }
         // Auto-migrate if a legacy cloud/tunnel endpoint returns 502/503 while local LAN or an E2EE relay pool node is live
         if let http = response as? HTTPURLResponse,
            (http.statusCode == 503 || (http.statusCode == 502 && Self.isIdempotentForTransientRetry(req))),
+           GatewayRuntimeState.shared.epoch == reqEpoch,
            let reqURL = req.url,
            reqURL.path != "/healthz",
            !reqURL.path.hasPrefix("/api/v1/e2ee/"),
@@ -726,7 +740,88 @@ public final class NetworkTransport: Sendable {
                 return try await sendOverE2EE(migratedReq, preferCellular: preferCellular)
             }
         }
-        return (data, decorateResponse(response, url: req.url, forcedCellular: usedCellular))
+        return (data, decorateResponse(response, url: req.url, forcedCellular: usedCellular, requestEpoch: reqEpoch))
+    }
+
+    /// Sends a side-effect-free request using an explicit `GatewayRequestContext` (for background multi-gateway
+    /// summary probes, cross-gateway push token sync, and lock-screen quick approvals).
+    /// Never reads or mutates global active gateway credentials, active URLs, or 401 revocation broadcasts.
+    public func send(
+        request: URLRequest,
+        context: GatewayRequestContext,
+        preferCellular: Bool = false
+    ) async throws -> (Data, URLResponse) {
+        var req = request
+        guard let originalURL = req.url else {
+            throw URLError(.badURL)
+        }
+        if originalURL.scheme?.lowercased() == "http" {
+            let host = originalURL.host ?? ""
+            guard Self.isLocalOrPrivateHost(host) else {
+                throw URLError(.appTransportSecurityRequiresSecureConnection)
+            }
+        }
+        if let token = context.deviceToken, !token.isEmpty, originalURL.path != "/healthz" {
+            if req.value(forHTTPHeaderField: "Authorization") == nil {
+                req.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+            }
+        }
+
+        func sendContextE2EEOnce(forceLegacyJSON: Bool) async throws -> (Data, URLResponse) {
+            let wrapped = try E2EECrypto.shared.wrapHTTPRequestDetailed(
+                req,
+                context: context,
+                forceLegacyJSON: forceLegacyJSON
+            )
+            let (outerData, outerResp, _) = try await sendRaw(wrapped.outerRequest, preferCellular: preferCellular)
+            guard let outerHTTP = outerResp as? HTTPURLResponse else {
+                return (outerData, outerResp)
+            }
+            if outerHTTP.statusCode != 200 {
+                if wrapped.usedBinaryFrame && !forceLegacyJSON && Self.isInvalidInnerRequestError(statusCode: outerHTTP.statusCode, data: outerData) {
+                    if let host = originalURL.host {
+                        E2EECrypto.shared.clearHostBinaryRequestSupport(host)
+                    }
+                    return try await sendContextE2EEOnce(forceLegacyJSON: true)
+                }
+                return (outerData, outerHTTP)
+            }
+            E2EECrypto.shared.observeServerCapabilities(from: outerHTTP, url: originalURL)
+            let (innerData, innerResp) = try E2EECrypto.shared.unwrapHTTPResponse(
+                encData: outerData,
+                originalURL: originalURL,
+                deviceID: wrapped.deviceID,
+                key: wrapped.key
+            )
+            if let rawCloud = innerResp.value(forHTTPHeaderField: "X-Antigravity-Cloud-URL")?.trimmingCharacters(in: .whitespacesAndNewlines),
+               !rawCloud.isEmpty,
+               Self.isValidAdvertisedCloudURL(rawCloud, trustedByE2EE: true) {
+                let profileId = context.profileId
+                Task { @MainActor in
+                    GatewayProfileStore.shared.updateCloudURL(profileId: profileId, cloudURL: rawCloud)
+                }
+            }
+            return (innerData, innerResp)
+        }
+
+        if context.shouldEncrypt(url: originalURL) {
+            return try await sendContextE2EEOnce(forceLegacyJSON: false)
+        }
+
+        let (data, response, _) = try await sendRaw(req, preferCellular: preferCellular)
+        if let http = response as? HTTPURLResponse,
+           http.statusCode == 426,
+           context.isE2EEReady,
+           let host = originalURL.host,
+           !Self.isLocalOrPrivateHost(host),
+           !originalURL.path.hasPrefix("/api/v1/e2ee/") {
+            let profileId = context.profileId
+            Task { @MainActor in
+                GatewayProfileStore.shared.markE2EEHost(profileId: profileId, host: host)
+            }
+            return try await sendContextE2EEOnce(forceLegacyJSON: false)
+        }
+        return (data, response)
     }
 
     /// Downloads a file to a temporary URL, transparently handling E2EE relay encryption

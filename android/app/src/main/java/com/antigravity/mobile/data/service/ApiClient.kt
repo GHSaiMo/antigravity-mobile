@@ -241,22 +241,30 @@ class ApiClient(
                     }
                     val pairResp = json.decodeFromString<PairResponse>(respStr)
 
-                    // Persist device credentials & derive E2EE session key before updating endpoints
-                    prefs.deviceToken = pairResp.deviceToken
-                    prefs.deviceId = pairResp.deviceId
+                    // Derive E2EE session key in memory without mutating active prefs prematurely
+                    // (protects existing gateways if adding a 2nd host).
+                    var derivedE2eeKeyB64: String? = null
                     if (!pairResp.e2eeGatewayPub.isNullOrBlank() && !pairResp.e2eeSalt.isNullOrBlank()) {
-                        E2eeCrypto.deriveAndSaveDeviceKey(
-                            privateKey = activePriv,
-                            gatewayPubB64 = pairResp.e2eeGatewayPub,
-                            saltB64 = pairResp.e2eeSalt,
-                            deviceId = pairResp.deviceId,
-                            prefs = prefs
-                        )
+                        try {
+                            val salt = E2eeCrypto.decodeBase64Flexible(pairResp.e2eeSalt)
+                            if (salt != null && salt.isNotEmpty()) {
+                                val shared = E2eeCrypto.sharedSecret(activePriv, pairResp.e2eeGatewayPub)
+                                val devKey = E2eeCrypto.deriveDeviceKey(shared, salt, pairResp.deviceId)
+                                derivedE2eeKeyB64 = E2eeCrypto.base64UrlEncode(devKey)
+                            }
+                        } catch (e: Exception) {
+                            Log.w("ApiClient", "Derive E2EE key failed: ${e.message}")
+                        }
                     }
 
                     var lanUrl: String? = info.lanBaseUrl
                     var relayUrl: String? = info.relayBaseUrl
                     var cloudUrl: String? = null
+                    val e2eeHosts = mutableListOf<String>()
+                    relayUrl?.let { r ->
+                        val h = ConnectionManager.extractHost(r)
+                        if (h.isNotEmpty()) e2eeHosts.add(h)
+                    }
 
                     if (info.ssl || !ConnectionManager.isLanHost(ConnectionManager.extractHost(info.host))) {
                         cloudUrl = info.serverBaseUrl
@@ -276,7 +284,7 @@ class ApiClient(
                                     relayUrl = epUrl
                                     cloudUrl = epUrl
                                     val rHost = ConnectionManager.extractHost(epUrl)
-                                    if (rHost.isNotEmpty()) E2eeCrypto.markHostRequiresE2ee(rHost)
+                                    if (rHost.isNotEmpty()) e2eeHosts.add(rHost)
                                 }
                                 "cloudflare" -> {
                                     if (cloudUrl.isNullOrBlank() || relayUrl.isNullOrBlank()) {
@@ -297,13 +305,13 @@ class ApiClient(
 
                     val dualRelay = pairResp.relayCloudUrl?.trim()?.trimEnd('/')
                     if (!dualRelay.isNullOrBlank() &&
-                        E2eeCrypto.isReady(prefs) &&
+                        !derivedE2eeKeyB64.isNullOrBlank() &&
                         ConnectionManager.isValidAdvertisedCloudUrl(dualRelay, prefs, trustedByE2ee = true)
                     ) {
                         relayUrl = dualRelay
                         cloudUrl = dualRelay
                         val rHost = ConnectionManager.extractHost(dualRelay)
-                        if (rHost.isNotEmpty()) E2eeCrypto.markHostRequiresE2ee(rHost)
+                        if (rHost.isNotEmpty()) e2eeHosts.add(rHost)
                     }
 
                     // Fallback classify the successful candidate into its slot if still unassigned
@@ -322,16 +330,48 @@ class ApiClient(
                         }
                     }
 
-                    prefs.updateEndpoints(
-                        lan = lanUrl,
-                        relay = relayUrl,
-                        custom = null, // Strictly null: custom is left for manual user configuration only
-                        active = candidate,
-                        primaryCloud = cloudUrl
-                    )
                     val plat = pairResp.platform ?: pairResp.os ?: info.platform ?: info.os
-                    if (!plat.isNullOrBlank()) {
-                        prefs.gatewayPlatform = plat
+                    val resolvedGatewayId = pairResp.gatewayId?.trim()?.takeIf { it.isNotEmpty() }
+                        ?: GatewayProfileUtils.deriveGatewayId(pairResp.e2eeGatewayPub ?: info.e2eePubKey)
+                    val resolvedGatewayName = pairResp.gatewayName?.trim()?.takeIf { it.isNotEmpty() }
+
+                    val store = GatewayProfileStore.getOrCreate(context, prefs)
+                    val hadActiveBefore = store.activeProfile != null && prefs.isPaired()
+                    val (profile, _) = store.upsertPairedProfile(
+                        gatewayId = resolvedGatewayId,
+                        gatewayName = resolvedGatewayName,
+                        platform = plat,
+                        deviceId = pairResp.deviceId,
+                        deviceToken = pairResp.deviceToken,
+                        e2eeKeyB64 = derivedE2eeKeyB64,
+                        lanUrl = lanUrl,
+                        relayUrl = relayUrl,
+                        cloudUrl = cloudUrl,
+                        activeUrl = candClean,
+                        e2eeRequiredHosts = e2eeHosts
+                    )
+
+                    if (hadActiveBefore && store.activeProfileId != profile.id) {
+                        GatewaySwitcher.switchTo(
+                            profileId = profile.id,
+                            showToast = true,
+                            force = true
+                        )
+                    } else {
+                        store.setActiveProfileId(profile.id)
+                        E2eeCrypto.resetForGatewaySwitch(profile.e2eeRequiredHosts)
+                        store.runtimeCacheManager()?.switchStorageNamespace(profile.storageNamespace)
+                        store.runtimeDocumentCacheManager()?.switchStorageNamespace(profile.storageNamespace)
+                        prefs.applyProfile(
+                            profile = profile,
+                            profileDeviceToken = pairResp.deviceToken,
+                            profileDeviceId = pairResp.deviceId,
+                            profileE2eeKeyB64 = derivedE2eeKeyB64
+                        )
+                    }
+
+                    prefs.fcmPushToken?.takeIf { it.isNotBlank() }?.let { fcm ->
+                        syncPushTokenToAllGateways(fcm)
                     }
 
                     return@withContext Result.success(pairResp)
@@ -1434,12 +1474,29 @@ class ApiClient(
         val now = System.currentTimeMillis()
         if (!force && now - lastCompatRefreshAt < 30_000L) return@withContext Result.success(GatewayCompatStore.state.value)
         lastCompatRefreshAt = now
+        val reqEpoch = GatewayRuntimeState.epoch
         try {
             val request = buildAuthorizedRequest("$baseUrl/gateway/status").get().build()
             client.newCall(request).await().use { response ->
                 if (!response.isSuccessful) return@withContext Result.failure(RuntimeException("HTTP ${response.code}"))
-                val compat = GatewayCompat.fromStatusJson(response.body?.string().orEmpty())
+                if (GatewayRuntimeState.epoch != reqEpoch) return@withContext Result.success(GatewayCompatStore.state.value)
+                val bodyText = response.body?.string().orEmpty()
+                val compat = GatewayCompat.fromStatusJson(bodyText)
                 GatewayCompatStore.update(compat)
+                runCatching {
+                    val obj = org.json.JSONObject(bodyText)
+                    val gwId = obj.optString("gateway_id").takeIf { it.isNotBlank() }
+                    val gwName = obj.optString("gateway_name").takeIf { it.isNotBlank() }
+                    val plat = obj.optString("platform").takeIf { it.isNotBlank() }
+                    val store = GatewayProfileStore.sharedOrNull()
+                    val activeId = store?.activeProfileId
+                    if (store != null && activeId != null) {
+                        store.backfillGatewayMetadata(activeId, gwId, gwName, plat)
+                    }
+                    if (!plat.isNullOrBlank() && prefs.gatewayPlatform != plat) {
+                        prefs.gatewayPlatform = plat
+                    }
+                }
                 Result.success(compat)
             }
         } catch (e: Exception) {
@@ -1619,22 +1676,48 @@ class ApiClient(
         }
     }
 
+    data class GatewayStatusMeta(
+        val gatewayId: String? = null,
+        val gatewayName: String? = null,
+        val platform: String? = null
+    )
+
+    private fun currentPushLangCode(): String = when (com.antigravity.mobile.ui.util.L10n.currentLang) {
+        com.antigravity.mobile.ui.util.L10n.AppLang.ZH -> "zh"
+        com.antigravity.mobile.ui.util.L10n.AppLang.JA -> "ja"
+        com.antigravity.mobile.ui.util.L10n.AppLang.EN -> "en"
+    }
+
+    private fun buildContextRequest(url: String, context: GatewayRequestContext): Request.Builder {
+        val builder = Request.Builder()
+            .url(url)
+            .tag(E2eeContextTag::class.java, E2eeContextTag(context))
+        context.deviceToken?.trim()?.takeIf { it.isNotEmpty() }?.let { tok ->
+            builder.header("Authorization", "Bearer $tok")
+            builder.header("x-device-token", tok)
+        }
+        return builder
+    }
+
+    private fun isAvoidLanNow(): Boolean =
+        (connectionManager?.isCellular ?: false) || !(connectionManager?.isWifi ?: true)
+
     /**
-     * Registers the device push token (FCM / remote push) with the gateway.
+     * Registers the device push token (FCM / remote push) with the active gateway (or fans out across all paired gateways).
      */
     suspend fun registerPushToken(token: String, platform: String = "android"): Result<Unit> = withContext(Dispatchers.IO) {
+        val store = GatewayProfileStore.sharedOrNull()
+        if (store != null && store.profiles.isNotEmpty()) {
+            syncPushTokenToAllGateways(token, platform)
+            return@withContext Result.success(Unit)
+        }
         val baseUrl = currentBaseUrl ?: return@withContext Result.failure(IllegalStateException("未配置网关地址".loc))
         val url = "$baseUrl/api/v1/device/push-token"
-        val langCode = when (com.antigravity.mobile.ui.util.L10n.currentLang) {
-            com.antigravity.mobile.ui.util.L10n.AppLang.ZH -> "zh"
-            com.antigravity.mobile.ui.util.L10n.AppLang.JA -> "ja"
-            com.antigravity.mobile.ui.util.L10n.AppLang.EN -> "en"
-        }
         val payload = buildJsonObject {
             put("platform", platform)
             put("token", token)
             put("fcm_token", token)
-            put("lang", langCode)
+            put("lang", currentPushLangCode())
             prefs.deviceId?.let { put("device_id", it) }
         }
 
@@ -1653,6 +1736,355 @@ class ApiClient(
             Log.w("ApiClient", "registerPushToken error: ${e.message}")
             Result.failure(e)
         }
+    }
+
+    suspend fun syncPushTokenToAllGateways(fcmToken: String, platform: String = "android") = withContext(Dispatchers.IO) {
+        val cleanToken = fcmToken.trim()
+        if (cleanToken.isEmpty()) return@withContext
+        val store = GatewayProfileStore.getOrCreate(context, prefs)
+        val contexts = store.allRequestContexts()
+        if (contexts.isEmpty()) return@withContext
+        val showLabel = contexts.size > 1
+        for (ctx in contexts) {
+            registerPushTokenForContext(
+                fcmToken = cleanToken,
+                context = ctx,
+                showGatewayLabel = showLabel,
+                gatewayLabel = ctx.displayName,
+                platform = platform
+            )
+        }
+    }
+
+    suspend fun registerPushTokenForContext(
+        fcmToken: String,
+        context: GatewayRequestContext,
+        showGatewayLabel: Boolean,
+        gatewayLabel: String,
+        platform: String = "android"
+    ): Result<Unit> = withContext(Dispatchers.IO) {
+        val candidates = context.candidateUrls(isAvoidLanNow())
+        if (candidates.isEmpty()) return@withContext Result.failure(IllegalStateException("No gateway URL"))
+        val payload = buildJsonObject {
+            put("platform", platform)
+            put("token", fcmToken)
+            put("fcm_token", fcmToken)
+            put("lang", currentPushLangCode())
+            put("show_gateway_label", showGatewayLabel)
+            put("gateway_label", gatewayLabel)
+            context.deviceId?.takeIf { it.isNotBlank() }?.let { put("device_id", it) }
+        }.toString()
+
+        var lastErr: Exception? = null
+        for (base in candidates) {
+            try {
+                val req = buildContextRequest("$base/api/v1/device/push-token", context)
+                    .post(payload.toRequestBody(jsonMediaType))
+                    .build()
+                val callClient = if (ConnectionManager.isLanHost(ConnectionManager.extractHost(base))) {
+                    client.newBuilder().connectTimeout(2, TimeUnit.SECONDS).readTimeout(4, TimeUnit.SECONDS).build()
+                } else {
+                    client
+                }
+                callClient.newCall(req).await().use { resp ->
+                    if (resp.isSuccessful) {
+                        return@withContext Result.success(Unit)
+                    }
+                    lastErr = RuntimeException("HTTP ${resp.code}")
+                }
+            } catch (e: Exception) {
+                lastErr = e
+            }
+        }
+        Result.failure(lastErr ?: RuntimeException("registerPushTokenForContext failed"))
+    }
+
+    suspend fun unregisterPushTokenForContext(context: GatewayRequestContext): Result<Unit> = withContext(Dispatchers.IO) {
+        val candidates = context.candidateUrls(isAvoidLanNow())
+        if (candidates.isEmpty()) return@withContext Result.success(Unit)
+        val payload = buildJsonObject {
+            put("platform", "android")
+            context.deviceId?.takeIf { it.isNotBlank() }?.let { put("device_id", it) }
+        }.toString()
+        for (base in candidates) {
+            try {
+                val req = buildContextRequest("$base/api/v1/device/push-token", context)
+                    .delete(payload.toRequestBody(jsonMediaType))
+                    .build()
+                client.newCall(req).await().use { resp ->
+                    if (resp.isSuccessful) return@withContext Result.success(Unit)
+                }
+            } catch (_: Exception) {}
+        }
+        Result.success(Unit)
+    }
+
+    suspend fun unpairContext(context: GatewayRequestContext): Result<Unit> = withContext(Dispatchers.IO) {
+        val candidates = context.candidateUrls(isAvoidLanNow())
+        for (base in candidates) {
+            try {
+                val req = buildContextRequest("$base/api/v1/auth/unpair", context)
+                    .post("{}".toRequestBody(jsonMediaType))
+                    .build()
+                client.newCall(req).await().use { resp ->
+                    if (resp.isSuccessful) return@withContext Result.success(Unit)
+                }
+            } catch (_: Exception) {}
+        }
+        Result.success(Unit)
+    }
+
+    suspend fun fetchGatewaySummary(
+        context: GatewayRequestContext
+    ): Pair<GatewaySummarySnapshot, GatewayStatusMeta?> = withContext(Dispatchers.IO) {
+        val candidates = context.candidateUrls(isAvoidLanNow())
+        for (base in candidates) {
+            val isLan = ConnectionManager.isLanHost(ConnectionManager.extractHost(base))
+            val timeoutMs = if (isLan) 1500L else 3500L
+            val summaryClient = client.newBuilder()
+                .connectTimeout(timeoutMs, TimeUnit.MILLISECONDS)
+                .readTimeout(timeoutMs, TimeUnit.MILLISECONDS)
+                .build()
+            try {
+                val req = buildContextRequest("$base/gateway/status?summary=1", context).get().build()
+                summaryClient.newCall(req).await().use { resp ->
+                    if (resp.isSuccessful) {
+                        val text = resp.body?.string().orEmpty()
+                        val obj = runCatching { org.json.JSONObject(text) }.getOrNull()
+                        val gwId = obj?.optString("gateway_id")?.takeIf { it.isNotBlank() }
+                        val gwName = obj?.optString("gateway_name")?.takeIf { it.isNotBlank() }
+                        val plat = obj?.optString("platform")?.takeIf { it.isNotBlank() }
+                        val meta = GatewayStatusMeta(gwId, gwName, plat)
+                        val sumObj = obj?.optJSONObject("summary")
+                        if (sumObj != null) {
+                            return@withContext GatewaySummarySnapshot(
+                                profileId = context.profileId,
+                                runningCount = sumObj.optInt("running_count", 0),
+                                actionCount = sumObj.optInt("action_count", 0),
+                                unreadCount = sumObj.optInt("unread_count", 0),
+                                totalActive = sumObj.optInt("total_active", 0),
+                                isReachable = true,
+                                isRefreshing = false,
+                                gatewayName = gwName ?: context.displayName,
+                                updatedAtMs = System.currentTimeMillis()
+                            ) to meta
+                        }
+                        // Fallback for older gateways without `summary`: fetch trajectory list once.
+                        val fallbackSnap = fetchLegacySummarySnapshot(base, context, summaryClient, gwName)
+                        if (fallbackSnap != null) {
+                            return@withContext fallbackSnap to meta
+                        }
+                        return@withContext GatewaySummarySnapshot(
+                            profileId = context.profileId,
+                            isReachable = true,
+                            isRefreshing = false,
+                            gatewayName = gwName ?: context.displayName,
+                            updatedAtMs = System.currentTimeMillis()
+                        ) to meta
+                    }
+                }
+            } catch (_: Exception) {}
+        }
+        GatewaySummarySnapshot(
+            profileId = context.profileId,
+            isReachable = false,
+            isRefreshing = false,
+            gatewayName = context.displayName,
+            updatedAtMs = System.currentTimeMillis()
+        ) to null
+    }
+
+    private suspend fun fetchLegacySummarySnapshot(
+        base: String,
+        context: GatewayRequestContext,
+        summaryClient: OkHttpClient,
+        gwName: String?
+    ): GatewaySummarySnapshot? {
+        return try {
+            val req = buildContextRequest(
+                "$base/api/exa.language_server_pb.LanguageServerService/GetAllCascadeTrajectories",
+                context
+            ).post("{}".toRequestBody(jsonMediaType)).build()
+            summaryClient.newCall(req).await().use { resp ->
+                if (!resp.isSuccessful) return null
+                val body = resp.body?.string().orEmpty()
+                val parsed = json.decodeFromString<GetAllCascadeTrajectoriesResponse>(body)
+                val map = parsed.trajectorySummaries ?: emptyMap()
+                var actionCount = 0
+                var runningCount = 0
+                var totalActive = 0
+                for ((_, s) in map) {
+                    if (s.isSubagent || s.annotations?.archived == true) continue
+                    totalActive++
+                    val st = s.status?.uppercase().orEmpty()
+                    if (st.contains("WAITING") || st.contains("ACTION")) {
+                        actionCount++
+                    } else if (st.contains("RUNNING")) {
+                        runningCount++
+                    }
+                }
+                GatewaySummarySnapshot(
+                    profileId = context.profileId,
+                    runningCount = runningCount,
+                    actionCount = actionCount,
+                    unreadCount = 0,
+                    totalActive = totalActive,
+                    isReachable = true,
+                    isRefreshing = false,
+                    gatewayName = gwName ?: context.displayName,
+                    updatedAtMs = System.currentTimeMillis()
+                )
+            }
+        } catch (_: Exception) {
+            null
+        }
+    }
+
+    suspend fun fetchMessages(
+        cascadeId: String,
+        limit: Int = 5,
+        context: GatewayRequestContext
+    ): Result<StreamUpdatePayload> = withContext(Dispatchers.IO) {
+        if (!CacheManager.isValidCascadeId(cascadeId)) {
+            return@withContext Result.failure(IllegalArgumentException("无效的会话 ID".loc))
+        }
+        val candidates = context.candidateUrls(isAvoidLanNow())
+        if (candidates.isEmpty()) return@withContext Result.failure(IllegalStateException("未配置网关地址".loc))
+        val encodedCid = URLEncoder.encode(cascadeId, "UTF-8")
+        var lastErr: Exception? = null
+        for (base in candidates) {
+            try {
+                val req = buildContextRequest("$base/gateway/cascade/messages?cascadeId=$encodedCid&limit=$limit", context)
+                    .get()
+                    .build()
+                client.newCall(req).await().use { resp ->
+                    if (resp.isSuccessful) {
+                        val body = resp.body?.string() ?: "{}"
+                        return@withContext Result.success(json.decodeFromString<StreamUpdatePayload>(body))
+                    }
+                    lastErr = RuntimeException("HTTP ${resp.code}")
+                }
+            } catch (e: Exception) {
+                lastErr = e
+            }
+        }
+        Result.failure(lastErr ?: RuntimeException("fetchMessages failed"))
+    }
+
+    suspend fun submitInteraction(
+        cascadeId: String,
+        trajectoryId: String = "",
+        stepIndex: Int = 0,
+        type: String = "",
+        optionId: String? = null,
+        scope: Int = 1,
+        allow: Boolean = true,
+        writeInResponse: String = "",
+        skipped: Boolean = false,
+        target: String? = null,
+        questionResponses: List<QuestionResponse>? = null,
+        context: GatewayRequestContext
+    ): Result<Unit> = withContext(Dispatchers.IO) {
+        val candidates = context.candidateUrls(isAvoidLanNow())
+        if (candidates.isEmpty()) return@withContext Result.failure(IllegalStateException("未配置网关地址".loc))
+        val bodyStr = json.encodeToString(
+            InteractionSubmitRequest(
+                cascadeId = cascadeId,
+                trajectoryId = trajectoryId,
+                stepIndex = stepIndex,
+                type = type,
+                optionId = optionId,
+                scope = scope,
+                allow = allow,
+                writeInResponse = writeInResponse,
+                skipped = skipped,
+                target = target,
+                questionResponses = questionResponses
+            )
+        )
+        var lastErr: Exception? = null
+        for (base in candidates) {
+            try {
+                val req = buildContextRequest("$base/gateway/cascade/interaction", context)
+                    .post(bodyStr.toRequestBody(jsonMediaType))
+                    .build()
+                client.newCall(req).await().use { resp ->
+                    if (resp.isSuccessful) return@withContext Result.success(Unit)
+                    lastErr = RuntimeException("HTTP ${resp.code}")
+                }
+            } catch (e: Exception) {
+                lastErr = e
+            }
+        }
+        Result.failure(lastErr ?: RuntimeException("submitInteraction failed"))
+    }
+
+    suspend fun proceedArtifact(
+        cascadeId: String,
+        artifactUri: String,
+        model: String? = null,
+        context: GatewayRequestContext
+    ): Result<Unit> = withContext(Dispatchers.IO) {
+        val candidates = context.candidateUrls(isAvoidLanNow())
+        if (candidates.isEmpty()) return@withContext Result.failure(IllegalStateException("未配置网关地址".loc))
+        val comment = buildJsonObject {
+            put("artifactUri", artifactUri)
+            put("scope", buildJsonObject {
+                put("case", "fullFile")
+                put("value", buildJsonObject {})
+            })
+            put("approvalStatus", 1)
+            put("comment", "")
+        }
+        val payload = buildJsonObject {
+            put("cascadeId", cascadeId)
+            put("items", JsonArray(emptyList()))
+            put("artifactComments", buildJsonArray { add(comment) })
+            if (!model.isNullOrBlank()) put("model", model)
+        }.toString()
+        var lastErr: Exception? = null
+        for (base in candidates) {
+            try {
+                val reqBuilder = buildContextRequest("$base/api/exa.language_server_pb.LanguageServerService/SendUserCascadeMessage", context)
+                    .post(payload.toRequestBody(jsonMediaType))
+                if (!model.isNullOrBlank()) reqBuilder.addHeader("X-Antigravity-Model", model)
+                client.newCall(reqBuilder.build()).await().use { resp ->
+                    if (resp.isSuccessful) return@withContext Result.success(Unit)
+                    lastErr = RuntimeException("HTTP ${resp.code}")
+                }
+            } catch (e: Exception) {
+                lastErr = e
+            }
+        }
+        Result.failure(lastErr ?: RuntimeException("proceedArtifact failed"))
+    }
+
+    suspend fun cancelInvocation(
+        cascadeId: String,
+        killBackgroundTasks: Boolean? = null,
+        context: GatewayRequestContext
+    ): Result<Unit> = withContext(Dispatchers.IO) {
+        val candidates = context.candidateUrls(isAvoidLanNow())
+        if (candidates.isEmpty()) return@withContext Result.failure(IllegalStateException("未配置网关地址".loc))
+        val payload = buildJsonObject {
+            put("cascadeId", cascadeId)
+            if (killBackgroundTasks != null) put("killBackgroundTasks", killBackgroundTasks)
+        }.toString()
+        var lastErr: Exception? = null
+        for (base in candidates) {
+            try {
+                val req = buildContextRequest("$base/api/exa.language_server_pb.LanguageServerService/CancelCascadeInvocation", context)
+                    .post(payload.toRequestBody(jsonMediaType))
+                    .build()
+                client.newCall(req).await().use { resp ->
+                    if (resp.isSuccessful) return@withContext Result.success(Unit)
+                    lastErr = RuntimeException("HTTP ${resp.code}")
+                }
+            } catch (e: Exception) {
+                lastErr = e
+            }
+        }
+        Result.failure(lastErr ?: RuntimeException("cancelInvocation failed"))
     }
 
     /**
@@ -2170,7 +2602,8 @@ class RouteFailoverInterceptor(
     private fun retryOnTargetBase(
         chain: okhttp3.Interceptor.Chain,
         request: Request,
-        targetBaseUrl: String
+        targetBaseUrl: String,
+        reqEpoch: Long = GatewayRuntimeState.epoch
     ): okhttp3.Response? {
         val clean = targetBaseUrl.trim().trimEnd('/')
         if (clean.isEmpty()) return null
@@ -2200,7 +2633,9 @@ class RouteFailoverInterceptor(
             .build()
 
         val fallbackResponse = chain.withConnectTimeout(10, TimeUnit.SECONDS).proceed(fallbackRequest)
-        if (fallbackResponse.isSuccessful || fallbackResponse.code < 500) {
+        if ((fallbackResponse.isSuccessful || fallbackResponse.code < 500) &&
+            GatewayRuntimeState.epoch == reqEpoch
+        ) {
             ConnectionManager.applyAdvertisedCloudUrl(
                 rawHeader = fallbackResponse.header("X-Antigravity-Cloud-URL"),
                 prefs = prefs,
@@ -2217,6 +2652,11 @@ class RouteFailoverInterceptor(
 
     override fun intercept(chain: okhttp3.Interceptor.Chain): okhttp3.Response {
         val request = chain.request()
+        // Side-effect-free requests targeting an explicit gateway context must never mutate active prefs or failover across global endpoints.
+        if (request.tag(E2eeContextTag::class.java) != null) {
+            return chain.proceed(request)
+        }
+        val reqEpoch = GatewayRuntimeState.epoch
         val originalUrl = request.url
         val originalHost = originalUrl.host
         if (!ApiClient.isConfiguredGatewayOrigin(originalUrl, prefs)) {
@@ -2241,11 +2681,13 @@ class RouteFailoverInterceptor(
 
         if (response != null) {
             if (response.code < 500) {
-                ConnectionManager.applyAdvertisedCloudUrl(
-                    rawHeader = response.header("X-Antigravity-Cloud-URL"),
-                    prefs = prefs,
-                    connectionManager = connectionManager
-                )
+                if (GatewayRuntimeState.epoch == reqEpoch) {
+                    ConnectionManager.applyAdvertisedCloudUrl(
+                        rawHeader = response.header("X-Antigravity-Cloud-URL"),
+                        prefs = prefs,
+                        connectionManager = connectionManager
+                    )
+                }
                 return response
             }
 
@@ -2265,7 +2707,7 @@ class RouteFailoverInterceptor(
                     if (migratedHost.isNotBlank() && !migratedHost.equals(originalHost, ignoreCase = true)) {
                         response.close()
                         try {
-                            retryOnTargetBase(chain, request, migratedUrl)?.let { return it }
+                            retryOnTargetBase(chain, request, migratedUrl, reqEpoch)?.let { return it }
                         } catch (retryEx: Exception) {
                             Log.w("ApiClient", "Retry on migrated relay $migratedUrl failed: ${retryEx.message}")
                             throw retryEx
@@ -2288,7 +2730,7 @@ class RouteFailoverInterceptor(
             if (!originalHost.equals(cloudHost, ignoreCase = true)) {
                 Log.w("ApiClient", "Request to $originalHost failed (${e.message}). Failing over to cloud domain: $cloud")
                 val fallbackResponse = try {
-                    retryOnTargetBase(chain, request, cloud)
+                    retryOnTargetBase(chain, request, cloud, reqEpoch)
                 } catch (fallbackEx: Exception) {
                     Log.w("ApiClient", "Failover to $cloud also failed: ${fallbackEx.message}")
                     failedCloudOrigin = cloud
@@ -2306,7 +2748,7 @@ class RouteFailoverInterceptor(
                         ) {
                             fallbackResponse.close()
                             try {
-                                retryOnTargetBase(chain, request, migratedUrl)?.let { return it }
+                                retryOnTargetBase(chain, request, migratedUrl, reqEpoch)?.let { return it }
                             } catch (migEx: Exception) {
                                 Log.w("ApiClient", "Failover to migrated relay $migratedUrl failed: ${migEx.message}")
                                 throw migEx
@@ -2328,7 +2770,7 @@ class RouteFailoverInterceptor(
                 !ConnectionManager.extractHost(migratedUrl).equals(originalHost, ignoreCase = true)
             ) {
                 try {
-                    retryOnTargetBase(chain, request, migratedUrl)?.let { return it }
+                    retryOnTargetBase(chain, request, migratedUrl, reqEpoch)?.let { return it }
                 } catch (migEx: Exception) {
                     Log.w("ApiClient", "Failover to migrated relay $migratedUrl also failed: ${migEx.message}")
                 }

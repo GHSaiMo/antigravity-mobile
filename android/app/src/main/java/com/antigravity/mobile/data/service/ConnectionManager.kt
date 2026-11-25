@@ -134,6 +134,26 @@ class ConnectionManager(private val context: Context) {
         lastFailedLanProbeAtMs = 0L
     }
 
+    /** Resets cached endpoint health and detaches any in-flight probes when switching gateways. */
+    fun resetForGatewaySwitch() {
+        synchronized(probeLock) {
+            inFlightProbe?.complete(null)
+            inFlightProbe = null
+        }
+        synchronized(lanProbeLock) {
+            inFlightLanProbe?.complete(false)
+            inFlightLanProbe = null
+        }
+        synchronized(migrationLock) {
+            lastFailedMigrationOrigin = null
+            lastFailedMigrationAtMs = 0L
+        }
+        lastFailedLanProbeAtMs = 0L
+        _endpointStatuses.value = emptyMap()
+        _lastProbeTime.value = null
+        _isProbing.value = false
+    }
+
     fun startMonitoring(
         prefs: PreferencesManager,
         scope: CoroutineScope = CoroutineScope(Dispatchers.IO + SupervisorJob())
@@ -402,9 +422,14 @@ class ConnectionManager(private val context: Context) {
         if (existing != null) {
             return existing.await()
         }
+        val startEpoch = com.antigravity.mobile.data.model.GatewayRuntimeState.epoch
         val deferred = owned!!
         return try {
             val status = testSingleEndpoint(lan, overrideClient = fastLanProbeClient)
+            if (com.antigravity.mobile.data.model.GatewayRuntimeState.epoch != startEpoch) {
+                deferred.complete(false)
+                return false
+            }
             _endpointStatuses.value = _endpointStatuses.value + (status.urlString to status)
             val switched = if (status.isReachable) {
                 lastFailedLanProbeAtMs = 0L
@@ -471,6 +496,7 @@ class ConnectionManager(private val context: Context) {
     }
 
     private suspend fun performProbeEndpoints(prefs: PreferencesManager): String? = withContext(Dispatchers.IO) {
+        val startEpoch = com.antigravity.mobile.data.model.GatewayRuntimeState.epoch
         val isCellularNow = isCellular || !isWifi
 
         // 智能路由候选集：
@@ -529,6 +555,10 @@ class ConnectionManager(private val context: Context) {
                     }
                 }
                 channel.close()
+            }
+
+            if (com.antigravity.mobile.data.model.GatewayRuntimeState.epoch != startEpoch) {
+                return@withContext null
             }
 
             if (cleanLan != null) {
@@ -660,6 +690,9 @@ class ConnectionManager(private val context: Context) {
             }
 
             if (selected != null) {
+                if (com.antigravity.mobile.data.model.GatewayRuntimeState.epoch != startEpoch) {
+                    return@withContext null
+                }
                 val oldBase = prefs.gatewayBaseUrl
                 prefs.gatewayBaseUrl = selected
                 if (!oldBase.equals(selected, ignoreCase = true)) {

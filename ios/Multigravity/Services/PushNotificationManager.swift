@@ -157,8 +157,8 @@ public final class PushNotificationManager: NSObject {
     public static let shared = PushNotificationManager()
 
     public enum NotificationRoute: Equatable, Sendable {
-        case cascade(String)
-        case quota
+        case cascade(cascadeId: String, gatewayId: String? = nil)
+        case quota(gatewayId: String? = nil)
         case deepLink(URL)
     }
 
@@ -188,9 +188,9 @@ public final class PushNotificationManager: NSObject {
 
     /// Buffers a tapped notification's destination during cold launch until ConversationListView mounts.
     private var pendingRoute: NotificationRoute?
-    private var activeLiveActivityTokens: [String: String] = [:] // cascadeId -> tokenHex
-    private var lastSyncedAlertSignature: String?
-    private var lastSyncedStartSignature: String?
+    private var activeLiveActivityTokens: [String: (token: String, gatewayId: String?)] = [:] // cascadeId -> (tokenHex, gatewayId)
+    private var lastSyncedAlertSignaturesByProfile: [String: String] = [:]
+    private var lastSyncedStartSignaturesByProfile: [String: String] = [:]
     private var lastSyncedActivitySignatures: [String: String] = [:]
     private var previewPlayer: AVAudioPlayer?
 
@@ -308,61 +308,97 @@ public final class PushNotificationManager: NSObject {
     }
 
     /// Called after pairing completes or when returning to foreground.
-    /// Does not trigger permission popups unexpectedly; only refreshes and syncs already-held tokens.
+    /// Does not trigger permission popups unexpectedly; syncs tokens & multi-host labels to ALL paired gateways.
     public func syncAllTokensIfPaired(force: Bool = false) {
         let settings = AppSettings.shared
-        guard settings.isPaired, !settings.isDemoMode, let baseURL = settings.serverURL else { return }
+        guard settings.isPaired, !settings.isDemoMode else { return }
 
         Task {
             await refreshAuthorizationStatus()
-            if let alertTok = deviceTokenHex {
-                await uploadToken(
-                    baseURL: baseURL,
-                    tokenType: "alert",
-                    token: alertTok,
-                    cascadeId: nil,
-                    force: force
-                )
+            let contexts = GatewayProfileStore.shared.allRequestContexts()
+            let showLabel = contexts.count > 1
+
+            for ctx in contexts {
+                if let alertTok = deviceTokenHex {
+                    await uploadToken(
+                        context: ctx,
+                        tokenType: "alert",
+                        token: alertTok,
+                        cascadeId: nil,
+                        showGatewayLabel: showLabel,
+                        force: force
+                    )
+                }
+                if let startTok = liveActivityStartTokenHex {
+                    await uploadToken(
+                        context: ctx,
+                        tokenType: "live_activity_start",
+                        token: startTok,
+                        cascadeId: nil,
+                        showGatewayLabel: showLabel,
+                        force: force
+                    )
+                }
             }
-            if let startTok = liveActivityStartTokenHex {
-                await uploadToken(
-                    baseURL: baseURL,
-                    tokenType: "live_activity_start",
-                    token: startTok,
-                    cascadeId: nil,
-                    force: force
-                )
-            }
-            for (cid, actTok) in activeLiveActivityTokens {
-                await uploadToken(
-                    baseURL: baseURL,
-                    tokenType: "live_activity_update",
-                    token: actTok,
-                    cascadeId: cid,
-                    force: force
-                )
+            for (cid, entry) in activeLiveActivityTokens {
+                let targetCtx = resolveContext(forGatewayId: entry.gatewayId) ?? GatewayProfileStore.shared.activeProfileId.flatMap { GatewayProfileStore.shared.requestContext(for: $0) }
+                if let targetCtx {
+                    await uploadToken(
+                        context: targetCtx,
+                        tokenType: "live_activity_update",
+                        token: entry.token,
+                        cascadeId: cid,
+                        showGatewayLabel: showLabel,
+                        force: force
+                    )
+                }
             }
         }
     }
 
     public func syncPreferencesWithGateway() {
         let settings = AppSettings.shared
-        guard settings.isPaired, !settings.isDemoMode, let baseURL = settings.serverURL else { return }
+        guard settings.isPaired, !settings.isDemoMode else { return }
+        let contexts = GatewayProfileStore.shared.allRequestContexts()
+        let showLabel = contexts.count > 1
         Task {
-            await sendPushTokenRequest(
-                baseURL: baseURL,
-                body: [
-                    "platform": "ios",
-                    "token_type": "preferences",
-                    "notifications_enabled": settings.enablePushNotifications,
-                    "live_activities_enabled": settings.enableLiveActivities,
-                    "sound_complete": settings.notificationCompleteSound,
-                    "sound_action": settings.notificationActionSound,
-                    "lang": Self.currentLanguageCode,
-                    "device_id": settings.deviceID ?? ""
-                ]
-            )
+            for ctx in contexts {
+                await sendPushTokenRequest(
+                    context: ctx,
+                    body: [
+                        "platform": "ios",
+                        "token_type": "preferences",
+                        "notifications_enabled": settings.enablePushNotifications,
+                        "live_activities_enabled": settings.enableLiveActivities,
+                        "sound_complete": settings.notificationCompleteSound,
+                        "sound_action": settings.notificationActionSound,
+                        "lang": Self.currentLanguageCode,
+                        "device_id": ctx.deviceID ?? "",
+                        "show_gateway_label": showLabel,
+                        "gateway_label": ctx.displayName
+                    ]
+                )
+            }
         }
+    }
+
+    /// Syncs multi-gateway display label preferences for a single gateway profile (e.g. after rename or removing a sibling host).
+    public func syncGatewayLabel(for context: GatewayRequestContext, showLabel: Bool, label: String) async {
+        let settings = AppSettings.shared
+        guard !settings.isDemoMode else { return }
+        _ = await sendPushTokenRequest(
+            context: context,
+            body: [
+                "platform": "ios",
+                "token_type": "preferences",
+                "notifications_enabled": settings.enablePushNotifications,
+                "live_activities_enabled": settings.enableLiveActivities,
+                "lang": Self.currentLanguageCode,
+                "device_id": context.deviceID ?? "",
+                "show_gateway_label": showLabel,
+                "gateway_label": label
+            ]
+        )
     }
 
     /// Plays a short audio preview for the selected notification sound in Settings.
@@ -405,9 +441,13 @@ public final class PushNotificationManager: NSObject {
         self.deviceTokenHex = clean
 
         let settings = AppSettings.shared
-        guard settings.isPaired, !settings.isDemoMode, let baseURL = settings.serverURL else { return }
+        guard settings.isPaired, !settings.isDemoMode else { return }
+        let contexts = GatewayProfileStore.shared.allRequestContexts()
+        let showLabel = contexts.count > 1
         Task {
-            await uploadToken(baseURL: baseURL, tokenType: "alert", token: clean, cascadeId: nil, force: false)
+            for ctx in contexts {
+                await uploadToken(context: ctx, tokenType: "alert", token: clean, cascadeId: nil, showGatewayLabel: showLabel, force: false)
+            }
         }
     }
 
@@ -417,22 +457,30 @@ public final class PushNotificationManager: NSObject {
         self.liveActivityStartTokenHex = clean
 
         let settings = AppSettings.shared
-        guard settings.isPaired, !settings.isDemoMode, let baseURL = settings.serverURL else { return }
+        guard settings.isPaired, !settings.isDemoMode else { return }
+        let contexts = GatewayProfileStore.shared.allRequestContexts()
+        let showLabel = contexts.count > 1
         Task {
-            await uploadToken(baseURL: baseURL, tokenType: "live_activity_start", token: clean, cascadeId: nil, force: false)
+            for ctx in contexts {
+                await uploadToken(context: ctx, tokenType: "live_activity_start", token: clean, cascadeId: nil, showGatewayLabel: showLabel, force: false)
+            }
         }
     }
 
-    public func updateLiveActivityToken(cascadeId: String, tokenHex: String) {
+    public func updateLiveActivityToken(cascadeId: String, tokenHex: String, gatewayId: String? = nil) {
         let cid = cascadeId.trimmingCharacters(in: .whitespacesAndNewlines)
         let tok = tokenHex.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !cid.isEmpty, !tok.isEmpty else { return }
-        activeLiveActivityTokens[cid] = tok
+        activeLiveActivityTokens[cid] = (token: tok, gatewayId: gatewayId)
 
         let settings = AppSettings.shared
-        guard settings.isPaired, !settings.isDemoMode, let baseURL = settings.serverURL else { return }
+        guard settings.isPaired, !settings.isDemoMode else { return }
+        let targetCtx = resolveContext(forGatewayId: gatewayId)
+            ?? GatewayProfileStore.shared.activeProfileId.flatMap { GatewayProfileStore.shared.requestContext(for: $0) }
+        guard let targetCtx else { return }
+        let showLabel = GatewayProfileStore.shared.hasMultipleGateways
         Task {
-            await uploadToken(baseURL: baseURL, tokenType: "live_activity_update", token: tok, cascadeId: cid, force: false)
+            await uploadToken(context: targetCtx, tokenType: "live_activity_update", token: tok, cascadeId: cid, showGatewayLabel: showLabel, force: false)
         }
     }
 
@@ -443,27 +491,47 @@ public final class PushNotificationManager: NSObject {
         lastSyncedActivitySignatures.removeValue(forKey: cid)
     }
 
-    public func clearLiveActivityToken(cascadeId: String) {
+    public func clearLiveActivityToken(cascadeId: String, gatewayId: String? = nil) {
         let cid = cascadeId.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !cid.isEmpty else { return }
+        let prevGw = gatewayId ?? activeLiveActivityTokens[cid]?.gatewayId
         activeLiveActivityTokens.removeValue(forKey: cid)
         lastSyncedActivitySignatures.removeValue(forKey: cid)
 
         let settings = AppSettings.shared
-        guard settings.isPaired, !settings.isDemoMode, let baseURL = settings.serverURL else { return }
-        let authToken = KeychainHelper.shared.read(key: .deviceToken) ?? settings.deviceToken
+        guard settings.isPaired, !settings.isDemoMode else { return }
+        let targetCtx = resolveContext(forGatewayId: prevGw)
+            ?? GatewayProfileStore.shared.activeProfileId.flatMap { GatewayProfileStore.shared.requestContext(for: $0) }
+        guard let targetCtx else { return }
         Task {
-            await sendDeletePushToken(baseURL: baseURL, tokenType: "live_activity_update", cascadeId: cid, authToken: authToken, deviceId: settings.deviceID)
+            await sendDeletePushToken(context: targetCtx, tokenType: "live_activity_update", cascadeId: cid)
         }
     }
 
+    public func unregisterFromGateway(context: GatewayRequestContext) async {
+        lastSyncedAlertSignaturesByProfile.removeValue(forKey: context.profileId)
+        lastSyncedStartSignaturesByProfile.removeValue(forKey: context.profileId)
+        await sendDeletePushToken(context: context, tokenType: nil, cascadeId: nil)
+    }
+
     public func unregisterFromGateway(baseURL: URL?, authToken: String?, deviceId: String?) async {
-        lastSyncedAlertSignature = nil
-        lastSyncedStartSignature = nil
+        lastSyncedAlertSignaturesByProfile.removeAll()
+        lastSyncedStartSignaturesByProfile.removeAll()
         lastSyncedActivitySignatures.removeAll()
         activeLiveActivityTokens.removeAll()
         guard let baseURL else { return }
         await sendDeletePushToken(baseURL: baseURL, tokenType: nil, cascadeId: nil, authToken: authToken, deviceId: deviceId)
+    }
+
+    private func resolveContext(forGatewayId rawGwId: String?, cascadeId: String? = nil) -> GatewayRequestContext? {
+        let store = GatewayProfileStore.shared
+        if let profile = store.profile(matchingGatewayId: rawGwId) {
+            return store.requestContext(for: profile.id)
+        }
+        if let cid = cascadeId, !cid.isEmpty, let pid = store.profileId(containingCachedCascade: cid) {
+            return store.requestContext(for: pid)
+        }
+        return nil
     }
 
     public func consumePendingRoute() -> NotificationRoute? {
@@ -478,7 +546,7 @@ public final class PushNotificationManager: NSObject {
     }
 
     public func consumePendingCascadeId() -> String? {
-        guard case .cascade(let cid) = pendingRoute else { return nil }
+        guard case .cascade(let cid, _) = pendingRoute else { return nil }
         pendingRoute = nil
         return cid
     }
@@ -488,10 +556,10 @@ public final class PushNotificationManager: NSObject {
         NotificationCenter.default.post(name: .openNotificationRoute, object: route)
     }
 
-    public func routeToCascade(_ cascadeId: String) {
+    public func routeToCascade(_ cascadeId: String, gatewayId: String? = nil) {
         let cid = cascadeId.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !cid.isEmpty else { return }
-        route(.cascade(cid))
+        route(.cascade(cascadeId: cid, gatewayId: gatewayId))
     }
 
     /// Removes delivered notifications for a given cascade from iOS Notification Center.
@@ -562,24 +630,25 @@ public final class PushNotificationManager: NSObject {
     }
 
     private func uploadToken(
-        baseURL: URL,
+        context: GatewayRequestContext,
         tokenType: String,
         token: String,
         cascadeId: String?,
+        showGatewayLabel: Bool,
         force: Bool
     ) async {
         let settings = AppSettings.shared
         let langCode = Self.currentLanguageCode
-        let signature = "\(baseURL.absoluteString)|\(tokenType)|\(token)|\(Self.apnsEnvironment)|\(settings.enablePushNotifications)|\(settings.enableLiveActivities)|\(settings.notificationCompleteSound)|\(settings.notificationActionSound)|\(langCode)"
+        let signature = "\(context.profileId)|\(tokenType)|\(token)|\(Self.apnsEnvironment)|\(settings.enablePushNotifications)|\(settings.enableLiveActivities)|\(settings.notificationCompleteSound)|\(settings.notificationActionSound)|\(langCode)|\(showGatewayLabel)|\(context.displayName)"
 
         if !force {
             switch tokenType {
             case "alert":
-                if lastSyncedAlertSignature == signature { return }
+                if lastSyncedAlertSignaturesByProfile[context.profileId] == signature { return }
             case "live_activity_start":
-                if lastSyncedStartSignature == signature { return }
+                if lastSyncedStartSignaturesByProfile[context.profileId] == signature { return }
             case "live_activity_update":
-                if let cid = cascadeId, lastSyncedActivitySignatures[cid] == signature { return }
+                if let cid = cascadeId, lastSyncedActivitySignatures["\(context.profileId):\(cid)"] == signature { return }
             default:
                 break
             }
@@ -592,7 +661,9 @@ public final class PushNotificationManager: NSObject {
             "apns_env": Self.apnsEnvironment,
             "notifications_enabled": settings.enablePushNotifications,
             "live_activities_enabled": settings.enableLiveActivities,
-            "lang": langCode
+            "lang": langCode,
+            "show_gateway_label": showGatewayLabel,
+            "gateway_label": context.displayName
         ]
         if tokenType == "alert" {
             body["sound_complete"] = settings.notificationCompleteSound
@@ -601,20 +672,20 @@ public final class PushNotificationManager: NSObject {
         if let cid = cascadeId, !cid.isEmpty {
             body["cascade_id"] = cid
         }
-        if let did = settings.deviceID, !did.isEmpty {
+        if let did = context.deviceID, !did.isEmpty {
             body["device_id"] = did
         }
 
-        let ok = await sendPushTokenRequest(baseURL: baseURL, body: body)
+        let ok = await sendPushTokenRequest(context: context, body: body)
         if ok {
             switch tokenType {
             case "alert":
-                lastSyncedAlertSignature = signature
+                lastSyncedAlertSignaturesByProfile[context.profileId] = signature
             case "live_activity_start":
-                lastSyncedStartSignature = signature
+                lastSyncedStartSignaturesByProfile[context.profileId] = signature
             case "live_activity_update":
                 if let cid = cascadeId {
-                    lastSyncedActivitySignatures[cid] = signature
+                    lastSyncedActivitySignatures["\(context.profileId):\(cid)"] = signature
                 }
             default:
                 break
@@ -623,28 +694,66 @@ public final class PushNotificationManager: NSObject {
     }
 
     @discardableResult
-    private func sendPushTokenRequest(baseURL: URL, body: [String: Any]) async -> Bool {
+    private func sendPushTokenRequest(context: GatewayRequestContext, body: [String: Any]) async -> Bool {
         guard let data = try? JSONSerialization.data(withJSONObject: body) else { return false }
-        let endpoint = baseURL.appendingPathComponent("api/v1/device/push-token")
-        var request = URLRequest(url: endpoint)
-        request.httpMethod = "POST"
-        request.timeoutInterval = 10.0
-        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        if let authTok = KeychainHelper.shared.read(key: .deviceToken) ?? AppSettings.shared.deviceToken, !authTok.isEmpty {
-            request.setValue("Bearer \(authTok)", forHTTPHeaderField: "Authorization")
-            request.setValue(authTok, forHTTPHeaderField: "x-device-token")
-        }
-        request.httpBody = data
-
-        do {
-            let (_, response) = try await NetworkTransport.shared.send(request: request)
-            if let httpResp = response as? HTTPURLResponse, (200...299).contains(httpResp.statusCode) {
-                return true
+        let isCell = NetworkStatus.shared.isCellular || !NetworkStatus.shared.isWifi
+        for baseURL in context.candidateURLs(isCellular: isCell) {
+            let endpoint = baseURL.appendingPathComponent("api/v1/device/push-token")
+            var request = URLRequest(url: endpoint)
+            request.httpMethod = "POST"
+            request.timeoutInterval = NetworkTransport.isLanOnlyHost(baseURL.host ?? "") ? 2.5 : 10.0
+            request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+            if let authTok = context.deviceToken, !authTok.isEmpty {
+                request.setValue("Bearer \(authTok)", forHTTPHeaderField: "Authorization")
+                request.setValue(authTok, forHTTPHeaderField: "x-device-token")
             }
-        } catch {
-            // Silent retry on next foreground / reconnect
+            request.httpBody = data
+            do {
+                let (_, response) = try await NetworkTransport.shared.send(request: request, context: context)
+                if let httpResp = response as? HTTPURLResponse, (200...299).contains(httpResp.statusCode) {
+                    return true
+                }
+            } catch {
+                continue
+            }
         }
         return false
+    }
+
+    private func sendDeletePushToken(
+        context: GatewayRequestContext,
+        tokenType: String?,
+        cascadeId: String?
+    ) async {
+        let isCell = NetworkStatus.shared.isCellular || !NetworkStatus.shared.isWifi
+        for baseURL in context.candidateURLs(isCellular: isCell) {
+            var comps = URLComponents(url: baseURL.appendingPathComponent("api/v1/device/push-token"), resolvingAgainstBaseURL: false)
+            var queryItems: [URLQueryItem] = []
+            if let tokenType, !tokenType.isEmpty {
+                queryItems.append(URLQueryItem(name: "token_type", value: tokenType))
+            }
+            if let cascadeId, !cascadeId.isEmpty {
+                queryItems.append(URLQueryItem(name: "cascade_id", value: cascadeId))
+            }
+            if let did = context.deviceID, !did.isEmpty {
+                queryItems.append(URLQueryItem(name: "device_id", value: did))
+            }
+            if !queryItems.isEmpty {
+                comps?.queryItems = queryItems
+            }
+            guard let url = comps?.url else { continue }
+            var request = URLRequest(url: url)
+            request.httpMethod = "DELETE"
+            request.timeoutInterval = NetworkTransport.isLanOnlyHost(baseURL.host ?? "") ? 2.0 : 8.0
+            if let authTok = context.deviceToken, !authTok.isEmpty {
+                request.setValue("Bearer \(authTok)", forHTTPHeaderField: "Authorization")
+                request.setValue(authTok, forHTTPHeaderField: "x-device-token")
+            }
+            if let (_, resp) = try? await NetworkTransport.shared.send(request: request, context: context),
+               let http = resp as? HTTPURLResponse, (200...299).contains(http.statusCode) {
+                return
+            }
+        }
     }
 
     // MARK: - Gateway Alert Category Preferences
@@ -761,12 +870,30 @@ public final class PushNotificationManager: NSObject {
         return nil
     }
 
+    nonisolated public static func extractGatewayId(from userInfo: [AnyHashable: Any]) -> String? {
+        if let gw = (userInfo["gatewayId"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines), !gw.isEmpty {
+            return gw
+        }
+        if let gw = (userInfo["gateway_id"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines), !gw.isEmpty {
+            return gw
+        }
+        if let urlStr = userInfo["url"] as? String,
+           let url = URL(string: urlStr.trimmingCharacters(in: .whitespacesAndNewlines)),
+           let comps = URLComponents(url: url, resolvingAgainstBaseURL: false),
+           let gw = comps.queryItems?.first(where: { $0.name == "gw" || $0.name == "gatewayId" })?.value?.trimmingCharacters(in: .whitespacesAndNewlines),
+           !gw.isEmpty {
+            return gw
+        }
+        return nil
+    }
+
     nonisolated private static func extractNotificationRoute(
         from userInfo: [AnyHashable: Any],
         categoryIdentifier: String
     ) -> NotificationRoute? {
+        let gwId = extractGatewayId(from: userInfo)
         if let cid = extractCascadeId(from: userInfo) {
-            return .cascade(cid)
+            return .cascade(cascadeId: cid, gatewayId: gwId)
         }
         let rawCategory = !categoryIdentifier.isEmpty
             ? categoryIdentifier
@@ -774,23 +901,29 @@ public final class PushNotificationManager: NSObject {
                 ?? ((userInfo["aps"] as? [AnyHashable: Any])?["category"] as? String)
                 ?? "")
         if rawCategory.lowercased() == "quota_alert" {
-            return .quota
+            return .quota(gatewayId: gwId)
         }
         if let urlStr = userInfo["url"] as? String,
            let url = URL(string: urlStr.trimmingCharacters(in: .whitespacesAndNewlines)) {
             if url.host?.lowercased() == "quota" {
-                return .quota
+                return .quota(gatewayId: gwId)
             }
             return .deepLink(url)
         }
         return nil
     }
     @MainActor
-    fileprivate func handleQuickAction(actionIdentifier: String, cascadeId: String) async {
+    fileprivate func handleQuickAction(actionIdentifier: String, cascadeId: String, gatewayId: String? = nil) async {
         let cid = cascadeId.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !cid.isEmpty else { return }
-        guard !AppSettings.shared.isDemoMode, let baseURL = AppSettings.shared.serverURL else {
-            route(.cascade(cid))
+        guard !AppSettings.shared.isDemoMode else {
+            route(.cascade(cascadeId: cid, gatewayId: gatewayId))
+            return
+        }
+        let targetCtx = resolveContext(forGatewayId: gatewayId, cascadeId: cid)
+            ?? GatewayProfileStore.shared.activeProfileId.flatMap { GatewayProfileStore.shared.requestContext(for: $0) }
+        guard let targetCtx else {
+            route(.cascade(cascadeId: cid, gatewayId: gatewayId))
             return
         }
 
@@ -811,7 +944,7 @@ public final class PushNotificationManager: NSObject {
 
         let api = APIClient()
         do {
-            let snap = try await api.fetchMessages(cascadeId: cid, limit: 5, baseURL: baseURL)
+            let snap = try await api.fetchMessages(cascadeId: cid, limit: 5, context: targetCtx)
             if actionIdentifier == Self.actionApproveId {
                 if let interaction = snap.pendingInteraction {
                     let kind = interaction.type.lowercased()
@@ -824,6 +957,7 @@ public final class PushNotificationManager: NSObject {
                     if requiresInAppReview {
                         await postLocalQuickActionNotice(
                             cascadeId: cid,
+                            gatewayId: targetCtx.gatewayId ?? targetCtx.profileId,
                             title: isHighRisk ? String(localized: "🚨 高危操作审批") : String(localized: "⚠️ Antigravity 需要审批"),
                             body: isHighRisk ? String(localized: "高危操作，请打开 App 核验后再允许") : String(localized: "请打开 App 查看完整详情并确认"),
                             categoryIdentifier: isHighRisk ? Self.categoryActionHigh : Self.categoryAction
@@ -847,7 +981,7 @@ public final class PushNotificationManager: NSObject {
                         skipped: false,
                         target: interaction.target,
                         questionResponses: nil,
-                        baseURL: baseURL
+                        context: targetCtx
                     )
                     await clearDeliveredNotificationsAsync(for: cid, approvalOnly: true)
                 } else if snap.canProceed {
@@ -856,7 +990,7 @@ public final class PushNotificationManager: NSObject {
                         cascadeId: cid,
                         artifactUri: uri,
                         model: snap.activeModel,
-                        baseURL: baseURL
+                        context: targetCtx
                     )
                     await clearDeliveredNotificationsAsync(for: cid, approvalOnly: true)
                 } else {
@@ -877,7 +1011,7 @@ public final class PushNotificationManager: NSObject {
                         skipped: denyOpt == nil,
                         target: interaction.target,
                         questionResponses: nil,
-                        baseURL: baseURL
+                        context: targetCtx
                     )
                 }
                 await clearDeliveredNotificationsAsync(for: cid, approvalOnly: true)
@@ -886,6 +1020,7 @@ public final class PushNotificationManager: NSObject {
             print("[APNs] Quick approval action \(actionIdentifier) failed for \(cid): \(error.localizedDescription)")
             await postLocalQuickActionNotice(
                 cascadeId: cid,
+                gatewayId: targetCtx.gatewayId ?? targetCtx.profileId,
                 title: String(localized: "锁屏审批失败"),
                 body: String(localized: "请打开 App 确认当前操作"),
                 categoryIdentifier: Self.categoryActionHigh
@@ -895,6 +1030,7 @@ public final class PushNotificationManager: NSObject {
 
     private func postLocalQuickActionNotice(
         cascadeId: String,
+        gatewayId: String? = nil,
         title: String,
         body: String,
         categoryIdentifier: String
@@ -904,11 +1040,17 @@ public final class PushNotificationManager: NSObject {
         content.body = body
         content.sound = .default
         content.categoryIdentifier = categoryIdentifier
-        content.userInfo = [
+        var targetURL = "antigravity://cascade/\(cascadeId)?action=review"
+        var info: [String: Any] = [
             "cascadeId": cascadeId,
-            "url": "antigravity://cascade/\(cascadeId)?action=review",
             "category": categoryIdentifier,
         ]
+        if let gw = gatewayId, !gw.isEmpty {
+            targetURL += "&gw=\(gw)"
+            info["gatewayId"] = gw
+        }
+        info["url"] = targetURL
+        content.userInfo = info
         let req = UNNotificationRequest(
             identifier: "mgy.quick.feedback.\(cascadeId)",
             content: content,
@@ -931,10 +1073,19 @@ extension PushNotificationManager: UNUserNotificationCenterDelegate {
     ) {
         let userInfo = notification.request.content.userInfo
         let cid = Self.extractCascadeId(from: userInfo)
+        let gwId = Self.extractGatewayId(from: userInfo)
 
         DispatchQueue.main.async {
+            let activeProfile = GatewayProfileStore.shared.activeProfile
+            let sameGateway: Bool
+            if let gwId, !gwId.isEmpty {
+                sameGateway = (activeProfile?.gatewayId == gwId || activeProfile?.id == gwId)
+            } else {
+                sameGateway = true
+            }
             let isViewingSame = (
-                cid != nil
+                sameGateway
+                && cid != nil
                 && cid == PushNotificationManager.shared.activeViewingCascadeId
                 && !PushNotificationManager.shared.hasBlockingModalPresented
             )
@@ -953,13 +1104,15 @@ extension PushNotificationManager: UNUserNotificationCenterDelegate {
     ) {
         let content = response.notification.request.content
         let actionId = response.actionIdentifier
+        let gwId = Self.extractGatewayId(from: content.userInfo)
         if (actionId == Self.actionApproveId || actionId == Self.actionDenyId),
            let cid = Self.extractCascadeId(from: content.userInfo) {
             DispatchQueue.main.async {
                 Task { @MainActor in
                     await PushNotificationManager.shared.handleQuickAction(
                         actionIdentifier: actionId,
-                        cascadeId: cid
+                        cascadeId: cid,
+                        gatewayId: gwId
                     )
                     completionHandler()
                 }

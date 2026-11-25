@@ -124,9 +124,18 @@ nonisolated public struct AgentActivityAttributes: ActivityAttributes, Sendable 
     
     public var conversationTitle: String
     public var cascadeId: String
+    public var gatewayId: String?
+    public var gatewayLabel: String?
     
-    public init(conversationTitle: String, cascadeId: String) {
+    public init(
+        conversationTitle: String,
+        cascadeId: String,
+        gatewayId: String? = nil,
+        gatewayLabel: String? = nil
+    ) {
         self.conversationTitle = conversationTitle
         self.cascadeId = cascadeId
+        self.gatewayId = gatewayId
+        self.gatewayLabel = gatewayLabel
     }
 }

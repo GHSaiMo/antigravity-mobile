@@ -267,6 +267,8 @@ public final class PairingService: Sendable {
             let endpoints: [EndpointResp]?
             let os: String?
             let platform: String?
+            let gateway_id: String?
+            let gateway_name: String?
             let e2ee_gateway_pub: String?
             let e2ee_salt: String?
             let relay_cloud_url: String?
@@ -331,27 +333,30 @@ public final class PairingService: Sendable {
                 
                 let decoded = try JSONDecoder().decode(PairResp.self, from: data)
                 
-                // Persist to Keychain
-                KeychainHelper.shared.save(key: .deviceToken, value: decoded.device_token)
-                KeychainHelper.shared.save(key: .deviceID, value: decoded.device_id)
+                // Derive per-device E2EE key in memory first so we store it strictly under the target profile's namespace
+                // without ever overwriting another gateway profile's credentials.
+                var derivedE2EEKeyB64: String? = nil
                 if let gwPub = decoded.e2ee_gateway_pub, !gwPub.isEmpty,
-                   let saltB64 = decoded.e2ee_salt, !saltB64.isEmpty {
-                    _ = try? E2EECrypto.shared.deriveAndSaveDeviceKey(
-                        privateKey: activePairPriv,
-                        gatewayPubB64: gwPub,
-                        saltB64: saltB64,
-                        deviceID: decoded.device_id
-                    )
+                   let saltB64 = decoded.e2ee_salt, !saltB64.isEmpty,
+                   let shared = try? E2EECrypto.sharedSecret(privateKey: activePairPriv, peerPubB64: gwPub),
+                   let salt = E2EECrypto.decodeBase64Flexible(saltB64) {
+                    let devKey = E2EECrypto.deriveDeviceKey(sharedSecret: shared, salt: salt, deviceID: decoded.device_id)
+                    derivedE2EEKeyB64 = E2EECrypto.base64URLEncode(devKey)
                 }
+
+                let resolvedGatewayId = decoded.gateway_id?.trimmingCharacters(in: .whitespacesAndNewlines)
+                    .nilIfEmpty
+                    ?? GatewayProfileStore.deriveGatewayId(fromE2EEPubKeyB64: decoded.e2ee_gateway_pub ?? info.e2eePubKey)
+                let resolvedGatewayName = decoded.gateway_name?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty
+                let resolvedPlatform = decoded.platform ?? decoded.os ?? info.platform ?? info.os
+                let hasE2EEKey = (derivedE2EEKeyB64 != nil)
                 
-                // Update AppSettings endpoints on MainActor
+                // Classify endpoints and persist profile on MainActor
                 await MainActor.run {
-                    if let plat = decoded.platform ?? decoded.os ?? info.platform ?? info.os {
-                        AppSettings.shared.gatewayPlatform = plat
-                    }
                     var lanURL: String? = info.lanBaseURL
                     var relayURL: String? = nil
                     var cloudURL: String? = nil
+                    var e2eeHosts: [String] = []
                     
                     if info.ssl || !NetworkTransport.isLocalOrPrivateHost(info.host) {
                         cloudURL = info.serverBaseURL
@@ -369,7 +374,7 @@ public final class PairingService: Sendable {
                                 relayURL = ep.url
                                 cloudURL = ep.url
                                 if let rHost = URL(string: ep.url)?.host {
-                                    E2EECrypto.shared.markHostRequiresE2EE(rHost)
+                                    e2eeHosts.append(NetworkTransport.extractHost(from: rHost))
                                 }
                             case "cloudflare":
                                 if cloudURL == nil || relayURL == nil {
@@ -390,12 +395,12 @@ public final class PairingService: Sendable {
 
                     if let dualRelay = decoded.relay_cloud_url?.trimmingCharacters(in: .whitespacesAndNewlines),
                        !dualRelay.isEmpty,
-                       E2EECrypto.shared.isReady,
+                       hasE2EEKey,
                        NetworkTransport.isValidAdvertisedCloudURL(dualRelay, trustedByE2EE: true) {
                         relayURL = dualRelay
                         cloudURL = dualRelay
                         if let rHost = URL(string: dualRelay)?.host {
-                            E2EECrypto.shared.markHostRequiresE2EE(rHost)
+                            e2eeHosts.append(NetworkTransport.extractHost(from: rHost))
                         }
                     }
                     
@@ -408,15 +413,37 @@ public final class PairingService: Sendable {
                             if cloudURL == nil { cloudURL = candClean }
                         }
                     }
-                    
-                    AppSettings.shared.updateEndpoints(
-                        lan: lanURL,
-                        relay: relayURL,
-                        custom: nil,
-                        active: baseURL,
-                        primaryCloud: cloudURL
+
+                    let store = GatewayProfileStore.shared
+                    let hadActiveBefore = (store.activeProfileId != nil && AppSettings.shared.isPaired && !AppSettings.shared.isDemoMode)
+                    let (profile, _) = store.upsertPairedProfile(
+                        gatewayId: resolvedGatewayId,
+                        gatewayName: resolvedGatewayName,
+                        platform: resolvedPlatform,
+                        deviceID: decoded.device_id,
+                        deviceToken: decoded.device_token,
+                        e2eeKeyB64: derivedE2EEKeyB64,
+                        lanURL: lanURL,
+                        relayURL: relayURL,
+                        cloudURL: cloudURL,
+                        activeURL: baseURL,
+                        e2eeRequiredHosts: e2eeHosts
                     )
-                    AppSettings.shared.syncWidgetConfiguration(reloadWidget: false)
+
+                    if hadActiveBefore && store.activeProfileId != profile.id {
+                        _ = GatewaySwitcher.shared.switchTo(profileId: profile.id, showToast: true)
+                    } else {
+                        store.setActiveProfileId(profile.id)
+                        E2EECrypto.shared.resetForGatewaySwitch(requiredHosts: profile.e2eeRequiredHosts)
+                        CacheManager.shared.switchStorageNamespace(profile.storageNamespace)
+                        ProjectCacheManager.shared.switchStorageNamespace(profile.storageNamespace)
+                        DocumentCacheManager.shared.switchStorageNamespace(profile.storageNamespace)
+                        WeChatArchiveCacheManager.shared.switchStorageNamespace(profile.storageNamespace)
+                        DraftFileStore.shared.switchStorageNamespace(profile.storageNamespace)
+                        AppSettings.shared.applyProfile(profile)
+                        AppSettings.shared.syncWidgetConfiguration(reloadWidget: true)
+                    }
+
                     ActivityManager.shared.startRemoteTokenObservers()
                     PushNotificationManager.shared.syncAllTokensIfPaired(force: true)
                     Task {
@@ -505,5 +532,11 @@ public final class PairingService: Sendable {
             return false
         }
         return true
+    }
+}
+
+private extension String {
+    var nilIfEmpty: String? {
+        isEmpty ? nil : self
     }
 }

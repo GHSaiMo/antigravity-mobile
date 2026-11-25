@@ -389,27 +389,36 @@ class ConversationListViewModel(
     }
 
     private suspend fun refreshConversationsFromServer() {
+        val startEpoch = com.antigravity.mobile.data.model.GatewayRuntimeState.epoch
         val attemptedBase = apiClient.currentBaseUrl
         val firstResult = apiClient.fetchConversations()
+        if (com.antigravity.mobile.data.model.GatewayRuntimeState.epoch != startEpoch) return
         val effectiveResult = if (firstResult.isFailure && probeAndDetectRouteChange(attemptedBase)) {
+            if (com.antigravity.mobile.data.model.GatewayRuntimeState.epoch != startEpoch) return
             apiClient.fetchConversations()
         } else {
             firstResult
         }
+        if (com.antigravity.mobile.data.model.GatewayRuntimeState.epoch != startEpoch) return
         effectiveResult.onSuccess { list ->
             rawConversations = mergeWithLocalConversations(list, forceReorder = false)
             persistConversationsToCache(rawConversations)
             applyFilter()
+            com.antigravity.mobile.data.service.GatewayProfileStore.sharedOrNull()?.updateActiveSummary(rawConversations)
             cacheManager?.prewarmSessions(rawConversations.take(15).map { it.id })
             liveActivityManager?.syncWithConversations(rawConversations)
         }
         apiClient.fetchGlobalBackgroundTasks().onSuccess {
-            _globalBackgroundTasks.value = it
+            if (com.antigravity.mobile.data.model.GatewayRuntimeState.epoch == startEpoch) {
+                _globalBackgroundTasks.value = it
+            }
         }
         // Self-heal home quota bar if initial startup fetch failed before route migration completed.
         if (_quotaData.value == null) {
             apiClient.fetchCockpitQuotas().onSuccess {
-                _quotaData.value = it
+                if (com.antigravity.mobile.data.model.GatewayRuntimeState.epoch == startEpoch) {
+                    _quotaData.value = it
+                }
             }
         }
     }
@@ -422,6 +431,60 @@ class ConversationListViewModel(
         pendingReorderJob?.cancel()
         pendingReorderJob = null
         eventsClient.stop()
+    }
+
+    fun resetForGatewaySwitch() {
+        stopAutoRefresh()
+        contentSearchJob?.cancel()
+        contentSearchJob = null
+
+        deletedCascadeIds.clear()
+        rawConversations = emptyList()
+        _searchQuery.value = ""
+        _contentResults.value = emptyList()
+        _isSearchingContent.value = false
+        _expandedBranchParentIds.value = emptySet()
+        _searchCollapsedBranchParentIds.value = emptySet()
+        _manuallyCollapsedActionBranchParentIds.value = emptySet()
+        _selectedWorkspaceFilter.value = null
+        _workspaceFilterOptions.value = emptyList()
+        _totalVisibleCount.value = 0
+        _archivedCount.value = 0
+        _workspaceTotalCount.value = 0
+        _hiddenPendingApprovalCount.value = 0
+        _quotaData.value = null
+        _tokenHistory.value = null
+        _isLoadingTokenHistory.value = false
+        _globalBackgroundTasks.value = emptyList()
+        _projects.value = loadInitialProjects()
+        _projectsError.value = null
+        lastTokenHistoryFetchAtMs = 0L
+        lastTokenHistorySessionKey = null
+        lastModelCatalogFetchAtMs = 0L
+        lastModelCatalogBaseUrl = null
+        lastReorderAtMs = 0L
+        lastNotifiedRouteUrl = apiClient.currentBaseUrl
+
+        val restored = loadInitialConversations()
+        if (restored.isEmpty()) {
+            _uiState.value = if (prefs.isPaired()) ConversationListUiState.Loading else ConversationListUiState.Success(emptyList())
+        } else {
+            rawConversations = restored
+        }
+
+        if (prefs.isPaired()) {
+            startAutoRefresh()
+            viewModelScope.launch {
+                val startEpoch = com.antigravity.mobile.data.model.GatewayRuntimeState.epoch
+                connectionManager?.probeEndpoints(prefs)
+                if (com.antigravity.mobile.data.model.GatewayRuntimeState.epoch != startEpoch) return@launch
+                loadConversations()
+                loadQuotas()
+                loadProjects()
+                refreshModelCatalogIfNeeded(force = true)
+                prewarmMcpAndSkillsCache()
+            }
+        }
     }
 
 
@@ -611,19 +674,24 @@ class ConversationListViewModel(
                     eventsClient.reconnectIfStale()
                 }
 
+                val startEpoch = com.antigravity.mobile.data.model.GatewayRuntimeState.epoch
                 val attemptedBase = apiClient.currentBaseUrl
                 val firstConvResult = apiClient.fetchConversations()
+                if (com.antigravity.mobile.data.model.GatewayRuntimeState.epoch != startEpoch) return@launch
                 val convResult = if (firstConvResult.isFailure && probeAndDetectRouteChange(attemptedBase)) {
+                    if (com.antigravity.mobile.data.model.GatewayRuntimeState.epoch != startEpoch) return@launch
                     lastNotifiedRouteUrl = apiClient.currentBaseUrl
                     eventsClient.reconnect()
                     apiClient.fetchConversations()
                 } else {
                     firstConvResult
                 }
+                if (com.antigravity.mobile.data.model.GatewayRuntimeState.epoch != startEpoch) return@launch
                 convResult.onSuccess { list ->
                     rawConversations = mergeWithLocalConversations(list)
                     persistConversationsToCache(rawConversations)
                     applyFilter()
+                    com.antigravity.mobile.data.service.GatewayProfileStore.sharedOrNull()?.updateActiveSummary(rawConversations)
                     cacheManager?.prewarmSessions(rawConversations.take(15).map { it.id })
                 }.onFailure { err ->
                     if (rawConversations.isEmpty()) {
@@ -684,17 +752,22 @@ class ConversationListViewModel(
             }
         }
         viewModelScope.launch {
+            val startEpoch = com.antigravity.mobile.data.model.GatewayRuntimeState.epoch
             val attemptedBase = apiClient.currentBaseUrl
             val firstResult = apiClient.fetchConversations()
+            if (com.antigravity.mobile.data.model.GatewayRuntimeState.epoch != startEpoch) return@launch
             val result = if (firstResult.isFailure && probeAndDetectRouteChange(attemptedBase)) {
+                if (com.antigravity.mobile.data.model.GatewayRuntimeState.epoch != startEpoch) return@launch
                 apiClient.fetchConversations()
             } else {
                 firstResult
             }
+            if (com.antigravity.mobile.data.model.GatewayRuntimeState.epoch != startEpoch) return@launch
             result.onSuccess { list ->
                 rawConversations = mergeWithLocalConversations(list)
                 persistConversationsToCache(rawConversations)
                 applyFilter()
+                com.antigravity.mobile.data.service.GatewayProfileStore.sharedOrNull()?.updateActiveSummary(rawConversations)
                 cacheManager?.prewarmSessions(rawConversations.take(15).map { it.id })
                 liveActivityManager?.syncWithConversations(rawConversations)
                 if (_quotaData.value == null) {
@@ -710,13 +783,17 @@ class ConversationListViewModel(
 
     fun loadQuotas() {
         viewModelScope.launch {
+            val startEpoch = com.antigravity.mobile.data.model.GatewayRuntimeState.epoch
             val attemptedBase = apiClient.currentBaseUrl
             val firstResult = apiClient.fetchCockpitQuotas()
+            if (com.antigravity.mobile.data.model.GatewayRuntimeState.epoch != startEpoch) return@launch
             val result = if (firstResult.isFailure && probeAndDetectRouteChange(attemptedBase)) {
+                if (com.antigravity.mobile.data.model.GatewayRuntimeState.epoch != startEpoch) return@launch
                 apiClient.fetchCockpitQuotas()
             } else {
                 firstResult
             }
+            if (com.antigravity.mobile.data.model.GatewayRuntimeState.epoch != startEpoch) return@launch
             result.onSuccess {
                 _quotaData.value = it
             }
@@ -1289,6 +1366,50 @@ class ConversationListViewModel(
     fun getDraftProject(cascadeId: String): ProjectItem? {
         return rawConversations.find { it.id == cascadeId }?.draftProject
             ?: prefs.getLocalDraftSession(cascadeId)?.project
+    }
+
+    /**
+     * Unpairs only the currently active gateway profile.
+     * If another paired host remains, switches smoothly to it; otherwise clears state and invokes [onAllRemoved].
+     */
+    fun unpairActiveGateway(onAllRemoved: () -> Unit = {}) {
+        val store = com.antigravity.mobile.data.service.GatewayProfileStore.sharedOrNull()
+        val activeId = store?.activeProfileId
+        if (store != null && activeId != null) {
+            val (_, nextActive) = store.removeProfile(activeId)
+            if (nextActive != null) {
+                com.antigravity.mobile.data.service.GatewaySwitcher.switchTo(
+                    profileId = nextActive.id,
+                    showToast = true,
+                    force = true
+                )
+                return
+            }
+            stopAutoRefresh()
+            prefs.clearActiveGatewayEndpointsOnly()
+            cacheManager?.clearAllSessions()
+            _uiState.value = ConversationListUiState.Success(emptyList())
+            rawConversations = emptyList()
+            _expandedBranchParentIds.value = emptySet()
+            _searchCollapsedBranchParentIds.value = emptySet()
+            _manuallyCollapsedActionBranchParentIds.value = emptySet()
+            _selectedWorkspaceFilter.value = null
+            _workspaceFilterOptions.value = emptyList()
+            _totalVisibleCount.value = 0
+            _workspaceTotalCount.value = 0
+            lastReorderAtMs = 0L
+            _projects.value = emptyList()
+            _projectsError.value = null
+            _quotaData.value = null
+            _tokenHistory.value = null
+            lastTokenHistoryFetchAtMs = 0L
+            lastTokenHistorySessionKey = null
+            lastModelCatalogFetchAtMs = 0L
+            lastModelCatalogBaseUrl = null
+            onAllRemoved()
+            return
+        }
+        unpair(onComplete = onAllRemoved)
     }
 
     fun unpair(onComplete: () -> Unit = {}) {

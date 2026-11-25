@@ -23,6 +23,7 @@ class NotificationActionReceiver : BroadcastReceiver() {
         if (cascadeId.isEmpty()) return
 
         val alertNotifId = intent.getIntExtra(EXTRA_ALERT_NOTIFICATION_ID, 0)
+        val gatewayId = intent.getStringExtra(EXTRA_GATEWAY_ID)?.trim()?.takeIf { it.isNotBlank() }
         val appContext = context.applicationContext
         val pendingResult = goAsync()
 
@@ -38,10 +39,19 @@ class NotificationActionReceiver : BroadcastReceiver() {
                 val connMgr = ConnectionManager(appContext)
                 val apiClient = ApiClient(appContext, prefs, connMgr)
                 val liveMgr = LiveActivityNotificationManager.getOrCreate(appContext, prefs, apiClient)
+                val store = GatewayProfileStore.getOrCreate(appContext, prefs)
+
+                val targetCtx = gatewayId?.let { store.profileMatchingGatewayId(it)?.id }?.let { store.requestContext(it) }
+                    ?: store.profileIdContainingCachedCascade(cascadeId)?.let { store.requestContext(it) }
+                    ?: store.activeProfileId?.let { store.requestContext(it) }
 
                 when (action) {
                     ACTION_APPROVE -> {
-                        val snap = apiClient.fetchMessages(cascadeId, limit = 5).getOrNull() ?: return@launch
+                        val snap = (if (targetCtx != null) {
+                            apiClient.fetchMessages(cascadeId, limit = 5, context = targetCtx)
+                        } else {
+                            apiClient.fetchMessages(cascadeId, limit = 5)
+                        }).getOrNull() ?: return@launch
                         val interaction = snap.pendingInteraction
                         if (interaction != null) {
                             val kind = interaction.type.lowercase()
@@ -64,10 +74,14 @@ class NotificationActionReceiver : BroadcastReceiver() {
                                     isHighRiskAction = isHighRisk
                                 )
                                 if (isHighRisk) {
+                                    val reviewLink = AntigravityMessagingService.appendGatewayQueryParam(
+                                        "antigravity://cascade/$cascadeId?action=review",
+                                        gatewayId
+                                    )
                                     liveMgr.notifyAlert(
                                         title = "🚨 高危操作审批".loc,
                                         body = promptMsg,
-                                        deeplink = "antigravity://cascade/$cascadeId?action=review",
+                                        deeplink = reviewLink,
                                         isAction = true,
                                         cascadeId = cascadeId,
                                         isHighRisk = true
@@ -80,21 +94,38 @@ class NotificationActionReceiver : BroadcastReceiver() {
                             } ?: interaction.options.firstOrNull()
                             val optId = approveOpt?.id ?: interaction.defaultOptionId ?: "1"
                             val scopeVal = approveOpt?.scope ?: 1
-                            val submitRes = apiClient.submitInteraction(
-                                cascadeId = cascadeId,
-                                trajectoryId = interaction.trajectoryId,
-                                stepIndex = interaction.stepIndex,
-                                type = interaction.type,
-                                optionId = optId,
-                                scope = scopeVal,
-                                allow = true,
-                                writeInResponse = "",
-                                skipped = false,
-                                target = interaction.target,
-                                questionResponses = null
-                            )
+                            val submitRes = if (targetCtx != null) {
+                                apiClient.submitInteraction(
+                                    cascadeId = cascadeId,
+                                    trajectoryId = interaction.trajectoryId,
+                                    stepIndex = interaction.stepIndex,
+                                    type = interaction.type,
+                                    optionId = optId,
+                                    scope = scopeVal,
+                                    allow = true,
+                                    writeInResponse = "",
+                                    skipped = false,
+                                    target = interaction.target,
+                                    questionResponses = null,
+                                    context = targetCtx
+                                )
+                            } else {
+                                apiClient.submitInteraction(
+                                    cascadeId = cascadeId,
+                                    trajectoryId = interaction.trajectoryId,
+                                    stepIndex = interaction.stepIndex,
+                                    type = interaction.type,
+                                    optionId = optId,
+                                    scope = scopeVal,
+                                    allow = true,
+                                    writeInResponse = "",
+                                    skipped = false,
+                                    target = interaction.target,
+                                    questionResponses = null
+                                )
+                            }
                             if (submitRes.isSuccess) {
-                                AntigravityMessagingService.dismissAlertNotification(appContext, cascadeId)
+                                AntigravityMessagingService.dismissAlertNotification(appContext, cascadeId, gatewayId)
                                 liveMgr.startOrUpdateActivity(
                                     title = snap.title.orEmpty(),
                                     cascadeId = cascadeId,
@@ -119,9 +150,13 @@ class NotificationActionReceiver : BroadcastReceiver() {
                             }
                         } else if (snap.canProceed) {
                             val uri = snap.proceedArtifactUri?.takeIf { it.isNotBlank() } ?: "implementation_plan.md"
-                            val procRes = apiClient.proceedArtifact(cascadeId, uri, snap.activeModel)
+                            val procRes = if (targetCtx != null) {
+                                apiClient.proceedArtifact(cascadeId, uri, snap.activeModel, targetCtx)
+                            } else {
+                                apiClient.proceedArtifact(cascadeId, uri, snap.activeModel)
+                            }
                             if (procRes.isSuccess) {
-                                AntigravityMessagingService.dismissAlertNotification(appContext, cascadeId)
+                                AntigravityMessagingService.dismissAlertNotification(appContext, cascadeId, gatewayId)
                                 liveMgr.startOrUpdateActivity(
                                     title = snap.title.orEmpty(),
                                     cascadeId = cascadeId,
@@ -150,25 +185,46 @@ class NotificationActionReceiver : BroadcastReceiver() {
                     }
 
                     ACTION_REJECT -> {
-                        val snap = apiClient.fetchMessages(cascadeId, limit = 5).getOrNull() ?: return@launch
+                        val snap = (if (targetCtx != null) {
+                            apiClient.fetchMessages(cascadeId, limit = 5, context = targetCtx)
+                        } else {
+                            apiClient.fetchMessages(cascadeId, limit = 5)
+                        }).getOrNull() ?: return@launch
                         val interaction = snap.pendingInteraction
                         if (interaction != null) {
                             val denyOpt = interaction.options.firstOrNull { it.isDeny == true || it.id == "5" }
-                            val submitRes = apiClient.submitInteraction(
-                                cascadeId = cascadeId,
-                                trajectoryId = interaction.trajectoryId,
-                                stepIndex = interaction.stepIndex,
-                                type = interaction.type,
-                                optionId = denyOpt?.id ?: "",
-                                scope = denyOpt?.scope ?: 1,
-                                allow = false,
-                                writeInResponse = "",
-                                skipped = denyOpt == null,
-                                target = interaction.target,
-                                questionResponses = null
-                            )
+                            val submitRes = if (targetCtx != null) {
+                                apiClient.submitInteraction(
+                                    cascadeId = cascadeId,
+                                    trajectoryId = interaction.trajectoryId,
+                                    stepIndex = interaction.stepIndex,
+                                    type = interaction.type,
+                                    optionId = denyOpt?.id ?: "",
+                                    scope = denyOpt?.scope ?: 1,
+                                    allow = false,
+                                    writeInResponse = "",
+                                    skipped = denyOpt == null,
+                                    target = interaction.target,
+                                    questionResponses = null,
+                                    context = targetCtx
+                                )
+                            } else {
+                                apiClient.submitInteraction(
+                                    cascadeId = cascadeId,
+                                    trajectoryId = interaction.trajectoryId,
+                                    stepIndex = interaction.stepIndex,
+                                    type = interaction.type,
+                                    optionId = denyOpt?.id ?: "",
+                                    scope = denyOpt?.scope ?: 1,
+                                    allow = false,
+                                    writeInResponse = "",
+                                    skipped = denyOpt == null,
+                                    target = interaction.target,
+                                    questionResponses = null
+                                )
+                            }
                             if (submitRes.isSuccess) {
-                                AntigravityMessagingService.dismissAlertNotification(appContext, cascadeId)
+                                AntigravityMessagingService.dismissAlertNotification(appContext, cascadeId, gatewayId)
                                 liveMgr.startOrUpdateActivity(
                                     title = snap.title.orEmpty(),
                                     cascadeId = cascadeId,
@@ -197,8 +253,12 @@ class NotificationActionReceiver : BroadcastReceiver() {
                     }
 
                     ACTION_STOP -> {
-                        apiClient.cancelInvocation(cascadeId, killBackgroundTasks = true)
-                        AntigravityMessagingService.dismissAlertNotification(appContext, cascadeId)
+                        if (targetCtx != null) {
+                            apiClient.cancelInvocation(cascadeId, killBackgroundTasks = true, context = targetCtx)
+                        } else {
+                            apiClient.cancelInvocation(cascadeId, killBackgroundTasks = true)
+                        }
+                        AntigravityMessagingService.dismissAlertNotification(appContext, cascadeId, gatewayId)
                         liveMgr.endActivity(cascadeId = cascadeId, finalStatus = "CANCELLED")
                     }
                 }
@@ -246,12 +306,14 @@ class NotificationActionReceiver : BroadcastReceiver() {
         const val ACTION_STOP = "com.antigravity.mobile.ACTION_STOP_AGENT"
         const val EXTRA_CASCADE_ID = "extra_cascade_id"
         const val EXTRA_ALERT_NOTIFICATION_ID = "extra_alert_notification_id"
+        const val EXTRA_GATEWAY_ID = "extra_gateway_id"
 
         fun buildPendingIntent(
             context: Context,
             action: String,
             cascadeId: String,
-            alertNotifId: Int = 0
+            alertNotifId: Int = 0,
+            gatewayId: String? = null
         ): PendingIntent {
             val intent = Intent(context, NotificationActionReceiver::class.java).apply {
                 this.action = action
@@ -259,8 +321,11 @@ class NotificationActionReceiver : BroadcastReceiver() {
                 if (alertNotifId != 0) {
                     putExtra(EXTRA_ALERT_NOTIFICATION_ID, alertNotifId)
                 }
+                if (!gatewayId.isNullOrBlank()) {
+                    putExtra(EXTRA_GATEWAY_ID, gatewayId)
+                }
             }
-            val requestCode = "$cascadeId:$action:$alertNotifId".hashCode() and 0x7FFFFFFF
+            val requestCode = "${gatewayId.orEmpty()}:$cascadeId:$action:$alertNotifId".hashCode() and 0x7FFFFFFF
             return PendingIntent.getBroadcast(
                 context,
                 requestCode,

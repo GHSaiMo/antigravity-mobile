@@ -120,13 +120,14 @@ extension APIClient {
         request.httpMethod = "GET"
         request.timeoutInterval = 15.0
         
+        let reqEpoch = GatewayRuntimeState.shared.epoch
         let (data, response) = try await transport.send(request: request)
         guard let httpResp = response as? HTTPURLResponse else {
             throw APIError.networkError("Invalid response type")
         }
         guard (200...299).contains(httpResp.statusCode) else {
             if httpResp.statusCode == 401 {
-                NotificationCenter.default.post(name: .deviceTokenRevoked, object: nil)
+                postTokenRevokedIfCurrentEpoch(reqEpoch)
             }
             let msg = String(data: data, encoding: .utf8) ?? "HTTP \(httpResp.statusCode)"
             throw APIError.serverError(statusCode: httpResp.statusCode, message: msg)
@@ -221,6 +222,7 @@ extension APIClient {
             request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
         }
         
+        let reqEpoch = GatewayRuntimeState.shared.epoch
         let (tempDownloadedURL, httpResp) = try await transport.download(
             request: request,
             allowE2EE: attachCredentials || NetworkTransport.isConfiguredGatewayOrigin(endpoint),
@@ -231,7 +233,7 @@ extension APIClient {
             let errData = (try? Data(contentsOf: tempDownloadedURL)) ?? Data()
             try? FileManager.default.removeItem(at: tempDownloadedURL)
             if httpResp.statusCode == 401 {
-                NotificationCenter.default.post(name: .deviceTokenRevoked, object: nil)
+                postTokenRevokedIfCurrentEpoch(reqEpoch)
             }
             let rawMsg = String(data: errData, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
             let msg = rawMsg.isEmpty ? "HTTP \(httpResp.statusCode)" : rawMsg
@@ -280,13 +282,14 @@ extension APIClient {
         request.httpMethod = "GET"
         request.timeoutInterval = 30.0
 
+        let reqEpoch = GatewayRuntimeState.shared.epoch
         let (data, response) = try await transport.send(request: request)
         guard let httpResp = response as? HTTPURLResponse else {
             throw APIError.networkError("Invalid response type")
         }
         guard (200...299).contains(httpResp.statusCode) else {
             if httpResp.statusCode == 401 {
-                NotificationCenter.default.post(name: .deviceTokenRevoked, object: nil)
+                postTokenRevokedIfCurrentEpoch(reqEpoch)
             }
             let msg = String(data: data, encoding: .utf8) ?? "HTTP \(httpResp.statusCode)"
             throw APIError.serverError(statusCode: httpResp.statusCode, message: msg)
@@ -334,13 +337,14 @@ extension APIClient {
         request.httpMethod = "GET"
         request.timeoutInterval = 25.0
 
+        let reqEpoch = GatewayRuntimeState.shared.epoch
         let (data, response) = try await transport.send(request: request)
         guard let httpResp = response as? HTTPURLResponse else {
             throw APIError.networkError("Invalid response type")
         }
         guard (200...299).contains(httpResp.statusCode) else {
             if httpResp.statusCode == 401 {
-                NotificationCenter.default.post(name: .deviceTokenRevoked, object: nil)
+                postTokenRevokedIfCurrentEpoch(reqEpoch)
             }
             let msg = String(data: data, encoding: .utf8) ?? "HTTP \(httpResp.statusCode)"
             throw APIError.serverError(statusCode: httpResp.statusCode, message: msg)

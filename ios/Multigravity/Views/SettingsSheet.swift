@@ -537,35 +537,31 @@ public struct SettingsSheet: View {
         .alert(settings.isDemoMode ? String(localized: "确定退出演示模式？") : String(localized: "确定解除设备配对？"), isPresented: $showUnpairAlert) {
             Button("取消", role: .cancel) {}
             Button(settings.isDemoMode ? String(localized: "退出演示") : String(localized: "解除配对"), role: .destructive) {
-                let currentURL = settings.serverURL
-                let currentCandidates = settings.candidateEndpoints.compactMap { URL(string: $0.urlString) }
-                let currentToken = settings.deviceToken
-                let currentDeviceID = settings.deviceID
-                
-                Task {
-                    await PushNotificationManager.shared.unregisterFromGateway(
-                        baseURL: currentURL,
-                        authToken: currentToken,
-                        deviceId: currentDeviceID
-                    )
-                    await APIClient.shared.unpair(
-                        baseURL: currentURL,
-                        candidates: currentCandidates,
-                        token: currentToken,
-                        deviceID: currentDeviceID
-                    )
-                }
-                settings.unpair()
-                CacheManager.shared.clearCache()
-                DocumentCacheManager.shared.clearCache()
                 UIImpactFeedbackGenerator(style: .medium).impactOccurred()
-                NotificationCenter.default.post(name: .deviceTokenRevoked, object: nil)
+                if settings.isDemoMode {
+                    settings.unpair()
+                    CacheManager.shared.clearCache()
+                    DocumentCacheManager.shared.clearCache()
+                    NotificationCenter.default.post(name: .deviceTokenRevoked, object: nil, userInfo: ["epoch": GatewayRuntimeState.shared.epoch])
+                } else {
+                    let hasRemaining = settings.unpairActiveProfile()
+                    if !hasRemaining {
+                        CacheManager.shared.clearCache()
+                        DocumentCacheManager.shared.clearCache()
+                        NotificationCenter.default.post(name: .deviceTokenRevoked, object: nil, userInfo: ["epoch": GatewayRuntimeState.shared.epoch])
+                    }
+                }
                 dismiss()
             }
         } message: {
-            Text(settings.isDemoMode
-                 ? String(localized: "将退出演示模式并回到欢迎页，演示数据会被清除。")
-                 : String(localized: "解除配对将通知网关清理此设备绑定，并清除本地访问令牌与网关配置。"))
+            if settings.isDemoMode {
+                Text(String(localized: "将退出演示模式并回到欢迎页，演示数据会被清除。"))
+            } else if GatewayProfileStore.shared.hasMultipleGateways,
+                      let hostName = GatewayProfileStore.shared.activeProfile?.resolvedDisplayName {
+                Text(String(localized: "解除与「\(hostName)」的配对将通知该网关清理此设备绑定，并自动切换至其他已配对主机。"))
+            } else {
+                Text(String(localized: "解除配对将通知网关清理此设备绑定，并清除本地访问令牌与网关配置。"))
+            }
         }
         .alert("确定清空本地缓存？", isPresented: $showClearCacheAlert) {
             Button("取消", role: .cancel) {}

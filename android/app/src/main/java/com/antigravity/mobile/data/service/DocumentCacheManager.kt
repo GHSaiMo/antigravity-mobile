@@ -9,10 +9,38 @@ import java.security.MessageDigest
  * Deterministic on-disk caching of previewed documents, PDFs, presentations, and HTML files.
  */
 class DocumentCacheManager(private val context: Context) {
-    private val cacheDir: File by lazy {
-        val dir = File(context.cacheDir, "antigravity_documents")
+    @Volatile
+    private var storageNamespace: String = ""
+
+    private fun dirForNamespace(ns: String): File {
+        val base = File(context.cacheDir, "antigravity_documents")
+        val clean = ns.trim()
+        val dir = if (clean.isEmpty()) base else File(File(base, "profiles"), clean)
         if (!dir.exists()) dir.mkdirs()
-        dir
+        return dir
+    }
+
+    private val cacheDir: File
+        get() = dirForNamespace(storageNamespace)
+
+    fun switchStorageNamespace(namespace: String) {
+        storageNamespace = namespace.trim()
+        dirForNamespace(storageNamespace)
+    }
+
+    fun clearStorageForNamespace(namespace: String) {
+        val clean = namespace.trim()
+        if (clean.isEmpty()) {
+            val base = File(context.cacheDir, "antigravity_documents")
+            base.listFiles()?.forEach { f ->
+                if (f.name != "profiles") {
+                    f.deleteRecursively()
+                }
+            }
+        } else {
+            val dir = File(File(File(context.cacheDir, "antigravity_documents"), "profiles"), clean)
+            dir.deleteRecursively()
+        }
     }
 
     /**
@@ -54,11 +82,11 @@ class DocumentCacheManager(private val context: Context) {
     }
 
     /**
-     * Clears all cached documents.
+     * Clears all cached documents for the currently active storage namespace.
      */
     fun clearCache() {
-        cacheDir.deleteRecursively()
-        cacheDir.mkdirs()
+        clearStorageForNamespace(storageNamespace)
+        dirForNamespace(storageNamespace)
     }
 
     private fun sha256Prefix(input: String): String {

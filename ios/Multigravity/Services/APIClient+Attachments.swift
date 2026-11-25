@@ -21,6 +21,7 @@ extension APIClient {
             request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
         }
         
+        let reqEpoch = GatewayRuntimeState.shared.epoch
         let isDemoEndpoint = DemoGateway.isEnabled
             && endpoint.host == DemoGateway.host
             && endpoint.port == DemoGateway.port
@@ -126,7 +127,7 @@ extension APIClient {
         }
         guard (200...299).contains(http.statusCode) else {
             if http.statusCode == 401 {
-                NotificationCenter.default.post(name: .deviceTokenRevoked, object: nil)
+                postTokenRevokedIfCurrentEpoch(reqEpoch)
             }
             struct ErrBody: Decodable { let message: String? }
             let message = (try? JSONDecoder().decode(ErrBody.self, from: finalData))?.message

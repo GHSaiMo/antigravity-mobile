@@ -93,4 +93,13 @@ public final class ChatSessionStore {
 
         entries[sessionKey] = entry
     }
+
+    /// Evicts all retained chat sessions immediately (used when switching between decoupled gateways).
+    func clearAll() {
+        for entry in entries.values {
+            entry.cleanupTask?.cancel()
+            entry.viewModel.stopPolling()
+        }
+        entries.removeAll()
+    }
 }

@@ -71,7 +71,7 @@ public final class ActivityManager {
                         self.observeStateUpdates(for: winner)
                         if let existingToken = winner.pushToken {
                             let hex = existingToken.map { String(format: "%02x", $0) }.joined()
-                            PushNotificationManager.shared.updateLiveActivityToken(cascadeId: cid, tokenHex: hex)
+                            PushNotificationManager.shared.updateLiveActivityToken(cascadeId: cid, tokenHex: hex, gatewayId: winner.attributes.gatewayId)
                         }
                     }
                 } else {
@@ -89,7 +89,7 @@ public final class ActivityManager {
             observeStateUpdates(for: activity)
             if let existingToken = activity.pushToken {
                 let hex = existingToken.map { String(format: "%02x", $0) }.joined()
-                PushNotificationManager.shared.updateLiveActivityToken(cascadeId: activity.attributes.cascadeId, tokenHex: hex)
+                PushNotificationManager.shared.updateLiveActivityToken(cascadeId: activity.attributes.cascadeId, tokenHex: hex, gatewayId: activity.attributes.gatewayId)
             }
         }
     }
@@ -97,12 +97,13 @@ public final class ActivityManager {
     private func observePushToken(for activity: Activity<AgentActivityAttributes>) {
         let activityId = activity.id
         let cascadeId = activity.attributes.cascadeId
+        let gwId = activity.attributes.gatewayId
         guard activityTokenTasks[activityId] == nil else { return }
 
         // Report current pushToken immediately if already populated
         if let existingToken = activity.pushToken {
             let hex = existingToken.map { String(format: "%02x", $0) }.joined()
-            PushNotificationManager.shared.updateLiveActivityToken(cascadeId: cascadeId, tokenHex: hex)
+            PushNotificationManager.shared.updateLiveActivityToken(cascadeId: cascadeId, tokenHex: hex, gatewayId: gwId)
         }
 
         activityTokenTasks[activityId] = Task { [weak self] in
@@ -110,7 +111,7 @@ public final class ActivityManager {
                 guard let self else { break }
                 guard self.activeActivitiesByCascade[cascadeId]?.id == activityId else { continue }
                 let hex = tokenData.map { String(format: "%02x", $0) }.joined()
-                PushNotificationManager.shared.updateLiveActivityToken(cascadeId: cascadeId, tokenHex: hex)
+                PushNotificationManager.shared.updateLiveActivityToken(cascadeId: cascadeId, tokenHex: hex, gatewayId: gwId)
             }
             self?.activityTokenTasks.removeValue(forKey: activityId)
         }
@@ -295,7 +296,15 @@ public final class ActivityManager {
         
         let resolvedTitle = title.trimmingCharacters(in: .whitespacesAndNewlines)
         let safeTitle = resolvedTitle.isEmpty ? "Multigravity Agent" : resolvedTitle
-        let attributes = AgentActivityAttributes(conversationTitle: safeTitle, cascadeId: cascadeId)
+        let activeProf = GatewayProfileStore.shared.activeProfile
+        let activeGwId = activeProf?.gatewayId ?? activeProf?.id
+        let activeGwLabel = GatewayProfileStore.shared.hasMultipleGateways ? activeProf?.resolvedDisplayName : nil
+        let attributes = AgentActivityAttributes(
+            conversationTitle: safeTitle,
+            cascadeId: cascadeId,
+            gatewayId: activeGwId,
+            gatewayLabel: activeGwLabel
+        )
         let initialContentState = AgentActivityAttributes.ContentState(
             conversationTitle: safeTitle,
             status: status,

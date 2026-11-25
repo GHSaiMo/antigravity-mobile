@@ -26,11 +26,18 @@ private func redactLiveActivityCommand(_ raw: String) -> String {
 public struct AgentActivityWidget: Widget {
     public init() {}
     
+    private func activityDeepLinkURL(for attributes: AgentActivityAttributes) -> URL? {
+        if let gw = attributes.gatewayId?.trimmingCharacters(in: .whitespacesAndNewlines), !gw.isEmpty {
+            return URL(string: "antigravity://cascade/\(attributes.cascadeId)?gw=\(gw)")
+        }
+        return URL(string: "antigravity://cascade/\(attributes.cascadeId)")
+    }
+
     public var body: some WidgetConfiguration {
         ActivityConfiguration(for: AgentActivityAttributes.self) { context in
             // Routes .small (CarPlay Dashboard / Apple Watch Smart Stack) vs .medium (iPhone Lock Screen)
             AgentActivityPresentationView(context: context)
-                .widgetURL(URL(string: "antigravity://cascade/\(context.attributes.cascadeId)"))
+                .widgetURL(activityDeepLinkURL(for: context.attributes))
         } dynamicIsland: { context in
             DynamicIsland {
                 // Expanded UI
@@ -52,7 +59,7 @@ public struct AgentActivityWidget: Widget {
             } minimal: {
                 minimalView(context: context)
             }
-            .widgetURL(URL(string: "antigravity://cascade/\(context.attributes.cascadeId)"))
+            .widgetURL(activityDeepLinkURL(for: context.attributes))
         }
         .supplementalActivityFamilies([.small])
     }
@@ -262,7 +269,7 @@ public struct AgentActivityWidget: Widget {
                 } else {
                     let stepIdx = context.state.pendingStepIndex ?? -1
                     HStack(spacing: 8) {
-                        Button(intent: ApproveAgentActionIntent(cascadeId: context.attributes.cascadeId, expectedStepIndex: stepIdx)) {
+                        Button(intent: ApproveAgentActionIntent(cascadeId: context.attributes.cascadeId, expectedStepIndex: stepIdx, gatewayId: context.attributes.gatewayId ?? "")) {
                             HStack(spacing: 4) {
                                 Image(systemName: "checkmark")
                                     .font(.system(size: 10, weight: .bold))
@@ -277,7 +284,7 @@ public struct AgentActivityWidget: Widget {
                         }
                         .buttonStyle(.plain)
                         
-                        Button(intent: RejectAgentActionIntent(cascadeId: context.attributes.cascadeId, expectedStepIndex: stepIdx)) {
+                        Button(intent: RejectAgentActionIntent(cascadeId: context.attributes.cascadeId, expectedStepIndex: stepIdx, gatewayId: context.attributes.gatewayId ?? "")) {
                             HStack(spacing: 4) {
                                 Image(systemName: "xmark")
                                     .font(.system(size: 10, weight: .bold))
@@ -297,7 +304,7 @@ public struct AgentActivityWidget: Widget {
             } else if context.state.status == "RUNNING" {
                 HStack {
                     Spacer()
-                    Button(intent: StopAgentRunIntent(cascadeId: context.attributes.cascadeId)) {
+                    Button(intent: StopAgentRunIntent(cascadeId: context.attributes.cascadeId, gatewayId: context.attributes.gatewayId ?? "")) {
                         HStack(spacing: 4) {
                             Image(systemName: "stop.fill")
                                 .font(.system(size: 9))
@@ -611,7 +618,7 @@ struct AgentLockScreenView: View {
                         } else {
                             let stepIdx = context.state.pendingStepIndex ?? -1
                             HStack(spacing: 6) {
-                                Button(intent: ApproveAgentActionIntent(cascadeId: context.attributes.cascadeId, expectedStepIndex: stepIdx)) {
+                                Button(intent: ApproveAgentActionIntent(cascadeId: context.attributes.cascadeId, expectedStepIndex: stepIdx, gatewayId: context.attributes.gatewayId ?? "")) {
                                     Text("允许")
                                         .font(.system(size: 11, weight: .bold))
                                         .foregroundColor(.white)
@@ -622,7 +629,7 @@ struct AgentLockScreenView: View {
                                 }
                                 .buttonStyle(.plain)
                                 
-                                Button(intent: RejectAgentActionIntent(cascadeId: context.attributes.cascadeId, expectedStepIndex: stepIdx)) {
+                                Button(intent: RejectAgentActionIntent(cascadeId: context.attributes.cascadeId, expectedStepIndex: stepIdx, gatewayId: context.attributes.gatewayId ?? "")) {
                                     Text("拒绝")
                                         .font(.system(size: 11, weight: .bold))
                                         .foregroundColor(isDark ? Color(red: 1.0, green: 0.55, blue: 0.55) : Color(red: 0.78, green: 0.14, blue: 0.14))
@@ -635,7 +642,7 @@ struct AgentLockScreenView: View {
                             }
                         }
                     } else if context.state.status == "RUNNING" {
-                        Button(intent: StopAgentRunIntent(cascadeId: context.attributes.cascadeId)) {
+                        Button(intent: StopAgentRunIntent(cascadeId: context.attributes.cascadeId, gatewayId: context.attributes.gatewayId ?? "")) {
                             HStack(spacing: 3) {
                                 Image(systemName: "stop.fill")
                                     .font(.system(size: 8.5))

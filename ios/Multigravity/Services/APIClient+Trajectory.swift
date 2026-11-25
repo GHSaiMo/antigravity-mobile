@@ -9,6 +9,105 @@ private struct CachedMessagesETagEntry: Sendable {
 private let cascadeMessagesETagCache = OSAllocatedUnfairLock(initialState: [String: CachedMessagesETagEntry]())
 
 extension APIClient {
+    internal func decodeFetchMessagesResult(from data: Data, baseURL: URL) throws -> FetchMessagesResult {
+        let decoded = try JSONDecoder().decode(PaginatedMessagesResponse.self, from: data)
+        let chatMessages = (decoded.messages ?? []).map { item -> ChatMessage in
+            let sender: ChatMessage.MessageSender = {
+                switch item.type {
+                case "user": return .user
+                case "agent": return .agent
+                case "error": return .error
+                case "subagent": return .subagent
+                case "workflow": return .workflow
+                case "step_plan": return .stepPlan
+                default: return .toolBatch(count: item.toolCount ?? 1, tools: item.toolNames ?? [])
+                }
+            }()
+
+            let imgDataList = (item.media ?? []).compactMap { Data(base64Encoded: $0) }
+
+            let resolvedImageUrls: [String] = {
+                let rawList = item.imageUrls ?? []
+                return rawList
+                    .filter { FileIconResolver.isImage(for: $0) }
+                    .map { self.resolveMediaURL($0, baseURL: baseURL) }
+            }()
+
+            return ChatMessage(
+                id: item.id,
+                sender: sender,
+                content: item.text,
+                thinking: item.thinking,
+                toolCount: item.toolCount ?? 0,
+                toolNames: item.toolNames ?? [],
+                imageDataList: imgDataList,
+                imageUrls: resolvedImageUrls,
+                artifacts: item.artifacts ?? [],
+                stepIndex: item.stepIndex,
+                attemptCount: item.attemptCount,
+                maxAttempts: item.maxAttempts,
+                model: item.model,
+                modelName: item.modelName,
+                subagent: item.subagent,
+                workflow: item.workflow,
+                stepPlan: item.stepPlan,
+                focusText: item.focusText,
+                startedAt: item.startedAt,
+                timestamp: item.timestamp,
+                slashCommands: item.slashCommands,
+                clientMessageId: item.clientMessageId,
+                errorKind: item.errorKind,
+                isOverflow: item.isOverflow,
+                thinkingDuration: item.thinkingDuration,
+                thinkingBlocks: item.thinkingBlocks,
+                toolDetails: item.toolDetails
+            )
+        }
+
+        let lastUserIdx = chatMessages.lastIndex(where: { $0.isUser }) ?? -1
+        let latestTurnMessages = lastUserIdx >= 0 ? chatMessages.suffix(from: lastUserIdx + 1) : chatMessages[...]
+        let latestTurnHasErr = latestTurnMessages.contains(where: { $0.isError }) && !(latestTurnMessages.last?.isAgent == true)
+        let isErr = decoded.hasError ?? (decoded.status == "CASCADE_RUN_STATUS_ERROR" || latestTurnHasErr)
+        let errMsg = decoded.errorMessage ?? latestTurnMessages.last(where: { $0.isError })?.content
+
+        return FetchMessagesResult(
+            status: isErr ? "CASCADE_RUN_STATUS_ERROR" : decoded.status,
+            messages: chatMessages,
+            totalSteps: decoded.totalSteps,
+            totalTools: decoded.totalTools,
+            duration: decoded.duration,
+            hasMore: decoded.hasMore,
+            nextOffset: decoded.nextOffset,
+            turnOutline: decoded.turnOutline,
+            cascadeConfigRaw: decoded.cascadeConfigRaw,
+            title: decoded.title,
+            canProceed: decoded.canProceed ?? false,
+            proceedArtifactUri: decoded.proceedArtifactUri,
+            pendingInteraction: decoded.pendingInteraction,
+            queuedMessages: decoded.queuedMessages ?? [],
+            runningTasks: decoded.runningTasks ?? [],
+            activeModel: decoded.activeModel,
+            activeModelName: decoded.activeModelName,
+            modelDisplayName: decoded.modelDisplayName,
+            desktopActiveModel: decoded.desktopActiveModel,
+            desktopActiveModelName: decoded.desktopActiveModelName,
+            startedAt: decoded.startedAt,
+            hasError: isErr,
+            errorMessage: errMsg,
+            swarm: decoded.swarm,
+            contextMeter: decoded.contextMeter,
+            subagents: decoded.subagents,
+            parentConversationId: decoded.parentConversationId,
+            subagentRole: decoded.subagentRole,
+            suggestedResponses: decoded.suggestedResponses,
+            activeFocus: decoded.activeFocus,
+            activeFocusStartedAt: decoded.activeFocusStartedAt,
+            activePlan: decoded.activePlan,
+            branchOrigin: decoded.branchOrigin,
+            sideQuestions: decoded.sideQuestions
+        )
+    }
+
     // Fast lightweight paginated messages endpoint served by Go gateway
     public func fetchMessages(
         cascadeId: String,
@@ -48,102 +147,7 @@ extension APIClient {
                     return cached.result
                 }
                 if httpResp.statusCode == 200 {
-                    let decoded = try JSONDecoder().decode(PaginatedMessagesResponse.self, from: data)
-                    let chatMessages = (decoded.messages ?? []).map { item -> ChatMessage in
-                        let sender: ChatMessage.MessageSender = {
-                            switch item.type {
-                            case "user": return .user
-                            case "agent": return .agent
-                            case "error": return .error
-                            case "subagent": return .subagent
-                            case "workflow": return .workflow
-                            case "step_plan": return .stepPlan
-                            default: return .toolBatch(count: item.toolCount ?? 1, tools: item.toolNames ?? [])
-                            }
-                        }()
-                        
-                        let imgDataList = (item.media ?? []).compactMap { Data(base64Encoded: $0) }
-                        
-                        let resolvedImageUrls: [String] = {
-                            let rawList = item.imageUrls ?? []
-                            return rawList
-                                .filter { FileIconResolver.isImage(for: $0) }
-                                .map { self.resolveMediaURL($0, baseURL: baseURL) }
-                        }()
-                        
-                        return ChatMessage(
-                            id: item.id,
-                            sender: sender,
-                            content: item.text,
-                            thinking: item.thinking,
-                            toolCount: item.toolCount ?? 0,
-                            toolNames: item.toolNames ?? [],
-                            imageDataList: imgDataList,
-                            imageUrls: resolvedImageUrls,
-                            artifacts: item.artifacts ?? [],
-                            stepIndex: item.stepIndex,
-                            attemptCount: item.attemptCount,
-                            maxAttempts: item.maxAttempts,
-                            model: item.model,
-                            modelName: item.modelName,
-                            subagent: item.subagent,
-                            workflow: item.workflow,
-                            stepPlan: item.stepPlan,
-                            focusText: item.focusText,
-                            startedAt: item.startedAt,
-                            timestamp: item.timestamp,
-                            slashCommands: item.slashCommands,
-                            clientMessageId: item.clientMessageId,
-                            errorKind: item.errorKind,
-                            isOverflow: item.isOverflow,
-                            thinkingDuration: item.thinkingDuration,
-                            thinkingBlocks: item.thinkingBlocks,
-                            toolDetails: item.toolDetails
-                        )
-                    }
-                    
-                    let lastUserIdx = chatMessages.lastIndex(where: { $0.isUser }) ?? -1
-                    let latestTurnMessages = lastUserIdx >= 0 ? chatMessages.suffix(from: lastUserIdx + 1) : chatMessages[...]
-                    let latestTurnHasErr = latestTurnMessages.contains(where: { $0.isError }) && !(latestTurnMessages.last?.isAgent == true)
-                    let isErr = decoded.hasError ?? (decoded.status == "CASCADE_RUN_STATUS_ERROR" || latestTurnHasErr)
-                    let errMsg = decoded.errorMessage ?? latestTurnMessages.last(where: { $0.isError })?.content
-                    
-                    let result = FetchMessagesResult(
-                        status: isErr ? "CASCADE_RUN_STATUS_ERROR" : decoded.status,
-                        messages: chatMessages,
-                        totalSteps: decoded.totalSteps,
-                        totalTools: decoded.totalTools,
-                        duration: decoded.duration,
-                        hasMore: decoded.hasMore,
-                        nextOffset: decoded.nextOffset,
-                        turnOutline: decoded.turnOutline,
-                        cascadeConfigRaw: decoded.cascadeConfigRaw,
-                        title: decoded.title,
-                        canProceed: decoded.canProceed ?? false,
-                        proceedArtifactUri: decoded.proceedArtifactUri,
-                        pendingInteraction: decoded.pendingInteraction,
-                        queuedMessages: decoded.queuedMessages ?? [],
-                        runningTasks: decoded.runningTasks ?? [],
-                        activeModel: decoded.activeModel,
-                        activeModelName: decoded.activeModelName,
-                        modelDisplayName: decoded.modelDisplayName,
-                        desktopActiveModel: decoded.desktopActiveModel,
-                        desktopActiveModelName: decoded.desktopActiveModelName,
-                        startedAt: decoded.startedAt,
-                        hasError: isErr,
-                        errorMessage: errMsg,
-                        swarm: decoded.swarm,
-                        contextMeter: decoded.contextMeter,
-                        subagents: decoded.subagents,
-                        parentConversationId: decoded.parentConversationId,
-                        subagentRole: decoded.subagentRole,
-                        suggestedResponses: decoded.suggestedResponses,
-                        activeFocus: decoded.activeFocus,
-                        activeFocusStartedAt: decoded.activeFocusStartedAt,
-                        activePlan: decoded.activePlan,
-                        branchOrigin: decoded.branchOrigin,
-                        sideQuestions: decoded.sideQuestions
-                    )
+                    let result = try decodeFetchMessagesResult(from: data, baseURL: baseURL)
                     if let respETag = httpResp.value(forHTTPHeaderField: "ETag")?.trimmingCharacters(in: .whitespacesAndNewlines), !respETag.isEmpty {
                         cascadeMessagesETagCache.withLock { store in
                             if store.count >= 32 && store[cacheKey] == nil {

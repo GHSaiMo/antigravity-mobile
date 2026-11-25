@@ -30,6 +30,12 @@ public final class APIClient: Sendable {
     public static let sharedDecoder = JSONDecoder()
     public static let sharedEncoder = JSONEncoder()
 
+    internal func postTokenRevokedIfCurrentEpoch(_ reqEpoch: UInt64) {
+        if GatewayRuntimeState.shared.epoch == reqEpoch {
+            NotificationCenter.default.post(name: .deviceTokenRevoked, object: nil, userInfo: ["epoch": reqEpoch])
+        }
+    }
+
     // Core ConnectRPC POST request
     public func rpc<Req: Encodable, Resp: Decodable>(
         method: String,
@@ -50,6 +56,7 @@ public final class APIClient: Sendable {
         request.httpBody = try Self.sharedEncoder.encode(body)
         request.timeoutInterval = 15.0
         
+        let reqEpoch = GatewayRuntimeState.shared.epoch
         let data: Data
         let response: URLResponse
         do {
@@ -63,8 +70,8 @@ public final class APIClient: Sendable {
         }
         
         guard (200...299).contains(httpResp.statusCode) else {
-            if httpResp.statusCode == 401 {
-                NotificationCenter.default.post(name: .deviceTokenRevoked, object: nil)
+            if httpResp.statusCode == 401 && GatewayRuntimeState.shared.epoch == reqEpoch {
+                NotificationCenter.default.post(name: .deviceTokenRevoked, object: nil, userInfo: ["epoch": reqEpoch])
             }
             let errorMsg = String(data: data, encoding: .utf8) ?? httpResp.description
             throw APIError.serverError(statusCode: httpResp.statusCode, message: errorMsg)

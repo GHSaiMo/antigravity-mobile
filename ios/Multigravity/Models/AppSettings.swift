@@ -88,8 +88,29 @@ public final class AppSettings {
     private let workspaceNotesKey = "antigravity.workspace_notes"
     private let cachedPermissionPresetKey = "antigravity.cached_permission_preset"
 
+    /// Guard flag set during atomic gateway profile switches so intermediate property assignments
+    /// do not recursively write back or trigger redundant route-change broadcasts.
+    private var isApplyingGatewayProfile: Bool = false
+
+    private func mirrorToActiveGatewayProfileIfNeeded() {
+        guard !isApplyingGatewayProfile, !isDemoMode else { return }
+        if Thread.isMainThread {
+            MainActor.assumeIsolated {
+                GatewayProfileStore.shared.updateActiveProfileFromSettings(self)
+            }
+        } else {
+            Task { @MainActor in
+                guard !self.isApplyingGatewayProfile, !self.isDemoMode else { return }
+                GatewayProfileStore.shared.updateActiveProfileFromSettings(self)
+            }
+        }
+    }
+
     public var workspaceNotes: [String: String] {
-        didSet { UserDefaults.standard.set(workspaceNotes, forKey: workspaceNotesKey) }
+        didSet {
+            UserDefaults.standard.set(workspaceNotes, forKey: workspaceNotesKey)
+            mirrorToActiveGatewayProfileIfNeeded()
+        }
     }
 
     public func workspaceNote(for pathOrUri: String) -> String {
@@ -153,6 +174,7 @@ public final class AppSettings {
             } else {
                 UserDefaults.standard.removeObject(forKey: gatewayPlatformKey)
             }
+            mirrorToActiveGatewayProfileIfNeeded()
         }
     }
 
@@ -172,9 +194,10 @@ public final class AppSettings {
     public var rawServerURL: String {
         didSet {
             UserDefaults.standard.set(rawServerURL, forKey: serverURLKey)
-            if activeServerURL != rawServerURL {
+            if !isApplyingGatewayProfile && activeServerURL != rawServerURL {
                 activeServerURL = rawServerURL
             }
+            mirrorToActiveGatewayProfileIfNeeded()
         }
     }
     
@@ -189,6 +212,7 @@ public final class AppSettings {
             } else {
                 UserDefaults.standard.removeObject(forKey: primaryCloudURLKey)
             }
+            mirrorToActiveGatewayProfileIfNeeded()
         }
     }
     
@@ -199,6 +223,7 @@ public final class AppSettings {
             } else {
                 UserDefaults.standard.removeObject(forKey: lanServerURLKey)
             }
+            mirrorToActiveGatewayProfileIfNeeded()
         }
     }
 
@@ -209,6 +234,7 @@ public final class AppSettings {
             } else {
                 UserDefaults.standard.removeObject(forKey: relayServerURLKey)
             }
+            mirrorToActiveGatewayProfileIfNeeded()
         }
     }
     
@@ -219,6 +245,7 @@ public final class AppSettings {
             } else {
                 UserDefaults.standard.removeObject(forKey: customServerURLKey)
             }
+            mirrorToActiveGatewayProfileIfNeeded()
         }
     }
     
@@ -229,6 +256,8 @@ public final class AppSettings {
             } else {
                 UserDefaults.standard.removeObject(forKey: activeServerURLKey)
             }
+            mirrorToActiveGatewayProfileIfNeeded()
+            guard !isApplyingGatewayProfile else { return }
             let oldClean = oldValue?
                 .trimmingCharacters(in: .whitespacesAndNewlines)
                 .trimmingCharacters(in: CharacterSet(charactersIn: "/"))
@@ -384,6 +413,7 @@ public final class AppSettings {
     public var cachedPermissionPreset: String {
         didSet {
             UserDefaults.standard.set(cachedPermissionPreset, forKey: cachedPermissionPresetKey)
+            mirrorToActiveGatewayProfileIfNeeded()
         }
     }
 
@@ -740,8 +770,74 @@ public final class AppSettings {
         syncWidgetConfiguration()
     }
     
+    /// Hydrates AppSettings endpoints and per-gateway metadata from an activated `GatewayProfile`
+    /// without firing intermediate `.networkRoutingPreferenceChanged` notifications.
+    @MainActor
+    public func applyProfile(_ profile: GatewayProfile) {
+        isApplyingGatewayProfile = true
+        defer { isApplyingGatewayProfile = false }
+
+        DemoGateway.isEnabled = false
+        UserDefaults.standard.removeObject(forKey: demoModeKey)
+        self.isDemoMode = false
+        self.rawServerURL = profile.rawServerURL
+        self.primaryCloudURL = profile.primaryCloudURL
+        self.lanServerURL = profile.lanServerURL
+        self.relayServerURL = profile.relayServerURL
+        self.customServerURL = profile.customServerURL
+        self.activeServerURL = profile.activeServerURL ?? (profile.rawServerURL.isEmpty ? nil : profile.rawServerURL)
+        self.gatewayPlatform = profile.platform
+        self.workspaceNotes = profile.workspaceNotes
+        self.cachedPermissionPreset = profile.cachedPermissionPreset
+
+        let token = KeychainHelper.shared.read(key: .deviceToken, profileId: profile.id)
+        self.isPaired = (token != nil && !token!.isEmpty)
+    }
+
     public func unpair() {
-        KeychainHelper.shared.clearAll()
+        clearActiveEndpointDefaults()
+        if Thread.isMainThread {
+            MainActor.assumeIsolated {
+                GatewayProfileStore.shared.clearAllProfiles()
+            }
+        } else {
+            KeychainHelper.shared.clearAll()
+            KeychainHelper.shared.clearLegacy()
+        }
+        QuotaWidgetStore.shared.clearAll()
+        QuotaWidgetStore.shared.reloadWidgetTimelines()
+    }
+
+    /// Unpairs ONLY the currently active gateway profile; if another profile remains, smoothly switches to it
+    /// and returns `true`. Returns `false` if no paired gateways remain (caller should return to onboarding).
+    @MainActor
+    @discardableResult
+    public func unpairActiveProfile() -> Bool {
+        if isDemoMode {
+            clearActiveEndpointDefaults()
+            QuotaWidgetStore.shared.clearAll()
+            QuotaWidgetStore.shared.reloadWidgetTimelines()
+            return false
+        }
+        let store = GatewayProfileStore.shared
+        guard let activeId = store.activeProfileId else {
+            unpair()
+            return false
+        }
+        let (_, nextActive) = store.removeProfile(id: activeId)
+        if let next = nextActive {
+            _ = GatewaySwitcher.shared.switchTo(profileId: next.id, showToast: true, force: true)
+            return true
+        }
+        clearActiveEndpointDefaults()
+        QuotaWidgetStore.shared.clearAll()
+        QuotaWidgetStore.shared.reloadWidgetTimelines()
+        return false
+    }
+
+    private func clearActiveEndpointDefaults() {
+        isApplyingGatewayProfile = true
+        defer { isApplyingGatewayProfile = false }
         DemoGateway.isEnabled = false
         UserDefaults.standard.removeObject(forKey: demoModeKey)
         self.isDemoMode = false
@@ -752,6 +848,9 @@ public final class AppSettings {
         self.relayServerURL = nil
         self.customServerURL = nil
         self.activeServerURL = nil
+        self.gatewayPlatform = nil
+        self.workspaceNotes = [:]
+        self.cachedPermissionPreset = "strict"
         UserDefaults.standard.removeObject(forKey: serverURLKey)
         UserDefaults.standard.removeObject(forKey: primaryCloudURLKey)
         UserDefaults.standard.removeObject(forKey: lanServerURLKey)
@@ -760,9 +859,8 @@ public final class AppSettings {
         UserDefaults.standard.removeObject(forKey: customServerURLKey)
         UserDefaults.standard.removeObject(forKey: activeServerURLKey)
         UserDefaults.standard.removeObject(forKey: gatewayPlatformKey)
-        self.gatewayPlatform = nil
-        QuotaWidgetStore.shared.clearAll()
-        QuotaWidgetStore.shared.reloadWidgetTimelines()
+        UserDefaults.standard.removeObject(forKey: workspaceNotesKey)
+        UserDefaults.standard.removeObject(forKey: cachedPermissionPresetKey)
     }
 
     /// Mirrors gateway endpoints, auth token, and preferred provider into the shared App Group container

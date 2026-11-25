@@ -105,6 +105,18 @@ object E2eeCrypto {
         }
     }
 
+    fun resetForGatewaySwitch(requiredHosts: List<String>) {
+        e2eeRequiredHosts.clear()
+        for (h in requiredHosts) {
+            val clean = ConnectionManager.extractHost(h)
+            if (clean.isNotEmpty()) {
+                e2eeRequiredHosts.add(clean)
+            }
+        }
+        binaryRequestHosts.clear()
+        lastUpgradeAttemptMs.set(0L)
+    }
+
     fun markHostSupportsBinaryRequest(host: String) {
         val clean = ConnectionManager.extractHost(host)
         if (clean.isNotEmpty()) {
@@ -397,6 +409,13 @@ object E2eeCrypto {
 class E2eeUploadProgressTag(val onProgress: (Float) -> Unit)
 
 /**
+ * Optional OkHttp Request tag carrying an isolated [com.antigravity.mobile.data.model.GatewayRequestContext]
+ * so requests to inactive gateways (summary peeks, multi-gateway push sync, lock-screen actions)
+ * encrypt/authenticate strictly with that gateway's credentials without reading or mutating global prefs.
+ */
+class E2eeContextTag(val context: com.antigravity.mobile.data.model.GatewayRequestContext)
+
+/**
  * Transparent OkHttp interceptor that encrypts outgoing HTTP requests targeting E2EE relay hosts
  * into `POST /api/v1/e2ee/rpc` and decrypts responses back into normal OkHttp `Response` objects.
  * Also auto-recovers on `HTTP 426 e2ee_required` for custom-domain relay nodes.
@@ -410,21 +429,33 @@ class E2eeTransportInterceptor(
     override fun intercept(chain: Interceptor.Chain): Response {
         val original = chain.request()
         val url = original.url
-        if (E2eeCrypto.shouldEncrypt(url.scheme, url.host, url.encodedPath, prefs)) {
-            return executeEncrypted(chain, original, forceLegacyJson = false)
+        val ctx = original.tag(E2eeContextTag::class.java)?.context
+        val reqEpoch = com.antigravity.mobile.data.model.GatewayRuntimeState.epoch
+
+        val shouldEnc = if (ctx != null) {
+            ctx.shouldEncrypt(url.scheme, url.host, url.encodedPath)
+        } else {
+            E2eeCrypto.shouldEncrypt(url.scheme, url.host, url.encodedPath, prefs)
+        }
+        if (shouldEnc) {
+            return executeEncrypted(chain, original, forceLegacyJson = false, explicitCtx = ctx, reqEpoch = reqEpoch)
         }
         val resp = chain.proceed(original)
         E2eeCrypto.observeServerCapabilities(resp, url.host)
+        val e2eeReady = ctx?.isE2eeReady ?: E2eeCrypto.isReady(prefs)
         if (resp.code == 426 &&
-            E2eeCrypto.isReady(prefs) &&
+            e2eeReady &&
             url.isHttps &&
             !ConnectionManager.isLanHost(url.host) &&
             !ConnectionManager.isTailscaleHost(url.host) &&
             !url.encodedPath.startsWith("/api/v1/e2ee/")
         ) {
             resp.close()
-            E2eeCrypto.markHostRequiresE2ee(url.host)
-            return executeEncrypted(chain, original, forceLegacyJson = false)
+            if (ctx == null && com.antigravity.mobile.data.model.GatewayRuntimeState.epoch == reqEpoch) {
+                E2eeCrypto.markHostRequiresE2ee(url.host)
+                GatewayProfileStore.sharedOrNull()?.markActiveE2eeHost(url.host)
+            }
+            return executeEncrypted(chain, original, forceLegacyJson = false, explicitCtx = ctx, reqEpoch = reqEpoch)
         }
         return resp
     }
@@ -432,12 +463,15 @@ class E2eeTransportInterceptor(
     private fun executeEncrypted(
         chain: Interceptor.Chain,
         original: Request,
-        forceLegacyJson: Boolean
+        forceLegacyJson: Boolean,
+        explicitCtx: com.antigravity.mobile.data.model.GatewayRequestContext? = null,
+        reqEpoch: Long = com.antigravity.mobile.data.model.GatewayRuntimeState.epoch
     ): Response {
-        val deviceId = prefs.deviceId?.trim()?.takeIf { it.isNotEmpty() }
+        val deviceId = (explicitCtx?.deviceId ?: prefs.deviceId)?.trim()?.takeIf { it.isNotEmpty() }
             ?: throw IOException("E2EE device_id missing")
-        val key = E2eeCrypto.decodeDeviceKey(prefs)
+        val key = (explicitCtx?.e2eeKey ?: E2eeCrypto.decodeDeviceKey(prefs))
             ?: throw IOException("E2EE device key missing")
+        val tokenForAuth = (explicitCtx?.deviceToken ?: prefs.deviceToken)?.trim()?.takeIf { it.isNotEmpty() }
 
         val url = original.url
         val pathWithQuery = buildString {
@@ -456,10 +490,8 @@ class E2eeTransportInterceptor(
             if (name.equals("Authorization", ignoreCase = true)) hasAuth = true
             headersJson.put(name, original.headers.value(i))
         }
-        if (!hasAuth) {
-            prefs.deviceToken?.trim()?.takeIf { it.isNotEmpty() }?.let { tok ->
-                headersJson.put("Authorization", "Bearer $tok")
-            }
+        if (!hasAuth && tokenForAuth != null) {
+            headersJson.put("Authorization", "Bearer $tokenForAuth")
         }
 
         var rawBodyBytes: ByteArray? = null
@@ -554,7 +586,7 @@ class E2eeTransportInterceptor(
                 if (snippet.contains("invalid_inner_request")) {
                     outerResp.close()
                     E2eeCrypto.clearHostBinaryRequestSupport(url.host)
-                    return executeEncrypted(chain, original, forceLegacyJson = true)
+                    return executeEncrypted(chain, original, forceLegacyJson = true, explicitCtx = explicitCtx, reqEpoch = reqEpoch)
                 }
             }
             return outerResp
@@ -620,12 +652,16 @@ class E2eeTransportInterceptor(
                     contentType = v
                 }
                 if (k.equals("X-Antigravity-Cloud-URL", ignoreCase = true) && v.isNotBlank()) {
-                    ConnectionManager.applyAdvertisedCloudUrl(
-                        rawHeader = v,
-                        prefs = prefs,
-                        trustedByE2ee = true,
-                        connectionManager = connectionManager
-                    )
+                    if (explicitCtx != null) {
+                        GatewayProfileStore.sharedOrNull()?.updateCloudUrl(explicitCtx.profileId, v)
+                    } else if (com.antigravity.mobile.data.model.GatewayRuntimeState.epoch == reqEpoch) {
+                        ConnectionManager.applyAdvertisedCloudUrl(
+                            rawHeader = v,
+                            prefs = prefs,
+                            trustedByE2ee = true,
+                            connectionManager = connectionManager
+                        )
+                    }
                 }
             }
         }

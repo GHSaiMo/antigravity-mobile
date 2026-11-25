@@ -25,11 +25,22 @@ import (
 	"github.com/gorilla/websocket"
 )
 
+// GatewaySummary provides lightweight cross-gateway conversation counters for multi-host status peek.
+type GatewaySummary struct {
+	RunningCount int `json:"running_count"`
+	ActionCount  int `json:"action_count"`
+	UnreadCount  int `json:"unread_count"`
+	TotalActive  int `json:"total_active"`
+}
+
 // GatewayStatus represents the public status of the gateway.
 type GatewayStatus struct {
 	Status                string                  `json:"status"`
 	OS                    string                  `json:"os,omitempty"`
 	Platform              string                  `json:"platform,omitempty"`
+	GatewayID             string                  `json:"gateway_id,omitempty"`
+	GatewayName           string                  `json:"gateway_name,omitempty"`
+	Summary               *GatewaySummary         `json:"summary,omitempty"`
 	Upstream              *inspector.InstanceInfo `json:"upstream,omitempty"`
 	ActiveStreamCascadeID string                  `json:"active_stream_cascade_id,omitempty"`
 	ActiveStreamTitle     string                  `json:"active_stream_title,omitempty"`
@@ -98,6 +109,8 @@ type Proxy struct {
 	activePort  int
 	activeToken string
 	notifier    NotificationSink
+	gatewayID   string
+	gatewayName string
 
 	slashCache slashCommandCache
 	compat     compatState
@@ -895,6 +908,21 @@ func publicInstanceInfo(info *inspector.InstanceInfo) *inspector.InstanceInfo {
 	return &cp
 }
 
+// SetGatewayIdentity configures the stable gateway ID and display name exposed by /gateway/status.
+func (p *Proxy) SetGatewayIdentity(id, name string) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.gatewayID = strings.TrimSpace(id)
+	p.gatewayName = strings.TrimSpace(name)
+}
+
+// GatewayIdentity returns the configured (gatewayID, gatewayName).
+func (p *Proxy) GatewayIdentity() (string, string) {
+	p.mu.RLock()
+	defer p.mu.RUnlock()
+	return p.gatewayID, p.gatewayName
+}
+
 func (p *Proxy) handleStatus(w http.ResponseWriter, r *http.Request) {
 	cur := p.insp.Current()
 	status := "disconnected"
@@ -903,11 +931,20 @@ func (p *Proxy) handleStatus(w http.ResponseWriter, r *http.Request) {
 	}
 
 	activeID, activeTitle := p.ActiveStream()
+	gwID, gwName := p.GatewayIdentity()
+	wantSummary := r != nil && (r.URL.Query().Get("summary") == "1" || strings.EqualFold(r.URL.Query().Get("summary"), "true"))
+	var summary *GatewaySummary
+	if status == "connected" {
+		summary = p.computeGatewaySummary(r.Context(), wantSummary)
+	}
 
 	data, err := json.Marshal(GatewayStatus{
 		Status:                status,
 		OS:                    runtime.GOOS,
 		Platform:              runtime.GOOS,
+		GatewayID:             gwID,
+		GatewayName:           gwName,
+		Summary:               summary,
 		Upstream:              publicInstanceInfo(cur),
 		ActiveStreamCascadeID: activeID,
 		ActiveStreamTitle:     activeTitle,

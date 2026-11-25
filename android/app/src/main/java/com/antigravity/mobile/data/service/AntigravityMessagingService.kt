@@ -25,11 +25,12 @@ class AntigravityMessagingService : FirebaseMessagingService() {
         val prefs = PreferencesManager(applicationContext)
         prefs.fcmPushToken = token
 
-        if (prefs.isPaired()) {
+        val store = GatewayProfileStore.getOrCreate(applicationContext, prefs)
+        if (prefs.isPaired() || store.profiles.isNotEmpty()) {
             val connectionManager = ConnectionManager(applicationContext)
             val apiClient = ApiClient(applicationContext, prefs, connectionManager)
             scope.launch {
-                apiClient.registerPushToken(token)
+                apiClient.syncPushTokenToAllGateways(token)
             }
         }
     }
@@ -40,16 +41,20 @@ class AntigravityMessagingService : FirebaseMessagingService() {
         val data = remoteMessage.data
         val pushAction = data["action"] ?: ""
         val category = data["category"] ?: ""
-        val deeplink = data["deeplink"]?.takeIf { it.isNotBlank() }
+        val rawDeeplink = data["deeplink"]?.takeIf { it.isNotBlank() }
             ?: data["url"]?.takeIf { it.isNotBlank() }
             ?: if (category.equals("quota_alert", ignoreCase = true)) "antigravity://quota" else "antigravity://cascade/"
+        val gatewayId = extractGatewayId(data, rawDeeplink)
+        val gatewayLabel = data["gatewayLabel"]?.trim()?.takeIf { it.isNotBlank() }
+            ?: data["gateway_label"]?.trim()?.takeIf { it.isNotBlank() }
+        val deeplink = appendGatewayQueryParam(rawDeeplink, gatewayId)
         val cascadeId = extractCascadeId(data, deeplink)
 
         if (pushAction.equals("dismiss_approval", ignoreCase = true) ||
             category.equals("dismiss_approval", ignoreCase = true)
         ) {
             if (!cascadeId.isNullOrBlank()) {
-                dismissAlertNotification(applicationContext, cascadeId)
+                dismissAlertNotification(applicationContext, cascadeId, gatewayId)
             }
             return
         }
@@ -69,11 +74,14 @@ class AntigravityMessagingService : FirebaseMessagingService() {
         val intent = Intent(applicationContext, MainActivity::class.java).apply {
             action = Intent.ACTION_VIEW
             setData(Uri.parse(deeplink))
+            if (!gatewayId.isNullOrBlank()) {
+                putExtra(NotificationActionReceiver.EXTRA_GATEWAY_ID, gatewayId)
+            }
             flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
         }
 
         val notifId = if (!cascadeId.isNullOrBlank()) {
-            alertNotificationIdForCascade(cascadeId)
+            alertNotificationIdForCascade(cascadeId, gatewayId)
         } else {
             (deeplink.hashCode() and 0x7FFFFFFF)
         }
@@ -113,6 +121,10 @@ class AntigravityMessagingService : FirebaseMessagingService() {
             .setCategory(if (isAction) NotificationCompat.CATEGORY_ALARM else NotificationCompat.CATEGORY_EVENT)
             .setDefaults(NotificationCompat.DEFAULT_ALL)
 
+        if (!gatewayLabel.isNullOrBlank()) {
+            builder.setSubText(gatewayLabel)
+        }
+
         val isTerminalPush = lowerCat.contains("complete") || lowerCat.contains("done") ||
             lowerCat.contains("finish") || lowerCat.contains("error") || lowerCat.contains("fail") ||
             lowerCat.contains("proceed")
@@ -129,7 +141,8 @@ class AntigravityMessagingService : FirebaseMessagingService() {
                         applicationContext,
                         NotificationActionReceiver.ACTION_APPROVE,
                         cascadeId,
-                        alertNotifId = notifId
+                        alertNotifId = notifId,
+                        gatewayId = gatewayId
                     )
                 )
                 builder.addAction(
@@ -139,7 +152,8 @@ class AntigravityMessagingService : FirebaseMessagingService() {
                         applicationContext,
                         NotificationActionReceiver.ACTION_REJECT,
                         cascadeId,
-                        alertNotifId = notifId
+                        alertNotifId = notifId,
+                        gatewayId = gatewayId
                     )
                 )
             } else if (isHighRiskApproval) {
@@ -152,7 +166,8 @@ class AntigravityMessagingService : FirebaseMessagingService() {
                         applicationContext,
                         NotificationActionReceiver.ACTION_REJECT,
                         cascadeId,
-                        alertNotifId = notifId
+                        alertNotifId = notifId,
+                        gatewayId = gatewayId
                     )
                 )
             }
@@ -166,8 +181,26 @@ class AntigravityMessagingService : FirebaseMessagingService() {
     }
 
     companion object {
-        fun alertNotificationIdForCascade(cascadeId: String): Int {
-            return ("cascade_alert:${cascadeId.trim()}".hashCode() and 0x7FFFFFFF)
+        fun alertNotificationIdForCascade(cascadeId: String, gatewayId: String? = null): Int {
+            val gw = gatewayId?.trim().orEmpty()
+            val key = if (gw.isNotEmpty()) "cascade_alert:$gw:${cascadeId.trim()}" else "cascade_alert:${cascadeId.trim()}"
+            return (key.hashCode() and 0x7FFFFFFF)
+        }
+
+        fun extractGatewayId(data: Map<String, String>, deeplink: String): String? {
+            return data["gatewayId"]?.trim()?.takeIf { it.isNotBlank() }
+                ?: data["gateway_id"]?.trim()?.takeIf { it.isNotBlank() }
+                ?: runCatching { Uri.parse(deeplink).getQueryParameter("gw") }
+                    .getOrNull()
+                    ?.trim()
+                    ?.takeIf { it.isNotBlank() }
+        }
+
+        fun appendGatewayQueryParam(deeplink: String, gatewayId: String?): String {
+            val gw = gatewayId?.trim()?.takeIf { it.isNotBlank() } ?: return deeplink
+            val parsed = runCatching { Uri.parse(deeplink) }.getOrNull() ?: return deeplink
+            if (!parsed.getQueryParameter("gw").isNullOrBlank()) return deeplink
+            return parsed.buildUpon().appendQueryParameter("gw", gw).build().toString()
         }
 
         fun extractCascadeId(data: Map<String, String>, deeplink: String): String? {
@@ -179,15 +212,18 @@ class AntigravityMessagingService : FirebaseMessagingService() {
                     ?.takeIf { it.isNotBlank() && it != "cascade" }
         }
 
-        fun dismissAlertNotification(context: Context, cascadeId: String) {
+        fun dismissAlertNotification(context: Context, cascadeId: String, gatewayId: String? = null) {
             val cid = cascadeId.trim()
             if (cid.isEmpty()) return
             val nm = NotificationManagerCompat.from(context.applicationContext)
-            val ids = setOf(
-                alertNotificationIdForCascade(cid),
+            val ids = mutableSetOf(
+                alertNotificationIdForCascade(cid, null),
                 ("antigravity://cascade/$cid?action=review".hashCode() and 0x7FFFFFFF),
                 ("antigravity://cascade/$cid".hashCode() and 0x7FFFFFFF)
             )
+            if (!gatewayId.isNullOrBlank()) {
+                ids.add(alertNotificationIdForCascade(cid, gatewayId))
+            }
             ids.forEach { id ->
                 try {
                     nm.cancel(id)

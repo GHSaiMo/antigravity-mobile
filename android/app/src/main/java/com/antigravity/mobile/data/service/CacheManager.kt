@@ -30,7 +30,86 @@ class CacheManager(context: Context) {
     private val json = JsonConfig.instance
 
     private val cacheDir = File(appContext.filesDir, "AntigravityCache").apply { mkdirs() }
-    private val sessionsDir = File(cacheDir, "sessions").apply { mkdirs() }
+    @Volatile
+    private var storageNamespace: String = ""
+    @Volatile
+    private var sessionsDir: File = File(cacheDir, "sessions").apply { mkdirs() }
+
+    private fun sessionsDirFor(namespace: String): File {
+        val clean = namespace.trim()
+        return if (clean.isEmpty()) {
+            File(cacheDir, "sessions")
+        } else {
+            File(File(File(cacheDir, "profiles"), clean), "sessions")
+        }
+    }
+
+    fun switchStorageNamespace(namespace: String) {
+        val clean = namespace.trim()
+        if (storageNamespace == clean && sessionsDir.exists()) return
+        flushPendingSessionWritesSync()
+        storageNamespace = clean
+        sessionsDir = sessionsDirFor(clean).apply { mkdirs() }
+        memSessions.evictAll()
+        sessionTitleCache.clear()
+        pendingWrites.clear()
+    }
+
+    fun clearStorageForNamespace(namespace: String) {
+        val clean = namespace.trim()
+        if (clean == storageNamespace) {
+            memSessions.evictAll()
+            sessionTitleCache.clear()
+            pendingWrites.clear()
+        }
+        val targetDir = if (clean.isEmpty()) File(cacheDir, "sessions") else File(File(cacheDir, "profiles"), clean)
+        ioScope.launch {
+            fileMutex.withLock {
+                try {
+                    if (clean.isEmpty()) {
+                        targetDir.listFiles()?.forEach { it.delete() }
+                    } else {
+                        targetDir.deleteRecursively()
+                    }
+                } catch (e: Exception) {
+                    Log.w(TAG, "Failed to clear storage for namespace '$clean': ${e.message}")
+                }
+            }
+        }
+    }
+
+    fun containsCachedSession(cascadeId: String, namespace: String): Boolean {
+        if (!isValidCascadeId(cascadeId)) return false
+        val cleanNs = namespace.trim()
+        if (cleanNs == storageNamespace) {
+            if (memSessions.get(cascadeId) != null || pendingWrites.containsKey(cascadeId)) {
+                return true
+            }
+        }
+        val file = File(sessionsDirFor(cleanNs), "$cascadeId.json")
+        return file.exists() && file.length() > 0L
+    }
+
+    fun flushPendingSessionWritesSync() {
+        val entries = pendingWrites.entries.toList()
+        if (entries.isEmpty()) return
+        val dir = sessionsDir
+        for ((cascadeId, session) in entries) {
+            pendingWrites.remove(cascadeId, session)
+            if (!isValidCascadeId(cascadeId)) continue
+            try {
+                val diskSession = trimmedForDiskPersistence(session)
+                val dataStr = json.encodeToString(diskSession)
+                val targetFile = File(dir, "$cascadeId.json")
+                val tempFile = File(dir, "$cascadeId.json.tmp")
+                tempFile.writeText(dataStr, Charsets.UTF_8)
+                if (tempFile.exists()) {
+                    if (targetFile.exists()) targetFile.delete()
+                    tempFile.renameTo(targetFile)
+                }
+            } catch (_: Exception) {}
+        }
+    }
 
     private val memSessions = LruCache<String, CachedChatSession>(MAX_MEM_SESSIONS)
     private val sessionTitleCache = ConcurrentHashMap<String, String>()

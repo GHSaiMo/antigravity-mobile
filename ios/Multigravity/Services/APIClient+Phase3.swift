@@ -25,6 +25,7 @@ extension APIClient {
         request.httpMethod = "GET"
         request.timeoutInterval = timeout
 
+        let reqEpoch = GatewayRuntimeState.shared.epoch
         let (data, response): (Data, URLResponse)
         do {
             (data, response) = try await transport.send(request: request)
@@ -36,7 +37,7 @@ extension APIClient {
         }
         guard (200...299).contains(http.statusCode) else {
             if http.statusCode == 401 {
-                NotificationCenter.default.post(name: .deviceTokenRevoked, object: nil)
+                postTokenRevokedIfCurrentEpoch(reqEpoch)
             }
             let msg = (try? Self.sharedDecoder.decode(P3GatewayErrorBody.self, from: data))?.error
                 ?? String(data: data, encoding: .utf8)
@@ -59,6 +60,7 @@ extension APIClient {
         request.httpBody = try Self.sharedEncoder.encode(payload)
         request.timeoutInterval = timeout
 
+        let reqEpoch = GatewayRuntimeState.shared.epoch
         let (data, response): (Data, URLResponse)
         do {
             (data, response) = try await transport.send(request: request)
@@ -70,7 +72,7 @@ extension APIClient {
         }
         guard (200...299).contains(http.statusCode) else {
             if http.statusCode == 401 {
-                NotificationCenter.default.post(name: .deviceTokenRevoked, object: nil)
+                postTokenRevokedIfCurrentEpoch(reqEpoch)
             }
             let msg = (try? Self.sharedDecoder.decode(P3GatewayErrorBody.self, from: data))?.error
                 ?? String(data: data, encoding: .utf8)

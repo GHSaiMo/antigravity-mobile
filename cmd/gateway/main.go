@@ -238,12 +238,18 @@ func runGatewayServer(args []string) {
 	defer authHandler.Close()
 	authHandler.SetEndpoints(netAddrs.LANIPv4, *ddnsHost)
 
+	gatewayName := config.DefaultGatewayName()
+	var gatewayID string
 	if e2eeID, eErr := e2ee.LoadOrCreateIdentity(config.GetDataDir()); eErr != nil {
 		slog.Warn(i18n.T("⚠️  初始化 E2EE 密钥失败，中继加密将不可用", "⚠️  Failed to initialize E2EE identity"), "err", eErr)
+		gatewayID = e2ee.LoadOrCreateFallbackGatewayID(config.GetDataDir())
 	} else {
 		auth.SetDefaultE2EEPubKey(e2eeID.PublicKeyB64())
 		authHandler.SetE2EEIdentity(e2eeID)
+		gatewayID = e2eeID.GatewayID()
 	}
+	authHandler.SetGatewayIdentity(gatewayID, gatewayName)
+	p.SetGatewayIdentity(gatewayID, gatewayName)
 
 	qrPort := *port
 
@@ -335,6 +341,7 @@ func runGatewayServer(args []string) {
 	}()
 
 	notif := notifier.NewNotifier(notifCfg)
+	notif.SetGatewayIdentity(gatewayID, gatewayName)
 	alertPrefsStore := notifier.NewAlertPreferencesStore(filepath.Join(config.GetDataDir(), "notification_prefs.json"))
 	notif.SetAlertPreferencesStore(alertPrefsStore)
 	cacheAuditStatePath := notifier.ResolveCacheMissAuditStatePath(config.GetDataDir())
@@ -356,20 +363,20 @@ func runGatewayServer(args []string) {
 			)
 		}
 	}
-	if notifCfg.APNSEnabled {
-		pushStore, storeErr := notifier.NewPushDeviceStore(notifCfg.PushStorePath)
-		if storeErr != nil {
-			slog.Warn(i18n.T("⚠️  初始化 APNs 设备推送存储失败", "⚠️  Failed to initialize APNs device push storage"), "err", storeErr)
-		} else {
+	if pushStore, storeErr := notifier.NewPushDeviceStore(notifCfg.PushStorePath); storeErr != nil {
+		slog.Warn(i18n.T("⚠️  初始化设备推送存储失败", "⚠️  Failed to initialize device push storage"), "err", storeErr)
+	} else {
+		notif.AttachPushStore(pushStore)
+		if notifCfg.APNSEnabled {
 			apnsClient := notifier.NewAPNsRelayClient(notifCfg.APNSRelayURL, pushStore)
 			notif.AttachAPNsClient(apnsClient, notifCfg.LiveActivityPushEnabled)
-			authStore.SetOnDeviceRemoved(func(deviceID string) {
-				pushStore.RemoveDevice(deviceID)
-			})
-			authStore.SetOnClearAll(func() {
-				pushStore.ClearAll()
-			})
 		}
+		authStore.SetOnDeviceRemoved(func(deviceID string) {
+			pushStore.RemoveDevice(deviceID)
+		})
+		authStore.SetOnClearAll(func() {
+			pushStore.ClearAll()
+		})
 	}
 
 	var powerGuard *power.Guard
@@ -1267,10 +1274,6 @@ func buildRouterWithWSAddr(
 	rootMux.HandleFunc("/api/v1/devices", authHandler.HandleDevices)
 
 	// Mobile push token registration endpoint (supports iOS APNs Alert/LiveActivity & Android FCM)
-	var (
-		fcmOwnerMu       sync.Mutex
-		fcmOwnerDeviceID string
-	)
 	setJSONDeadline := func(w http.ResponseWriter) {
 		_ = http.NewResponseController(w).SetReadDeadline(time.Now().Add(30 * time.Second))
 	}
@@ -1291,6 +1294,8 @@ func buildRouterWithWSAddr(
 			SoundComplete         string `json:"sound_complete"`
 			SoundAction           string `json:"sound_action"`
 			Lang                  string `json:"lang"`
+			ShowGatewayLabel      *bool  `json:"show_gateway_label"`
+			GatewayLabel          string `json:"gateway_label"`
 		}
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid json"})
@@ -1313,22 +1318,23 @@ func buildRouterWithWSAddr(
 			pushToken = strings.TrimSpace(req.DeviceToken)
 		}
 
-		// iOS APNs native push & Live Activity registration path
-		if platform == "ios" || tokenType == "alert" || tokenType == "live_activity_start" || tokenType == "live_activity_update" || tokenType == "preferences" {
-			requestedID := strings.TrimSpace(req.DeviceID)
-			deviceID := requestedID
-			if authedDev != nil && authedDev.DeviceID != "" {
-				if authedDev.DeviceID != "admin-local" {
-					// LOW-01: Non-admin paired devices may only register/modify their own device_id.
-					if requestedID != "" && requestedID != authedDev.DeviceID {
-						writeJSON(w, http.StatusForbidden, map[string]string{"error": "forbidden: cannot modify another device's push token"})
-						return
-					}
-					deviceID = authedDev.DeviceID
-				} else if deviceID == "" {
-					deviceID = authedDev.DeviceID
+		requestedID := strings.TrimSpace(req.DeviceID)
+		deviceID := requestedID
+		if authedDev != nil && authedDev.DeviceID != "" {
+			if authedDev.DeviceID != "admin-local" {
+				// LOW-01: Non-admin paired devices may only register/modify their own device_id.
+				if requestedID != "" && requestedID != authedDev.DeviceID {
+					writeJSON(w, http.StatusForbidden, map[string]string{"error": "forbidden: cannot modify another device's push token"})
+					return
 				}
+				deviceID = authedDev.DeviceID
+			} else if deviceID == "" {
+				deviceID = authedDev.DeviceID
 			}
+		}
+
+		// iOS APNs native push & Live Activity registration path
+		if platform == "ios" || (platform != "android" && (tokenType == "alert" || tokenType == "live_activity_start" || tokenType == "live_activity_update" || tokenType == "preferences")) {
 			if deviceID == "" {
 				deviceID = "ios-default"
 			}
@@ -1370,6 +1376,9 @@ func buildRouterWithWSAddr(
 			if strings.TrimSpace(req.Lang) != "" {
 				_ = store.UpdateLanguage(deviceID, req.Lang)
 			}
+			if req.ShowGatewayLabel != nil || strings.TrimSpace(req.GatewayLabel) != "" {
+				_ = store.UpdateGatewayLabel(deviceID, req.ShowGatewayLabel, req.GatewayLabel)
+			}
 
 			slog.Info(fmt.Sprintf("[PushToken] 📱 Registered iOS %s token (%s)", tokenType, config.RedactFCMKey(pushToken)),
 				"device_id", deviceID, "env", req.APNSEnv)
@@ -1382,43 +1391,38 @@ func buildRouterWithWSAddr(
 			return
 		}
 
-		// Legacy Android FCM registration path
-		if pushToken == "" {
+		// Multi-device Android FCM registration & preferences path
+		if tokenType != "preferences" && pushToken == "" {
 			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "token is required"})
 			return
 		}
-		callerID := ""
-		if authedDev != nil {
-			callerID = authedDev.DeviceID
+		if deviceID == "" {
+			deviceID = "android-default"
 		}
-		fcmOwnerMu.Lock()
-		if fcmOwnerDeviceID != "" && callerID != "admin-local" && callerID != "" && callerID != fcmOwnerDeviceID {
-			fcmOwnerMu.Unlock()
-			writeJSON(w, http.StatusForbidden, map[string]string{"error": "forbidden: fcm push token is bound to another paired device"})
-			return
-		}
-		if callerID != "" && callerID != "admin-local" {
-			fcmOwnerDeviceID = callerID
-		}
-		fcmOwnerMu.Unlock()
 
-		if sink, ok := p.NotificationSink().(*notifier.Notifier); ok && sink != nil {
-			sink.UpdateFCMDeviceTokenWithLang(pushToken, req.Lang)
-		} else {
+		sink, ok := p.NotificationSink().(*notifier.Notifier)
+		if !ok || sink == nil {
 			cfg := config.GetNotificationConfig()
 			cfg.FCMDeviceToken = pushToken
 			cfg.FCMEnabled = true
 			cfg.Enabled = true
 			newNotif := notifier.NewNotifier(cfg)
-			newNotif.UpdateFCMDeviceLang(req.Lang)
+			gwID, gwName := p.GatewayIdentity()
+			newNotif.SetGatewayIdentity(gwID, gwName)
 			p.SetNotificationSink(newNotif)
+			sink = newNotif
+		}
+		if err := sink.UpsertFCMDevice(deviceID, pushToken, req.Lang, req.NotificationsEnabled, req.ShowGatewayLabel, req.GatewayLabel); err != nil {
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+			return
 		}
 
-		slog.Info(fmt.Sprintf("[PushToken] 📱 Registered %s push token: %s", req.Platform, config.RedactFCMKey(pushToken)))
+		slog.Info(fmt.Sprintf("[PushToken] 📱 Registered %s push token: %s", req.Platform, config.RedactFCMKey(pushToken)), "device_id", deviceID)
 		writeJSON(w, http.StatusOK, map[string]string{
-			"status":   "ok",
-			"platform": req.Platform,
-			"message":  "push token registered successfully",
+			"status":    "ok",
+			"platform":  req.Platform,
+			"device_id": deviceID,
+			"message":   "push token registered successfully",
 		})
 	})
 
@@ -1504,19 +1508,22 @@ func buildRouterWithWSAddr(
 		tokenType := strings.ToLower(strings.TrimSpace(r.URL.Query().Get("token_type")))
 		cascadeID := strings.TrimSpace(r.URL.Query().Get("cascade_id"))
 
-		if sink, ok := p.NotificationSink().(*notifier.Notifier); ok && sink != nil && sink.APNsClient() != nil {
-			store := sink.APNsClient().Store()
-			switch tokenType {
-			case "live_activity_update":
-				if cascadeID != "" {
-					store.RemoveLiveActivityToken(deviceID, cascadeID)
+		if sink, ok := p.NotificationSink().(*notifier.Notifier); ok && sink != nil {
+			if store := sink.PushStore(); store != nil {
+				switch tokenType {
+				case "live_activity_update":
+					if cascadeID != "" {
+						store.RemoveLiveActivityToken(deviceID, cascadeID)
+					}
+				case "alert":
+					store.ClearAlertToken(deviceID, "")
+				case "fcm":
+					store.ClearFCMToken(deviceID, "")
+				case "live_activity_start":
+					store.ClearLiveActivityStartToken(deviceID, "")
+				default:
+					store.RemoveDevice(deviceID)
 				}
-			case "alert":
-				store.ClearAlertToken(deviceID, "")
-			case "live_activity_start":
-				store.ClearLiveActivityStartToken(deviceID, "")
-			default:
-				store.RemoveDevice(deviceID)
 			}
 		}
 

@@ -32,23 +32,73 @@ public final class WeChatArchiveCacheManager: @unchecked Sendable {
     #endif
 
     private let fileManager = FileManager.default
-    private let rootDirectory: URL
-    private let archivesDirectory: URL
-    private let mediaDirectory: URL
+    private let baseRootDirectory: URL
     private let lock = NSRecursiveLock()
     private let ioQueue = DispatchQueue(label: "com.antigravity.mobile.wechat-cache.io", qos: .utility)
 
+    private var storageNamespace: String = ""
     private var memArchives: [String: CachedArchiveEnvelope] = [:]
     private var mediaKeysByArchive: [String: Set<String>] = [:]
+
+    private func rootDir(forNamespace ns: String) -> URL {
+        if ns.isEmpty { return baseRootDirectory }
+        return baseRootDirectory.appendingPathComponent("profiles", isDirectory: true).appendingPathComponent(ns, isDirectory: true)
+    }
+
+    private var rootDirectory: URL {
+        lock.lock()
+        let ns = storageNamespace
+        lock.unlock()
+        return rootDir(forNamespace: ns)
+    }
+
+    private var archivesDirectory: URL {
+        rootDirectory.appendingPathComponent("archives", isDirectory: true)
+    }
+
+    private var mediaDirectory: URL {
+        rootDirectory.appendingPathComponent("media", isDirectory: true)
+    }
+
+    public func switchStorageNamespace(_ namespace: String) {
+        lock.lock()
+        storageNamespace = namespace
+        memArchives.removeAll()
+        mediaKeysByArchive.removeAll()
+        #if canImport(UIKit)
+        memImages.removeAllObjects()
+        #endif
+        lock.unlock()
+        ensureDirectories()
+    }
+
+    public func clearStorage(forNamespace namespace: String) {
+        lock.lock()
+        if storageNamespace == namespace {
+            memArchives.removeAll()
+            mediaKeysByArchive.removeAll()
+            #if canImport(UIKit)
+            memImages.removeAllObjects()
+            #endif
+        }
+        lock.unlock()
+        let target = rootDir(forNamespace: namespace)
+        ioQueue.async { [fileManager] in
+            if namespace.isEmpty {
+                try? fileManager.removeItem(at: target.appendingPathComponent("archives", isDirectory: true))
+                try? fileManager.removeItem(at: target.appendingPathComponent("media", isDirectory: true))
+            } else {
+                try? fileManager.removeItem(at: target)
+            }
+        }
+    }
 
     private init() {
         let baseCaches = fileManager.urls(for: .cachesDirectory, in: .userDomainMask).first ?? fileManager.temporaryDirectory
         let root = baseCaches
             .appendingPathComponent("antigravity_documents", isDirectory: true)
             .appendingPathComponent("wechat_archives", isDirectory: true)
-        self.rootDirectory = root
-        self.archivesDirectory = root.appendingPathComponent("archives", isDirectory: true)
-        self.mediaDirectory = root.appendingPathComponent("media", isDirectory: true)
+        self.baseRootDirectory = root
 
         ensureDirectories()
 

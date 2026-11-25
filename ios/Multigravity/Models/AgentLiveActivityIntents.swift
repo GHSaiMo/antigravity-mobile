@@ -4,6 +4,24 @@ import Foundation
 /// Interactive Live Activity intents shared between `Multigravity` and `ActivityExtension`.
 /// iOS executes `perform()` inside the host `Multigravity` app process without foregrounding the UI.
 
+#if !ACTIVITY_EXTENSION
+@MainActor
+private func resolveIntentGatewayContext(gatewayId: String, cascadeId: String) -> GatewayRequestContext? {
+    let store = GatewayProfileStore.shared
+    let cleanGw = gatewayId.trimmingCharacters(in: .whitespacesAndNewlines)
+    if !cleanGw.isEmpty, let profile = store.profile(matchingGatewayId: cleanGw) {
+        return store.requestContext(for: profile.id)
+    }
+    if !cascadeId.isEmpty, let pid = store.profileId(containingCachedCascade: cascadeId) {
+        return store.requestContext(for: pid)
+    }
+    if let activeId = store.activeProfileId {
+        return store.requestContext(for: activeId)
+    }
+    return nil
+}
+#endif
+
 nonisolated public struct ApproveAgentActionIntent: LiveActivityIntent {
     public static let title: LocalizedStringResource = "允许执行"
     public static let openAppWhenRun: Bool = false
@@ -15,23 +33,37 @@ nonisolated public struct ApproveAgentActionIntent: LiveActivityIntent {
     @Parameter(title: "Expected Step Index", default: -1)
     public var expectedStepIndex: Int
 
+    @Parameter(title: "Gateway ID", default: "")
+    public var gatewayId: String
+
     public init() {
         self.cascadeId = ""
         self.expectedStepIndex = -1
+        self.gatewayId = ""
     }
 
-    public init(cascadeId: String, expectedStepIndex: Int = -1) {
+    public init(cascadeId: String, expectedStepIndex: Int = -1, gatewayId: String = "") {
         self.cascadeId = cascadeId
         self.expectedStepIndex = expectedStepIndex
+        self.gatewayId = gatewayId
     }
 
     @MainActor
     public func perform() async throws -> some IntentResult {
         #if !ACTIVITY_EXTENSION
-        guard !cascadeId.isEmpty, let baseURL = AppSettings.shared.serverURL else {
+        guard !cascadeId.isEmpty else {
             return .result()
         }
-        guard let snap = try? await APIClient.shared.fetchMessages(cascadeId: cascadeId, limit: 5, baseURL: baseURL) else {
+        let targetCtx = resolveIntentGatewayContext(gatewayId: gatewayId, cascadeId: cascadeId)
+        let snap: FetchMessagesResult?
+        if let targetCtx {
+            snap = try? await APIClient.shared.fetchMessages(cascadeId: cascadeId, limit: 5, context: targetCtx)
+        } else if let baseURL = AppSettings.shared.serverURL {
+            snap = try? await APIClient.shared.fetchMessages(cascadeId: cascadeId, limit: 5, baseURL: baseURL)
+        } else {
+            snap = nil
+        }
+        guard let snap else {
             return .result()
         }
         if let interaction = snap.pendingInteraction {
@@ -74,20 +106,37 @@ nonisolated public struct ApproveAgentActionIntent: LiveActivityIntent {
             let optId = approveOpt?.id ?? interaction.defaultOptionId ?? "1"
             let scope = approveOpt?.scope ?? 1
             do {
-                try await APIClient.shared.submitInteraction(
-                    cascadeId: cascadeId,
-                    trajectoryId: interaction.trajectoryId,
-                    stepIndex: interaction.stepIndex,
-                    type: interaction.type,
-                    optionId: optId,
-                    scope: scope,
-                    allow: true,
-                    writeInResponse: "",
-                    skipped: false,
-                    target: interaction.target,
-                    questionResponses: nil,
-                    baseURL: baseURL
-                )
+                if let targetCtx {
+                    try await APIClient.shared.submitInteraction(
+                        cascadeId: cascadeId,
+                        trajectoryId: interaction.trajectoryId,
+                        stepIndex: interaction.stepIndex,
+                        type: interaction.type,
+                        optionId: optId,
+                        scope: scope,
+                        allow: true,
+                        writeInResponse: "",
+                        skipped: false,
+                        target: interaction.target,
+                        questionResponses: nil,
+                        context: targetCtx
+                    )
+                } else if let baseURL = AppSettings.shared.serverURL {
+                    try await APIClient.shared.submitInteraction(
+                        cascadeId: cascadeId,
+                        trajectoryId: interaction.trajectoryId,
+                        stepIndex: interaction.stepIndex,
+                        type: interaction.type,
+                        optionId: optId,
+                        scope: scope,
+                        allow: true,
+                        writeInResponse: "",
+                        skipped: false,
+                        target: interaction.target,
+                        questionResponses: nil,
+                        baseURL: baseURL
+                    )
+                }
                 PushNotificationManager.shared.clearDeliveredNotifications(for: cascadeId, approvalOnly: true)
                 if ActivityManager.shared.findActiveActivity(for: cascadeId) != nil {
                     ActivityManager.shared.updateActivity(
@@ -117,13 +166,23 @@ nonisolated public struct ApproveAgentActionIntent: LiveActivityIntent {
             }
         } else if snap.canProceed, let uri = snap.proceedArtifactUri, !uri.isEmpty {
             do {
-                try await APIClient.shared.proceedArtifact(
-                    cascadeId: cascadeId,
-                    artifactUri: uri,
-                    model: snap.activeModel,
-                    cascadeConfigRaw: snap.cascadeConfigRaw,
-                    baseURL: baseURL
-                )
+                if let targetCtx {
+                    try await APIClient.shared.proceedArtifact(
+                        cascadeId: cascadeId,
+                        artifactUri: uri,
+                        model: snap.activeModel,
+                        cascadeConfigRaw: snap.cascadeConfigRaw,
+                        context: targetCtx
+                    )
+                } else if let baseURL = AppSettings.shared.serverURL {
+                    try await APIClient.shared.proceedArtifact(
+                        cascadeId: cascadeId,
+                        artifactUri: uri,
+                        model: snap.activeModel,
+                        cascadeConfigRaw: snap.cascadeConfigRaw,
+                        baseURL: baseURL
+                    )
+                }
                 PushNotificationManager.shared.clearDeliveredNotifications(for: cascadeId, approvalOnly: true)
                 if ActivityManager.shared.findActiveActivity(for: cascadeId) != nil {
                     ActivityManager.shared.updateActivity(
@@ -170,23 +229,37 @@ nonisolated public struct RejectAgentActionIntent: LiveActivityIntent {
     @Parameter(title: "Expected Step Index", default: -1)
     public var expectedStepIndex: Int
 
+    @Parameter(title: "Gateway ID", default: "")
+    public var gatewayId: String
+
     public init() {
         self.cascadeId = ""
         self.expectedStepIndex = -1
+        self.gatewayId = ""
     }
 
-    public init(cascadeId: String, expectedStepIndex: Int = -1) {
+    public init(cascadeId: String, expectedStepIndex: Int = -1, gatewayId: String = "") {
         self.cascadeId = cascadeId
         self.expectedStepIndex = expectedStepIndex
+        self.gatewayId = gatewayId
     }
 
     @MainActor
     public func perform() async throws -> some IntentResult {
         #if !ACTIVITY_EXTENSION
-        guard !cascadeId.isEmpty, let baseURL = AppSettings.shared.serverURL else {
+        guard !cascadeId.isEmpty else {
             return .result()
         }
-        guard let snap = try? await APIClient.shared.fetchMessages(cascadeId: cascadeId, limit: 5, baseURL: baseURL) else {
+        let targetCtx = resolveIntentGatewayContext(gatewayId: gatewayId, cascadeId: cascadeId)
+        let snap: FetchMessagesResult?
+        if let targetCtx {
+            snap = try? await APIClient.shared.fetchMessages(cascadeId: cascadeId, limit: 5, context: targetCtx)
+        } else if let baseURL = AppSettings.shared.serverURL {
+            snap = try? await APIClient.shared.fetchMessages(cascadeId: cascadeId, limit: 5, baseURL: baseURL)
+        } else {
+            snap = nil
+        }
+        guard let snap else {
             return .result()
         }
         if let interaction = snap.pendingInteraction {
@@ -207,20 +280,37 @@ nonisolated public struct RejectAgentActionIntent: LiveActivityIntent {
             }
             let denyOpt = interaction.options.first(where: { $0.isDeny == true || $0.id == "5" })
             do {
-                try await APIClient.shared.submitInteraction(
-                    cascadeId: cascadeId,
-                    trajectoryId: interaction.trajectoryId,
-                    stepIndex: interaction.stepIndex,
-                    type: interaction.type,
-                    optionId: denyOpt?.id ?? "",
-                    scope: denyOpt?.scope ?? 1,
-                    allow: false,
-                    writeInResponse: "",
-                    skipped: denyOpt == nil,
-                    target: interaction.target,
-                    questionResponses: nil,
-                    baseURL: baseURL
-                )
+                if let targetCtx {
+                    try await APIClient.shared.submitInteraction(
+                        cascadeId: cascadeId,
+                        trajectoryId: interaction.trajectoryId,
+                        stepIndex: interaction.stepIndex,
+                        type: interaction.type,
+                        optionId: denyOpt?.id ?? "",
+                        scope: denyOpt?.scope ?? 1,
+                        allow: false,
+                        writeInResponse: "",
+                        skipped: denyOpt == nil,
+                        target: interaction.target,
+                        questionResponses: nil,
+                        context: targetCtx
+                    )
+                } else if let baseURL = AppSettings.shared.serverURL {
+                    try await APIClient.shared.submitInteraction(
+                        cascadeId: cascadeId,
+                        trajectoryId: interaction.trajectoryId,
+                        stepIndex: interaction.stepIndex,
+                        type: interaction.type,
+                        optionId: denyOpt?.id ?? "",
+                        scope: denyOpt?.scope ?? 1,
+                        allow: false,
+                        writeInResponse: "",
+                        skipped: denyOpt == nil,
+                        target: interaction.target,
+                        questionResponses: nil,
+                        baseURL: baseURL
+                    )
+                }
                 PushNotificationManager.shared.clearDeliveredNotifications(for: cascadeId, approvalOnly: true)
                 if ActivityManager.shared.findActiveActivity(for: cascadeId) != nil {
                     ActivityManager.shared.updateActivity(
@@ -292,21 +382,30 @@ nonisolated public struct StopAgentRunIntent: LiveActivityIntent {
     @Parameter(title: "Cascade ID")
     public var cascadeId: String
 
+    @Parameter(title: "Gateway ID", default: "")
+    public var gatewayId: String
+
     public init() {
         self.cascadeId = ""
+        self.gatewayId = ""
     }
 
-    public init(cascadeId: String) {
+    public init(cascadeId: String, gatewayId: String = "") {
         self.cascadeId = cascadeId
+        self.gatewayId = gatewayId
     }
 
     @MainActor
     public func perform() async throws -> some IntentResult {
         #if !ACTIVITY_EXTENSION
-        guard !cascadeId.isEmpty, let baseURL = AppSettings.shared.serverURL else {
+        guard !cascadeId.isEmpty else {
             return .result()
         }
-        try? await APIClient.shared.cancelTask(cascadeId: cascadeId, killBackgroundTasks: true, baseURL: baseURL)
+        if let targetCtx = resolveIntentGatewayContext(gatewayId: gatewayId, cascadeId: cascadeId) {
+            try? await APIClient.shared.cancelTask(cascadeId: cascadeId, killBackgroundTasks: true, context: targetCtx)
+        } else if let baseURL = AppSettings.shared.serverURL {
+            try? await APIClient.shared.cancelTask(cascadeId: cascadeId, killBackgroundTasks: true, baseURL: baseURL)
+        }
         if ActivityManager.shared.findActiveActivity(for: cascadeId) != nil {
             ActivityManager.shared.endActivity(for: cascadeId, finalStatus: "CANCELLED")
         }

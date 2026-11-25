@@ -372,3 +372,206 @@ func (p *Proxy) fetchAllTrajectoriesUpstream(ctx context.Context, port int, toke
 	copy(out, buf.Bytes())
 	return out, nil
 }
+
+// computeGatewaySummary aggregates lightweight (running, action, unread, total_active) counters
+// from the shared GetAllCascadeTrajectories snapshot and in-memory trajectory cache.
+// When allowFetch is false, it only inspects an already-warm snapshot (0ms cost, no upstream call).
+func (p *Proxy) computeGatewaySummary(ctx context.Context, allowFetch bool) *GatewaySummary {
+	port, token := p.ActiveUpstream()
+	if port == 0 {
+		return nil
+	}
+
+	var raw []byte
+	if allowFetch {
+		subCtx, cancel := context.WithTimeout(ctx, 1500*time.Millisecond)
+		defer cancel()
+		b, err := p.fetchAllTrajectoriesRawMaxAge(subCtx, port, token, 5*time.Second)
+		if err != nil || len(b) == 0 {
+			return nil
+		}
+		raw = b
+	} else {
+		s := &p.allTrajectories
+		s.mu.Lock()
+		if (s.body != nil || s.entries != nil) && s.port == port && s.token == token && time.Since(s.fetchedAt) < 10*time.Second {
+			if s.body == nil && s.entries != nil {
+				var sorted []string
+				if s.parsed != nil {
+					sorted = s.parsed.sortedIDs
+				}
+				s.body = marshalTrajectorySummariesMap(s.entries, sorted)
+			}
+			raw = s.body
+		}
+		s.mu.Unlock()
+		if len(raw) == 0 {
+			return nil
+		}
+	}
+
+	var env struct {
+		TrajectorySummaries map[string]map[string]interface{} `json:"trajectorySummaries"`
+	}
+	if err := json.Unmarshal(raw, &env); err != nil || env.TrajectorySummaries == nil {
+		return nil
+	}
+
+	// Build parent map for running subagent propagation.
+	parentMap := make(map[string]string, len(env.TrajectorySummaries))
+	rawStatuses := make(map[string]string, len(env.TrajectorySummaries))
+	for id, s := range env.TrajectorySummaries {
+		if s == nil {
+			continue
+		}
+		if st, ok := s["status"].(string); ok {
+			rawStatuses[id] = st
+		}
+		if meta, ok := s["trajectoryMetadata"].(map[string]interface{}); ok && meta != nil {
+			if pid, ok := meta["parentConversationId"].(string); ok && strings.TrimSpace(pid) != "" {
+				parentMap[id] = strings.TrimSpace(pid)
+			}
+		}
+	}
+	resolveAncestor := func(id string) string {
+		cur := id
+		for depth := 0; depth < 8; depth++ {
+			pid := parentMap[cur]
+			if pid == "" {
+				return ""
+			}
+			ps := env.TrajectorySummaries[pid]
+			if ps == nil {
+				return ""
+			}
+			if !isSubagentTrajectoryMap(ps, pid) {
+				return pid
+			}
+			cur = pid
+		}
+		return ""
+	}
+
+	runningSubagentParents := make(map[string]bool)
+	for id, s := range env.TrajectorySummaries {
+		if s == nil || IsDeletedCascade(id) {
+			continue
+		}
+		if isSubagentTrajectoryMap(s, id) {
+			if rawStatuses[id] == "CASCADE_RUN_STATUS_RUNNING" {
+				if anc := resolveAncestor(id); anc != "" {
+					runningSubagentParents[anc] = true
+				}
+			}
+		}
+	}
+
+	// Snapshot in-memory parsed trajectory cache for accurate pending interaction / active task signals.
+	defaultTrajCache.trajCacheMu.RLock()
+	type cachedSnap struct {
+		fetchedAt time.Time
+		data      *upstreamTrajectoryResp
+	}
+	cachedByID := make(map[string]cachedSnap, len(defaultTrajCache.trajCache))
+	for cid, entry := range defaultTrajCache.trajCache {
+		if entry != nil && entry.data != nil {
+			cachedByID[cid] = cachedSnap{fetchedAt: entry.fetchedAt, data: entry.data}
+		}
+	}
+	defaultTrajCache.trajCacheMu.RUnlock()
+
+	parseISO := func(v interface{}) (time.Time, bool) {
+		str, ok := v.(string)
+		if !ok || strings.TrimSpace(str) == "" {
+			return time.Time{}, false
+		}
+		if t, err := time.Parse(time.RFC3339Nano, str); err == nil {
+			return t, true
+		}
+		if t, err := time.Parse(time.RFC3339, str); err == nil {
+			return t, true
+		}
+		return time.Time{}, false
+	}
+
+	out := &GatewaySummary{}
+	for id, s := range env.TrajectorySummaries {
+		if s == nil || IsDeletedCascade(id) || isSubagentTrajectoryMap(s, id) {
+			continue
+		}
+		ann, _ := s["annotations"].(map[string]interface{})
+		archived := false
+		if ann != nil {
+			if a, ok := ann["archived"].(bool); ok {
+				archived = a
+			}
+		}
+		if !archived {
+			if diskArchived, found := readAnnotationArchived(id); found && diskArchived {
+				archived = true
+			}
+		}
+		if archived {
+			continue
+		}
+
+		status := rawStatuses[id]
+		stepCount := 0
+		if sc, ok := s["stepCount"].(float64); ok {
+			stepCount = int(sc)
+		}
+		hasTitle := false
+		if ann != nil {
+			if t, ok := ann["title"].(string); ok && strings.TrimSpace(t) != "" {
+				hasTitle = true
+			}
+		}
+		if !hasTitle {
+			if sm, ok := s["summary"].(string); ok && strings.TrimSpace(sm) != "" {
+				hasTitle = true
+			}
+		}
+		if stepCount == 0 && status != "CASCADE_RUN_STATUS_RUNNING" && !hasTitle {
+			continue
+		}
+
+		out.TotalActive++
+
+		needsInput, _ := s["needsInput"].(bool)
+		isRunning := status == "CASCADE_RUN_STATUS_RUNNING" || runningSubagentParents[id]
+		if sn, ok := cachedByID[id]; ok && isTrajectorySnapshotFreshForSummary(s, status, sn.fetchedAt, sn.data) {
+			details := p.ParseTrajectoryDetailsCached(sn.data)
+			if details.PendingInteraction != nil || details.CanProceed {
+				needsInput = true
+			}
+			if HasActiveNonDaemonTasks(details.RunningTasks) || details.HasRunningSubagents {
+				isRunning = true
+			}
+		}
+
+		if needsInput {
+			out.ActionCount++
+			continue
+		}
+		if isRunning {
+			out.RunningCount++
+			continue
+		}
+
+		unread := false
+		if ann != nil {
+			if mu, ok := ann["markedAsUnread"].(bool); ok && mu {
+				unread = true
+			} else if modT, hasMod := parseISO(s["lastModifiedTime"]); hasMod {
+				if viewT, hasView := parseISO(ann["lastUserViewTime"]); hasView && modT.After(viewT) {
+					unread = true
+				}
+			}
+		}
+		if unread {
+			out.UnreadCount++
+		}
+	}
+
+	return out
+}

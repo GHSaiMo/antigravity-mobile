@@ -721,6 +721,54 @@ public final class ConversationListViewModel {
         eventsClient.stop()
         eventsClient.onChange = nil
     }
+
+    @MainActor
+    public func resetForGatewaySwitch() {
+        stopAutoRefresh()
+        contentSearchTask?.cancel()
+        contentSearchTask = nil
+        cancelArchiveAutoExit()
+
+        conversations = []
+        searchQuery = ""
+        contentHits = []
+        isSearchingContent = false
+        selectedWorkspaceFilter = nil
+        expandedBranchParentIDs.removeAll()
+        searchCollapsedBranchParentIDs.removeAll()
+        manuallyCollapsedActionBranchParentIDs.removeAll()
+        pendingDeleteCascadeIDs.removeAll()
+        recentlyDeletedIDs.removeAll()
+        pendingArchiveStates.removeAll()
+        recentlyArchivedStates.removeAll()
+
+        errorMessage = nil
+        isLoading = false
+        quotaResponse = nil
+        tokenHistory = nil
+        isLoadingTokenHistory = false
+        globalBackgroundTasks = []
+        lastCompatRefresh = .distantPast
+        lastQuotaFetchTime = .distantPast
+        lastTokenHistoryFetchTime = .distantPast
+        lastTokenHistorySessionKey = nil
+        lastResumeTime = .distantPast
+        lastNotifiedRouteURL = normalizedCurrentRouteURL()
+
+        reloadFromCache()
+        if settings.isPaired {
+            startAutoRefresh()
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                let epoch = GatewayRuntimeState.shared.epoch
+                await ConnectionManager.shared.probeEndpoints()
+                guard GatewayRuntimeState.shared.epoch == epoch else { return }
+                await self.fetchConversations(isBackgroundPoll: !self.conversations.isEmpty)
+                guard GatewayRuntimeState.shared.epoch == epoch else { return }
+                await self.fetchQuotas(force: true)
+            }
+        }
+    }
     
     @MainActor
     public func fetchConversations(isBackgroundPoll: Bool = false) async {
@@ -759,9 +807,11 @@ public final class ConversationListViewModel {
             Task { await apiClient.refreshGatewayCompat(baseURL: url) }
         }
         
+        let startEpoch = GatewayRuntimeState.shared.epoch
         let fetchStartedAt = Date()
         do {
             let items = try await apiClient.fetchConversations(baseURL: url)
+            guard GatewayRuntimeState.shared.epoch == startEpoch else { return }
             purgeExpiredTombstones()
             let cleaned = items.filter { item in
                 !item.isSubagent &&
@@ -794,16 +844,20 @@ public final class ConversationListViewModel {
             updateConversationsWithAnimation(all)
             cacheManager.saveConversations(nonDraftEnriched)
             cacheManager.prewarmSessions(for: all.prefix(15).map(\.id))
+            GatewayProfileStore.shared.updateActiveSummary(from: nonDraftEnriched)
             ActivityManager.shared.syncWithConversations(nonDraftEnriched)
             QuotaWidgetStore.shared.publishConversationsFromApp(items: nonDraftEnriched, isDemo: settings.isDemoMode)
             self.isLoading = false
         } catch {
+            guard GatewayRuntimeState.shared.epoch == startEpoch else { return }
             // Auto-failover: if current endpoint failed, probe candidate endpoints and retry once with alternative
             if let elected = await ConnectionManager.shared.probeEndpoints(),
+               GatewayRuntimeState.shared.epoch == startEpoch,
                let retryURL = URL(string: elected), retryURL != url {
                 do {
                     let retryStartedAt = Date()
                     let items = try await apiClient.fetchConversations(baseURL: retryURL)
+                    guard GatewayRuntimeState.shared.epoch == startEpoch else { return }
                     purgeExpiredTombstones()
                     let cleaned = items.filter { item in
                         !item.isSubagent &&
@@ -837,6 +891,7 @@ public final class ConversationListViewModel {
                     updateConversationsWithAnimation(buffered)
                     cacheManager.saveConversations(nonDraftEnriched)
                     cacheManager.prewarmSessions(for: all.prefix(15).map(\.id))
+                    GatewayProfileStore.shared.updateActiveSummary(from: nonDraftEnriched)
                     ActivityManager.shared.syncWithConversations(nonDraftEnriched)
                     QuotaWidgetStore.shared.publishConversationsFromApp(items: nonDraftEnriched, isDemo: settings.isDemoMode)
                     self.isLoading = false
@@ -849,6 +904,7 @@ public final class ConversationListViewModel {
                     // Fallthrough to standard error handling
                 }
             }
+            guard GatewayRuntimeState.shared.epoch == startEpoch else { return }
             if conversations.isEmpty {
                 self.errorMessage = error.localizedDescription
             }
@@ -888,7 +944,9 @@ public final class ConversationListViewModel {
     @MainActor
     public func fetchGlobalBackgroundTasks() async {
         guard settings.isPaired, let url = settings.serverURL else { return }
-        if let tasks = try? await apiClient.fetchGlobalBackgroundTasks(baseURL: url) {
+        let startEpoch = GatewayRuntimeState.shared.epoch
+        if let tasks = try? await apiClient.fetchGlobalBackgroundTasks(baseURL: url),
+           GatewayRuntimeState.shared.epoch == startEpoch {
             updateGlobalBackgroundTasks(tasks)
         }
     }
@@ -904,8 +962,11 @@ public final class ConversationListViewModel {
             return
         }
         guard let url = settings.serverURL else { return }
+        let startEpoch = GatewayRuntimeState.shared.epoch
         do {
-            self.quotaResponse = try await apiClient.fetchCockpitQuotas(baseURL: url)
+            let fetched = try await apiClient.fetchCockpitQuotas(baseURL: url)
+            guard GatewayRuntimeState.shared.epoch == startEpoch else { return }
+            self.quotaResponse = fetched
             self.lastQuotaFetchTime = now
             publishQuotaToWidget()
         } catch {

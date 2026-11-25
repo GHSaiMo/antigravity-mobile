@@ -46,6 +46,8 @@ type PairResponse struct {
 	Endpoints      []EndpointInfo `json:"endpoints,omitempty"`
 	OS             string         `json:"os,omitempty"`
 	Platform       string         `json:"platform,omitempty"`
+	GatewayID      string         `json:"gateway_id,omitempty"`
+	GatewayName    string         `json:"gateway_name,omitempty"`
 	E2EEGatewayPub string         `json:"e2ee_gateway_pub,omitempty"`
 	E2EESalt       string         `json:"e2ee_salt,omitempty"`
 	RelayCloudURL  string         `json:"relay_cloud_url,omitempty"`
@@ -65,6 +67,8 @@ type AuthHandler struct {
 	cfURL                string
 	cloudMode            string // "cloudflare" (default) | "relay_v1" | "relay"
 	relayCloudURL        string // Dual-track E2EE relay URL when running alongside legacy CF tunnel
+	gatewayID            string
+	gatewayName          string
 	e2eeIdentity         *e2ee.Identity
 	onDeviceE2EEUpgraded func(allUpgraded bool)
 	policy               AuthPolicy
@@ -144,6 +148,21 @@ func (h *AuthHandler) SetE2EEIdentity(id *e2ee.Identity) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	h.e2eeIdentity = id
+	if id != nil && h.gatewayID == "" {
+		h.gatewayID = id.GatewayID()
+	}
+}
+
+// SetGatewayIdentity configures the stable gateway_id and human-readable gateway_name returned on pairing.
+func (h *AuthHandler) SetGatewayIdentity(gatewayID, gatewayName string) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	if strings.TrimSpace(gatewayID) != "" {
+		h.gatewayID = strings.TrimSpace(gatewayID)
+	}
+	if strings.TrimSpace(gatewayName) != "" {
+		h.gatewayName = strings.TrimSpace(gatewayName)
+	}
 }
 
 // E2EEIdentity returns the configured E2EE identity, if any.
@@ -640,7 +659,14 @@ func (h *AuthHandler) executePair(req PairRequest, envelopeClientPub string, r *
 	id := h.e2eeIdentity
 	dualRelayURL := h.relayCloudURL
 	upgradeCb := h.onDeviceE2EEUpgraded
+	gwID := h.gatewayID
+	gwName := h.gatewayName
 	h.mu.RUnlock()
+	if gwID == "" && id != nil {
+		gwID = id.GatewayID()
+	}
+	resp.GatewayID = gwID
+	resp.GatewayName = gwName
 
 	if clientPub != "" && id != nil {
 		if shared, eErr := id.ECDH(clientPub); eErr == nil {

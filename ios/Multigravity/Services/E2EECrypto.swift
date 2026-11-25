@@ -83,6 +83,14 @@ public final class E2EECrypto: Sendable {
         e2eeRequiredHostsLock.withLock { _ = $0.insert(clean) }
     }
 
+    /// Resets per-gateway host capability caches when switching active gateway profiles.
+    public func resetForGatewaySwitch(requiredHosts: [String]) {
+        let cleaned = Set(requiredHosts.map { NetworkTransport.extractHost(from: $0) }.filter { !$0.isEmpty })
+        e2eeRequiredHostsLock.withLock { $0 = cleaned }
+        binaryRequestHostsLock.withLock { $0.removeAll() }
+        lastUpgradeAttemptLock.withLock { $0 = .distantPast }
+    }
+
     public func markHostSupportsBinaryRequest(_ host: String) {
         let clean = NetworkTransport.extractHost(from: host)
         guard !clean.isEmpty else { return }
@@ -255,13 +263,18 @@ public final class E2EECrypto: Sendable {
     private func buildEncryptedRequestFrame(
         _ request: URLRequest,
         bodyData: Data?,
-        forceLegacyJSON: Bool
+        forceLegacyJSON: Bool,
+        explicitDeviceID: String? = nil,
+        explicitKey: Data? = nil,
+        explicitDeviceToken: String? = nil
     ) throws -> (outerRequest: URLRequest, cipherFrame: Data, deviceID: String, key: Data, usedBinaryFrame: Bool) {
+        let resolvedDeviceID = explicitDeviceID ?? currentDeviceID
+        let resolvedKey = explicitKey ?? currentDeviceKey
         guard let url = request.url,
               let scheme = url.scheme,
               let host = url.host,
-              let deviceID = currentDeviceID,
-              let key = currentDeviceKey else {
+              let deviceID = resolvedDeviceID,
+              let key = resolvedKey else {
             throw E2EEError.missingCredentials
         }
 
@@ -273,7 +286,8 @@ public final class E2EECrypto: Sendable {
         var headers = request.allHTTPHeaderFields ?? [:]
         headers.removeValue(forKey: "Accept-Encoding")
         headers.removeValue(forKey: "accept-encoding")
-        if let token = KeychainHelper.shared.read(key: .deviceToken), !token.isEmpty,
+        let resolvedToken = explicitDeviceToken ?? KeychainHelper.shared.read(key: .deviceToken)
+        if let token = resolvedToken, !token.isEmpty,
            headers["Authorization"] == nil && headers["authorization"] == nil {
             headers["Authorization"] = "Bearer \(token)"
         }
@@ -335,6 +349,30 @@ public final class E2EECrypto: Sendable {
             request,
             bodyData: request.httpBody,
             forceLegacyJSON: forceLegacyJSON
+        )
+        outerReq.httpBody = cipherFrame
+        return WrappedHTTPRequest(
+            outerRequest: outerReq,
+            deviceID: deviceID,
+            key: key,
+            usedBinaryFrame: usedBinary
+        )
+    }
+
+    /// Encrypts an HTTP request using an explicit `GatewayRequestContext` (for background probes or
+    /// lock-screen actions targeting an inactive gateway without mutating global active credentials).
+    public func wrapHTTPRequestDetailed(
+        _ request: URLRequest,
+        context: GatewayRequestContext,
+        forceLegacyJSON: Bool = false
+    ) throws -> WrappedHTTPRequest {
+        var (outerReq, cipherFrame, deviceID, key, usedBinary) = try buildEncryptedRequestFrame(
+            request,
+            bodyData: request.httpBody,
+            forceLegacyJSON: forceLegacyJSON,
+            explicitDeviceID: context.deviceID,
+            explicitKey: context.e2eeKey,
+            explicitDeviceToken: context.deviceToken
         )
         outerReq.httpBody = cipherFrame
         return WrappedHTTPRequest(

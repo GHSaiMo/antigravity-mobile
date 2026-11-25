@@ -42,7 +42,15 @@ type FCMClient struct {
 	deviceToken string
 	deviceLang  string
 	iconURL     string
+	store       *PushDeviceStore
 	client      *http.Client
+}
+
+// SetPushStore attaches a shared PushDeviceStore for multi-device Android FCM fan-out.
+func (f *FCMClient) SetPushStore(store *PushDeviceStore) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.store = store
 }
 
 // NewFCMClient creates an FCMClient from configuration.
@@ -113,21 +121,84 @@ func (f *FCMClient) Endpoint() string {
 	return f.endpoint
 }
 
-// Send dispatches a push notification to FCM with automatic retry on failure.
+// Send dispatches a push notification to all registered FCM Android devices (or the legacy single token).
 func (f *FCMClient) Send(ctx context.Context, payload PushPayload) error {
 	f.mu.RLock()
 	endpoint := f.endpoint
 	serverKey := f.serverKey
-	deviceToken := f.deviceToken
-	deviceLang := f.deviceLang
+	legacyToken := f.deviceToken
+	legacyLang := f.deviceLang
 	iconURL := f.iconURL
+	store := f.store
 	f.mu.RUnlock()
 
-	if deviceToken == "" {
-		return fmt.Errorf("fcm device token not configured")
-	}
 	if err := validatePushEndpointURL(endpoint); err != nil {
 		return err
+	}
+
+	var targets []FCMAlertTarget
+	if store != nil {
+		targets = store.ListFCMTargets()
+	}
+	if len(targets) == 0 && legacyToken != "" {
+		targets = []FCMAlertTarget{{
+			Token: legacyToken,
+			Lang:  legacyLang,
+		}}
+	}
+	if len(targets) == 0 {
+		return fmt.Errorf("fcm device token not configured")
+	}
+
+	if len(targets) == 1 {
+		return f.sendOne(ctx, endpoint, serverKey, iconURL, store, targets[0], payload)
+	}
+
+	var (
+		wg    sync.WaitGroup
+		errCh = make(chan error, len(targets))
+	)
+	for _, target := range targets {
+		wg.Add(1)
+		go func(t FCMAlertTarget) {
+			defer wg.Done()
+			if err := f.sendOne(ctx, endpoint, serverKey, iconURL, store, t, payload); err != nil {
+				errCh <- err
+			}
+		}(target)
+	}
+	wg.Wait()
+	close(errCh)
+
+	var errs []error
+	for err := range errCh {
+		errs = append(errs, err)
+	}
+	if len(errs) > 0 && len(errs) == len(targets) {
+		return errs[0]
+	}
+	return nil
+}
+
+func (f *FCMClient) sendOne(
+	ctx context.Context,
+	endpoint, serverKey, iconURL string,
+	store *PushDeviceStore,
+	target FCMAlertTarget,
+	payload PushPayload,
+) error {
+	deviceToken := target.Token
+	deviceLang := target.Lang
+	gwID := strings.TrimSpace(payload.GatewayID)
+	gwLabel := ""
+	if target.ShowGatewayLabel {
+		lbl := strings.TrimSpace(target.GatewayLabel)
+		if lbl == "" {
+			lbl = strings.TrimSpace(payload.GatewayName)
+		}
+		if lbl != "" {
+			gwLabel = truncateString(SanitizePushText(lbl), 32)
+		}
 	}
 
 	var fcmMsg FCMPayload
@@ -138,17 +209,21 @@ func (f *FCMClient) Send(ctx context.Context, payload PushPayload) error {
 		if action == "" {
 			action = strings.TrimSpace(payload.Category)
 		}
+		data := map[string]string{
+			"action":    action,
+			"category":  payload.Category,
+			"cascadeId": payload.CascadeID,
+			"url":       payload.URL,
+			"deeplink":  payload.URL,
+			"silent":    "true",
+		}
+		if gwID != "" {
+			data["gatewayId"] = gwID
+		}
 		fcmMsg = FCMPayload{
 			To:       deviceToken,
 			Priority: "high",
-			Data: map[string]string{
-				"action":    action,
-				"category":  payload.Category,
-				"cascadeId": payload.CascadeID,
-				"url":       payload.URL,
-				"deeplink":  payload.URL,
-				"silent":    "true",
-			},
+			Data:     data,
 		}
 		logLabel = "silent:" + action
 	} else {
@@ -179,6 +254,25 @@ func (f *FCMClient) Send(ctx context.Context, payload PushPayload) error {
 		cleanBody := truncateString(SanitizePushText(rawBody), 240)
 		logLabel = cleanTitle
 
+		data := map[string]string{
+			"title":     cleanTitle,
+			"body":      cleanBody,
+			"url":       payload.URL,
+			"deeplink":  payload.URL,
+			"level":     payload.Level,
+			"sound":     payload.Sound,
+			"group":     payload.Group,
+			"category":  payload.Category,
+			"cascadeId": payload.CascadeID,
+			"icon":      icon,
+		}
+		if gwID != "" {
+			data["gatewayId"] = gwID
+		}
+		if gwLabel != "" {
+			data["gatewayLabel"] = gwLabel
+		}
+
 		fcmMsg = FCMPayload{
 			To:       deviceToken,
 			Priority: priority,
@@ -190,18 +284,7 @@ func (f *FCMClient) Send(ctx context.Context, payload PushPayload) error {
 				ChannelID:   channelID,
 				ClickAction: "FLUTTER_NOTIFICATION_CLICK", // standard Android notification intent flag
 			},
-			Data: map[string]string{
-				"title":     cleanTitle,
-				"body":      cleanBody,
-				"url":       payload.URL,
-				"deeplink":  payload.URL,
-				"level":     payload.Level,
-				"sound":     payload.Sound,
-				"group":     payload.Group,
-				"category":  payload.Category,
-				"cascadeId": payload.CascadeID,
-				"icon":      icon,
-			},
+			Data: data,
 		}
 	}
 
@@ -218,7 +301,7 @@ func (f *FCMClient) Send(ctx context.Context, payload PushPayload) error {
 				return ctx.Err()
 			case <-time.After(1 * time.Second):
 			}
-			slog.Info(fmt.Sprintf("[FCM] 🔄 Retrying notification send (attempt %d)...", attempt + 1))
+			slog.Info(fmt.Sprintf("[FCM] 🔄 Retrying notification send (attempt %d)...", attempt+1))
 		}
 
 		req, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, bytes.NewReader(bodyBytes))
@@ -233,7 +316,7 @@ func (f *FCMClient) Send(ctx context.Context, payload PushPayload) error {
 		resp, err := f.client.Do(req)
 		if err != nil {
 			lastErr = err
-			slog.Error(fmt.Sprintf("[FCM] ❌ Failed to send notification (attempt %d)", attempt + 1), "err", err)
+			slog.Error(fmt.Sprintf("[FCM] ❌ Failed to send notification (attempt %d)", attempt+1), "err", err)
 			continue
 		}
 
@@ -242,9 +325,22 @@ func (f *FCMClient) Send(ctx context.Context, payload PushPayload) error {
 
 		if resp.StatusCode != http.StatusOK {
 			snippet := truncateString(SanitizePushText(string(respBody)), 240)
+			if store != nil && target.DeviceID != "" &&
+				(strings.Contains(snippet, "NotRegistered") || strings.Contains(snippet, "InvalidRegistration")) {
+				slog.Info("[FCM] 🧹 Clearing unregistered FCM device token", "device_id", target.DeviceID)
+				store.ClearFCMToken(target.DeviceID, deviceToken)
+				return nil
+			}
 			lastErr = fmt.Errorf("fcm server error %d: %s", resp.StatusCode, snippet)
 			slog.Warn(fmt.Sprintf("[FCM] ⚠️ Server returned status %d: %s", resp.StatusCode, snippet))
 			continue
+		}
+
+		if store != nil && target.DeviceID != "" &&
+			(strings.Contains(string(respBody), `"NotRegistered"`) || strings.Contains(string(respBody), `"InvalidRegistration"`)) {
+			slog.Info("[FCM] 🧹 Clearing unregistered FCM device token", "device_id", target.DeviceID)
+			store.ClearFCMToken(target.DeviceID, deviceToken)
+			return nil
 		}
 
 		slog.Info(fmt.Sprintf("[FCM] 🚀 推送成功: %s", logLabel))

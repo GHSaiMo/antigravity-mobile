@@ -41,6 +41,216 @@ class PreferencesManager(context: Context) {
     private val prefs: SharedPreferences =
         context.getSharedPreferences("agy_standard_prefs", Context.MODE_PRIVATE)
 
+    @Volatile
+    var isApplyingGatewayProfile: Boolean = false
+
+    @Volatile
+    var onActiveProfileMutated: (() -> Unit)? = null
+
+    private fun currentNamespace(): String =
+        com.antigravity.mobile.data.model.GatewayRuntimeState.activeStorageNamespace.trim()
+
+    private fun scopedKey(baseKey: String, namespace: String = currentNamespace()): String {
+        val ns = namespace.trim()
+        return if (ns.isEmpty()) baseKey else "p_${ns}_$baseKey"
+    }
+
+    private fun notifyActiveProfileMutatedIfNeeded() {
+        if (!isApplyingGatewayProfile) {
+            onActiveProfileMutated?.invoke()
+        }
+    }
+
+    fun switchStorageNamespace(namespace: String) {
+        memDeviceToken = null
+        memDeviceTokenLoaded = false
+        memE2eeKeyB64 = null
+        memE2eeKeyLoaded = false
+        memDeletedConversations = null
+        memMcpServers = null
+        memSkills = null
+        memDraftImages.evictAll()
+        _modelCatalogFlow.value = cachedModelCatalog
+        _gatewayPlatformFlow.value = gatewayPlatform
+    }
+
+    // MARK: - Per-Profile Secure Credentials & Profile Registry
+
+    fun readLegacyDeviceToken(): String? = securePrefs?.getString(KEY_DEVICE_TOKEN, null)
+    fun readLegacyDeviceId(): String? = securePrefs?.getString(KEY_DEVICE_ID, null)
+    fun readLegacyE2eeKeyB64(): String? = securePrefs?.getString(KEY_E2EE_KEY_B64, null)
+
+    fun clearLegacyCredentials() {
+        securePrefs?.edit()
+            ?.remove(KEY_DEVICE_TOKEN)
+            ?.remove(KEY_DEVICE_ID)
+            ?.remove(KEY_E2EE_KEY_B64)
+            ?.apply()
+        memDeviceToken = null
+        memDeviceTokenLoaded = false
+        memE2eeKeyB64 = null
+        memE2eeKeyLoaded = false
+    }
+
+    fun readProfileDeviceToken(profileId: String): String? =
+        securePrefs?.getString("p_${profileId}_$KEY_DEVICE_TOKEN", null)
+
+    fun readProfileDeviceId(profileId: String): String? =
+        securePrefs?.getString("p_${profileId}_$KEY_DEVICE_ID", null)
+
+    fun readProfileE2eeKeyB64(profileId: String): String? =
+        securePrefs?.getString("p_${profileId}_$KEY_E2EE_KEY_B64", null)
+
+    fun writeProfileCredentials(
+        profileId: String,
+        deviceToken: String?,
+        deviceId: String?,
+        e2eeKeyB64: String?
+    ) {
+        val sp = securePrefs ?: return
+        val editor = sp.edit()
+        if (!deviceToken.isNullOrBlank()) editor.putString("p_${profileId}_$KEY_DEVICE_TOKEN", deviceToken)
+        if (!deviceId.isNullOrBlank()) editor.putString("p_${profileId}_$KEY_DEVICE_ID", deviceId)
+        if (!e2eeKeyB64.isNullOrBlank()) editor.putString("p_${profileId}_$KEY_E2EE_KEY_B64", e2eeKeyB64)
+        editor.apply()
+    }
+
+    fun clearProfileCredentials(profileId: String) {
+        securePrefs?.edit()
+            ?.remove("p_${profileId}_$KEY_DEVICE_TOKEN")
+            ?.remove("p_${profileId}_$KEY_DEVICE_ID")
+            ?.remove("p_${profileId}_$KEY_E2EE_KEY_B64")
+            ?.apply()
+    }
+
+    fun loadGatewayProfilesJson(): String? = prefs.getString(KEY_GATEWAY_PROFILES_V1, null)
+
+    fun saveGatewayProfilesJson(jsonStr: String) {
+        prefs.edit().putString(KEY_GATEWAY_PROFILES_V1, jsonStr).apply()
+    }
+
+    var savedActiveProfileId: String?
+        get() = prefs.getString(KEY_ACTIVE_GATEWAY_PROFILE_ID_V1, null)
+        set(value) {
+            if (value.isNullOrBlank()) {
+                prefs.edit().remove(KEY_ACTIVE_GATEWAY_PROFILE_ID_V1).apply()
+            } else {
+                prefs.edit().putString(KEY_ACTIVE_GATEWAY_PROFILE_ID_V1, value).apply()
+            }
+        }
+
+    fun applyProfile(
+        profile: com.antigravity.mobile.data.model.GatewayProfile,
+        profileDeviceToken: String?,
+        profileDeviceId: String?,
+        profileE2eeKeyB64: String?
+    ) {
+        isApplyingGatewayProfile = true
+        try {
+            deviceToken = profileDeviceToken
+            deviceId = profileDeviceId
+            e2eeKeyB64 = profileE2eeKeyB64
+
+            val editor = prefs.edit()
+            fun putOrRemove(key: String, v: String?) {
+                val clean = v?.trim()?.trimEnd('/')
+                if (clean.isNullOrBlank()) editor.remove(key) else editor.putString(key, clean)
+            }
+            putOrRemove(KEY_GATEWAY_URL, profile.gatewayBaseUrl)
+            putOrRemove(KEY_PRIMARY_CLOUD_URL, profile.primaryCloudUrl)
+            putOrRemove(KEY_LAN_URL, profile.lanServerUrl)
+            putOrRemove(KEY_RELAY_URL, profile.relayServerUrl)
+            putOrRemove(KEY_CUSTOM_URL, profile.customServerUrl)
+            val plat = profile.platform?.trim()?.lowercase()
+            if (plat.isNullOrBlank()) editor.remove(KEY_GATEWAY_PLATFORM) else editor.putString(KEY_GATEWAY_PLATFORM, plat)
+            editor.apply()
+
+            switchStorageNamespace(profile.storageNamespace)
+        } finally {
+            isApplyingGatewayProfile = false
+        }
+    }
+
+    fun clearActiveGatewayEndpointsOnly() {
+        isApplyingGatewayProfile = true
+        try {
+            clearLegacyCredentials()
+            prefs.edit()
+                .remove(KEY_GATEWAY_URL)
+                .remove(KEY_PRIMARY_CLOUD_URL)
+                .remove(KEY_LAN_URL)
+                .remove(KEY_RELAY_URL)
+                .remove(KEY_CUSTOM_URL)
+                .remove(KEY_GATEWAY_PLATFORM)
+                .apply()
+            _gatewayPlatformFlow.value = null
+            _modelCatalogFlow.value = null
+        } finally {
+            isApplyingGatewayProfile = false
+        }
+    }
+
+    fun clearStorageForNamespace(namespace: String) {
+        val ns = namespace.trim()
+        val editor = prefs.edit()
+        if (ns.isEmpty()) {
+            val allKeys = prefs.all.keys.toList()
+            for (k in allKeys) {
+                if (k == KEY_CACHED_PROJECTS ||
+                    k == KEY_CACHED_CONVERSATIONS ||
+                    k == KEY_DRAFT_SESSIONS ||
+                    k == KEY_CACHED_MCP_SERVERS ||
+                    k == KEY_CACHED_SKILLS ||
+                    k == KEY_CACHED_MODEL_CATALOG ||
+                    k == KEY_DELETED_CONVERSATIONS ||
+                    k == KEY_PINNED_CONVERSATIONS ||
+                    k.startsWith(KEY_LAST_VIEW_PREFIX) ||
+                    k.startsWith(KEY_DRAFT_TEXT_PREFIX) ||
+                    k.startsWith("draft_files_") ||
+                    k.startsWith(KEY_WS_NOTE_PREFIX)
+                ) {
+                    editor.remove(k)
+                }
+            }
+            try {
+                java.io.File(appContext.filesDir, "draft_files").listFiles()?.forEach { f ->
+                    if (f.name != "profiles") f.deleteRecursively()
+                }
+                java.io.File(appContext.cacheDir, "draft_images").listFiles()?.forEach { f ->
+                    if (f.name != "profiles") f.deleteRecursively()
+                }
+            } catch (_: Exception) {}
+        } else {
+            val prefix = "p_${ns}_"
+            for (k in prefs.all.keys.toList()) {
+                if (k.startsWith(prefix)) {
+                    editor.remove(k)
+                }
+            }
+            try {
+                java.io.File(appContext.filesDir, "draft_files/profiles/$ns").deleteRecursively()
+                java.io.File(appContext.cacheDir, "draft_images/profiles/$ns").deleteRecursively()
+            } catch (_: Exception) {}
+        }
+        editor.apply()
+        if (ns == currentNamespace()) {
+            memDeletedConversations = null
+            memMcpServers = null
+            memSkills = null
+            memDraftImages.evictAll()
+            _modelCatalogFlow.value = null
+        }
+    }
+
+    fun containsCachedCascade(cascadeId: String, namespace: String): Boolean {
+        if (cascadeId.isBlank()) return false
+        val raw = prefs.getString(scopedKey(KEY_CACHED_CONVERSATIONS, namespace), null)
+        if (!raw.isNullOrBlank() && raw.contains("\"$cascadeId\"")) {
+            return true
+        }
+        return false
+    }
+
     private val _themeModeFlow = MutableStateFlow(themeMode)
     val themeModeFlow: StateFlow<String> = _themeModeFlow.asStateFlow()
 
@@ -175,6 +385,7 @@ class PreferencesManager(context: Context) {
                 prefs.edit().putString(KEY_GATEWAY_PLATFORM, normalized).apply()
             }
             _gatewayPlatformFlow.value = gatewayPlatform
+            notifyActiveProfileMutatedIfNeeded()
         }
 
     val gatewayPlatformDisplayName: String
@@ -187,7 +398,10 @@ class PreferencesManager(context: Context) {
 
     var gatewayBaseUrl: String?
         get() = prefs.getString(KEY_GATEWAY_URL, null)
-        set(value) = prefs.edit().putString(KEY_GATEWAY_URL, value?.trimEnd('/')).apply()
+        set(value) {
+            prefs.edit().putString(KEY_GATEWAY_URL, value?.trimEnd('/')).apply()
+            notifyActiveProfileMutatedIfNeeded()
+        }
 
     var deviceToken: String?
         get() {
@@ -401,7 +615,7 @@ class PreferencesManager(context: Context) {
 
     val cachedModelCatalog: ModelsResponse?
         get() {
-            val raw = prefs.getString(KEY_CACHED_MODEL_CATALOG, null) ?: return null
+            val raw = prefs.getString(scopedKey(KEY_CACHED_MODEL_CATALOG), null) ?: return null
             return runCatching { draftJson.decodeFromString<ModelsResponse>(raw) }.getOrNull()
         }
 
@@ -411,7 +625,7 @@ class PreferencesManager(context: Context) {
     fun updateModelCatalog(catalog: ModelsResponse) {
         _modelCatalogFlow.value = catalog
         runCatching { draftJson.encodeToString(catalog) }.getOrNull()?.let { encoded ->
-            prefs.edit().putString(KEY_CACHED_MODEL_CATALOG, encoded).apply()
+            prefs.edit().putString(scopedKey(KEY_CACHED_MODEL_CATALOG), encoded).apply()
         }
         val fav1 = ModelDefaults.validatedFavorite(
             saved = favoriteModel1,
@@ -445,7 +659,7 @@ class PreferencesManager(context: Context) {
         )
         _modelCatalogFlow.value = updated
         runCatching { draftJson.encodeToString(updated) }.getOrNull()?.let { encoded ->
-            prefs.edit().putString(KEY_CACHED_MODEL_CATALOG, encoded).apply()
+            prefs.edit().putString(scopedKey(KEY_CACHED_MODEL_CATALOG), encoded).apply()
         }
     }
 
@@ -474,15 +688,24 @@ class PreferencesManager(context: Context) {
             }
             return null
         }
-        set(value) = prefs.edit().putString(KEY_PRIMARY_CLOUD_URL, value?.trimEnd('/')).apply()
+        set(value) {
+            prefs.edit().putString(KEY_PRIMARY_CLOUD_URL, value?.trimEnd('/')).apply()
+            notifyActiveProfileMutatedIfNeeded()
+        }
 
     var lanServerUrl: String?
         get() = prefs.getString(KEY_LAN_URL, null)
-        set(value) = prefs.edit().putString(KEY_LAN_URL, normalizeUrl(value)).apply()
+        set(value) {
+            prefs.edit().putString(KEY_LAN_URL, normalizeUrl(value)).apply()
+            notifyActiveProfileMutatedIfNeeded()
+        }
 
     var relayServerUrl: String?
         get() = prefs.getString(KEY_RELAY_URL, null)
-        set(value) = prefs.edit().putString(KEY_RELAY_URL, value?.trimEnd('/')).apply()
+        set(value) {
+            prefs.edit().putString(KEY_RELAY_URL, value?.trimEnd('/')).apply()
+            notifyActiveProfileMutatedIfNeeded()
+        }
 
     var customServerUrl: String?
         get() {
@@ -507,27 +730,28 @@ class PreferencesManager(context: Context) {
             } else {
                 prefs.edit().putString(KEY_CUSTOM_URL, clean).apply()
             }
+            notifyActiveProfileMutatedIfNeeded()
         }
 
     var cachedProjectsJson: String?
-        get() = prefs.getString(KEY_CACHED_PROJECTS, null)
-        set(value) = prefs.edit().putString(KEY_CACHED_PROJECTS, value).apply()
+        get() = prefs.getString(scopedKey(KEY_CACHED_PROJECTS), null)
+        set(value) = prefs.edit().putString(scopedKey(KEY_CACHED_PROJECTS), value).apply()
 
     var cachedConversationsJson: String?
-        get() = prefs.getString(KEY_CACHED_CONVERSATIONS, null)
-        set(value) = prefs.edit().putString(KEY_CACHED_CONVERSATIONS, value).apply()
+        get() = prefs.getString(scopedKey(KEY_CACHED_CONVERSATIONS), null)
+        set(value) = prefs.edit().putString(scopedKey(KEY_CACHED_CONVERSATIONS), value).apply()
 
     var cachedDraftSessionsJson: String?
-        get() = prefs.getString(KEY_DRAFT_SESSIONS, null)
-        set(value) = prefs.edit().putString(KEY_DRAFT_SESSIONS, value).apply()
+        get() = prefs.getString(scopedKey(KEY_DRAFT_SESSIONS), null)
+        set(value) = prefs.edit().putString(scopedKey(KEY_DRAFT_SESSIONS), value).apply()
 
     var cachedMcpServersJson: String?
-        get() = prefs.getString(KEY_CACHED_MCP_SERVERS, null)
-        set(value) = prefs.edit().putString(KEY_CACHED_MCP_SERVERS, value).apply()
+        get() = prefs.getString(scopedKey(KEY_CACHED_MCP_SERVERS), null)
+        set(value) = prefs.edit().putString(scopedKey(KEY_CACHED_MCP_SERVERS), value).apply()
 
     var cachedSkillsJson: String?
-        get() = prefs.getString(KEY_CACHED_SKILLS, null)
-        set(value) = prefs.edit().putString(KEY_CACHED_SKILLS, value).apply()
+        get() = prefs.getString(scopedKey(KEY_CACHED_SKILLS), null)
+        set(value) = prefs.edit().putString(scopedKey(KEY_CACHED_SKILLS), value).apply()
 
     fun loadCachedMcpServers(): List<McpServerState> {
         memMcpServers?.let { if (it.isNotEmpty()) return it }
@@ -615,6 +839,7 @@ class PreferencesManager(context: Context) {
             }
         }
         editor.apply()
+        notifyActiveProfileMutatedIfNeeded()
     }
 
     val candidateEndpoints: List<String>
@@ -681,23 +906,24 @@ class PreferencesManager(context: Context) {
     }
 
     fun getLastViewTime(cascadeId: String): Long {
-        return prefs.getLong(KEY_LAST_VIEW_PREFIX + cascadeId, 0L)
+        return prefs.getLong(scopedKey(KEY_LAST_VIEW_PREFIX + cascadeId), 0L)
     }
 
     fun setLastViewTime(cascadeId: String, time: Long = System.currentTimeMillis()) {
-        prefs.edit().putLong(KEY_LAST_VIEW_PREFIX + cascadeId, time).apply()
+        prefs.edit().putLong(scopedKey(KEY_LAST_VIEW_PREFIX + cascadeId), time).apply()
     }
 
     // MARK: - Draft Persistence
     fun getDraftText(cascadeId: String): String {
-        return prefs.getString(KEY_DRAFT_TEXT_PREFIX + cascadeId, "") ?: ""
+        return prefs.getString(scopedKey(KEY_DRAFT_TEXT_PREFIX + cascadeId), "") ?: ""
     }
 
     fun setDraftText(cascadeId: String, text: String) {
+        val k = scopedKey(KEY_DRAFT_TEXT_PREFIX + cascadeId)
         if (text.isBlank()) {
-            prefs.edit().remove(KEY_DRAFT_TEXT_PREFIX + cascadeId).apply()
+            prefs.edit().remove(k).apply()
         } else {
-            prefs.edit().putString(KEY_DRAFT_TEXT_PREFIX + cascadeId, text).apply()
+            prefs.edit().putString(k, text).apply()
         }
         if (cascadeId.startsWith("local_draft_")) {
             val sessions = getLocalDraftSessions()
@@ -711,7 +937,7 @@ class PreferencesManager(context: Context) {
     }
 
     fun clearDraftText(cascadeId: String) {
-        prefs.edit().remove(KEY_DRAFT_TEXT_PREFIX + cascadeId).apply()
+        prefs.edit().remove(scopedKey(KEY_DRAFT_TEXT_PREFIX + cascadeId)).apply()
     }
 
     fun hasDraft(cascadeId: String): Boolean {
@@ -720,12 +946,30 @@ class PreferencesManager(context: Context) {
     }
 
     // MARK: - Draft file attachments (documents / archives / source files)
-    private fun draftFilesKey(cascadeId: String) = "draft_files_" + cascadeId.replace('/', '_').replace(':', '_')
+    private fun draftFilesKey(cascadeId: String) = scopedKey("draft_files_" + cascadeId.replace('/', '_').replace(':', '_'))
+
+    private fun draftFilesBaseDir(): java.io.File {
+        val ns = currentNamespace()
+        return if (ns.isEmpty()) {
+            java.io.File(appContext.filesDir, "draft_files")
+        } else {
+            java.io.File(appContext.filesDir, "draft_files/profiles/$ns")
+        }
+    }
+
+    private fun draftImagesBaseDir(): java.io.File {
+        val ns = currentNamespace()
+        return if (ns.isEmpty()) {
+            java.io.File(appContext.cacheDir, "draft_images")
+        } else {
+            java.io.File(appContext.cacheDir, "draft_images/profiles/$ns")
+        }
+    }
 
     /** App-private directory holding local copies of files attached to a draft. */
     fun draftFilesDir(cascadeId: String): java.io.File {
         val safeKey = cascadeId.replace('/', '_').replace(':', '_')
-        return java.io.File(appContext.filesDir, "draft_files/$safeKey").apply { mkdirs() }
+        return java.io.File(draftFilesBaseDir(), safeKey).apply { mkdirs() }
     }
 
     fun saveDraftFiles(cascadeId: String, files: List<com.antigravity.mobile.data.model.AttachmentFile>) {
@@ -761,7 +1005,7 @@ class PreferencesManager(context: Context) {
         try {
             prefs.edit().remove(draftFilesKey(cascadeId)).apply()
             val safeKey = cascadeId.replace('/', '_').replace(':', '_')
-            java.io.File(appContext.filesDir, "draft_files/$safeKey").deleteRecursively()
+            java.io.File(draftFilesBaseDir(), safeKey).deleteRecursively()
         } catch (_: Exception) {}
     }
 
@@ -778,7 +1022,7 @@ class PreferencesManager(context: Context) {
         }
         try {
             val safeKey = cascadeId.replace('/', '_').replace(':', '_')
-            val dir = java.io.File(appContext.cacheDir, "draft_images/$safeKey").apply { mkdirs() }
+            val dir = java.io.File(draftImagesBaseDir(), safeKey).apply { mkdirs() }
             dir.listFiles()?.forEach { it.delete() }
             images.forEachIndexed { index, bytes ->
                 val file = java.io.File(dir, "draft_${index}.png")
@@ -792,7 +1036,7 @@ class PreferencesManager(context: Context) {
         memDraftImages.get(cascadeId)?.let { return it }
         return try {
             val safeKey = cascadeId.replace('/', '_').replace(':', '_')
-            val dir = java.io.File(appContext.cacheDir, "draft_images/$safeKey")
+            val dir = java.io.File(draftImagesBaseDir(), safeKey)
             if (!dir.exists()) {
                 memDraftImages.put(cascadeId, emptyList())
                 return emptyList()
@@ -817,7 +1061,7 @@ class PreferencesManager(context: Context) {
         }
         try {
             val safeKey = cascadeId.replace('/', '_').replace(':', '_')
-            val dir = java.io.File(appContext.cacheDir, "draft_images/$safeKey")
+            val dir = java.io.File(draftImagesBaseDir(), safeKey)
             dir.deleteRecursively()
         } catch (_: Exception) {}
     }
@@ -827,7 +1071,7 @@ class PreferencesManager(context: Context) {
         memDraftImages.get(cascadeId)?.let { return it.isNotEmpty() }
         return try {
             val safeKey = cascadeId.replace('/', '_').replace(':', '_')
-            val dir = java.io.File(appContext.cacheDir, "draft_images/$safeKey")
+            val dir = java.io.File(draftImagesBaseDir(), safeKey)
             dir.exists() && (dir.listFiles()?.isNotEmpty() == true)
         } catch (_: Exception) {
             false
@@ -896,7 +1140,7 @@ class PreferencesManager(context: Context) {
 
     private fun loadDeletedConversationsMap(): Map<String, Long> {
         memDeletedConversations?.let { return it }
-        val raw = prefs.getString(KEY_DELETED_CONVERSATIONS, null)
+        val raw = prefs.getString(scopedKey(KEY_DELETED_CONVERSATIONS), null)
         val parsed: Map<String, Long> = if (raw.isNullOrBlank()) {
             emptyMap()
         } else {
@@ -917,30 +1161,31 @@ class PreferencesManager(context: Context) {
         map[cascadeId] = now
         val cleaned = map.filter { now - it.value < deletedTombstoneTTL }
         memDeletedConversations = cleaned
-        prefs.edit().putString(KEY_DELETED_CONVERSATIONS, draftJson.encodeToString(cleaned)).apply()
+        prefs.edit().putString(scopedKey(KEY_DELETED_CONVERSATIONS), draftJson.encodeToString(cleaned)).apply()
 
         val pinned = getPinnedConversationIds()
         if (pinned.contains(cascadeId)) {
             val updated = pinned.toMutableSet()
             updated.remove(cascadeId)
-            prefs.edit().putStringSet(KEY_PINNED_CONVERSATIONS, updated).apply()
+            prefs.edit().putStringSet(scopedKey(KEY_PINNED_CONVERSATIONS), updated).apply()
         }
     }
 
     fun getWorkspaceNote(key: String): String? {
         if (key.isBlank()) return null
-        return prefs.getString("$KEY_WS_NOTE_PREFIX$key", null)?.takeIf { it.isNotBlank() }
+        return prefs.getString(scopedKey("$KEY_WS_NOTE_PREFIX$key"), null)?.takeIf { it.isNotBlank() }
     }
 
     fun setWorkspaceNote(key: String, note: String?) {
         if (key.isBlank()) return
         val trimmed = note?.trim().orEmpty()
-        if (trimmed.isEmpty()) prefs.edit().remove("$KEY_WS_NOTE_PREFIX$key").apply()
-        else prefs.edit().putString("$KEY_WS_NOTE_PREFIX$key", trimmed).apply()
+        val k = scopedKey("$KEY_WS_NOTE_PREFIX$key")
+        if (trimmed.isEmpty()) prefs.edit().remove(k).apply()
+        else prefs.edit().putString(k, trimmed).apply()
     }
 
     fun getPinnedConversationIds(): Set<String> {
-        return prefs.getStringSet(KEY_PINNED_CONVERSATIONS, emptySet()) ?: emptySet()
+        return prefs.getStringSet(scopedKey(KEY_PINNED_CONVERSATIONS), emptySet()) ?: emptySet()
     }
 
     fun isPinned(cascadeId: String): Boolean {
@@ -953,7 +1198,7 @@ class PreferencesManager(context: Context) {
         val current = getPinnedConversationIds().toMutableSet()
         val changed = if (pinned) current.add(cascadeId) else current.remove(cascadeId)
         if (changed) {
-            prefs.edit().putStringSet(KEY_PINNED_CONVERSATIONS, current).apply()
+            prefs.edit().putStringSet(scopedKey(KEY_PINNED_CONVERSATIONS), current).apply()
         }
     }
 
@@ -966,7 +1211,7 @@ class PreferencesManager(context: Context) {
         } else {
             current.remove(cascadeId)
         }
-        prefs.edit().putStringSet(KEY_PINNED_CONVERSATIONS, current).apply()
+        prefs.edit().putStringSet(scopedKey(KEY_PINNED_CONVERSATIONS), current).apply()
         return willPin
     }
 
@@ -985,7 +1230,7 @@ class PreferencesManager(context: Context) {
         val cleaned = map.filter { now - it.value < deletedTombstoneTTL }
         if (cleaned.size != map.size) {
             memDeletedConversations = cleaned
-            prefs.edit().putString(KEY_DELETED_CONVERSATIONS, draftJson.encodeToString(cleaned)).apply()
+            prefs.edit().putString(scopedKey(KEY_DELETED_CONVERSATIONS), draftJson.encodeToString(cleaned)).apply()
         }
     }
 
@@ -1092,5 +1337,7 @@ class PreferencesManager(context: Context) {
         private const val KEY_DELETED_CONVERSATIONS = "ag_deleted_conversations"
         private const val KEY_PINNED_CONVERSATIONS = "ag_pinned_conversations"
         private const val KEY_WS_NOTE_PREFIX = "p3_ws_note_"
+        private const val KEY_GATEWAY_PROFILES_V1 = "antigravity_gateway_profiles_v1"
+        private const val KEY_ACTIVE_GATEWAY_PROFILE_ID_V1 = "antigravity_active_gateway_profile_id_v1"
     }
 }

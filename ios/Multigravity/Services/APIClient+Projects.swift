@@ -80,13 +80,14 @@ extension APIClient {
             startSession: startSession
         ))
 
+        let reqEpoch = GatewayRuntimeState.shared.epoch
         let (data, response) = try await transport.send(request: request)
         guard let httpResp = response as? HTTPURLResponse else {
             throw APIError.networkError("Invalid response type")
         }
         guard (200...299).contains(httpResp.statusCode) else {
             if httpResp.statusCode == 401 {
-                NotificationCenter.default.post(name: .deviceTokenRevoked, object: nil)
+                postTokenRevokedIfCurrentEpoch(reqEpoch)
             }
             let msg = (try? Self.makeProjectsDecoder().decode(CreateProjectResponse.self, from: data))?.error
                 ?? String(data: data, encoding: .utf8)
@@ -121,13 +122,14 @@ extension APIClient {
         request.httpMethod = "GET"
         request.timeoutInterval = 15
 
+        let reqEpoch = GatewayRuntimeState.shared.epoch
         let (data, response) = try await transport.send(request: request)
         guard let httpResp = response as? HTTPURLResponse else {
             throw APIError.networkError("Invalid response type")
         }
         guard (200...299).contains(httpResp.statusCode) else {
             if httpResp.statusCode == 401 {
-                NotificationCenter.default.post(name: .deviceTokenRevoked, object: nil)
+                postTokenRevokedIfCurrentEpoch(reqEpoch)
             }
             let msg = (try? JSONDecoder().decode(CreateLocalDirResponse.self, from: data))?.error
                 ?? String(data: data, encoding: .utf8)
@@ -164,13 +166,14 @@ extension APIClient {
             path: path?.trimmingCharacters(in: .whitespacesAndNewlines)
         ))
 
+        let reqEpoch = GatewayRuntimeState.shared.epoch
         let (data, response) = try await transport.send(request: request)
         guard let httpResp = response as? HTTPURLResponse else {
             throw APIError.networkError("Invalid response type")
         }
         guard (200...299).contains(httpResp.statusCode) else {
             if httpResp.statusCode == 401 {
-                NotificationCenter.default.post(name: .deviceTokenRevoked, object: nil)
+                postTokenRevokedIfCurrentEpoch(reqEpoch)
             }
             let msg = (try? JSONDecoder().decode(CreateLocalDirResponse.self, from: data))?.error
                 ?? String(data: data, encoding: .utf8)
@@ -213,6 +216,7 @@ extension APIClient {
             startSession: startSession
         ))
 
+        let reqEpoch = GatewayRuntimeState.shared.epoch
         let (data, response) = try await transport.send(request: request)
         guard let httpResp = response as? HTTPURLResponse else {
             throw APIError.networkError("Invalid response type")
@@ -223,7 +227,7 @@ extension APIClient {
         }
         guard (200...299).contains(httpResp.statusCode) else {
             if httpResp.statusCode == 401 {
-                NotificationCenter.default.post(name: .deviceTokenRevoked, object: nil)
+                postTokenRevokedIfCurrentEpoch(reqEpoch)
             }
             let msg = (try? decoder.decode(CloneRepoResponse.self, from: data))?.error
                 ?? String(data: data, encoding: .utf8)
@@ -246,6 +250,7 @@ extension APIClient {
         request.httpMethod = "GET"
         request.timeoutInterval = 15
 
+        let reqEpoch = GatewayRuntimeState.shared.epoch
         let (data, response) = try await transport.send(request: request)
         guard let httpResp = response as? HTTPURLResponse else {
             throw APIError.networkError("Invalid response type")
@@ -253,7 +258,7 @@ extension APIClient {
         let decoder = Self.makeProjectsDecoder()
         guard (200...299).contains(httpResp.statusCode) else {
             if httpResp.statusCode == 401 {
-                NotificationCenter.default.post(name: .deviceTokenRevoked, object: nil)
+                postTokenRevokedIfCurrentEpoch(reqEpoch)
             }
             let msg = (try? decoder.decode(CloneRepoResponse.self, from: data))?.error
                 ?? String(data: data, encoding: .utf8)

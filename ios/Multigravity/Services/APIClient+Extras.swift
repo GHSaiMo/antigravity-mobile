@@ -22,6 +22,7 @@ extension APIClient {
         request.httpBody = try JSONEncoder().encode(body)
         request.timeoutInterval = timeout
 
+        let reqEpoch = GatewayRuntimeState.shared.epoch
         let data: Data
         let response: URLResponse
         do {
@@ -34,7 +35,7 @@ extension APIClient {
         }
         guard (200...299).contains(http.statusCode) else {
             if http.statusCode == 401 {
-                NotificationCenter.default.post(name: .deviceTokenRevoked, object: nil)
+                postTokenRevokedIfCurrentEpoch(reqEpoch)
             }
             let msg = (try? JSONDecoder().decode(GatewayErrorBody.self, from: data))?.error
                 ?? String(data: data, encoding: .utf8)
@@ -77,12 +78,29 @@ extension APIClient {
     /// 刷新网关的升级自检结果（GET /gateway/status 的 compat 字段）。失败时保持上一次的结果不变。
     @MainActor
     public func refreshGatewayCompat(baseURL: URL) async {
+        let reqEpoch = GatewayRuntimeState.shared.epoch
         var request = URLRequest(url: baseURL.appendingPathComponent("gateway/status"))
         request.httpMethod = "GET"
         request.timeoutInterval = 8
         guard let (data, response) = try? await transport.send(request: request),
               let http = response as? HTTPURLResponse, (200...299).contains(http.statusCode) else { return }
+        guard GatewayRuntimeState.shared.epoch == reqEpoch else { return }
         GatewayCompatStore.shared.update(GatewayCompat.fromStatusData(data))
+        if let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+           let activeId = GatewayProfileStore.shared.activeProfileId {
+            let gwId = json["gateway_id"] as? String
+            let gwName = json["gateway_name"] as? String
+            let plat = json["platform"] as? String
+            GatewayProfileStore.shared.backfillGatewayMetadata(
+                profileId: activeId,
+                gatewayId: gwId,
+                gatewayName: gwName,
+                platform: plat
+            )
+            if let plat, !plat.isEmpty, AppSettings.shared.gatewayPlatform != plat {
+                AppSettings.shared.gatewayPlatform = plat
+            }
+        }
     }
 
     /// 手机端 "/" 菜单（系统命令 + 技能）。
@@ -443,6 +461,7 @@ extension APIClient {
         }
         request.timeoutInterval = timeout
 
+        let reqEpoch = GatewayRuntimeState.shared.epoch
         let data: Data
         let response: URLResponse
         do {
@@ -455,7 +474,7 @@ extension APIClient {
         }
         guard (200...299).contains(http.statusCode) else {
             if http.statusCode == 401 {
-                NotificationCenter.default.post(name: .deviceTokenRevoked, object: nil)
+                postTokenRevokedIfCurrentEpoch(reqEpoch)
             }
             let msg = (try? JSONDecoder().decode(GatewayErrorBody.self, from: data))?.error
                 ?? String(data: data, encoding: .utf8)

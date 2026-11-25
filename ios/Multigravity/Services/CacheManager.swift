@@ -79,11 +79,127 @@ public extension Notification.Name {
 public final class CacheManager: @unchecked Sendable {
     public static let shared = CacheManager()
     
-    private let cacheDir: URL
+    private let baseCacheDir: URL
     private let lock = NSRecursiveLock()
     private let ioQueue = DispatchQueue(label: "com.antigravity.mobile.cache.io", qos: .utility)
     private static let decoder = JSONDecoder()
     private static let encoder = JSONEncoder()
+
+    private var storageNamespace: String = ""
+
+    private func directory(forNamespace ns: String) -> URL {
+        if ns.isEmpty {
+            return baseCacheDir
+        }
+        return baseCacheDir.appendingPathComponent("profiles", isDirectory: true).appendingPathComponent(ns, isDirectory: true)
+    }
+
+    private var cacheDir: URL {
+        lock.lock()
+        let ns = storageNamespace
+        lock.unlock()
+        return directory(forNamespace: ns)
+    }
+
+    private func defaultsKey(_ suffix: String) -> String {
+        lock.lock()
+        let ns = storageNamespace
+        lock.unlock()
+        return ns.isEmpty ? suffix : "p.\(ns).\(suffix)"
+    }
+
+    public func switchStorageNamespace(_ namespace: String) {
+        flushPendingSessionWrites()
+        lock.lock()
+        storageNamespace = namespace
+        memConversations = nil
+        memMcpServers = nil
+        memSkills = nil
+        memSessions.removeAll()
+        memSessionOrder.removeAll()
+        memSessionTitles.removeAll()
+        pendingSessionWrites.removeAll()
+        memLastViewDates.removeAll()
+        memDrafts.removeAll()
+        memDraftImages.removeAll()
+        memLocalDraftSessions = nil
+        memTouchDates.removeAll()
+        memDraftDates.removeAll()
+        memDeletedConversations.removeAll()
+        memPinnedConversations = nil
+        let targetDir = directory(forNamespace: namespace)
+        lock.unlock()
+
+        let fm = FileManager.default
+        try? fm.createDirectory(at: targetDir.appendingPathComponent("sessions", isDirectory: true), withIntermediateDirectories: true)
+        try? fm.createDirectory(at: targetDir.appendingPathComponent("draft_images", isDirectory: true), withIntermediateDirectories: true)
+    }
+
+    public func clearStorage(forNamespace namespace: String) {
+        lock.lock()
+        let isCurrent = (storageNamespace == namespace)
+        if isCurrent {
+            memConversations = nil
+            memMcpServers = nil
+            memSkills = nil
+            memSessions.removeAll()
+            memSessionOrder.removeAll()
+            memSessionTitles.removeAll()
+            pendingSessionWrites.removeAll()
+            memLastViewDates.removeAll()
+            memDrafts.removeAll()
+            memDraftImages.removeAll()
+            memLocalDraftSessions = nil
+            memTouchDates.removeAll()
+            memDraftDates.removeAll()
+            memDeletedConversations.removeAll()
+            memPinnedConversations = nil
+        }
+        lock.unlock()
+
+        let prefix = namespace.isEmpty ? "" : "p.\(namespace)."
+        let defaults = UserDefaults.standard
+        defaults.removeObject(forKey: "\(prefix)ag_pinned_conversations")
+        defaults.removeObject(forKey: "\(prefix)ag_deleted_conversations")
+        if !namespace.isEmpty {
+            for k in defaults.dictionaryRepresentation().keys where k.hasPrefix(prefix) {
+                defaults.removeObject(forKey: k)
+            }
+        }
+
+        let targetDir = directory(forNamespace: namespace)
+        ioQueue.async {
+            let fm = FileManager.default
+            if namespace.isEmpty {
+                if let items = try? fm.contentsOfDirectory(at: targetDir, includingPropertiesForKeys: nil) {
+                    for item in items where item.lastPathComponent != "profiles" {
+                        try? fm.removeItem(at: item)
+                    }
+                }
+                try? fm.createDirectory(at: targetDir.appendingPathComponent("sessions", isDirectory: true), withIntermediateDirectories: true)
+                try? fm.createDirectory(at: targetDir.appendingPathComponent("draft_images", isDirectory: true), withIntermediateDirectories: true)
+            } else {
+                try? fm.removeItem(at: targetDir)
+            }
+        }
+    }
+
+    /// Checks whether a given `cascadeId` exists in a profile's disk cache (fallback for legacy notifications without `gatewayId`).
+    public func containsCachedCascade(_ cascadeId: String, storageNamespace ns: String) -> Bool {
+        guard Self.isValidCascadeId(cascadeId) else { return false }
+        let dir = directory(forNamespace: ns)
+        let sessionFile = dir.appendingPathComponent("sessions/\(cascadeId).json")
+        if FileManager.default.fileExists(atPath: sessionFile.path) {
+            return true
+        }
+        let listFile = dir.appendingPathComponent("conversations.json")
+        if let data = try? Data(contentsOf: listFile),
+           let items = try? Self.decoder.decode([ConversationItem].self, from: data),
+           items.contains(where: { $0.id == cascadeId }) {
+            return true
+        }
+        return false
+    }
     
     private var memConversations: [ConversationItem]?
     private var memMcpServers: [McpServerState]?
@@ -181,7 +297,7 @@ public final class CacheManager: @unchecked Sendable {
         if let mem = memPinnedConversations {
             return mem
         }
-        let arr = UserDefaults.standard.stringArray(forKey: "ag_pinned_conversations") ?? []
+        let arr = UserDefaults.standard.stringArray(forKey: defaultsKey("ag_pinned_conversations")) ?? []
         let set = Set(arr)
         memPinnedConversations = set
         return set
@@ -202,7 +318,7 @@ public final class CacheManager: @unchecked Sendable {
             set.remove(cascadeId)
         }
         memPinnedConversations = set
-        UserDefaults.standard.set(Array(set), forKey: "ag_pinned_conversations")
+        UserDefaults.standard.set(Array(set), forKey: defaultsKey("ag_pinned_conversations"))
         lock.unlock()
     }
 
@@ -218,7 +334,7 @@ public final class CacheManager: @unchecked Sendable {
             set.remove(cascadeId)
         }
         memPinnedConversations = set
-        UserDefaults.standard.set(Array(set), forKey: "ag_pinned_conversations")
+        UserDefaults.standard.set(Array(set), forKey: defaultsKey("ag_pinned_conversations"))
         lock.unlock()
         return willPin
     }
@@ -227,7 +343,7 @@ public final class CacheManager: @unchecked Sendable {
         guard !cascadeId.isEmpty else { return }
         lock.lock()
         memTouchDates[cascadeId] = date
-        UserDefaults.standard.set(date, forKey: "ag_touch_\(cascadeId)")
+        UserDefaults.standard.set(date, forKey: defaultsKey("ag_touch_\(cascadeId)"))
         
         if var items = memConversations, !items.isEmpty {
             if let idx = items.firstIndex(where: { $0.id == cascadeId }) {
@@ -324,7 +440,7 @@ public final class CacheManager: @unchecked Sendable {
         if let d = memTouchDates[cascadeId] {
             return d
         }
-        if let ts = UserDefaults.standard.object(forKey: "ag_touch_\(cascadeId)") as? Date {
+        if let ts = UserDefaults.standard.object(forKey: defaultsKey("ag_touch_\(cascadeId)")) as? Date {
             memTouchDates[cascadeId] = ts
             return ts
         }
@@ -335,7 +451,7 @@ public final class CacheManager: @unchecked Sendable {
         guard !key.isEmpty else { return }
         lock.lock()
         memDraftDates[key] = date
-        UserDefaults.standard.set(date, forKey: "ag_draft_date_\(key)")
+        UserDefaults.standard.set(date, forKey: defaultsKey("ag_draft_date_\(key)"))
         lock.unlock()
     }
     
@@ -345,7 +461,7 @@ public final class CacheManager: @unchecked Sendable {
         if let d = memDraftDates[key] {
             return d
         }
-        if let ts = UserDefaults.standard.object(forKey: "ag_draft_date_\(key)") as? Date {
+        if let ts = UserDefaults.standard.object(forKey: defaultsKey("ag_draft_date_\(key)")) as? Date {
             memDraftDates[key] = ts
             return ts
         }
@@ -359,15 +475,16 @@ public final class CacheManager: @unchecked Sendable {
         if var set = memPinnedConversations, set.contains(cascadeId) {
             set.remove(cascadeId)
             memPinnedConversations = set
-            UserDefaults.standard.set(Array(set), forKey: "ag_pinned_conversations")
+            UserDefaults.standard.set(Array(set), forKey: defaultsKey("ag_pinned_conversations"))
         }
+        let deletedKey = defaultsKey("ag_deleted_conversations")
         lock.unlock()
 
-        var dict = UserDefaults.standard.dictionary(forKey: "ag_deleted_conversations") as? [String: Double] ?? [:]
+        var dict = UserDefaults.standard.dictionary(forKey: deletedKey) as? [String: Double] ?? [:]
         let now = Date().timeIntervalSince1970
         dict[cascadeId] = now
         dict = dict.filter { now - $0.value < deletedTombstoneTTL }
-        UserDefaults.standard.set(dict, forKey: "ag_deleted_conversations")
+        UserDefaults.standard.set(dict, forKey: deletedKey)
     }
 
     public func isDeletedConversation(cascadeId: String) -> Bool {
@@ -383,7 +500,7 @@ public final class CacheManager: @unchecked Sendable {
             memDeletedConversations.removeValue(forKey: cascadeId)
         }
 
-        if let dict = UserDefaults.standard.dictionary(forKey: "ag_deleted_conversations") as? [String: Double],
+        if let dict = UserDefaults.standard.dictionary(forKey: defaultsKey("ag_deleted_conversations")) as? [String: Double],
            let timestamp = dict[cascadeId] {
             if now.timeIntervalSince1970 - timestamp < deletedTombstoneTTL {
                 memDeletedConversations[cascadeId] = Date(timeIntervalSince1970: timestamp)
@@ -399,7 +516,7 @@ public final class CacheManager: @unchecked Sendable {
         if let d = memLastViewDates[cascadeId] {
             return d
         }
-        if let ts = UserDefaults.standard.object(forKey: "ag_last_view_\(cascadeId)") as? Date {
+        if let ts = UserDefaults.standard.object(forKey: defaultsKey("ag_last_view_\(cascadeId)")) as? Date {
             memLastViewDates[cascadeId] = ts
             return ts
         }
@@ -410,7 +527,7 @@ public final class CacheManager: @unchecked Sendable {
         lock.lock()
         let now = Date()
         memLastViewDates[cascadeId] = now
-        UserDefaults.standard.set(now, forKey: "ag_last_view_\(cascadeId)")
+        UserDefaults.standard.set(now, forKey: defaultsKey("ag_last_view_\(cascadeId)"))
         
         if var items = memConversations, let idx = items.firstIndex(where: { $0.id == cascadeId }) {
             let old = items[idx]
@@ -448,7 +565,7 @@ public final class CacheManager: @unchecked Sendable {
         let fm = FileManager.default
         let base = fm.urls(for: .cachesDirectory, in: .userDomainMask).first ?? fm.temporaryDirectory
         let dir = base.appendingPathComponent("AntigravityCache", isDirectory: true)
-        self.cacheDir = dir
+        self.baseCacheDir = dir
         try? fm.createDirectory(at: dir.appendingPathComponent("sessions", isDirectory: true), withIntermediateDirectories: true)
         
         #if canImport(UIKit)
@@ -807,7 +924,7 @@ public final class CacheManager: @unchecked Sendable {
         memSessionTitles.removeValue(forKey: cascadeId)
         pendingSessionWrites.removeValue(forKey: cascadeId)
         memLastViewDates.removeValue(forKey: cascadeId)
-        UserDefaults.standard.removeObject(forKey: "ag_last_view_\(cascadeId)")
+        UserDefaults.standard.removeObject(forKey: defaultsKey("ag_last_view_\(cascadeId)"))
         clearDraft(key: cascadeId)
         
         let convFileURL = cacheDir.appendingPathComponent("conversations.json")
@@ -1015,23 +1132,9 @@ public final class CacheManager: @unchecked Sendable {
     
     public func clearCache() {
         lock.lock()
-        memConversations = nil
-        memSessions.removeAll()
-        memSessionOrder.removeAll()
-        memSessionTitles.removeAll()
-        pendingSessionWrites.removeAll()
-        memDrafts.removeAll()
-        memDraftImages.removeAll()
-        memLocalDraftSessions?.removeAll()
+        let ns = storageNamespace
         lock.unlock()
-        
-        let targetDir = cacheDir
-        ioQueue.async {
-            let fm = FileManager.default
-            try? fm.removeItem(at: targetDir)
-            try? fm.createDirectory(at: targetDir.appendingPathComponent("sessions", isDirectory: true), withIntermediateDirectories: true)
-            try? fm.createDirectory(at: targetDir.appendingPathComponent("draft_images", isDirectory: true), withIntermediateDirectories: true)
-        }
+        clearStorage(forNamespace: ns)
     }
     
     // MARK: - Drafts Cache
@@ -1043,7 +1146,7 @@ public final class CacheManager: @unchecked Sendable {
         if let draft = memDrafts[key] {
             return draft
         }
-        if let saved = UserDefaults.standard.string(forKey: "ag_draft_\(key)") {
+        if let saved = UserDefaults.standard.string(forKey: defaultsKey("ag_draft_\(key)")) {
             memDrafts[key] = saved
             return saved
         }
@@ -1069,10 +1172,10 @@ public final class CacheManager: @unchecked Sendable {
         lock.lock()
         let old = memDrafts[key]
         memDrafts[key] = text
-        UserDefaults.standard.set(text, forKey: "ag_draft_\(key)")
+        UserDefaults.standard.set(text, forKey: defaultsKey("ag_draft_\(key)"))
         let now = Date()
         memDraftDates[key] = now
-        UserDefaults.standard.set(now, forKey: "ag_draft_date_\(key)")
+        UserDefaults.standard.set(now, forKey: defaultsKey("ag_draft_date_\(key)"))
         
         if key.hasPrefix("local_draft_") {
             ensureLocalDraftSessionsLoaded()
@@ -1096,11 +1199,13 @@ public final class CacheManager: @unchecked Sendable {
     public func clearTextDraft(key: String) {
         guard !key.isEmpty else { return }
         lock.lock()
-        let hadValue = (memDrafts[key] != nil) || (UserDefaults.standard.object(forKey: "ag_draft_\(key)") != nil)
+        let draftK = defaultsKey("ag_draft_\(key)")
+        let dateK = defaultsKey("ag_draft_date_\(key)")
+        let hadValue = (memDrafts[key] != nil) || (UserDefaults.standard.object(forKey: draftK) != nil)
         memDrafts.removeValue(forKey: key)
-        UserDefaults.standard.removeObject(forKey: "ag_draft_\(key)")
+        UserDefaults.standard.removeObject(forKey: draftK)
         memDraftDates.removeValue(forKey: key)
-        UserDefaults.standard.removeObject(forKey: "ag_draft_date_\(key)")
+        UserDefaults.standard.removeObject(forKey: dateK)
         if key.hasPrefix("local_draft_") {
             ensureLocalDraftSessionsLoaded()
             if !hasDraftImages(for: key) && !DraftFileStore.shared.hasFiles(for: key) {
@@ -1126,14 +1231,16 @@ public final class CacheManager: @unchecked Sendable {
         guard !key.isEmpty else { return }
         let hadFiles = DraftFileStore.shared.hasFiles(for: key)
         lock.lock()
+        let draftK = defaultsKey("ag_draft_\(key)")
+        let dateK = defaultsKey("ag_draft_date_\(key)")
         let hadValue = (memDrafts[key] != nil)
-            || (UserDefaults.standard.object(forKey: "ag_draft_\(key)") != nil)
+            || (UserDefaults.standard.object(forKey: draftK) != nil)
             || hasDraftImages(for: key)
             || hadFiles
         memDrafts.removeValue(forKey: key)
-        UserDefaults.standard.removeObject(forKey: "ag_draft_\(key)")
+        UserDefaults.standard.removeObject(forKey: draftK)
         memDraftDates.removeValue(forKey: key)
-        UserDefaults.standard.removeObject(forKey: "ag_draft_date_\(key)")
+        UserDefaults.standard.removeObject(forKey: dateK)
         if key.hasPrefix("local_draft_") {
             ensureLocalDraftSessionsLoaded()
             memLocalDraftSessions?.removeValue(forKey: key)
@@ -1417,7 +1524,7 @@ public final class CacheManager: @unchecked Sendable {
         ensureLocalDraftSessionsLoaded()
         guard let dict = memLocalDraftSessions else { return [] }
         return dict.values.filter { session in
-            let text = memDrafts[session.id] ?? UserDefaults.standard.string(forKey: "ag_draft_\(session.id)") ?? session.draftText
+            let text = memDrafts[session.id] ?? UserDefaults.standard.string(forKey: defaultsKey("ag_draft_\(session.id)")) ?? session.draftText
             let hasImages = !session.draftImages.isEmpty || hasDraftImages(for: session.id)
             let hasFiles = DraftFileStore.shared.hasFiles(for: session.id)
             let isRecording = AudioRecorderManager.shared.isRecording && AudioRecorderManager.shared.currentCascadeId == session.id

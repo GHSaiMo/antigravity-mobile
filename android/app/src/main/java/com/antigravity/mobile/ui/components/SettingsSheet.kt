@@ -308,8 +308,15 @@ fun SettingsSheet(
                 )
             },
             text = {
+                val gwStore = com.antigravity.mobile.data.service.GatewayProfileStore.sharedOrNull()
+                val activeHostName = gwStore?.activeProfile?.resolvedDisplayName
+                val msg = if (gwStore?.hasMultipleGateways == true && !activeHostName.isNullOrBlank()) {
+                    "解除与「%s」的配对将通知该网关清理此设备绑定，并自动切换至其他已配对主机。".loc(activeHostName)
+                } else {
+                    "解除配对将通知网关清理此设备绑定，并清除本地访问令牌与网关配置。".loc
+                }
                 Text(
-                    text = "解除配对将通知网关清理此设备绑定，并清除本地访问令牌与网关配置。".loc,
+                    text = msg,
                     color = colors.textSecondary,
                     fontSize = 14.sp
                 )

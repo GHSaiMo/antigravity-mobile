@@ -315,3 +315,31 @@ func GetTrustLAN() bool {
 	return v == "1" || v == "true" || v == "yes"
 }
 
+// DefaultGatewayName returns a clean human-readable display name for this host gateway.
+// Respects MGY_GATEWAY_NAME / MULTIGRAVITY_GATEWAY_NAME when explicitly set; otherwise derives from os.Hostname().
+func DefaultGatewayName() string {
+	raw := strings.TrimSpace(os.Getenv("MGY_GATEWAY_NAME"))
+	if raw == "" {
+		raw = strings.TrimSpace(os.Getenv("MULTIGRAVITY_GATEWAY_NAME"))
+	}
+	if raw == "" {
+		if h, err := os.Hostname(); err == nil {
+			raw = strings.TrimSpace(h)
+		}
+	}
+	lower := strings.ToLower(raw)
+	for _, suffix := range []string{".localdomain", ".local", ".lan", ".home"} {
+		if strings.HasSuffix(lower, suffix) && len(raw) > len(suffix) {
+			raw = raw[:len(raw)-len(suffix)]
+			break
+		}
+	}
+	raw = strings.TrimSpace(raw)
+	runes := []rune(raw)
+	if len(runes) > 24 {
+		raw = string(runes[:24])
+	}
+	return raw
+}
+
+

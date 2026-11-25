@@ -6,14 +6,47 @@ import Foundation
 public final class DraftFileStore: @unchecked Sendable {
     public static let shared = DraftFileStore()
     
-    private let root: URL
+    private let baseRoot: URL
     private let lock = NSLock()
+    private var storageNamespace: String = ""
+
+    private func rootDir(forNamespace ns: String) -> URL {
+        if ns.isEmpty { return baseRoot }
+        return baseRoot.appendingPathComponent("profiles", isDirectory: true).appendingPathComponent(ns, isDirectory: true)
+    }
+
+    private var root: URL {
+        rootDir(forNamespace: storageNamespace)
+    }
     
     private init() {
         let base = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first
             ?? FileManager.default.temporaryDirectory
-        root = base.appendingPathComponent("draft_files", isDirectory: true)
-        try? FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        baseRoot = base.appendingPathComponent("draft_files", isDirectory: true)
+        try? FileManager.default.createDirectory(at: baseRoot, withIntermediateDirectories: true)
+    }
+
+    public func switchStorageNamespace(_ namespace: String) {
+        lock.lock()
+        storageNamespace = namespace
+        let dir = rootDir(forNamespace: namespace)
+        lock.unlock()
+        try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+    }
+
+    public func clearStorage(forNamespace namespace: String) {
+        lock.lock()
+        let dir = rootDir(forNamespace: namespace)
+        lock.unlock()
+        if namespace.isEmpty {
+            if let items = try? FileManager.default.contentsOfDirectory(at: dir, includingPropertiesForKeys: nil) {
+                for item in items where item.lastPathComponent != "profiles" {
+                    try? FileManager.default.removeItem(at: item)
+                }
+            }
+        } else {
+            try? FileManager.default.removeItem(at: dir)
+        }
     }
     
     public func directory(for key: String) -> URL {

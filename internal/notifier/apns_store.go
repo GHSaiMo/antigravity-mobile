@@ -22,12 +22,13 @@ const (
 	apnsEnvSandbox             = "sandbox"
 )
 
-// PushDeviceRecord persists APNs push tokens and preferences for a paired iOS device.
+// PushDeviceRecord persists APNs/FCM push tokens and preferences for a paired mobile device.
 type PushDeviceRecord struct {
 	DeviceID              string            `json:"device_id"`
-	Platform              string            `json:"platform"` // "ios"
+	Platform              string            `json:"platform"` // "ios" | "android"
 	APNSDeviceToken       string            `json:"apns_device_token,omitempty"`
 	APNSEnv               string            `json:"apns_env,omitempty"` // "production" | "sandbox"
+	FCMDeviceToken        string            `json:"fcm_device_token,omitempty"`
 	PushToStartToken      string            `json:"push_to_start_token,omitempty"`
 	ActivityTokens        map[string]string `json:"activity_tokens,omitempty"` // cascadeID -> update token
 	ActivityUpdatedAt     map[string]int64  `json:"activity_updated_at,omitempty"`
@@ -37,27 +38,42 @@ type PushDeviceRecord struct {
 	SoundComplete         string            `json:"sound_complete,omitempty"`
 	SoundAction           string            `json:"sound_action,omitempty"`
 	Lang                  string            `json:"lang,omitempty"`
+	ShowGatewayLabel      bool              `json:"show_gateway_label,omitempty"`
+	GatewayLabel          string            `json:"gateway_label,omitempty"`
 	UpdatedAt             time.Time         `json:"updated_at"`
 }
 
 // APNsAlertTarget identifies a registered iOS device eligible for standard APNs alert notifications.
 type APNsAlertTarget struct {
-	DeviceID      string
-	Token         string
-	Env           string
-	SoundComplete string
-	SoundAction   string
-	Lang          string
+	DeviceID         string
+	Token            string
+	Env              string
+	SoundComplete    string
+	SoundAction      string
+	Lang             string
+	ShowGatewayLabel bool
+	GatewayLabel     string
+}
+
+// FCMAlertTarget identifies a registered Android device eligible for FCM push notifications.
+type FCMAlertTarget struct {
+	DeviceID         string
+	Token            string
+	Lang             string
+	ShowGatewayLabel bool
+	GatewayLabel     string
 }
 
 // APNsLiveActivityTarget identifies a registered iOS device Live Activity token (update or push-to-start).
 type APNsLiveActivityTarget struct {
-	DeviceID  string
-	CascadeID string
-	Token     string
-	Env       string
-	Lang      string
-	IsStart   bool
+	DeviceID         string
+	CascadeID        string
+	Token            string
+	Env              string
+	Lang             string
+	ShowGatewayLabel bool
+	GatewayLabel     string
+	IsStart          bool
 }
 
 // PushDeviceStore persists APNs push registrations to disk atomically (~/.multigravity/push_devices.json).
@@ -377,6 +393,122 @@ func (s *PushDeviceStore) UpdateLanguage(deviceID, lang string) error {
 	return s.saveLocked()
 }
 
+// UpdateGatewayLabel updates whether notifications sent to deviceID should include a gateway label
+// and optionally overrides the display label with the user's custom alias on that device.
+func (s *PushDeviceStore) UpdateGatewayLabel(deviceID string, show *bool, label string) error {
+	deviceID = strings.TrimSpace(deviceID)
+	if deviceID == "" {
+		return nil
+	}
+	cleanLabel := truncateString(SanitizePushText(label), 24)
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	rec, ok := s.devices[deviceID]
+	if !ok {
+		return nil
+	}
+	changed := false
+	if show != nil && rec.ShowGatewayLabel != *show {
+		rec.ShowGatewayLabel = *show
+		changed = true
+	}
+	if strings.TrimSpace(label) != "" && rec.GatewayLabel != cleanLabel {
+		rec.GatewayLabel = cleanLabel
+		changed = true
+	}
+	if !changed {
+		return nil
+	}
+	rec.UpdatedAt = time.Now()
+	return s.saveLocked()
+}
+
+// UpsertFCMToken registers or updates an Android device's FCM registration token in the shared store.
+func (s *PushDeviceStore) UpsertFCMToken(deviceID, token, lang string, notifEnabled *bool) error {
+	deviceID = strings.TrimSpace(deviceID)
+	token = strings.TrimSpace(token)
+	if deviceID == "" {
+		return fmt.Errorf("device_id is required")
+	}
+	if token == "" || len(token) > 4096 {
+		return fmt.Errorf("invalid FCM device token")
+	}
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	rec := s.getOrCreateLocked(deviceID, "android", "")
+	rec.Platform = "android"
+	rec.FCMDeviceToken = token
+	for otherID, other := range s.devices {
+		if otherID != deviceID && other.FCMDeviceToken == token {
+			other.FCMDeviceToken = ""
+			if other.APNSDeviceToken == "" && other.PushToStartToken == "" && len(other.ActivityTokens) == 0 {
+				delete(s.devices, otherID)
+			}
+		}
+	}
+	if notifEnabled != nil {
+		rec.NotificationsEnabled = *notifEnabled
+	}
+	if rawLang := strings.TrimSpace(lang); rawLang != "" {
+		norm := i18n.NormalizeLang(rawLang)
+		if norm == "" {
+			norm = i18n.LangEn
+		}
+		rec.Lang = norm
+	}
+	rec.UpdatedAt = time.Now()
+	return s.saveLocked()
+}
+
+// ClearFCMToken removes an invalid/unregistered FCM token for a device.
+func (s *PushDeviceStore) ClearFCMToken(deviceID, badToken string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	rec, ok := s.devices[deviceID]
+	if !ok || rec.FCMDeviceToken == "" {
+		return
+	}
+	if badToken != "" && rec.FCMDeviceToken != badToken {
+		return
+	}
+	rec.FCMDeviceToken = ""
+	rec.UpdatedAt = time.Now()
+	_ = s.saveLocked()
+}
+
+// ListFCMTargets returns all Android devices with an active FCM token and notifications enabled.
+func (s *PushDeviceStore) ListFCMTargets() []FCMAlertTarget {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	var out []FCMAlertTarget
+	for _, rec := range s.devices {
+		if rec.NotificationsEnabled && rec.FCMDeviceToken != "" {
+			out = append(out, FCMAlertTarget{
+				DeviceID:         rec.DeviceID,
+				Token:            rec.FCMDeviceToken,
+				Lang:             i18n.NormalizeLang(rec.Lang),
+				ShowGatewayLabel: rec.ShowGatewayLabel,
+				GatewayLabel:     rec.GatewayLabel,
+			})
+		}
+	}
+	return out
+}
+
+// HasFCMTargets reports whether at least one Android device is subscribed to FCM notifications.
+func (s *PushDeviceStore) HasFCMTargets() bool {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	for _, rec := range s.devices {
+		if rec.NotificationsEnabled && rec.FCMDeviceToken != "" {
+			return true
+		}
+	}
+	return false
+}
+
 // RemoveLiveActivityToken deletes a specific cascade's Live Activity update token (e.g. after end or 410).
 func (s *PushDeviceStore) RemoveLiveActivityToken(deviceID, cascadeID string) {
 	s.mu.Lock()
@@ -522,12 +654,14 @@ func (s *PushDeviceStore) ListAlertTargets() []APNsAlertTarget {
 	for _, rec := range s.devices {
 		if rec.NotificationsEnabled && rec.APNSDeviceToken != "" {
 			out = append(out, APNsAlertTarget{
-				DeviceID:      rec.DeviceID,
-				Token:         rec.APNSDeviceToken,
-				Env:           normalizeAPNSEnv(rec.APNSEnv),
-				SoundComplete: rec.SoundComplete,
-				SoundAction:   rec.SoundAction,
-				Lang:          i18n.NormalizeLang(rec.Lang),
+				DeviceID:         rec.DeviceID,
+				Token:            rec.APNSDeviceToken,
+				Env:              normalizeAPNSEnv(rec.APNSEnv),
+				SoundComplete:    rec.SoundComplete,
+				SoundAction:      rec.SoundAction,
+				Lang:             i18n.NormalizeLang(rec.Lang),
+				ShowGatewayLabel: rec.ShowGatewayLabel,
+				GatewayLabel:     rec.GatewayLabel,
 			})
 		}
 	}
@@ -555,24 +689,28 @@ func (s *PushDeviceStore) ListLiveActivityTargetsAt(cascadeID string, includeSta
 		lang := i18n.NormalizeLang(rec.Lang)
 		if tok := rec.ActivityTokens[cascadeID]; tok != "" {
 			out = append(out, APNsLiveActivityTarget{
-				DeviceID:  rec.DeviceID,
-				CascadeID: cascadeID,
-				Token:     tok,
-				Env:       env,
-				Lang:      lang,
-				IsStart:   false,
+				DeviceID:         rec.DeviceID,
+				CascadeID:        cascadeID,
+				Token:            tok,
+				Env:              env,
+				Lang:             lang,
+				ShowGatewayLabel: rec.ShowGatewayLabel,
+				GatewayLabel:     rec.GatewayLabel,
+				IsStart:          false,
 			})
 		} else if includeStart && rec.PushToStartToken != "" {
 			if startedTs := rec.ActivityStartedAt[cascadeID]; startedTs > 0 && now.Sub(time.Unix(startedTs, 0)) < liveActivityStartRunTTL {
 				continue
 			}
 			out = append(out, APNsLiveActivityTarget{
-				DeviceID:  rec.DeviceID,
-				CascadeID: cascadeID,
-				Token:     rec.PushToStartToken,
-				Env:       env,
-				Lang:      lang,
-				IsStart:   true,
+				DeviceID:         rec.DeviceID,
+				CascadeID:        cascadeID,
+				Token:            rec.PushToStartToken,
+				Env:              env,
+				Lang:             lang,
+				ShowGatewayLabel: rec.ShowGatewayLabel,
+				GatewayLabel:     rec.GatewayLabel,
+				IsStart:          true,
 			})
 		}
 	}

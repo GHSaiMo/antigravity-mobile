@@ -28,6 +28,7 @@ type APNsRelayAlertRequest struct {
 	CollapseID        string `json:"collapse_id,omitempty"`
 	Category          string `json:"category,omitempty"`
 	CascadeID         string `json:"cascade_id,omitempty"`
+	GatewayID         string `json:"gateway_id,omitempty"`
 	URL               string `json:"url,omitempty"`
 }
 
@@ -37,6 +38,7 @@ type APNsRelayBackgroundRequest struct {
 	Env         string `json:"env"` // "production" | "sandbox"
 	Action      string `json:"action"`
 	CascadeID   string `json:"cascade_id,omitempty"`
+	GatewayID   string `json:"gateway_id,omitempty"`
 	CollapseID  string `json:"collapse_id,omitempty"`
 }
 
@@ -159,6 +161,11 @@ func (c *APNsRelayClient) Send(ctx context.Context, payload PushPayload) error {
 		if len(collapseID) > 64 {
 			collapseID = collapseID[:64]
 		}
+	} else if payload.Category == "quota_alert" && strings.TrimSpace(payload.GatewayID) != "" {
+		collapseID = "quota-" + strings.TrimSpace(payload.GatewayID)
+		if len(collapseID) > 64 {
+			collapseID = collapseID[:64]
+		}
 	}
 
 	cleanTitle := truncateString(SanitizePushText(payload.Title), 80)
@@ -196,17 +203,33 @@ func (c *APNsRelayClient) Send(ctx context.Context, payload PushPayload) error {
 					targetBody = truncateString(SanitizePushText(locBody), 240)
 				}
 			}
+			targetSubtitle := ""
+			threadID := "multigravity"
+			if t.ShowGatewayLabel {
+				lbl := strings.TrimSpace(t.GatewayLabel)
+				if lbl == "" {
+					lbl = strings.TrimSpace(payload.GatewayName)
+				}
+				if lbl != "" {
+					targetSubtitle = truncateString(SanitizePushText(lbl), 32)
+				}
+				if gw := strings.TrimSpace(payload.GatewayID); gw != "" {
+					threadID = "multigravity-" + gw
+				}
+			}
 			req := APNsRelayAlertRequest{
 				DeviceToken:       t.Token,
 				Env:               t.Env,
 				Title:             targetTitle,
+				Subtitle:          targetSubtitle,
 				Body:              targetBody,
 				Sound:             resolveAlertSound(t, payload),
 				InterruptionLevel: interruption,
-				ThreadID:          "multigravity",
+				ThreadID:          threadID,
 				CollapseID:        collapseID,
 				Category:          payload.Category,
 				CascadeID:         cascadeID,
+				GatewayID:         strings.TrimSpace(payload.GatewayID),
 				URL:               payload.URL,
 			}
 			resp, err := c.postRelay(ctx, "/v1/push/alert", req)
@@ -285,6 +308,7 @@ func (c *APNsRelayClient) sendBackground(ctx context.Context, targets []APNsAler
 				Env:         t.Env,
 				Action:      action,
 				CascadeID:   cascadeID,
+				GatewayID:   strings.TrimSpace(payload.GatewayID),
 				CollapseID:  collapseID,
 			}
 			resp, err := c.postRelay(ctx, "/v1/push/background", req)

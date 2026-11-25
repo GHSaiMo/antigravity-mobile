@@ -25,11 +25,16 @@ import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
+import com.antigravity.mobile.data.model.PairingInfo
 import com.antigravity.mobile.data.service.ApiClient
 import com.antigravity.mobile.data.service.CacheManager
 import com.antigravity.mobile.data.service.ConnectionManager
+import com.antigravity.mobile.data.service.GatewayProfileStore
+import com.antigravity.mobile.data.service.GatewaySwitcher
+import com.antigravity.mobile.data.service.NotificationActionReceiver
 import com.antigravity.mobile.data.service.PreferencesManager
 import com.antigravity.mobile.data.service.StreamWebSocketClient
+import com.antigravity.mobile.ui.viewmodel.resetSession
 import com.antigravity.mobile.ui.screen.ChatScreen
 import com.antigravity.mobile.ui.screen.ConversationListScreen
 import com.antigravity.mobile.ui.screen.PairingScreen
@@ -74,6 +79,7 @@ class MainActivity : ComponentActivity() {
     private lateinit var chatViewModel: ChatViewModel
     private lateinit var liveActivityManager: com.antigravity.mobile.data.service.LiveActivityNotificationManager
     private lateinit var cacheManager: CacheManager
+    private lateinit var gatewayProfileStore: GatewayProfileStore
 
     private lateinit var qrScanLauncher: ActivityResultLauncher<ScanOptions>
     private lateinit var notificationPermissionLauncher: ActivityResultLauncher<String>
@@ -89,12 +95,20 @@ class MainActivity : ComponentActivity() {
 
         // Initialize Services
         prefs = PreferencesManager(applicationContext)
+        gatewayProfileStore = GatewayProfileStore.getOrCreate(applicationContext, prefs)
         connectionManager = ConnectionManager(applicationContext)
         connectionManager.startMonitoring(prefs)
         apiClient = ApiClient(applicationContext, prefs, connectionManager)
         wsClient = StreamWebSocketClient(prefs, connectionManager)
         cacheManager = CacheManager(applicationContext)
         val documentCacheManager = com.antigravity.mobile.data.service.DocumentCacheManager(applicationContext)
+        gatewayProfileStore.attachRuntimeDependencies(
+            cacheManager = cacheManager,
+            documentCacheManager = documentCacheManager,
+            connectionManager = connectionManager,
+            apiClient = apiClient,
+            wsClient = wsClient
+        )
         // Refresh notification channels with current system locale on every activity creation
         com.antigravity.mobile.data.service.NotificationChannelManager.createNotificationChannels(applicationContext)
         liveActivityManager = com.antigravity.mobile.data.service.LiveActivityNotificationManager.getOrCreate(
@@ -190,9 +204,44 @@ class MainActivity : ComponentActivity() {
         qrScanLauncher = registerForActivityResult(ScanContract()) { result ->
             if (result.contents != null) {
                 val scannedContent = result.contents
-                pairingViewModel.pairWithUri(scannedContent)
+                if (prefs.isPaired()) {
+                    val info = PairingInfo.parseFromUri(scannedContent)
+                    if (info == null) {
+                        Toast.makeText(this, "无法识别配对链接，请扫描正确的 agy://pair 二维码".loc, Toast.LENGTH_LONG).show()
+                    } else {
+                        Toast.makeText(this, "正在连接并配对新主机...".loc, Toast.LENGTH_SHORT).show()
+                        lifecycleScope.launch {
+                            val pairRes = apiClient.pair(info)
+                            pairRes.onFailure { err ->
+                                Toast.makeText(
+                                    this@MainActivity,
+                                    "配对失败: %s".loc(err.message ?: "请检查网络和网关".loc),
+                                    Toast.LENGTH_LONG
+                                ).show()
+                            }
+                        }
+                    }
+                } else {
+                    pairingViewModel.pairWithUri(scannedContent)
+                }
             } else {
                 Toast.makeText(this, "已取消扫码".loc, Toast.LENGTH_SHORT).show()
+            }
+        }
+
+        // Observe atomic multi-gateway switches triggered by Hero picker, adding a host, or unpairing one host.
+        lifecycleScope.launch {
+            GatewaySwitcher.switchEvents.collect { event ->
+                if (!event.preserveNavigation) {
+                    dismissAllModals()
+                    val nav = activeNavController
+                    if (nav?.currentDestination?.route?.startsWith("chat/") == true) {
+                        nav.popBackStack("conversations", false)
+                    }
+                    wsClient.disconnect(intentional = true)
+                    chatViewModel.resetSession()
+                    conversationListViewModel.resetForGatewaySwitch()
+                }
             }
         }
 
@@ -325,12 +374,13 @@ class MainActivity : ComponentActivity() {
                             onNavigateToPair = {
                                 wsClient.disconnect(intentional = true)
                                 pairingViewModel.resetState()
-                                conversationListViewModel.unpair {
+                                conversationListViewModel.unpairActiveGateway {
                                     navController.navigate("pair") {
                                         popUpTo(0) { inclusive = true }
                                     }
                                 }
                             },
+                            onAddGateway = { launchScanner() },
                             dismissModalsTrigger = dismissModalsTrigger,
                             openQuotaRequested = openQuotaRequested,
                             onConsumeOpenQuota = { openQuotaRequestedFlow.value = false },
@@ -660,10 +710,37 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    private fun switchGatewayIfNeeded(gatewayId: String?, fallbackCascadeId: String? = null) {
+        val store = GatewayProfileStore.sharedOrNull() ?: return
+        val targetProfileId = when {
+            !gatewayId.isNullOrBlank() -> store.profileMatchingGatewayId(gatewayId)?.id
+            !fallbackCascadeId.isNullOrBlank() && store.hasMultipleGateways ->
+                store.profileIdContainingCachedCascade(fallbackCascadeId)
+            else -> null
+        }
+        if (targetProfileId != null && targetProfileId != store.activeProfileId) {
+            val currentConvs = (conversationListViewModel.uiState.value as? com.antigravity.mobile.ui.viewmodel.ConversationListUiState.Success)?.conversations
+            val switched = GatewaySwitcher.switchTo(
+                profileId = targetProfileId,
+                currentConversations = currentConvs,
+                showToast = true,
+                preserveNavigation = true
+            )
+            if (switched) {
+                wsClient.disconnect(intentional = true)
+                chatViewModel.resetSession()
+                conversationListViewModel.resetForGatewaySwitch()
+            }
+        }
+    }
+
     private fun handleDeepLink(intent: Intent) {
         val uri = intent.data ?: return
         val scheme = uri.scheme?.lowercase() ?: return
         val host = uri.host?.lowercase() ?: return
+        val gwParam = uri.getQueryParameter("gw")?.trim()?.takeIf { it.isNotEmpty() }
+            ?: uri.getQueryParameter("gatewayId")?.trim()?.takeIf { it.isNotEmpty() }
+            ?: intent.getStringExtra(NotificationActionReceiver.EXTRA_GATEWAY_ID)?.trim()?.takeIf { it.isNotEmpty() }
 
         if ((scheme == "agy" || scheme == "multigravity" || scheme == "antigravity") && host == "pair") {
             // Prevent zero-confirmation silent re-pairing from external BROWSABLE links when already paired.
@@ -676,10 +753,12 @@ class MainActivity : ComponentActivity() {
 
         if (scheme == "antigravity" || scheme == "multigravity" || scheme == "agy") {
             if (host == "quota") {
+                switchGatewayIfNeeded(gwParam)
                 navigateToQuota()
                 return
             }
             if (host == "conversations" || host == "home") {
+                switchGatewayIfNeeded(gwParam)
                 dismissAllModals()
                 val navController = activeNavController
                 if (navController?.currentDestination?.route?.startsWith("chat/") == true) {
@@ -702,6 +781,7 @@ class MainActivity : ComponentActivity() {
             }?.trim('/')
 
             if (!cascadeId.isNullOrBlank() && CacheManager.isValidCascadeId(cascadeId)) {
+                switchGatewayIfNeeded(gwParam, fallbackCascadeId = cascadeId)
                 navigateToCascade(cascadeId)
             }
         }

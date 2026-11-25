@@ -42,6 +42,14 @@ public struct ConversationListView: View {
     @State private var lastEasterEggTapTime: Date = .distantPast
     @State private var showEasterEgg = false
     @State private var firstCardPeekOffset: CGFloat = 0
+
+    @State private var gatewayPickerState = GatewaySlidePickerState()
+    @State private var gatewaySwitcher = GatewaySwitcher.shared
+    @State private var gatewayToRename: GatewayProfile? = nil
+    @State private var gatewayRenameText = ""
+    @State private var showGatewayRenameAlert = false
+    @State private var gatewayToRemove: GatewayProfile? = nil
+    @State private var showGatewayRemoveAlert = false
     
     public init() {
         _ = SwipeActionAdjuster.activateOnce
@@ -110,11 +118,62 @@ public struct ConversationListView: View {
                 }
             }
             
+            GatewaySlidePickerOverlay(
+                state: gatewayPickerState,
+                onSelectProfile: { profile in
+                    _ = GatewaySwitcher.shared.switchTo(
+                        profileId: profile.id,
+                        currentConversations: viewModel.conversations,
+                        showToast: true
+                    )
+                },
+                onAddGateway: {
+                    showQRScanner = true
+                },
+                onRenameProfile: { profile in
+                    gatewayToRename = profile
+                    gatewayRenameText = profile.resolvedDisplayName
+                    showGatewayRenameAlert = true
+                },
+                onRemoveProfile: { profile in
+                    gatewayToRemove = profile
+                    showGatewayRemoveAlert = true
+                }
+            )
+
+            if let bannerText = gatewaySwitcher.switchBannerText {
+                VStack {
+                    HStack(spacing: 6) {
+                        Image(systemName: "arrow.triangle.2.circlepath")
+                            .font(.system(size: 11.5, weight: .semibold))
+                            .foregroundColor(.indigo)
+                        Text(bannerText)
+                            .font(.system(size: 13, weight: .semibold))
+                            .foregroundColor(.primary)
+                            .lineLimit(1)
+                    }
+                    .padding(.horizontal, 14)
+                    .padding(.vertical, 8)
+                    .background(.ultraThinMaterial, in: Capsule())
+                    .overlay(
+                        Capsule()
+                            .stroke(Color.primary.opacity(0.12), lineWidth: 0.8)
+                    )
+                    .shadow(color: Color.black.opacity(0.12), radius: 10, x: 0, y: 4)
+                    .padding(.top, 10)
+                    Spacer()
+                }
+                .allowsHitTesting(false)
+                .transition(.move(edge: .top).combined(with: .opacity))
+                .zIndex(600)
+            }
+
             if showEasterEgg {
                 EasterEggModalView(isPresented: $showEasterEgg)
                     .zIndex(999)
             }
         }
+        .animation(.spring(response: 0.28, dampingFraction: 0.85), value: gatewaySwitcher.switchBannerText)
         .onGeometryChange(for: AdaptiveLayoutGeometry.self) { proxy in
             AdaptiveLayoutGeometry.measure(from: proxy)
         } action: { newGeometry in
@@ -199,6 +258,41 @@ public struct ConversationListView: View {
                 }
             }
         }
+        .alert("重命名主机", isPresented: $showGatewayRenameAlert) {
+            TextField("输入主机名称", text: $gatewayRenameText)
+            Button("取消", role: .cancel) {
+                gatewayToRename = nil
+            }
+            Button("保存") {
+                if let target = gatewayToRename {
+                    GatewayProfileStore.shared.renameProfile(id: target.id, newName: gatewayRenameText)
+                }
+                gatewayToRename = nil
+            }
+        }
+        .alert("移除主机", isPresented: $showGatewayRemoveAlert) {
+            Button("取消", role: .cancel) {
+                gatewayToRemove = nil
+            }
+            Button("移除", role: .destructive) {
+                if let target = gatewayToRemove {
+                    UIImpactFeedbackGenerator(style: .medium).impactOccurred()
+                    if target.id == GatewayProfileStore.shared.activeProfileId {
+                        let hasRemaining = settings.unpairActiveProfile()
+                        if !hasRemaining {
+                            handleAllGatewaysCleared()
+                        }
+                    } else {
+                        GatewayProfileStore.shared.removeProfile(id: target.id)
+                    }
+                }
+                gatewayToRemove = nil
+            }
+        } message: {
+            if let target = gatewayToRemove {
+                Text(String(localized: "确定移除「\(target.resolvedDisplayName)」吗？将通知该网关解绑此设备并清除该主机的本地缓存。"))
+            }
+        }
         .alert("提示", isPresented: Binding(
             get: { viewModel.errorMessage != nil && !viewModel.conversations.isEmpty },
             set: { if !$0 { viewModel.errorMessage = nil } }
@@ -274,8 +368,20 @@ public struct ConversationListView: View {
         .onReceive(NotificationCenter.default.publisher(for: UIApplication.didEnterBackgroundNotification)) { _ in
             viewModel.stopAutoRefresh()
         }
-        .onReceive(NotificationCenter.default.publisher(for: .deviceTokenRevoked)) { _ in
-            handleTokenRevoked()
+        .onReceive(NotificationCenter.default.publisher(for: .deviceTokenRevoked)) { notif in
+            handleTokenRevoked(notif)
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .didSwitchGatewayProfile)) { _ in
+            dismissAllModals()
+            navigationPath = []
+            chatSessionStore.clearAll()
+            viewModel.resetForGatewaySwitch()
+            Task {
+                async let projects = ProjectCacheManager.shared.fetchAndCacheProjects()
+                async let workflows: Void = WorkflowTemplateStore.shared.refresh()
+                async let mcp: Void = CacheManager.shared.fetchAndCacheMcpAndSkills()
+                _ = await (projects, workflows, mcp)
+            }
         }
         .onReceive(NotificationCenter.default.publisher(for: .conversationDraftChanged)) { _ in
             draftsVersion += 1
@@ -472,6 +578,9 @@ public struct ConversationListView: View {
             hadModal = true
         }
         if showEasterEgg { showEasterEgg = false; hadModal = true }
+        if gatewayPickerState.isPresented { gatewayPickerState.dismiss() }
+        showGatewayRenameAlert = false
+        showGatewayRemoveAlert = false
         showRenameAlert = false
         showDeleteConfirm = false
         showPinConfirm = false
@@ -492,12 +601,32 @@ public struct ConversationListView: View {
         return hadModal
     }
 
+    private func switchGatewayIfNeeded(gatewayId: String?, fallbackCascadeId: String? = nil) {
+        let store = GatewayProfileStore.shared
+        var targetProfileId: String? = nil
+        if let gw = gatewayId?.trimmingCharacters(in: .whitespacesAndNewlines), !gw.isEmpty,
+           let matched = store.profile(matchingGatewayId: gw) {
+            targetProfileId = matched.id
+        } else if let cid = fallbackCascadeId, !cid.isEmpty, store.hasMultipleGateways {
+            targetProfileId = store.profileId(containingCachedCascade: cid)
+        }
+        if let targetId = targetProfileId, targetId != store.activeProfileId {
+            _ = GatewaySwitcher.shared.switchTo(
+                profileId: targetId,
+                currentConversations: viewModel.conversations,
+                showToast: true
+            )
+        }
+    }
+
     private func handleNotificationRoute(_ route: PushNotificationManager.NotificationRoute) {
         PushNotificationManager.shared.clearPendingRouteIfMatching(route)
         switch route {
-        case .cascade(let targetId):
+        case .cascade(let targetId, let gatewayId):
+            switchGatewayIfNeeded(gatewayId: gatewayId, fallbackCascadeId: targetId)
             openConversationById(targetId)
-        case .quota:
+        case .quota(let gatewayId):
+            switchGatewayIfNeeded(gatewayId: gatewayId)
             openAccountQuotaSheet()
         case .deepLink(let url):
             handleDeepLink(url)
@@ -506,7 +635,7 @@ public struct ConversationListView: View {
 
     private func openAccountQuotaSheet() {
         guard settings.isPaired else { return }
-        PushNotificationManager.shared.clearPendingRouteIfMatching(.quota)
+        PushNotificationManager.shared.clearPendingRouteIfMatching(.quota())
         if showAccountQuota {
             Task {
                 await viewModel.fetchQuotas(force: true)
@@ -565,7 +694,7 @@ public struct ConversationListView: View {
     private func openConversationById(_ targetId: String) {
         let trimmedId = targetId.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmedId.isEmpty, settings.isPaired else { return }
-        PushNotificationManager.shared.clearPendingRouteIfMatching(.cascade(trimmedId))
+        PushNotificationManager.shared.clearPendingRouteIfMatching(.cascade(cascadeId: trimmedId))
         dismissAllModals()
 
         if navigationPath.last?.id == trimmedId {
@@ -872,7 +1001,43 @@ public struct ConversationListView: View {
                     .help(viewModel.selectedWorkspaceFilter.map { String(localized: "在 \($0.displayName) 新建会话") } ?? String(localized: "新建会话"))
                 }
             }
-            .background(NavigationBarTapHelper(onTap: handleEasterEggTap))
+            .background(
+                NavigationBarTapHelper(
+                    onTap: handleEasterEggTap,
+                    canBeginLongPress: {
+                        AppSettings.shared.isPaired && !AppSettings.shared.isDemoMode
+                    },
+                    onLongPressBegan: { anchorRectInWindow, windowSize in
+                        gatewayPickerState.containerSize = windowSize
+                        GatewayProfileStore.shared.updateActiveSummary(from: viewModel.conversations)
+                        gatewayPickerState.open(anchorRect: anchorRectInWindow)
+                    },
+                    onLongPressChanged: { pointInWindow in
+                        gatewayPickerState.updateDrag(
+                            at: pointInWindow,
+                            profileCount: GatewayProfileStore.shared.profiles.count
+                        )
+                    },
+                    onLongPressEnded: {
+                        gatewayPickerState.endDrag(
+                            profiles: GatewayProfileStore.shared.profiles,
+                            onSelectProfile: { profile in
+                                _ = GatewaySwitcher.shared.switchTo(
+                                    profileId: profile.id,
+                                    currentConversations: viewModel.conversations,
+                                    showToast: true
+                                )
+                            },
+                            onAddGateway: {
+                                showQRScanner = true
+                            }
+                        )
+                    },
+                    onLongPressCancelled: {
+                        gatewayPickerState.dismiss()
+                    }
+                )
+            )
     }
     
     /// Wide screens (iPad / unfolded iPhone Duo landscape): the conversation list column is the
@@ -1492,6 +1657,7 @@ public struct ConversationListView: View {
         if AppSettings.shared.isPaired {
             ConnectionManager.shared.ensureStarted()
             viewModel.startAutoRefresh()
+            GatewayProfileStore.shared.refreshInactiveSummaries(force: false, minInterval: 45.0)
             Task {
                 await viewModel.resumeActive()
                 PushNotificationManager.shared.syncAllTokensIfPaired()
@@ -1502,20 +1668,31 @@ public struct ConversationListView: View {
             handleNotificationRoute(pendingRoute)
         }
     }
-    
-    private func handleTokenRevoked() {
+
+    private func handleAllGatewaysCleared() {
         isPairingInProgress = false
-        settings.unpair()
         viewModel.stopAutoRefresh()
         viewModel.conversations.removeAll()
         viewModel.resetBranchExpansionState()
         viewModel.selectedWorkspaceFilter = nil
         viewModel.errorMessage = nil
         viewModel.isLoading = false
+        chatSessionStore.clearAll()
         navigationPath = []
         showSettings = false
         CacheManager.shared.clearCache()
         DocumentCacheManager.shared.clearCache()
+    }
+
+    private func handleTokenRevoked(_ notification: Notification) {
+        if let notifEpoch = notification.userInfo?["epoch"] as? UInt64,
+           notifEpoch != GatewayRuntimeState.shared.epoch {
+            return
+        }
+        let hasRemaining = settings.unpairActiveProfile()
+        if !hasRemaining {
+            handleAllGatewaysCleared()
+        }
     }
     
     private var pendingPairingConfirmText: String {
@@ -1529,6 +1706,7 @@ public struct ConversationListView: View {
     
     @MainActor
     private func startPairing(info: PairingInfo) {
+        let hadExistingGateway = settings.isPaired && !settings.isDemoMode && GatewayProfileStore.shared.activeProfile != nil
         showQRScanner = false
         pendingPairing = nil
         viewModel.errorMessage = nil
@@ -1545,7 +1723,9 @@ public struct ConversationListView: View {
                 isPairingInProgress = false
             } catch {
                 isPairingInProgress = false
-                settings.unpair()
+                if !hadExistingGateway {
+                    settings.unpair()
+                }
                 pairingErrorMessage = error.localizedDescription
             }
         }
@@ -1569,6 +1749,8 @@ public struct ConversationListView: View {
     
     private func handleDeepLink(_ url: URL) {
         guard url.scheme == "antigravity" || url.scheme == "agy" || url.scheme == "multigravity" else { return }
+        let urlComponents = URLComponents(url: url, resolvingAgainstBaseURL: false)
+        let gwParam = urlComponents?.queryItems?.first(where: { $0.name == "gw" || $0.name == "gatewayId" })?.value
         
         // Handle agy://pair pairing deep link
         if url.host == "pair" {
@@ -1584,6 +1766,7 @@ public struct ConversationListView: View {
 
         // Handle antigravity://quota deep link (from Lock Screen / Home Screen / CarPlay Quota Widget / Quota Alert)
         if url.host == "quota" {
+            switchGatewayIfNeeded(gatewayId: gwParam)
             openAccountQuotaSheet()
             return
         }
@@ -1596,6 +1779,7 @@ public struct ConversationListView: View {
         
         // Handle antigravity://conversations or antigravity://home deep link (from Agent Status Widget)
         if url.host == "conversations" || url.host == "home" {
+            switchGatewayIfNeeded(gatewayId: gwParam)
             dismissAllModals()
             navigationPath = []
             return
@@ -1603,9 +1787,8 @@ public struct ConversationListView: View {
 
         // Handle recording action deep link (e.g. from Dynamic Island / Lock Screen Live Activity)
         if url.host == "recording" {
-            let components = URLComponents(url: url, resolvingAgainstBaseURL: false)
-            let action = components?.queryItems?.first(where: { $0.name == "action" })?.value ?? "stop"
-            let rawCid = components?.queryItems?.first(where: { $0.name == "cascadeId" })?.value ?? ""
+            let action = urlComponents?.queryItems?.first(where: { $0.name == "action" })?.value ?? "stop"
+            let rawCid = urlComponents?.queryItems?.first(where: { $0.name == "cascadeId" })?.value ?? ""
             let cascadeId = CacheManager.isValidCascadeId(rawCid) ? rawCid : ""
             let sendImmediately = (action == "send")
             
@@ -1615,6 +1798,7 @@ public struct ConversationListView: View {
             )
             
             if !cascadeId.isEmpty {
+                switchGatewayIfNeeded(gatewayId: gwParam, fallbackCascadeId: cascadeId)
                 openConversationById(cascadeId)
             } else {
                 dismissAllModals()
@@ -1632,6 +1816,7 @@ public struct ConversationListView: View {
         }
         
         guard CacheManager.isValidCascadeId(cascadeId) else { return }
+        switchGatewayIfNeeded(gatewayId: gwParam, fallbackCascadeId: cascadeId)
         openConversationById(cascadeId)
     }
 
@@ -2504,6 +2689,7 @@ private extension UIView {
 }
 
 class NavigationBarTapGestureRecognizer: UITapGestureRecognizer {}
+class NavigationBarLongPressGestureRecognizer: UILongPressGestureRecognizer {}
 
 private final class NavigationBarHookView: UIView {
     weak var coordinator: NavigationBarTapHelper.Coordinator?
@@ -2528,12 +2714,20 @@ private final class NavigationBarHookView: UIView {
             guard let nav = self.nearestNavigationController else { return }
             let navBar = nav.navigationBar
             let recognizers = navBar.gestureRecognizers ?? []
+            guard let coordinator = self.coordinator else { return }
             if !recognizers.contains(where: { $0 is NavigationBarTapGestureRecognizer }) {
-                guard let coordinator = self.coordinator else { return }
                 let tap = NavigationBarTapGestureRecognizer(target: coordinator, action: #selector(NavigationBarTapHelper.Coordinator.handleTap))
                 tap.cancelsTouchesInView = false
                 tap.delegate = coordinator
                 navBar.addGestureRecognizer(tap)
+            }
+            if !recognizers.contains(where: { $0 is NavigationBarLongPressGestureRecognizer }) {
+                let lp = NavigationBarLongPressGestureRecognizer(target: coordinator, action: #selector(NavigationBarTapHelper.Coordinator.handleLongPress))
+                lp.minimumPressDuration = 0.22
+                lp.allowableMovement = 12
+                lp.cancelsTouchesInView = true
+                lp.delegate = coordinator
+                navBar.addGestureRecognizer(lp)
             }
         }
     }
@@ -2541,9 +2735,21 @@ private final class NavigationBarHookView: UIView {
 
 private struct NavigationBarTapHelper: UIViewRepresentable {
     let onTap: () -> Void
+    let canBeginLongPress: () -> Bool
+    let onLongPressBegan: (CGRect, CGSize) -> Void
+    let onLongPressChanged: (CGPoint) -> Void
+    let onLongPressEnded: () -> Void
+    let onLongPressCancelled: () -> Void
     
     func makeCoordinator() -> Coordinator {
-        Coordinator(onTap: onTap)
+        Coordinator(
+            onTap: onTap,
+            canBeginLongPress: canBeginLongPress,
+            onLongPressBegan: onLongPressBegan,
+            onLongPressChanged: onLongPressChanged,
+            onLongPressEnded: onLongPressEnded,
+            onLongPressCancelled: onLongPressCancelled
+        )
     }
     
     func makeUIView(context: Context) -> NavigationBarHookView {
@@ -2555,29 +2761,102 @@ private struct NavigationBarTapHelper: UIViewRepresentable {
     }
     
     func updateUIView(_ uiView: NavigationBarHookView, context: Context) {
+        context.coordinator.onTap = onTap
+        context.coordinator.canBeginLongPress = canBeginLongPress
+        context.coordinator.onLongPressBegan = onLongPressBegan
+        context.coordinator.onLongPressChanged = onLongPressChanged
+        context.coordinator.onLongPressEnded = onLongPressEnded
+        context.coordinator.onLongPressCancelled = onLongPressCancelled
         uiView.coordinator = context.coordinator
         uiView.configure()
     }
     
     class Coordinator: NSObject, UIGestureRecognizerDelegate {
-        let onTap: () -> Void
-        init(onTap: @escaping () -> Void) { self.onTap = onTap }
+        var onTap: () -> Void
+        var canBeginLongPress: () -> Bool
+        var onLongPressBegan: (CGRect, CGSize) -> Void
+        var onLongPressChanged: (CGPoint) -> Void
+        var onLongPressEnded: () -> Void
+        var onLongPressCancelled: () -> Void
+        private var suppressNextTap = false
+
+        init(
+            onTap: @escaping () -> Void,
+            canBeginLongPress: @escaping () -> Bool,
+            onLongPressBegan: @escaping (CGRect, CGSize) -> Void,
+            onLongPressChanged: @escaping (CGPoint) -> Void,
+            onLongPressEnded: @escaping () -> Void,
+            onLongPressCancelled: @escaping () -> Void
+        ) {
+            self.onTap = onTap
+            self.canBeginLongPress = canBeginLongPress
+            self.onLongPressBegan = onLongPressBegan
+            self.onLongPressChanged = onLongPressChanged
+            self.onLongPressEnded = onLongPressEnded
+            self.onLongPressCancelled = onLongPressCancelled
+        }
         
         @objc func handleTap(_ gesture: UITapGestureRecognizer) {
             guard gesture.state == .ended else { return }
+            if suppressNextTap {
+                suppressNextTap = false
+                return
+            }
             guard let navBar = gesture.view as? UINavigationBar else { return }
             let point = gesture.location(in: navBar)
-            if isTouchOnTitle(point: point, in: navBar) {
+            if titleRectInNavBar(for: point, in: navBar) != nil {
                 onTap()
+            }
+        }
+
+        @objc func handleLongPress(_ gesture: UILongPressGestureRecognizer) {
+            guard let navBar = gesture.view as? UINavigationBar else { return }
+            let window = navBar.window
+            let pointInWindow = gesture.location(in: window)
+            let windowSize = window?.bounds.size ?? navBar.bounds.size
+
+            switch gesture.state {
+            case .began:
+                let pointInNav = gesture.location(in: navBar)
+                guard canBeginLongPress(),
+                      let titleRect = titleRectInNavBar(for: pointInNav, in: navBar) else {
+                    gesture.isEnabled = false
+                    gesture.isEnabled = true
+                    return
+                }
+                suppressNextTap = true
+                let anchorInWindow = navBar.convert(titleRect, to: window)
+                onLongPressBegan(anchorInWindow, windowSize)
+            case .changed:
+                onLongPressChanged(pointInWindow)
+            case .ended:
+                onLongPressEnded()
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { [weak self] in
+                    self?.suppressNextTap = false
+                }
+            case .cancelled, .failed:
+                onLongPressCancelled()
+                suppressNextTap = false
+            default:
+                break
             }
         }
         
         func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer, shouldRecognizeSimultaneouslyWith otherGestureRecognizer: UIGestureRecognizer) -> Bool {
+            if gestureRecognizer is NavigationBarLongPressGestureRecognizer {
+                return false
+            }
+            if otherGestureRecognizer is NavigationBarLongPressGestureRecognizer {
+                return false
+            }
             return true
         }
         
         func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer, shouldReceive touch: UITouch) -> Bool {
             guard let navBar = gestureRecognizer.view as? UINavigationBar else { return false }
+            if gestureRecognizer is NavigationBarLongPressGestureRecognizer, !canBeginLongPress() {
+                return false
+            }
             // Only active when the top item is the root Multigravity view
             if let topTitle = navBar.topItem?.title, !topTitle.contains("Multigravity") {
                 return false
@@ -2597,17 +2876,17 @@ private struct NavigationBarTapHelper: UIViewRepresentable {
             }
             
             let point = touch.location(in: navBar)
-            return isTouchOnTitle(point: point, in: navBar)
+            return titleRectInNavBar(for: point, in: navBar) != nil
         }
         
-        private func isTouchOnTitle(point: CGPoint, in navBar: UINavigationBar) -> Bool {
-            // 1. Search for any label containing "Multigravity"
+        private func titleRectInNavBar(for point: CGPoint, in navBar: UINavigationBar) -> CGRect? {
+            // 1. Search for any visible label containing "Multigravity"
             let labels = findTitleLabels(in: navBar)
             for label in labels where !label.isHidden && label.alpha > 0.05 {
                 let frameInNavBar = label.convert(label.bounds, to: navBar)
                 let hitRect = frameInNavBar.insetBy(dx: -20, dy: -12)
                 if hitRect.contains(point) {
-                    return true
+                    return frameInNavBar
                 }
             }
             
@@ -2616,18 +2895,18 @@ private struct NavigationBarTapHelper: UIViewRepresentable {
             let height = navBar.bounds.height
             if height > 54 {
                 // Large title expanded: located in leading area below top bar (y: 36..height, x: 12..width * 0.75)
-                let largeTitleRect = CGRect(x: 12, y: 36, width: min(260, width * 0.75), height: height - 36)
-                if largeTitleRect.contains(point) {
-                    return true
+                let largeTitleRect = CGRect(x: 16, y: 36, width: min(240, width * 0.70), height: height - 40)
+                if largeTitleRect.insetBy(dx: -8, dy: -6).contains(point) {
+                    return largeTitleRect
                 }
             } else {
                 // Inline title collapsed: centered in top bar (y: 0..44, x: center 50%)
                 let inlineTitleRect = CGRect(x: width * 0.22, y: 0, width: width * 0.56, height: 44)
                 if inlineTitleRect.contains(point) {
-                    return true
+                    return inlineTitleRect
                 }
             }
-            return false
+            return nil
         }
         
         private func findTitleLabels(in view: UIView) -> [UILabel] {

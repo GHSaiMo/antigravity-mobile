@@ -9,6 +9,7 @@ import (
 	"crypto/rand"
 	"crypto/sha256"
 	"encoding/base64"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -107,6 +108,44 @@ func LoadOrCreateIdentity(dataDir string) (*Identity, error) {
 // PublicKeyB64 returns the 65-byte uncompressed SEC1 P-256 public key encoded as Base64URL (no padding).
 func (id *Identity) PublicKeyB64() string {
 	return base64.RawURLEncoding.EncodeToString(id.pub.Bytes())
+}
+
+// GatewayID returns a stable, non-secret gateway identifier derived from the persistent P-256 public key
+// ("gw_" + first 16 hex chars of SHA-256(pubBytes)).
+func (id *Identity) GatewayID() string {
+	if id == nil || id.pub == nil {
+		return ""
+	}
+	sum := sha256.Sum256(id.pub.Bytes())
+	return "gw_" + hex.EncodeToString(sum[:8])
+}
+
+// GatewayIDFromPubKeyB64 derives the same stable gateway ID from a Base64-encoded 65-byte SEC1 P-256 public key.
+func GatewayIDFromPubKeyB64(pubB64 string) string {
+	raw, err := DecodeBase64Flexible(pubB64)
+	if err != nil || len(raw) != 65 {
+		return ""
+	}
+	sum := sha256.Sum256(raw)
+	return "gw_" + hex.EncodeToString(sum[:8])
+}
+
+// LoadOrCreateFallbackGatewayID returns a persisted random gateway ID under dataDir when E2EE identity is unavailable.
+func LoadOrCreateFallbackGatewayID(dataDir string) string {
+	path := filepath.Join(dataDir, "gateway_id")
+	if b, err := os.ReadFile(path); err == nil {
+		if s := strings.TrimSpace(string(b)); strings.HasPrefix(s, "gw_") && len(s) >= 8 {
+			return s
+		}
+	}
+	raw := make([]byte, 8)
+	if _, err := rand.Read(raw); err != nil {
+		return ""
+	}
+	id := "gw_" + hex.EncodeToString(raw)
+	_ = os.MkdirAll(dataDir, 0700)
+	_ = os.WriteFile(path, []byte(id+"\n"), 0600)
+	return id
 }
 
 // ECDH computes the 32-byte raw P-256 ECDH shared secret with a peer's Base64URL-encoded 65-byte uncompressed public key.

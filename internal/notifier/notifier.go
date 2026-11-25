@@ -20,18 +20,20 @@ const (
 
 // PushPayload is the unified notification envelope dispatched across APNs and FCM channels.
 type PushPayload struct {
-	Title     string `json:"title"`
-	Body      string `json:"body"`
-	Icon      string `json:"icon,omitempty"`
-	Group     string `json:"group,omitempty"`
-	URL       string `json:"url,omitempty"`
-	Level     string `json:"level,omitempty"` // "active", "timeSensitive", "passive"
-	Sound     string `json:"sound,omitempty"`
-	Badge     int    `json:"badge,omitempty"`
-	Category  string `json:"category,omitempty"`
-	CascadeID string `json:"cascade_id,omitempty"`
-	Silent    bool   `json:"silent,omitempty"`
-	Action    string `json:"action,omitempty"`
+	Title       string `json:"title"`
+	Body        string `json:"body"`
+	Icon        string `json:"icon,omitempty"`
+	Group       string `json:"group,omitempty"`
+	URL         string `json:"url,omitempty"`
+	Level       string `json:"level,omitempty"` // "active", "timeSensitive", "passive"
+	Sound       string `json:"sound,omitempty"`
+	Badge       int    `json:"badge,omitempty"`
+	Category    string `json:"category,omitempty"`
+	CascadeID   string `json:"cascade_id,omitempty"`
+	GatewayID   string `json:"gateway_id,omitempty"`
+	GatewayName string `json:"gateway_name,omitempty"`
+	Silent      bool   `json:"silent,omitempty"`
+	Action      string `json:"action,omitempty"`
 	// Localize optionally renders Title and Body for a specific device language ("zh"/"en"/"ja").
 	// Ignored by JSON serialization and legacy senders that read Title/Body directly.
 	Localize func(lang string) (title, body string) `json:"-"`
@@ -47,11 +49,14 @@ type Notifier struct {
 	mu               sync.RWMutex
 	cfg              config.NotificationConfig
 	senders          []NotificationSender
+	pushStore        *PushDeviceStore
 	apns             *APNsRelayClient
 	liveActivity     *LiveActivityDispatcher
 	dedup            *DedupCache
 	alertPrefs       *AlertPreferencesStore
 	cacheMissAuditor *CacheMissShadowAuditor
+	gatewayID        string
+	gatewayName      string
 }
 
 // NewNotifier creates an initialized Notifier instance with configured push senders (e.g. FCM).
@@ -217,13 +222,140 @@ func (n *Notifier) UpdateFCMDeviceLang(lang string) {
 	}
 }
 
+// SetGatewayIdentity configures the stable gateway_id and display gateway_name attached to all outgoing pushes.
+func (n *Notifier) SetGatewayIdentity(gatewayID, gatewayName string) {
+	if n == nil {
+		return
+	}
+	n.mu.Lock()
+	n.gatewayID = strings.TrimSpace(gatewayID)
+	n.gatewayName = strings.TrimSpace(gatewayName)
+	la := n.liveActivity
+	n.mu.Unlock()
+	if la != nil {
+		la.SetGatewayIdentity(n.gatewayID, n.gatewayName)
+	}
+}
+
+// GatewayIdentity returns the configured (gatewayID, gatewayName).
+func (n *Notifier) GatewayIdentity() (string, string) {
+	if n == nil {
+		return "", ""
+	}
+	n.mu.RLock()
+	defer n.mu.RUnlock()
+	return n.gatewayID, n.gatewayName
+}
+
+// AttachPushStore attaches a persistent PushDeviceStore shared across APNs and multi-device FCM delivery.
+func (n *Notifier) AttachPushStore(store *PushDeviceStore) {
+	if n == nil || store == nil {
+		return
+	}
+	n.mu.Lock()
+	n.pushStore = store
+	var fcmClient *FCMClient
+	for _, s := range n.senders {
+		if fc, ok := s.(*FCMClient); ok {
+			fcmClient = fc
+			break
+		}
+	}
+	if fcmClient == nil && (n.cfg.FCMEnabled || store.HasFCMTargets()) {
+		fcmCfg := n.cfg
+		fcmCfg.FCMEnabled = true
+		fcmClient = NewFCMClient(fcmCfg)
+		n.senders = append(n.senders, fcmClient)
+		if store.HasFCMTargets() {
+			n.cfg.Enabled = true
+		}
+	}
+	n.mu.Unlock()
+	if fcmClient != nil {
+		fcmClient.SetPushStore(store)
+	}
+}
+
+// PushStore returns the attached persistent PushDeviceStore, if any.
+func (n *Notifier) PushStore() *PushDeviceStore {
+	if n == nil {
+		return nil
+	}
+	n.mu.RLock()
+	defer n.mu.RUnlock()
+	if n.pushStore != nil {
+		return n.pushStore
+	}
+	if n.apns != nil {
+		return n.apns.Store()
+	}
+	return nil
+}
+
+// UpsertFCMDevice registers or updates a paired Android device's FCM token and preferences in the multi-device store.
+func (n *Notifier) UpsertFCMDevice(deviceID, token, lang string, notifEnabled *bool, showGatewayLabel *bool, gatewayLabel string) error {
+	n.mu.Lock()
+	store := n.pushStore
+	if store == nil && n.apns != nil {
+		store = n.apns.Store()
+		n.pushStore = store
+	}
+	if store == nil {
+		store, _ = NewPushDeviceStore("")
+		n.pushStore = store
+	}
+	var fcmClient *FCMClient
+	for _, s := range n.senders {
+		if fc, ok := s.(*FCMClient); ok {
+			fcmClient = fc
+			break
+		}
+	}
+	if fcmClient == nil {
+		fcmCfg := n.cfg
+		fcmCfg.FCMEnabled = true
+		n.cfg.Enabled = true
+		fcmClient = NewFCMClient(fcmCfg)
+		n.senders = append(n.senders, fcmClient)
+	} else {
+		n.cfg.Enabled = true
+	}
+	n.mu.Unlock()
+
+	fcmClient.SetPushStore(store)
+	if strings.TrimSpace(token) != "" {
+		if err := store.UpsertFCMToken(deviceID, token, lang, notifEnabled); err != nil {
+			return err
+		}
+		// Keep legacy single-token field updated as well for fallback diagnostics.
+		fcmClient.SetDeviceToken(token)
+		fcmClient.SetDeviceLang(lang)
+	} else {
+		if notifEnabled != nil {
+			_ = store.UpdatePreferences(deviceID, notifEnabled, nil)
+		}
+		if strings.TrimSpace(lang) != "" {
+			_ = store.UpdateLanguage(deviceID, lang)
+		}
+	}
+	if showGatewayLabel != nil || strings.TrimSpace(gatewayLabel) != "" {
+		_ = store.UpdateGatewayLabel(deviceID, showGatewayLabel, gatewayLabel)
+	}
+	return nil
+}
+
 // AttachAPNsClient attaches an APNs relay client (and Live Activity dispatcher) for native iOS push delivery.
 func (n *Notifier) AttachAPNsClient(client *APNsRelayClient, liveActivityEnabled bool) {
 	n.mu.Lock()
 	defer n.mu.Unlock()
 	n.apns = client
 	if client != nil {
-		n.liveActivity = NewLiveActivityDispatcher(client, liveActivityEnabled)
+		if n.pushStore == nil && client.Store() != nil {
+			n.pushStore = client.Store()
+		}
+		la := NewLiveActivityDispatcher(client, liveActivityEnabled)
+		la.SetGatewayIdentity(n.gatewayID, n.gatewayName)
+		n.liveActivity = la
 	} else {
 		n.liveActivity = nil
 	}
@@ -255,14 +387,14 @@ func (n *Notifier) HasLiveActivityTargets() bool {
 }
 
 // CanActivateDynamically reports whether this Notifier can receive device push registrations at runtime
-// (e.g. APNs iOS clients pairing after gateway startup).
+// (e.g. APNs iOS or FCM Android clients pairing after gateway startup).
 func (n *Notifier) CanActivateDynamically() bool {
 	if n == nil {
 		return false
 	}
 	n.mu.RLock()
 	defer n.mu.RUnlock()
-	return n.apns != nil
+	return n.apns != nil || n.pushStore != nil
 }
 
 // IsEnabled reports whether notifications are actively configured and ready to send.
@@ -275,7 +407,25 @@ func (n *Notifier) IsEnabled() bool {
 	if n.cfg.Enabled && len(n.senders) > 0 {
 		return true
 	}
+	if n.pushStore != nil && n.pushStore.HasFCMTargets() && len(n.senders) > 0 {
+		return true
+	}
 	return n.apns != nil && n.apns.HasAlertTargets()
+}
+
+func appendGatewayQueryParam(rawURL, gatewayID string) string {
+	rawURL = strings.TrimSpace(rawURL)
+	gatewayID = strings.TrimSpace(gatewayID)
+	if rawURL == "" || gatewayID == "" {
+		return rawURL
+	}
+	if strings.Contains(rawURL, "gw=") {
+		return rawURL
+	}
+	if strings.Contains(rawURL, "?") {
+		return rawURL + "&gw=" + gatewayID
+	}
+	return rawURL + "?gw=" + gatewayID
 }
 
 // sendToAll dispatches payload to all active notification senders in parallel.
@@ -284,14 +434,26 @@ func (n *Notifier) sendToAll(ctx context.Context, payload PushPayload) error {
 	payload.Body = SanitizePushText(payload.Body)
 
 	n.mu.RLock()
+	gwID := n.gatewayID
+	gwName := n.gatewayName
 	senders := make([]NotificationSender, 0, len(n.senders)+1)
-	if n.cfg.Enabled {
+	if n.cfg.Enabled || (n.pushStore != nil && n.pushStore.HasFCMTargets()) {
 		senders = append(senders, n.senders...)
 	}
 	if n.apns != nil && n.apns.HasAlertTargets() {
 		senders = append(senders, n.apns)
 	}
 	n.mu.RUnlock()
+
+	if payload.GatewayID == "" {
+		payload.GatewayID = gwID
+	}
+	if payload.GatewayName == "" {
+		payload.GatewayName = gwName
+	}
+	if payload.GatewayID != "" && payload.URL != "" {
+		payload.URL = appendGatewayQueryParam(payload.URL, payload.GatewayID)
+	}
 
 	if len(senders) == 0 {
 		return fmt.Errorf("no notification senders configured")

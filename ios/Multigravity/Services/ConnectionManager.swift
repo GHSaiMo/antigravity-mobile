@@ -91,6 +91,17 @@ public final class ConnectionManager {
         lastFailedLanProbeDate = nil
     }
 
+    /// Cancels in-flight probes and clears cached endpoint health when switching between decoupled gateways.
+    public func resetForGatewaySwitch() {
+        inFlightProbeTask?.cancel()
+        inFlightProbeTask = nil
+        inFlightLanProbeTask?.cancel()
+        inFlightLanProbeTask = nil
+        endpointStatuses.removeAll()
+        lastFailedLanProbeDate = nil
+        isProbing = false
+    }
+
     private static func normalizedEndpointKey(_ raw: String?) -> String? {
         guard let trimmed = raw?
             .trimmingCharacters(in: .whitespacesAndNewlines)
@@ -208,9 +219,11 @@ public final class ConnectionManager {
             return await existing.value
         }
 
+        let startEpoch = GatewayRuntimeState.shared.epoch
         let task = Task<Bool, Never> { @MainActor [weak self] in
             guard let self else { return false }
             let status = await Self.testSingleEndpoint(urlString: lan, timeout: timeout)
+            guard !Task.isCancelled, GatewayRuntimeState.shared.epoch == startEpoch else { return false }
             self.endpointStatuses[status.urlString] = status
             if status.isReachable {
                 self.lastFailedLanProbeDate = nil
@@ -263,6 +276,7 @@ public final class ConnectionManager {
     }
 
     private func performProbeEndpoints() async -> String? {
+        let startEpoch = GatewayRuntimeState.shared.epoch
         let settings = AppSettings.shared
         let isCellularNow = self.isCellular || !self.isWifi
         
@@ -327,7 +341,11 @@ public final class ConnectionManager {
         }
         
         for res in results {
+            guard GatewayRuntimeState.shared.epoch == startEpoch else { return settings.activeServerURL }
             endpointStatuses[res.urlString] = res
+        }
+        guard !Task.isCancelled, GatewayRuntimeState.shared.epoch == startEpoch else {
+            return settings.activeServerURL
         }
 
         if let cleanLan,
@@ -422,6 +440,9 @@ public final class ConnectionManager {
         }
         
         if let best = selected {
+            guard !Task.isCancelled, GatewayRuntimeState.shared.epoch == startEpoch else {
+                return settings.activeServerURL
+            }
             settings.activeServerURL = best
             return best
         }
