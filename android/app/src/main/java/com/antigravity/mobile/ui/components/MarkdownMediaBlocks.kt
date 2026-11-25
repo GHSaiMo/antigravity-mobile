@@ -15,6 +15,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.selection.DisableSelection
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Description
@@ -119,6 +120,7 @@ internal fun MarkdownVideoPreviewCard(
         }
     }
 
+    DisableSelection {
     Box(
         modifier = Modifier
             .fillMaxWidth()
@@ -242,6 +244,7 @@ internal fun MarkdownVideoPreviewCard(
             }
         }
     }
+    }
 }
 
 @OptIn(ExperimentalFoundationApi::class)
@@ -320,6 +323,7 @@ internal fun MarkdownImageView(
                     }
                 }
                 is AsyncImagePainter.State.Error -> {
+                    DisableSelection {
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
@@ -339,6 +343,7 @@ internal fun MarkdownImageView(
                             fontSize = 12.sp,
                             maxLines = 2
                         )
+                    }
                     }
                 }
                 else -> {
@@ -371,6 +376,7 @@ internal fun FrontmatterCard(
             .clickable { expanded = !expanded }
             .padding(horizontal = 12.dp, vertical = 8.dp)
     ) {
+        DisableSelection {
         Row(
             modifier = Modifier.fillMaxWidth(),
             verticalAlignment = Alignment.CenterVertically,
@@ -400,6 +406,7 @@ internal fun FrontmatterCard(
                 modifier = Modifier.size(16.dp)
             )
         }
+        }
 
         AnimatedVisibility(
             visible = expanded,
@@ -420,7 +427,8 @@ internal fun FrontmatterCard(
                 animationSpec = spring(dampingRatio = 0.82f)
             )
         ) {
-            SelectionContainer {
+            var fmLayoutResult by remember { mutableStateOf<TextLayoutResult?>(null) }
+            val fmBody: @Composable () -> Unit = {
                 Text(
                     text = rawContent,
                     color = colors.textSecondary,
@@ -430,7 +438,16 @@ internal fun FrontmatterCard(
                     modifier = Modifier
                         .fillMaxWidth()
                         .padding(top = 8.dp)
+                        .registerTextHit(fmLayoutResult),
+                    onTextLayout = { fmLayoutResult = it }
                 )
+            }
+            if (LocalMarkdownSelectable.current && !LocalInsideSelectionContainer.current && !LocalShareExport.current) {
+                SelectionContainer {
+                    fmBody()
+                }
+            } else {
+                fmBody()
             }
         }
     }

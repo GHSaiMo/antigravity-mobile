@@ -132,7 +132,8 @@ internal fun RichTextRenderer(
     val context = LocalContext.current
     val focusManager = LocalFocusManager.current
     val haptic = LocalHapticFeedback.current
-    val onLongPress = LocalMarkdownLongPress.current
+    val isSelectable = LocalMarkdownSelectable.current
+    val onLongPress = if (isSelectable) null else LocalMarkdownLongPress.current
     val renderData = remember(text, colors, baseFontSize, baseFontWeight) {
         buildRichTextRenderData(
             rawText = text,
@@ -146,7 +147,9 @@ internal fun RichTextRenderer(
 
     Text(
         text = renderData.annotatedString,
-        modifier = Modifier.pointerInput(renderData.annotatedString, onLongPress) {
+        modifier = Modifier
+            .registerTextHit(layoutResult)
+            .pointerInput(renderData.annotatedString, onLongPress) {
             detectTapGestures(
                 onLongPress = onLongPress?.let { cb ->
                     {

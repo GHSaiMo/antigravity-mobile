@@ -201,14 +201,19 @@ fun MarkdownContentView(
     }
     }
 
+    val alreadyInsideSelection = LocalInsideSelectionContainer.current
+    val shouldWrapSelection = selectable && !isExport && !alreadyInsideSelection
+
     CompositionLocalProvider(
         LocalMarkdownSelectable provides selectable,
         LocalMarkdownLongPress provides onLongPress
     ) {
-        if (selectable) {
+        if (shouldWrapSelection) {
             WithCleanCopyToolbar(rawMarkdown = content) {
                 SelectionContainer {
-                    body()
+                    CompositionLocalProvider(LocalInsideSelectionContainer provides true) {
+                        body()
+                    }
                 }
             }
         } else {

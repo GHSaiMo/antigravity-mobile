@@ -82,6 +82,7 @@ fun MessageBubble(
     modifier: Modifier = Modifier,
     isActiveToolBatch: Boolean = false,
     isActivePlan: Boolean = false,
+    isStreaming: Boolean = false,
     onPlanClick: ((uri: String, title: String) -> Unit)? = null,
     urlResolver: ((String) -> String)? = null,
     onImageClick: ((url: String?, bitmap: Bitmap?) -> Unit)? = null,
@@ -806,8 +807,9 @@ fun MessageBubble(
             val hasArtifacts = !message.artifacts.isNullOrEmpty()
             if (displayText.isNotBlank() || hasArtifacts) {
                 // Agent Bubble: Card background, textPrimary, 18.dp radius with subtle soft shadow
-                // 长按气泡任意位置弹出菜单；需要精细选字时通过「选择文本」进入选字页（对齐 iOS）
+                // 非流式状态下：长按文字直接原位选字；长按气泡边缘或文字行尾空白处弹出菜单（菜单内仍保留「选择文本」兜底）
                 var showAgentMenu by remember { mutableStateOf(false) }
+                val allowDirectSelection = !isStreaming && !LocalShareExport.current
                 Column(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -828,14 +830,27 @@ fun MessageBubble(
                     verticalArrangement = Arrangement.spacedBy(10.dp)
                 ) {
                     if (displayText.isNotBlank()) {
-                        MarkdownContentView(
-                            content = displayText,
-                            onPlanClick = onPlanClick,
-                            urlResolver = urlResolver,
-                            onImageClick = { url -> onImageClick?.invoke(url, null) },
-                            selectable = false,
-                            onLongPress = { showAgentMenu = true }
-                        )
+                        if (allowDirectSelection) {
+                            BlankLongPressHost(onBlankLongPress = { showAgentMenu = true }) {
+                                MarkdownContentView(
+                                    content = displayText,
+                                    onPlanClick = onPlanClick,
+                                    urlResolver = urlResolver,
+                                    onImageClick = { url -> onImageClick?.invoke(url, null) },
+                                    selectable = true,
+                                    onLongPress = null
+                                )
+                            }
+                        } else {
+                            MarkdownContentView(
+                                content = displayText,
+                                onPlanClick = onPlanClick,
+                                urlResolver = urlResolver,
+                                onImageClick = { url -> onImageClick?.invoke(url, null) },
+                                selectable = false,
+                                onLongPress = { showAgentMenu = true }
+                            )
+                        }
                         InlineGitHubPRPillsSection(
                             content = displayText,
                             onOpenPR = { prUrl -> onPlanClick?.invoke(prUrl, "Pull Request") }

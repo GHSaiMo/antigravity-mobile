@@ -5,6 +5,7 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.selection.DisableSelection
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Description
 import androidx.compose.material.icons.filled.OpenInNew
@@ -210,6 +211,7 @@ fun PlanButtonView(
         FileIconResolver.resolveIcon(uri) ?: FileIconResolver.resolveIcon(title)
     }
 
+    DisableSelection {
     Row(
         modifier = modifier
             .clip(RoundedCornerShape(8.dp))
@@ -252,5 +254,6 @@ fun PlanButtonView(
             tint = colors.accentBlue.copy(alpha = 0.65f),
             modifier = Modifier.size(11.dp)
         )
+    }
     }
 }

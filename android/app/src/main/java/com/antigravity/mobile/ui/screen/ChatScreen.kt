@@ -2011,6 +2011,7 @@ fun ChatScreen(
                                             message = msg,
                                             isActiveToolBatch = isStreamingOrRunning && rawMsg.id == lastMsg?.id,
                                             isActivePlan = rawMsg.id == activePlanId,
+                                            isStreaming = isLastAgentStreaming,
                                             onPlanClick = stableOnPlanClick,
                                             urlResolver = stableUrlResolver,
                                             onImageClick = stableOnImageClick,

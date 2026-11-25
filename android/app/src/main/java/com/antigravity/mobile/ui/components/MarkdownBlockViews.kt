@@ -60,6 +60,7 @@ internal val LocalCurrentCascadeId = compositionLocalOf<String?> { null }
 internal val LocalKnowledgeModeEnabled = compositionLocalOf { false }
 internal val LocalMarkdownSelectable = compositionLocalOf { true }
 internal val LocalMarkdownLongPress = compositionLocalOf<(() -> Unit)?> { null }
+internal val LocalInsideSelectionContainer = compositionLocalOf { false }
 
 @Composable
 internal fun HeadingBlockView(
@@ -110,6 +111,7 @@ internal fun CodeBlockView(
             .border(0.8.dp, colors.border, RoundedCornerShape(10.dp))
     ) {
         // Code Block Header
+        DisableSelection {
         Row(
             modifier = Modifier
                 .fillMaxWidth()
@@ -172,6 +174,7 @@ internal fun CodeBlockView(
             }
             }
         }
+        }
 
         HorizontalDivider(color = colors.border.copy(alpha = 0.4f), thickness = 0.5.dp)
 
@@ -182,6 +185,7 @@ internal fun CodeBlockView(
         val highlighted = remember(trimmedCode, lang, isDark, colors.themeId) {
             CodeSyntaxHighlighter.highlight(trimmedCode, lang, isDark, colors.useNord, colors.themeId)
         }
+        var codeLayoutResult by remember { mutableStateOf<TextLayoutResult?>(null) }
         Box(
             modifier = Modifier
                 .fillMaxWidth()
@@ -193,7 +197,9 @@ internal fun CodeBlockView(
                 color = colors.textPrimary,
                 fontSize = (12.5f * codeScale).sp,
                 fontFamily = FontFamily.Monospace,
-                lineHeight = (18f * codeScale).sp
+                lineHeight = (18f * codeScale).sp,
+                modifier = Modifier.registerTextHit(codeLayoutResult),
+                onTextLayout = { codeLayoutResult = it }
             )
         }
     }
@@ -529,22 +535,24 @@ internal fun AlertBlockView(
             modifier = Modifier.fillMaxWidth(),
             verticalArrangement = Arrangement.spacedBy(6.dp)
         ) {
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(6.dp)
-            ) {
-                Icon(
-                    imageVector = iconVector,
-                    contentDescription = null,
-                    tint = accentColor,
-                    modifier = Modifier.size(15.dp)
-                )
-                Text(
-                    text = type.title,
-                    color = accentColor,
-                    fontSize = 12.5.sp,
-                    fontWeight = FontWeight.Bold
-                )
+            DisableSelection {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    Icon(
+                        imageVector = iconVector,
+                        contentDescription = null,
+                        tint = accentColor,
+                        modifier = Modifier.size(15.dp)
+                    )
+                    Text(
+                        text = type.title,
+                        color = accentColor,
+                        fontSize = 12.5.sp,
+                        fontWeight = FontWeight.Bold
+                    )
+                }
             }
 
             if (content.isNotEmpty()) {
@@ -620,6 +628,7 @@ internal fun CarouselBlockView(
             .border(1.dp, colors.border.copy(alpha = 0.5f), RoundedCornerShape(12.dp))
     ) {
         // Header Bar
+        DisableSelection {
         Row(
             modifier = Modifier
                 .fillMaxWidth()
@@ -728,6 +737,7 @@ internal fun CarouselBlockView(
                 }
             }
         }
+        }
 
         HorizontalDivider(
             color = colors.border.copy(alpha = 0.4f),
@@ -820,6 +830,7 @@ internal fun PluginCardBlockView(
     var isInstalled by remember { mutableStateOf(false) }
     var errorMsg by remember { mutableStateOf<String?>(null) }
 
+    DisableSelection {
     Column(
         modifier = modifier
             .fillMaxWidth()
@@ -905,6 +916,7 @@ internal fun PluginCardBlockView(
             color = if (errorMsg != null) Color(0xFFEF4444) else colors.textSecondary,
             fontSize = 11.5.sp
         )
+    }
     }
 }
 
