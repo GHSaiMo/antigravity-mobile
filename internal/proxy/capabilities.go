@@ -44,7 +44,7 @@ var Features = []Feature{
 	{ID: "changes", RPCs: []string{"GetRevertPreview"}},
 	{ID: "revert", RPCs: []string{"GetRevertPreview", "RevertToCascadeStep"}},
 	{ID: "slash", RPCs: []string{"GetSlashCommands"}},
-	{ID: "models", RPCs: []string{"GetAvailableModels", "JetboxWriteState"}}, // 网关有内置列表兜底，客户端不据此隐藏
+	{ID: "models", RPCs: []string{"GetAvailableModels", "JetboxWriteState", "GetMendelFlags"}}, // 网关有内置列表兜底，客户端不据此隐藏
 	{ID: "queue", RPCs: []string{"DeleteAgentMessage"}},
 	{ID: "subagents", RPCs: []string{"ForceStopCascadeTree"}}, // 只影响「关停子代理」按钮；查看子代理只依赖核心接口
 	{ID: "tasks", RPCs: []string{"CancelCascadeSteps", "ForceStopCascadeTree"}},

@@ -125,16 +125,38 @@ type upstreamModelList struct {
 	DefaultAgentID string
 }
 
+// orchestratorRoles mirrors Antigravity's Mendel flags "enable-orchestrator-model-selection"
+// and "orchestrator-model-roles".
+type orchestratorRoles struct {
+	Enabled       bool
+	Orchestrators []string `json:"orchestrators"`
+	Executors     []string `json:"executors"`
+}
+
+// orchestratorSpec binds a synthetic Orchestrator+effort model ID (such as
+// "gemini-pro-orchestrator-neon-high") to the planner model enum, executor model enum,
+// and anchor orchestrator enum expected by language_server.
+type orchestratorSpec struct {
+	ID               string
+	PlannerModelID   string
+	PlannerEnum      string
+	ExecutionModelID string
+	ExecutionEnum    string
+	AnchorEnum       string
+}
+
 // modelRegistry caches the curated and the full model tables.
 type modelRegistry struct {
-	mu          sync.RWMutex
-	fetchedAt   time.Time // last successful refresh
-	lastAttempt time.Time // last refresh attempt, successful or not (failure back-off)
-	inflight    bool
-	options     []ModelOption          // curated: the vendor's picker list (or a heuristic fallback)
-	officialDef string                 // vendor's defaultAgentModelId
-	byID        map[string]ModelOption // every named model, keyed by lower-case id
-	byEnum      map[string]ModelOption // enum -> preferred option
+	mu                sync.RWMutex
+	fetchedAt         time.Time // last successful refresh
+	lastAttempt       time.Time // last refresh attempt, successful or not (failure back-off)
+	inflight          bool
+	options           []ModelOption               // curated: the vendor's picker list (or a heuristic fallback)
+	officialDef       string                      // vendor's defaultAgentModelId
+	byID              map[string]ModelOption      // every named model, keyed by lower-case id
+	byEnum            map[string]ModelOption      // enum -> preferred option (never overwritten by synthetic orchestrator specs)
+	orchSpecs         map[string]orchestratorSpec // lower-case synthetic orchestrator id -> spec
+	orchByPlannerEnum map[string]string           // planner enum -> synthetic orchestrator id (for planExecute trajectory reverse-lookup)
 }
 
 var liveModels = &modelRegistry{}
@@ -193,9 +215,11 @@ func legacyRank(id string) int {
 }
 
 var (
-	versionRe          = regexp.MustCompile(`\d+(?:\.\d+)*`)
-	extraHighSuffixRe  = regexp.MustCompile(`(?i)(\(|[\s,\-·/|:]\s*)(xhigh|extra[\s\-]+high)\)`)
-	effortTokenInParen = regexp.MustCompile(`(?i)(?:^|[\s,\-·/|:(])(extra[\s\-]+high|xhigh|extra|high|medium|med|low)\s*\)$`)
+	versionRe             = regexp.MustCompile(`\d+(?:\.\d+)*`)
+	extraHighSuffixRe     = regexp.MustCompile(`(?i)(\(|[\s,\-·/|:]\s*)(xhigh|extra[\s\-]+high)\)`)
+	effortTokenInParen    = regexp.MustCompile(`(?i)(?:^|[\s,\-·/|:(])(extra[\s\-]+high|xhigh|extra|high|medium|med|low)\s*\)$`)
+	trailingEffortIDRe    = regexp.MustCompile(`(?i)-(low|medium|high|xhigh|extra-high|max)$`)
+	trailingParenEffortRe = regexp.MustCompile(`(?i)\s*\((extra[\s\-]+high|xhigh|extra|high|medium|med|low)\)\s*$`)
 )
 
 // versionKey extracts the numeric version from a display name ("Gemini 3.8 Flash (High)" -> [3 8]).
@@ -372,15 +396,27 @@ func buildModelTables(raw map[string]upstreamModel, curatedIDs []string) (option
 }
 
 func (r *modelRegistry) set(options []ModelOption, byID, byEnum map[string]ModelOption, officialDefault string) {
+	r.setWithOrchestrator(options, byID, byEnum, officialDefault, nil, nil)
+}
+
+func (r *modelRegistry) setWithOrchestrator(
+	options []ModelOption,
+	byID, byEnum map[string]ModelOption,
+	officialDefault string,
+	orchSpecs map[string]orchestratorSpec,
+	orchByPlannerEnum map[string]string,
+) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.options, r.byID, r.byEnum, r.officialDef = options, byID, byEnum, officialDefault
+	r.orchSpecs = orchSpecs
+	r.orchByPlannerEnum = orchByPlannerEnum
 	r.fetchedAt = time.Now()
 }
 
 // invalidate drops cached picker options and freshness timestamps so the next query
 // fetches the newly active account's models instead of serving a stale 5-minute cache.
-// Existing byID/byEnum entries remain as lookup fallback until the fresh fetch lands.
+// Existing byID/byEnum/orchSpecs entries remain as lookup fallback until the fresh fetch lands.
 func (r *modelRegistry) invalidate() {
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -390,10 +426,27 @@ func (r *modelRegistry) invalidate() {
 	r.lastAttempt = time.Time{}
 }
 
+func (r *modelRegistry) orchestratorSpecForID(id string) (orchestratorSpec, bool) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	spec, ok := r.orchSpecs[strings.ToLower(strings.TrimSpace(id))]
+	return spec, ok
+}
+
+func (r *modelRegistry) orchestratorIDForPlannerEnum(enum string) string {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	return r.orchByPlannerEnum[strings.TrimSpace(enum)]
+}
+
 func (r *modelRegistry) enumForID(id string) string {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
-	return r.byID[strings.ToLower(strings.TrimSpace(id))].Enum
+	key := strings.ToLower(strings.TrimSpace(id))
+	if spec, ok := r.orchSpecs[key]; ok && spec.PlannerEnum != "" {
+		return spec.PlannerEnum
+	}
+	return r.byID[key].Enum
 }
 
 func (r *modelRegistry) idForEnum(enum string) string {
@@ -611,6 +664,429 @@ func (p *Proxy) warmLiveModels() {
 	go p.ensureLiveModels(context.Background())
 }
 
+// fetchOrchestratorRoles queries GetMendelFlags for Antigravity's dynamic Orchestrator
+// planner/executor role configuration ("enable-orchestrator-model-selection" and
+// "orchestrator-model-roles"). Errors are non-fatal: older language_server versions or
+// accounts without the flag simply keep the raw GetAvailableModels orchestrator rows.
+func (p *Proxy) fetchOrchestratorRoles(ctx context.Context, port int, token string) (*orchestratorRoles, error) {
+	apiURL := fmt.Sprintf("https://127.0.0.1:%d/exa.language_server_pb.LanguageServerService/GetMendelFlags", port)
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, apiURL, strings.NewReader("{}"))
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Connect-Protocol-Version", "1")
+	if token != "" {
+		req.Header.Set("x-codeium-csrf-token", token)
+	}
+	client := p.mediumClient
+	if client == nil {
+		client = p.shortClient
+	}
+	if client == nil {
+		return nil, fmt.Errorf("upstream http client not initialized")
+	}
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("GetMendelFlags returned HTTP %d", resp.StatusCode)
+	}
+	var parsed struct {
+		ExperimentConfig struct {
+			Experiments []struct {
+				KeyString string `json:"keyString"`
+				Disabled  bool   `json:"disabled"`
+				StringVal string `json:"string"`
+			} `json:"experiments"`
+		} `json:"experimentConfig"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&parsed); err != nil {
+		return nil, err
+	}
+	roles := &orchestratorRoles{}
+	var rawRolesJSON string
+	for _, exp := range parsed.ExperimentConfig.Experiments {
+		if exp.Disabled {
+			continue
+		}
+		switch exp.KeyString {
+		case "enable-orchestrator-model-selection":
+			roles.Enabled = true
+		case "orchestrator-model-roles":
+			rawRolesJSON = strings.TrimSpace(exp.StringVal)
+		}
+	}
+	if !roles.Enabled || rawRolesJSON == "" {
+		return nil, nil
+	}
+	if err := json.Unmarshal([]byte(rawRolesJSON), roles); err != nil {
+		return nil, err
+	}
+	if len(roles.Orchestrators) == 0 || len(roles.Executors) == 0 {
+		return nil, nil
+	}
+	return roles, nil
+}
+
+// readDesktopOrchestratorExecutorModel reads Antigravity Desktop's configured
+// userSettings.orchestratorExecutorModel from ~/.gemini/config/config.json (if set).
+func readDesktopOrchestratorExecutorModel() string {
+	home, err := os.UserHomeDir()
+	if err != nil || home == "" {
+		return ""
+	}
+	cfgPath := filepath.Join(home, ".gemini", "config", "config.json")
+	data, err := os.ReadFile(cfgPath)
+	if err != nil || len(data) == 0 {
+		return ""
+	}
+	var parsed struct {
+		UserSettings struct {
+			OrchestratorExecutorModel string `json:"orchestratorExecutorModel"`
+		} `json:"userSettings"`
+	}
+	if err := json.Unmarshal(data, &parsed); err != nil {
+		return ""
+	}
+	val := strings.TrimSpace(parsed.UserSettings.OrchestratorExecutorModel)
+	if val == "" || strings.EqualFold(val, "MODEL_UNSPECIFIED") {
+		return ""
+	}
+	return val
+}
+
+func splitModelBaseAndEffort(id string) (base, effortSuffix string) {
+	lower := strings.ToLower(strings.TrimSpace(id))
+	m := trailingEffortIDRe.FindStringSubmatchIndex(lower)
+	if len(m) != 4 {
+		return lower, ""
+	}
+	return lower[:m[0]], lower[m[2]:m[3]]
+}
+
+func effortOrderScore(suffix string) int {
+	switch strings.ToLower(strings.TrimSpace(suffix)) {
+	case "low":
+		return 0
+	case "medium":
+		return 1
+	case "high":
+		return 2
+	case "xhigh", "extra-high":
+		return 3
+	case "max":
+		return 4
+	default:
+		return -1
+	}
+}
+
+func effortDisplayLabelFromSuffix(suffix string) string {
+	switch strings.ToLower(strings.TrimSpace(suffix)) {
+	case "low":
+		return "Low"
+	case "medium":
+		return "Medium"
+	case "high":
+		return "High"
+	case "xhigh", "extra-high":
+		return "Extra"
+	case "max":
+		return "Extra"
+	default:
+		return ""
+	}
+}
+
+func orchestratorShortSlug(baseSlug string) string {
+	s := strings.ToLower(strings.TrimSpace(baseSlug))
+	for _, prefix := range []string{"gemini-4-", "gemini-", "claude-"} {
+		if strings.HasPrefix(s, prefix) {
+			s = strings.TrimPrefix(s, prefix)
+			break
+		}
+	}
+	// Never embed "claude" in a synthetic orchestrator ID so mobile/web clients'
+	// isClaude(id) helper never misclassifies an Orchestrator entry into Claude.
+	s = strings.ReplaceAll(s, "claude-", "")
+	s = strings.ReplaceAll(s, "claude", "")
+	s = strings.Trim(s, "- ")
+	return s
+}
+
+func orchestratorBaseDisplayName(plannerOptionName, baseSlug string) string {
+	name := strings.TrimSpace(trailingParenEffortRe.ReplaceAllString(strings.TrimSpace(plannerOptionName), ""))
+	lower := strings.ToLower(name)
+	for _, prefix := range []string{"gemini 4 ", "gemini ", "claude "} {
+		if strings.HasPrefix(lower, prefix) {
+			name = strings.TrimSpace(name[len(prefix):])
+			break
+		}
+	}
+	if name != "" {
+		return name
+	}
+	short := orchestratorShortSlug(baseSlug)
+	if short == "" {
+		return "Pro"
+	}
+	parts := strings.Split(short, "-")
+	for i, part := range parts {
+		if len(part) > 0 && part[0] >= 'a' && part[0] <= 'z' {
+			parts[i] = strings.ToUpper(part[:1]) + part[1:]
+		}
+	}
+	return strings.Join(parts, " ")
+}
+
+// resolveOrchestratorExecutors picks candidate executor ModelOptions from roles.Executors
+// matching Antigravity Desktop's ZV() rule: for each executor family in priority order,
+// pick its "high" variant if available, else the highest available effort tier.
+// If preferredExecutorEnum matches a valid executor option in options/byID, it is placed first.
+func resolveOrchestratorExecutors(options []ModelOption, byID map[string]ModelOption, roles *orchestratorRoles, preferredExecutorEnum string) []ModelOption {
+	if roles == nil || len(roles.Executors) == 0 {
+		return nil
+	}
+	var out []ModelOption
+	seenEnum := map[string]bool{}
+	add := func(opt ModelOption) {
+		if opt.Enum == "" || seenEnum[opt.Enum] {
+			return
+		}
+		seenEnum[opt.Enum] = true
+		out = append(out, opt)
+	}
+
+	if pref := strings.TrimSpace(preferredExecutorEnum); pref != "" {
+		execBaseSet := map[string]bool{}
+		for _, base := range roles.Executors {
+			execBaseSet[strings.ToLower(strings.TrimSpace(base))] = true
+		}
+		for _, opt := range options {
+			if opt.Provider == "orchestrator" {
+				continue
+			}
+			base, _ := splitModelBaseAndEffort(opt.ID)
+			if !execBaseSet[base] {
+				continue
+			}
+			if strings.EqualFold(opt.Enum, pref) || strings.EqualFold(opt.ID, pref) {
+				add(opt)
+				break
+			}
+		}
+	}
+
+	for _, rawBase := range roles.Executors {
+		wantBase := strings.ToLower(strings.TrimSpace(rawBase))
+		if wantBase == "" {
+			continue
+		}
+		var best ModelOption
+		bestFound := false
+		bestScore := -1
+		for _, opt := range options {
+			if opt.Provider == "orchestrator" || opt.Enum == "" {
+				continue
+			}
+			base, effort := splitModelBaseAndEffort(opt.ID)
+			if base != wantBase {
+				continue
+			}
+			if effort == "high" {
+				best = opt
+				bestFound = true
+				break
+			}
+			if sc := effortOrderScore(effort); !bestFound || sc > bestScore {
+				best = opt
+				bestFound = true
+				bestScore = sc
+			}
+		}
+		if !bestFound {
+			// Fallback to byID if executor isn't in curated options (e.g. hidden worker)
+			for _, opt := range byID {
+				if opt.Provider == "orchestrator" || opt.Enum == "" {
+					continue
+				}
+				base, effort := splitModelBaseAndEffort(opt.ID)
+				if base != wantBase {
+					continue
+				}
+				if effort == "high" {
+					best = opt
+					bestFound = true
+					break
+				}
+				if sc := effortOrderScore(effort); !bestFound || sc > bestScore {
+					best = opt
+					bestFound = true
+					bestScore = sc
+				}
+			}
+		}
+		if bestFound {
+			add(best)
+		}
+	}
+	return out
+}
+
+// expandOrchestratorOptions mirrors Antigravity Desktop's dynamic Orchestrator model picker:
+// when Mendel enables "enable-orchestrator-model-selection" and provides "orchestrator-model-roles"
+// (and the account has at least one non-disabled Orchestrator anchor in options), the bare
+// single-variant Orchestrator rows are expanded into per-family effort variants backed by the
+// account's real planner models + executor model via planExecuteConfig.
+func expandOrchestratorOptions(
+	options []ModelOption,
+	byID map[string]ModelOption,
+	roles *orchestratorRoles,
+	preferredExecutorEnum string,
+) ([]ModelOption, map[string]orchestratorSpec, map[string]string) {
+	if roles == nil || !roles.Enabled || len(roles.Orchestrators) == 0 || len(roles.Executors) == 0 {
+		return options, nil, nil
+	}
+
+	hasOrchAnchor := false
+	hasNativeEffortOrch := false
+	anchorEnum := ""
+	anchorTag := ""
+	for _, opt := range options {
+		if opt.Provider != "orchestrator" {
+			continue
+		}
+		hasOrchAnchor = true
+		if anchorEnum == "" && opt.Enum != "" {
+			anchorEnum = opt.Enum
+		}
+		if anchorTag == "" && opt.Tag != "" {
+			anchorTag = opt.Tag
+		}
+		if _, effort := splitModelBaseAndEffort(opt.ID); effort != "" {
+			hasNativeEffortOrch = true
+		} else if effortTokenInParen.MatchString(strings.ToLower(opt.Name)) {
+			hasNativeEffortOrch = true
+		}
+	}
+	// Non-Ultra accounts without an Orchestrator anchor must stay Orchestrator-free.
+	// If upstream ever ships native multi-effort Orchestrator models directly, keep them as-is.
+	if !hasOrchAnchor || hasNativeEffortOrch {
+		return options, nil, nil
+	}
+
+	executors := resolveOrchestratorExecutors(options, byID, roles, preferredExecutorEnum)
+	if len(executors) == 0 {
+		return options, nil, nil
+	}
+
+	var expanded []ModelOption
+	orchSpecs := map[string]orchestratorSpec{}
+	orchByPlannerEnum := map[string]string{}
+	seenSyntheticID := map[string]bool{}
+
+	for _, rawBase := range roles.Orchestrators {
+		wantBase := strings.ToLower(strings.TrimSpace(rawBase))
+		if wantBase == "" {
+			continue
+		}
+		shortSlug := orchestratorShortSlug(wantBase)
+		if shortSlug == "" {
+			continue
+		}
+		for _, opt := range options {
+			if opt.Provider == "orchestrator" || opt.Enum == "" {
+				continue
+			}
+			base, effort := splitModelBaseAndEffort(opt.ID)
+			if base != wantBase || effort == "" {
+				continue
+			}
+			effortLabel := effortDisplayLabelFromSuffix(effort)
+			if effortLabel == "" {
+				continue
+			}
+			// Match Antigravity Desktop qYb(): planner and executor must differ.
+			var chosenExec ModelOption
+			for _, ex := range executors {
+				if ex.Enum != opt.Enum {
+					chosenExec = ex
+					break
+				}
+			}
+			if chosenExec.Enum == "" {
+				continue
+			}
+
+			normSuffix := effort
+			if normSuffix == "extra-high" {
+				normSuffix = "xhigh"
+			}
+			synthID := fmt.Sprintf("gemini-pro-orchestrator-%s-%s", shortSlug, normSuffix)
+			if seenSyntheticID[synthID] {
+				continue
+			}
+			seenSyntheticID[synthID] = true
+
+			baseDisplay := orchestratorBaseDisplayName(opt.Name, wantBase)
+			synthName := fmt.Sprintf("Orchestrator (%s) (%s)", baseDisplay, effortLabel)
+			tag := anchorTag
+			if tag == "" {
+				tag = opt.Tag
+			}
+			// Intentionally leave Enum empty on the exported ModelOption so clients'
+			// id(forEnum:) never collides with the underlying regular model (e.g.
+			// MODEL_PLACEHOLDER_M532 still maps uniquely to gemini-4-neon-high).
+			// The gateway resolves synthID -> PlannerEnum + ExecutionEnum via orchSpecs.
+			synthOpt := ModelOption{
+				ID:             synthID,
+				Name:           synthName,
+				Provider:       "orchestrator",
+				Enum:           "",
+				SupportsImages: opt.SupportsImages,
+				Thinking:       opt.Thinking,
+				Tag:            tag,
+				MaxTokens:      opt.MaxTokens,
+			}
+			expanded = append(expanded, synthOpt)
+			byID[strings.ToLower(synthID)] = synthOpt
+			orchSpecs[strings.ToLower(synthID)] = orchestratorSpec{
+				ID:               synthID,
+				PlannerModelID:   opt.ID,
+				PlannerEnum:      opt.Enum,
+				ExecutionModelID: chosenExec.ID,
+				ExecutionEnum:    chosenExec.Enum,
+				AnchorEnum:       anchorEnum,
+			}
+			if _, exists := orchByPlannerEnum[opt.Enum]; !exists {
+				orchByPlannerEnum[opt.Enum] = synthID
+			}
+		}
+	}
+
+	if len(expanded) == 0 {
+		return options, nil, nil
+	}
+
+	// Replace the bare anchor orchestrator rows in-place with the expanded effort variants.
+	merged := make([]ModelOption, 0, len(options)+len(expanded))
+	inserted := false
+	for _, opt := range options {
+		if opt.Provider == "orchestrator" {
+			if !inserted {
+				merged = append(merged, expanded...)
+				inserted = true
+			}
+			continue
+		}
+		merged = append(merged, opt)
+	}
+	return merged, orchSpecs, orchByPlannerEnum
+}
+
 // refreshLiveModels does the actual fetch + table build.
 func (p *Proxy) refreshLiveModels(ctx context.Context, port int, token string) error {
 	list, err := p.fetchUpstreamModels(ctx, port, token)
@@ -621,7 +1097,10 @@ func (p *Proxy) refreshLiveModels(ctx context.Context, port int, token string) e
 	if len(byID) == 0 {
 		return fmt.Errorf("GetAvailableModels returned no named models")
 	}
-	liveModels.set(options, byID, byEnum, list.DefaultAgentID)
+	roles, _ := p.fetchOrchestratorRoles(ctx, port, token)
+	preferredExec := readDesktopOrchestratorExecutorModel()
+	options, orchSpecs, orchByPlannerEnum := expandOrchestratorOptions(options, byID, roles, preferredExec)
+	liveModels.setWithOrchestrator(options, byID, byEnum, list.DefaultAgentID, orchSpecs, orchByPlannerEnum)
 	return nil
 }
 

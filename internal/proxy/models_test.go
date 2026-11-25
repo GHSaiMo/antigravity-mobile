@@ -18,14 +18,20 @@ func resetLiveModels(t *testing.T) {
 	t.Helper()
 	liveModels.mu.Lock()
 	savedOptions, savedByID, savedByEnum := liveModels.options, liveModels.byID, liveModels.byEnum
+	savedOfficialDef := liveModels.officialDef
+	savedOrchSpecs, savedOrchByEnum := liveModels.orchSpecs, liveModels.orchByPlannerEnum
 	savedFetched, savedAttempt, savedInflight := liveModels.fetchedAt, liveModels.lastAttempt, liveModels.inflight
 	liveModels.options, liveModels.byID, liveModels.byEnum = nil, nil, nil
+	liveModels.officialDef = ""
+	liveModels.orchSpecs, liveModels.orchByPlannerEnum = nil, nil
 	liveModels.fetchedAt, liveModels.lastAttempt = zeroTime(), zeroTime()
 	liveModels.inflight = false
 	liveModels.mu.Unlock()
 	t.Cleanup(func() {
 		liveModels.mu.Lock()
 		liveModels.options, liveModels.byID, liveModels.byEnum = savedOptions, savedByID, savedByEnum
+		liveModels.officialDef = savedOfficialDef
+		liveModels.orchSpecs, liveModels.orchByPlannerEnum = savedOrchSpecs, savedOrchByEnum
 		liveModels.fetchedAt, liveModels.lastAttempt, liveModels.inflight = savedFetched, savedAttempt, savedInflight
 		liveModels.mu.Unlock()
 	})
@@ -887,5 +893,269 @@ func TestBuildModelTables_OrchestratorThinkingEffortsAndHighDefault(t *testing.T
 	res2, _ := liveModels.snapshot()
 	if res2.Defaults["orchestrator"] != "custom-orch-high" {
 		t.Fatalf("unknown orchestrator default = %q, want custom-orch-high", res2.Defaults["orchestrator"])
+	}
+}
+
+func TestHandleModels_ExpandsOrchestratorFromMendelRoles(t *testing.T) {
+	resetLiveModels(t)
+	t.Setenv("HOME", t.TempDir())
+
+	p := newFakeLSProxy(t, func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case strings.HasSuffix(r.URL.Path, "/GetAvailableModels"):
+			_, _ = w.Write([]byte(`{
+				"response": {
+					"defaultAgentModelId": "gemini-4-neon-high",
+					"models": {
+						"gemini-4-neon-high": {"displayName":"Gemini 4 Neon (High)","model":"MODEL_PLACEHOLDER_M532","modelProvider":"MODEL_PROVIDER_GOOGLE","recommended":true,"supportsImages":true,"supportsThinking":true,"tagTitle":"New","maxTokens":1048576},
+						"gemini-4-neon-xhigh": {"displayName":"Gemini 4 Neon (XHigh)","model":"MODEL_PLACEHOLDER_M535","modelProvider":"MODEL_PROVIDER_GOOGLE","recommended":true,"supportsImages":true,"supportsThinking":true,"tagTitle":"New","maxTokens":1048576},
+						"gemini-4-neon-medium": {"displayName":"Gemini 4 Neon (Medium)","model":"MODEL_PLACEHOLDER_M533","modelProvider":"MODEL_PROVIDER_GOOGLE","recommended":true,"supportsImages":true,"supportsThinking":true,"tagTitle":"New","maxTokens":1048576},
+						"gemini-4-neon-low": {"displayName":"Gemini 4 Neon (Low)","model":"MODEL_PLACEHOLDER_M534","modelProvider":"MODEL_PROVIDER_GOOGLE","recommended":true,"supportsImages":true,"supportsThinking":true,"tagTitle":"New","maxTokens":1048576},
+						"gemini-4-carbon-high": {"displayName":"Gemini 4 Carbon (High)","model":"MODEL_PLACEHOLDER_M427","modelProvider":"MODEL_PROVIDER_GOOGLE","recommended":true,"supportsImages":true,"supportsThinking":true,"tagTitle":"New","maxTokens":1048576},
+						"gemini-4-carbon-medium": {"displayName":"Gemini 4 Carbon (Medium)","model":"MODEL_PLACEHOLDER_M437","modelProvider":"MODEL_PROVIDER_GOOGLE","recommended":true,"supportsImages":true,"supportsThinking":true,"tagTitle":"New","maxTokens":1048576},
+						"gemini-4-carbon-low": {"displayName":"Gemini 4 Carbon (Low)","model":"MODEL_PLACEHOLDER_M438","modelProvider":"MODEL_PROVIDER_GOOGLE","recommended":true,"supportsImages":true,"supportsThinking":true,"tagTitle":"New","maxTokens":1048576},
+						"gemini-4-argon-high": {"displayName":"Gemini 4 Argon (High)","model":"MODEL_PLACEHOLDER_M417","modelProvider":"MODEL_PROVIDER_GOOGLE","recommended":true,"supportsImages":true,"supportsThinking":true,"maxTokens":1048576},
+						"gemini-4-argon-low": {"displayName":"Gemini 4 Argon (Low)","model":"MODEL_PLACEHOLDER_M419","modelProvider":"MODEL_PROVIDER_GOOGLE","recommended":true,"supportsImages":true,"supportsThinking":true,"maxTokens":1048576},
+						"gemini-4-hydrogen-high": {"displayName":"Gemini 4 Hydrogen (High)","model":"MODEL_PLACEHOLDER_M525","modelProvider":"MODEL_PROVIDER_GOOGLE","recommended":true,"supportsImages":true,"supportsThinking":true,"maxTokens":1048576},
+						"gemini-4-hydrogen-xhigh": {"displayName":"Gemini 4 Hydrogen (XHigh)","model":"MODEL_PLACEHOLDER_M528","modelProvider":"MODEL_PROVIDER_GOOGLE","recommended":true,"supportsImages":true,"supportsThinking":true,"maxTokens":1048576},
+						"claude-opus-5-5-low": {"displayName":"Claude Opus 5.5 (Low)","model":"MODEL_PLACEHOLDER_M400","modelProvider":"MODEL_PROVIDER_ANTHROPIC","recommended":true,"supportsImages":true,"supportsThinking":true,"maxTokens":250000},
+						"claude-opus-5-5-medium": {"displayName":"Claude Opus 5.5 (Medium)","model":"MODEL_PLACEHOLDER_M401","modelProvider":"MODEL_PROVIDER_ANTHROPIC","recommended":true,"supportsImages":true,"supportsThinking":true,"maxTokens":250000},
+						"claude-opus-5-5-high": {"displayName":"Claude Opus 5.5 (High)","model":"MODEL_PLACEHOLDER_M402","modelProvider":"MODEL_PROVIDER_ANTHROPIC","recommended":true,"supportsImages":true,"supportsThinking":true,"maxTokens":250000},
+						"claude-sonnet-5-5-high": {"displayName":"Claude Sonnet 5.5 (High)","model":"MODEL_PLACEHOLDER_M405","modelProvider":"MODEL_PROVIDER_ANTHROPIC","recommended":true,"supportsImages":true,"supportsThinking":true,"maxTokens":250000},
+						"gemini-pro-orchestrator-neon": {"displayName":"Orchestrator (Neon)","model":"MODEL_PLACEHOLDER_M537","modelProvider":"MODEL_PROVIDER_GOOGLE","recommended":true,"supportsImages":true,"supportsThinking":true,"tagTitle":"New"},
+						"gemini-pro-orchestrator": {"displayName":"Orchestrator (Carbon)","model":"MODEL_PLACEHOLDER_M667","modelProvider":"MODEL_PROVIDER_GOOGLE","recommended":true,"supportsImages":true,"supportsThinking":true,"tagTitle":"New"},
+						"gemini-pro-orchestrator-argon": {"displayName":"Orchestrator (Argon)","model":"MODEL_PLACEHOLDER_M681","modelProvider":"MODEL_PROVIDER_GOOGLE","recommended":true,"supportsImages":true,"supportsThinking":true,"tagTitle":"New"}
+					},
+					"agentModelSorts": [{
+						"displayName": "Recommended",
+						"groups": [{"modelIds": [
+							"gemini-4-neon-high","gemini-4-neon-xhigh","gemini-4-neon-medium","gemini-4-neon-low",
+							"gemini-4-carbon-medium","gemini-4-carbon-high","gemini-4-carbon-low",
+							"gemini-4-argon-high","gemini-4-argon-low",
+							"gemini-4-hydrogen-high","gemini-4-hydrogen-xhigh",
+							"gemini-pro-orchestrator-neon","gemini-pro-orchestrator","gemini-pro-orchestrator-argon",
+							"claude-opus-5-5-low","claude-opus-5-5-medium","claude-opus-5-5-high",
+							"claude-sonnet-5-5-high"
+						]}]
+					}]
+				}
+			}`))
+		case strings.HasSuffix(r.URL.Path, "/GetMendelFlags"):
+			_, _ = w.Write([]byte(`{
+				"experimentConfig": {
+					"experiments": [
+						{"keyString": "enable-orchestrator-model-selection"},
+						{"keyString": "orchestrator-model-roles", "string": "{\"orchestrators\":[\"gemini-4-neon\",\"gemini-4-carbon\",\"gemini-4-argon\",\"claude-opus-5-5\"],\"executors\":[\"gemini-4-hydrogen\",\"claude-sonnet-5-5\"]}"}
+					]
+				}
+			}`))
+		default:
+			http.NotFound(w, r)
+		}
+	})
+
+	w := httptest.NewRecorder()
+	p.HandleModels(w, httptest.NewRequest(http.MethodGet, "/gateway/models?refresh=1", nil))
+	if w.Code != http.StatusOK {
+		t.Fatalf("status=%d body=%s", w.Code, w.Body.String())
+	}
+	var res ModelsResponse
+	if err := json.Unmarshal(w.Body.Bytes(), &res); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if !res.Live {
+		t.Fatal("expected live=true")
+	}
+	if res.Defaults["orchestrator"] != "gemini-pro-orchestrator-neon-high" {
+		t.Fatalf("orchestrator default = %q, want gemini-pro-orchestrator-neon-high", res.Defaults["orchestrator"])
+	}
+
+	orch := idsOf(res.Models, "orchestrator")
+	wantOrch := []string{
+		"gemini-pro-orchestrator-neon-high",
+		"gemini-pro-orchestrator-neon-xhigh",
+		"gemini-pro-orchestrator-neon-medium",
+		"gemini-pro-orchestrator-neon-low",
+		"gemini-pro-orchestrator-carbon-medium",
+		"gemini-pro-orchestrator-carbon-high",
+		"gemini-pro-orchestrator-carbon-low",
+		"gemini-pro-orchestrator-argon-high",
+		"gemini-pro-orchestrator-argon-low",
+		"gemini-pro-orchestrator-opus-5-5-low",
+		"gemini-pro-orchestrator-opus-5-5-medium",
+		"gemini-pro-orchestrator-opus-5-5-high",
+	}
+	if strings.Join(orch, ",") != strings.Join(wantOrch, ",") {
+		t.Fatalf("expanded orchestrators:\n got  %v\n want %v", orch, wantOrch)
+	}
+
+	byID := map[string]ModelOption{}
+	for _, m := range res.Models {
+		byID[m.ID] = m
+		if m.Provider == "orchestrator" {
+			if m.Enum != "" {
+				t.Errorf("synthetic orchestrator option %s must omit exported Enum to avoid client enum collisions, got %q", m.ID, m.Enum)
+			}
+			if strings.Contains(strings.ToLower(m.ID), "claude") {
+				t.Errorf("synthetic orchestrator ID %s must not contain 'claude'", m.ID)
+			}
+		}
+	}
+	if got := byID["gemini-pro-orchestrator-neon-xhigh"].Name; got != "Orchestrator (Neon) (Extra)" {
+		t.Errorf("neon xhigh name = %q", got)
+	}
+	if got := byID["gemini-pro-orchestrator-opus-5-5-high"].Name; got != "Orchestrator (Opus 5.5) (High)" {
+		t.Errorf("opus 5.5 high name = %q", got)
+	}
+
+	// Resolution and reverse-lookup isolation
+	if got := resolveModelEnum("gemini-pro-orchestrator-neon-xhigh"); got != "MODEL_PLACEHOLDER_M535" {
+		t.Errorf("resolveModelEnum(neon-xhigh) = %q, want MODEL_PLACEHOLDER_M535", got)
+	}
+	if got := resolveModelEnum("gemini-pro-orchestrator-opus-5-5-high"); got != "MODEL_PLACEHOLDER_M402" {
+		t.Errorf("resolveModelEnum(opus-5-5-high) = %q, want MODEL_PLACEHOLDER_M402", got)
+	}
+	if got := resolveModelEnum("gemini-pro-orchestrator-neon"); got != "MODEL_PLACEHOLDER_M537" {
+		t.Errorf("legacy orchestrator anchor must stay resolvable, got %q", got)
+	}
+	if got := canonicalModelName("gemini-pro-orchestrator-neon-xhigh"); got != "gemini-pro-orchestrator-neon-xhigh" {
+		t.Errorf("canonicalModelName(neon-xhigh) = %q, must preserve orchestrator ID", got)
+	}
+	if got := canonicalModelName("MODEL_PLACEHOLDER_M535"); got != "gemini-4-neon-xhigh" {
+		t.Errorf("canonicalModelName(M535) = %q, must stay regular gemini-4-neon-xhigh", got)
+	}
+
+	// applyModelToCascadeConfig + applyOrchestratorAgentSpec for Gemini planner
+	cfg := applyModelToCascadeConfig(nil, "MODEL_PLACEHOLDER_M535", "gemini-pro-orchestrator-neon-xhigh")
+	cfgMap := cfg.(map[string]interface{})
+	pCfg := cfgMap["plannerConfig"].(map[string]interface{})
+	if pCfg["planModel"] != "MODEL_PLACEHOLDER_M535" {
+		t.Errorf("planModel = %v, want MODEL_PLACEHOLDER_M535", pCfg["planModel"])
+	}
+	pec, ok := pCfg["planExecuteConfig"].(map[string]interface{})
+	if !ok || pec["executionModel"] != "MODEL_PLACEHOLDER_M525" {
+		t.Fatalf("planExecuteConfig = %v, want executionModel=MODEL_PLACEHOLDER_M525", pCfg["planExecuteConfig"])
+	}
+	msgPayload := map[string]interface{}{}
+	applyOrchestratorAgentSpec(msgPayload, cfg)
+	agentSpec, _ := msgPayload["customAgentSpec"].(map[string]interface{})
+	builtin, _ := agentSpec["builtinAgent"].(map[string]interface{})
+	defAgent, _ := builtin["defaultAgent"].(map[string]interface{})
+	if defAgent["planExecute"] != true || defAgent["isInteractive"] != true || defAgent["surface"] != "AGENT_SURFACE_HUB" {
+		t.Fatalf("unexpected customAgentSpec: %+v", msgPayload["customAgentSpec"])
+	}
+
+	// applyModelToCascadeConfig for Claude Opus 5.5 planner must clamp Claude checkpoint limits
+	claudeOrchCfg := applyModelToCascadeConfig(cfg, "MODEL_PLACEHOLDER_M402", "gemini-pro-orchestrator-opus-5-5-high").(map[string]interface{})
+	cpCfg := claudeOrchCfg["checkpointConfig"].(map[string]interface{})
+	if cpCfg["maxTokenLimit"] != 160000 {
+		t.Errorf("claude orchestrator maxTokenLimit = %v, want 160000", cpCfg["maxTokenLimit"])
+	}
+	if claudeOrchCfg["plannerConfig"].(map[string]interface{})["planExecuteConfig"].(map[string]interface{})["executionModel"] != "MODEL_PLACEHOLDER_M525" {
+		t.Errorf("claude orchestrator executionModel unexpected: %v", claudeOrchCfg["plannerConfig"])
+	}
+
+	// Switching back to normal Gemini model must clear planExecuteConfig and restore checkpoint limits
+	normalCfg := applyModelToCascadeConfig(claudeOrchCfg, "MODEL_PLACEHOLDER_M532", "gemini-4-neon-high").(map[string]interface{})
+	normalPCfg := normalCfg["plannerConfig"].(map[string]interface{})
+	if _, stillHasPEC := normalPCfg["planExecuteConfig"]; stillHasPEC {
+		t.Errorf("planExecuteConfig must be removed when switching back to normal model, got %v", normalPCfg["planExecuteConfig"])
+	}
+	if normalCfg["checkpointConfig"].(map[string]interface{})["maxTokenLimit"] != 256000 {
+		t.Errorf("normal gemini maxTokenLimit = %v, want 256000", normalCfg["checkpointConfig"])
+	}
+
+	// Desktop-initiated planExecute trajectory (no modelName) reverse-maps to synthetic orchestrator ID
+	desktopOrchResp := &upstreamTrajectoryResp{}
+	desktopOrchResp.Trajectory.ExecutorMetadatas = []struct {
+		CascadeConfig json.RawMessage `json:"cascadeConfig"`
+	}{
+		{CascadeConfig: json.RawMessage(`{"plannerConfig":{"planModel":"MODEL_PLACEHOLDER_M535","planExecuteConfig":{"executionModel":"MODEL_PLACEHOLDER_M525"}}}`)},
+	}
+	if activeModel, _ := resolveActiveModel(desktopOrchResp); activeModel != "gemini-pro-orchestrator-neon-xhigh" {
+		t.Errorf("resolveActiveModel(desktop planExecute) = %q, want gemini-pro-orchestrator-neon-xhigh", activeModel)
+	}
+
+	// Normal trajectory with same planModel but no planExecuteConfig resolves to regular Gemini model
+	normalResp := &upstreamTrajectoryResp{}
+	normalResp.Trajectory.ExecutorMetadatas = []struct {
+		CascadeConfig json.RawMessage `json:"cascadeConfig"`
+	}{
+		{CascadeConfig: json.RawMessage(`{"plannerConfig":{"planModel":"MODEL_PLACEHOLDER_M535"}}`)},
+	}
+	if activeModel, _ := resolveActiveModel(normalResp); activeModel != "gemini-4-neon-xhigh" {
+		t.Errorf("resolveActiveModel(normal) = %q, want gemini-4-neon-xhigh", activeModel)
+	}
+}
+
+func TestExpandOrchestratorOptions_GatesAndDesktopExecutorPref(t *testing.T) {
+	g := "MODEL_PROVIDER_GOOGLE"
+	a := "MODEL_PROVIDER_ANTHROPIC"
+	raw := map[string]upstreamModel{
+		"gemini-4-neon-high":     {DisplayName: "Gemini 4 Neon (High)", Model: "MODEL_PLACEHOLDER_M532", ModelProvider: g, Recommended: true},
+		"gemini-4-neon-low":      {DisplayName: "Gemini 4 Neon (Low)", Model: "MODEL_PLACEHOLDER_M534", ModelProvider: g, Recommended: true},
+		"gemini-4-hydrogen-high": {DisplayName: "Gemini 4 Hydrogen (High)", Model: "MODEL_PLACEHOLDER_M525", ModelProvider: g, Recommended: true},
+		"claude-sonnet-5-5-high": {DisplayName: "Claude Sonnet 5.5 (High)", Model: "MODEL_PLACEHOLDER_M405", ModelProvider: a, Recommended: true},
+	}
+	roles := &orchestratorRoles{
+		Enabled:       true,
+		Orchestrators: []string{"gemini-4-neon"},
+		Executors:     []string{"gemini-4-hydrogen", "claude-sonnet-5-5"},
+	}
+
+	// Non-Ultra account without any orchestrator anchor must NOT get synthetic orchestrator rows
+	optsNoAnchor, byIDNoAnchor, _ := buildModelTables(raw, []string{"gemini-4-neon-high", "gemini-4-neon-low", "gemini-4-hydrogen-high", "claude-sonnet-5-5-high"})
+	merged, specs, _ := expandOrchestratorOptions(optsNoAnchor, byIDNoAnchor, roles, "")
+	if len(idsOf(merged, "orchestrator")) != 0 || len(specs) != 0 {
+		t.Fatalf("non-anchor account must not expand orchestrators, got opts=%v specs=%v", idsOf(merged, "orchestrator"), specs)
+	}
+
+	// With orchestrator anchor + userSettings.orchestratorExecutorModel pointing to Claude Sonnet 5.5 High
+	raw["gemini-pro-orchestrator-neon"] = upstreamModel{DisplayName: "Orchestrator (Neon)", Model: "MODEL_PLACEHOLDER_M537", ModelProvider: g, Recommended: true}
+	optsWithAnchor, byIDWithAnchor, _ := buildModelTables(raw, []string{"gemini-4-neon-high", "gemini-4-neon-low", "gemini-4-hydrogen-high", "claude-sonnet-5-5-high", "gemini-pro-orchestrator-neon"})
+	_, specsPref, _ := expandOrchestratorOptions(optsWithAnchor, byIDWithAnchor, roles, "MODEL_PLACEHOLDER_M405")
+	if got := specsPref["gemini-pro-orchestrator-neon-high"].ExecutionEnum; got != "MODEL_PLACEHOLDER_M405" {
+		t.Fatalf("preferred desktop executor = %q, want MODEL_PLACEHOLDER_M405", got)
+	}
+}
+
+func TestHandleJetboxWriteState_PreservesOrchestratorEffortOnAnchorEnum(t *testing.T) {
+	resetLiveModels(t)
+	cid := "test-jetbox-orch-preserve"
+	SetCascadeModel(cid, "gemini-pro-orchestrator-carbon-medium", []byte(`{"plannerConfig":{"planModel":"MODEL_PLACEHOLDER_M437","modelName":"gemini-pro-orchestrator-carbon-medium","planExecuteConfig":{"executionModel":"MODEL_PLACEHOLDER_M525"}}}`))
+	t.Cleanup(func() {
+		defaultTrajCache.cascadeModelsMu.Lock()
+		delete(defaultTrajCache.cascadeModels, cid)
+		defaultTrajCache.cascadeModelsMu.Unlock()
+	})
+
+	p := newFakeLSProxy(t, func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{}`))
+	})
+	noopRP := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{}`))
+	})
+
+	req := httptest.NewRequest(http.MethodPost, "/api/exa.language_server_pb.LanguageServerService/JetboxWriteState",
+		strings.NewReader(`{"appState":{"lastSelectedAgentModel":"MODEL_PLACEHOLDER_M537"}}`))
+	req.Header.Set("X-Cascade-Id", cid)
+	rec := httptest.NewRecorder()
+	p.handleJetboxWriteState(rec, req, noopRP, "/exa.language_server_pb.LanguageServerService/JetboxWriteState")
+
+	if got, _ := GetCascadeModel(cid); got != "gemini-pro-orchestrator-carbon-medium" {
+		t.Fatalf("JetboxWriteState anchor enum clobbered cached orchestrator effort: got %q, want gemini-pro-orchestrator-carbon-medium", got)
+	}
+
+	// Explicit switch to a non-orchestrator model must still update normally
+	req2 := httptest.NewRequest(http.MethodPost, "/api/exa.language_server_pb.LanguageServerService/JetboxWriteState",
+		strings.NewReader(`{"appState":{"lastSelectedAgentModel":"MODEL_PLACEHOLDER_M532"}}`))
+	req2.Header.Set("X-Cascade-Id", cid)
+	rec2 := httptest.NewRecorder()
+	p.handleJetboxWriteState(rec2, req2, noopRP, "/exa.language_server_pb.LanguageServerService/JetboxWriteState")
+
+	if got, _ := GetCascadeModel(cid); got != "gemini-4-neon-high" {
+		t.Fatalf("JetboxWriteState switch to regular model failed: got %q, want gemini-4-neon-high", got)
 	}
 }

@@ -1034,9 +1034,31 @@ func resolveActiveModel(rawResp *upstreamTrajectoryResp) (string, json.RawMessag
 				var cfgMap map[string]interface{}
 				if err := json.Unmarshal(cfg, &cfgMap); err == nil {
 					if p, ok := cfgMap["plannerConfig"].(map[string]interface{}); ok {
-						if mn, ok := p["modelName"].(string); ok && mn != "" {
+						hasPlanExec := cascadeConfigHasPlanExecute(cfgMap)
+						mn, _ := p["modelName"].(string)
+						pm, _ := p["planModel"].(string)
+						if pm == "" {
+							if rm, ok := p["requestedModel"].(map[string]interface{}); ok {
+								pm, _ = rm["model"].(string)
+							}
+						}
+						if hasPlanExec {
+							if mn != "" && (isSyntheticOrchestratorID(mn) || strings.Contains(strings.ToLower(mn), "orch")) {
+								activeModel = canonicalModelName(mn)
+							} else if pm != "" {
+								if orchID := liveModels.orchestratorIDForPlannerEnum(pm); orchID != "" {
+									activeModel = orchID
+								} else if mn != "" {
+									activeModel = canonicalModelName(mn)
+								} else {
+									activeModel = canonicalModelName(pm)
+								}
+							} else if mn != "" {
+								activeModel = canonicalModelName(mn)
+							}
+						} else if mn != "" {
 							activeModel = canonicalModelName(mn)
-						} else if pm, ok := p["planModel"].(string); ok && pm != "" {
+						} else if pm != "" {
 							activeModel = canonicalModelName(pm)
 						}
 					}

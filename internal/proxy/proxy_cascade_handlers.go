@@ -331,6 +331,7 @@ func (p *Proxy) handleSendUserCascadeMessage(w http.ResponseWriter, r *http.Requ
 						}
 					}
 					rawMap["cascadeConfig"] = cfgObj
+					applyOrchestratorAgentSpec(rawMap, cfgObj)
 				}
 				SetLastKnownCascadeConfig(configToUse)
 				if canonicalName != "" {
@@ -339,6 +340,7 @@ func (p *Proxy) handleSendUserCascadeMessage(w http.ResponseWriter, r *http.Requ
 			} else if modelEnum != "" {
 				cfgObj := applyModelToCascadeConfig(nil, modelEnum, canonicalName)
 				rawMap["cascadeConfig"] = cfgObj
+				applyOrchestratorAgentSpec(rawMap, cfgObj)
 				if updatedBytes, err := json.Marshal(cfgObj); err == nil {
 					SetLastKnownCascadeConfig(updatedBytes)
 					SetCascadeModel(cascadeID, canonicalName, updatedBytes)
@@ -346,6 +348,10 @@ func (p *Proxy) handleSendUserCascadeMessage(w http.ResponseWriter, r *http.Requ
 				if verboseRPC {
 					slog.Info(fmt.Sprintf("[Proxy] SendUserCascadeMessage: synthesized cascadeConfig with model %s (%s) for cascade %s", targetModel, modelEnum, shortCascadeID(cascadeID)))
 				}
+			}
+
+			if cascadeID != "" && port > 0 && cascadeConfigHasPlanExecute(rawMap["cascadeConfig"]) {
+				go p.markCascadePlanExecuteAnnotation(cascadeID, port, token)
 			}
 
 			delete(rawMap, "cascadeConfigRaw")
@@ -415,6 +421,36 @@ func (p *Proxy) handleSendUserCascadeMessage(w http.ResponseWriter, r *http.Requ
 	}
 }
 
+func (p *Proxy) markCascadePlanExecuteAnnotation(cascadeID string, port int, token string) {
+	if cascadeID == "" || port == 0 || p.shortClient == nil {
+		return
+	}
+	payload, err := json.Marshal(map[string]interface{}{
+		"cascadeId": cascadeID,
+		"annotations": map[string]interface{}{
+			"planExecute": true,
+		},
+	})
+	if err != nil {
+		return
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	annURL := fmt.Sprintf("https://127.0.0.1:%d/exa.language_server_pb.LanguageServerService/UpdateConversationAnnotations", port)
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, annURL, bytes.NewReader(payload))
+	if err != nil {
+		return
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Connect-Protocol-Version", "1")
+	if token != "" {
+		req.Header.Set("x-codeium-csrf-token", token)
+	}
+	if resp, err := p.shortClient.Do(req); err == nil {
+		resp.Body.Close()
+	}
+}
+
 func (p *Proxy) handleJetboxWriteState(w http.ResponseWriter, r *http.Request, rp http.Handler, reqPath string) {
 	// Protect against OOM for excessively large state requests by limiting to 5MB
 	bodyBytes, cleanup, err := readBodyToPool(r.Body, 5*1024*1024)
@@ -434,26 +470,38 @@ func (p *Proxy) handleJetboxWriteState(w http.ResponseWriter, r *http.Request, r
 		model := stateReq.AppState.LastSelectedAgentModel
 		if model != "" {
 			p.ensureLiveModels(r.Context())
-			modelEnum := resolveModelEnum(model)
-			canonicalName := canonicalModelName(model)
-			if canonicalName == "" {
-				canonicalName = model
-			}
 			cascadeID := r.Header.Get("X-Cascade-Id")
 			if cascadeID == "" {
 				cascadeID = r.URL.Query().Get("cascade_id")
 			}
-			lastCfg := p.GetCascadeConfig(cascadeID, 0, "")
-			patched := applyModelToCascadeConfig(lastCfg, modelEnum, canonicalName)
-			if patchedBytes, err := json.Marshal(patched); err == nil {
-				SetLastKnownCascadeConfig(patchedBytes)
-				if cascadeID != "" {
-					SetCascadeModel(cascadeID, canonicalName, patchedBytes)
-					ClearTrajectoryCache(cascadeID)
+			// Guard against async client switchModel(activeModelEnum) races: synthetic
+			// Orchestrator+effort options omit Enum so clients fall back to the bare
+			// anchor enum (e.g. MODEL_PLACEHOLDER_M537) in JetboxWriteState. Do not let
+			// that overwrite an already-recorded specific Orchestrator+effort model.
+			preserveOrchEffort := false
+			if cascadeID != "" && isBareOrchestratorAnchor(model) {
+				if existingModel, _ := GetCascadeModel(cascadeID); isSyntheticOrchestratorID(existingModel) {
+					preserveOrchEffort = true
 				}
 			}
-			if verboseRPC {
-				slog.Info(fmt.Sprintf("[Proxy] JetboxWriteState: cached active model %s (%s)", canonicalName, modelEnum), "cascadeId", shortCascadeID(cascadeID))
+			if !preserveOrchEffort {
+				modelEnum := resolveModelEnum(model)
+				canonicalName := canonicalModelName(model)
+				if canonicalName == "" {
+					canonicalName = model
+				}
+				lastCfg := p.GetCascadeConfig(cascadeID, 0, "")
+				patched := applyModelToCascadeConfig(lastCfg, modelEnum, canonicalName)
+				if patchedBytes, err := json.Marshal(patched); err == nil {
+					SetLastKnownCascadeConfig(patchedBytes)
+					if cascadeID != "" {
+						SetCascadeModel(cascadeID, canonicalName, patchedBytes)
+						ClearTrajectoryCache(cascadeID)
+					}
+				}
+				if verboseRPC {
+					slog.Info(fmt.Sprintf("[Proxy] JetboxWriteState: cached active model %s (%s)", canonicalName, modelEnum), "cascadeId", shortCascadeID(cascadeID))
+				}
 			}
 		}
 	}

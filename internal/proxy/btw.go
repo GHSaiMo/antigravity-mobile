@@ -836,6 +836,7 @@ func (p *Proxy) handleBtwStart(w http.ResponseWriter, r *http.Request) {
 	}
 	if cfgObj != nil {
 		msgMap["cascadeConfig"] = cfgObj
+		applyOrchestratorAgentSpec(msgMap, cfgObj)
 	}
 
 	sendRaw, sendCode, sendErr := p.callUpstreamRPC(r.Context(), "SendUserCascadeMessage", msgMap)
@@ -1000,6 +1001,7 @@ func (p *Proxy) handleBtwReply(w http.ResponseWriter, r *http.Request) {
 	}
 	if cfgObj != nil {
 		msgMap["cascadeConfig"] = cfgObj
+		applyOrchestratorAgentSpec(msgMap, cfgObj)
 	}
 
 	sendRaw, sendCode, sendErr := p.callUpstreamRPC(r.Context(), "SendUserCascadeMessage", msgMap)
