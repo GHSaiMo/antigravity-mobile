@@ -48,6 +48,15 @@ func TestPushDeviceStore_LanguagePersistence(t *testing.T) {
 	if len(targets) != 1 || targets[0].Lang != i18n.LangJa {
 		t.Fatalf("expected reloaded Lang=ja, got %+v", targets)
 	}
+
+	// Unsupported explicit locale (e.g. ko-KR) must persist as "en" (never remain empty / leak zh).
+	if err := reloaded.UpdateLanguage("dev-ja", "ko-KR"); err != nil {
+		t.Fatalf("UpdateLanguage(ko-KR): %v", err)
+	}
+	targets = reloaded.ListAlertTargets()
+	if len(targets) != 1 || targets[0].Lang != i18n.LangEn {
+		t.Fatalf("expected ko-KR to persist as Lang=en, got %+v", targets)
+	}
 }
 
 func TestAPNsPerDeviceLanguageRouting(t *testing.T) {
@@ -146,8 +155,8 @@ func TestFCMDeviceLanguageRouting(t *testing.T) {
 		t.Fatalf("NotifyCompleted failed: %v", err)
 	}
 
-	// Switch language to English and verify quota localized callback too
-	notif.UpdateFCMDeviceLang("en")
+	// Switch language to unsupported locale ("fr-FR") — must normalize to English, never Chinese
+	notif.UpdateFCMDeviceLang("fr-FR")
 	if err := notif.NotifyQuotaAlertLocalized("warn", "k-en", "中文标题", "中文内容", func(lang string) (string, string) {
 		return i18n.T3For(lang, "中文标题", "Quota Low", "クォータ低下"), i18n.T3For(lang, "中文内容", "20% left", "残り20%")
 	}); err != nil {

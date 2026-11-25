@@ -294,6 +294,17 @@ public final class NarrationAudioPlayer: NSObject, AVAudioPlayerDelegate, AVSpee
         statusLabel = ""
     }
 
+    private static func preferredTTSLanguageCode() -> String {
+        let lang = (Bundle.main.preferredLocalizations.first ?? Locale.preferredLanguages.first ?? "en").lowercased()
+        if lang.hasPrefix("zh") {
+            return "zh-CN"
+        }
+        if lang.hasPrefix("ja") {
+            return "ja-JP"
+        }
+        return "en-US"
+    }
+
     private func speakWithSystemTTS(_ text: String) {
         statusLabel = String(localized: "系统朗读中")
         try? AVAudioSession.sharedInstance().setCategory(.playback, mode: .spokenAudio)
@@ -301,7 +312,7 @@ public final class NarrationAudioPlayer: NSObject, AVAudioPlayerDelegate, AVSpee
         let synth = AVSpeechSynthesizer()
         synth.delegate = self
         let utterance = AVSpeechUtterance(string: text)
-        utterance.voice = AVSpeechSynthesisVoice(language: "zh-CN")
+        utterance.voice = AVSpeechSynthesisVoice(language: Self.preferredTTSLanguageCode())
         utterance.rate = AVSpeechUtteranceDefaultSpeechRate
         self.synthesizer = synth
         synth.speak(utterance)

@@ -111,6 +111,23 @@ class AppUpdateParserTest {
         assertTrue(enNotes.contains("Added in-app updater"))
         assertFalse(enNotes.contains("新增应用内检查更新"))
 
+        // Japanese user with bilingual (ZH+EN) notes falls back to English, never Chinese
+        val jaFallbackNotes = AppUpdateParser.formatReleaseNotes(
+            release.releaseNotes,
+            preferChinese = false,
+            preferJapanese = true
+        )
+        assertTrue(jaFallbackNotes.contains("Added in-app updater"))
+        assertFalse(jaFallbackNotes.contains("新增应用内检查更新"))
+
+        // Trilingual notes select Japanese for JA, English (without JA) for EN, Chinese for ZH
+        val trilingual = "## 简体中文\n- 中文说明\n\n---\n\n## English\n- English notes\n\n---\n\n## 日本語\n- 日本語ノート"
+        assertTrue(AppUpdateParser.formatReleaseNotes(trilingual, preferChinese = false, preferJapanese = true).contains("日本語ノート"))
+        val enOnly = AppUpdateParser.formatReleaseNotes(trilingual, preferChinese = false, preferJapanese = false)
+        assertTrue(enOnly.contains("English notes"))
+        assertFalse(enOnly.contains("日本語ノート"))
+        assertFalse(enOnly.contains("中文说明"))
+
         val prereleaseJson = json.replace("\"prerelease\": false", "\"prerelease\": true")
         assertNull(AppUpdateParser.parseGitHubRelease(prereleaseJson))
     }

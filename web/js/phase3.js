@@ -1378,11 +1378,11 @@
         const idx = Number(card.getAttribute("data-index"));
         const proj = Array.isArray(discoveredProjects) ? discoveredProjects[idx] : null;
         if (!proj) return;
-        const wsMenuPrompt = window.I18n?.isEn?.()
-          ? `Workspace "${proj.name}" actions:\n1 = Start new chat in an isolated Git Worktree\n2 = Set workspace alias / note\nEnter choice (1 or 2):`
+        const wsMenuPrompt = window.I18n?.isZh?.()
+          ? `工作区「${proj.name}」操作：\n1 = 在独立 Git Worktree 开启新会话\n2 = 设置工作区备注别名\n请输入序号 (1 或 2)：`
           : (window.I18n?.isJa?.()
               ? `ワークスペース「${proj.name}」の操作：\n1 = 独立した Git Worktree で新規会話を開始\n2 = ワークスペースのメモ・別名を設定\n番号を入力 (1 または 2)：`
-              : `工作区「${proj.name}」操作：\n1 = 在独立 Git Worktree 开启新会话\n2 = 设置工作区备注别名\n请输入序号 (1 或 2)：`);
+              : `Workspace "${proj.name}" actions:\n1 = Start new chat in an isolated Git Worktree\n2 = Set workspace alias / note\nEnter choice (1 or 2):`);
         const action = prompt(wsMenuPrompt);
         if (action === "1") {
           this.createWorktreeSession(proj);
@@ -1796,9 +1796,9 @@
         // Browser speechSynthesis fallback
         if (typeof speechSynthesis !== "undefined") {
           const u = new SpeechSynthesisUtterance(cleaned);
-          u.lang = (window.I18n && window.I18n.isJa && window.I18n.isJa())
-            ? "ja-JP"
-            : ((window.I18n && window.I18n.isEn && window.I18n.isEn()) ? "en-US" : "zh-CN");
+          u.lang = (window.I18n && window.I18n.isZh && window.I18n.isZh())
+            ? "zh-CN"
+            : ((window.I18n && window.I18n.isJa && window.I18n.isJa()) ? "ja-JP" : "en-US");
           if (title) title.textContent = typeof t === "function" ? t("🔊 系统朗读中") : "🔊 系统朗读中";
           u.onend = () => this.stopNarration();
           speechSynthesis.speak(u);

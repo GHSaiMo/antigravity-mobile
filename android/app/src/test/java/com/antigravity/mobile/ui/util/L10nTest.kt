@@ -201,4 +201,45 @@ class L10nTest {
             L10n.setLanguagePreference("system")
         }
     }
+
+    @Test
+    fun testEnglishFirstFallbackForMissingJapaneseAndOtherLocales() {
+        // 1. Simulated missing Japanese key/pattern must fall back to English, never Chinese.
+        val missingDictFallback = L10n.translateWithFallback(
+            chinese = "设置",
+            lang = L10n.AppLang.JA,
+            jaDict = emptyMap(),
+            jaRules = emptyList()
+        )
+        assertEquals("Settings", missingDictFallback)
+
+        val missingPatternFallback = L10n.translateWithFallback(
+            chinese = "3 分钟前",
+            lang = L10n.AppLang.JA,
+            jaDict = emptyMap(),
+            jaRules = emptyList()
+        )
+        assertEquals("3m ago", missingPatternFallback)
+
+        // 2. Non-zh/ja system locales (e.g. Korean, French) must resolve to English, never Chinese.
+        val prevLocale = java.util.Locale.getDefault()
+        try {
+            L10n.setLanguagePreference("system")
+            java.util.Locale.setDefault(java.util.Locale.KOREA)
+            assertEquals(L10n.AppLang.EN, L10n.currentLang)
+            assertEquals("Settings", "设置".loc)
+
+            java.util.Locale.setDefault(java.util.Locale.FRANCE)
+            assertEquals(L10n.AppLang.EN, L10n.currentLang)
+
+            java.util.Locale.setDefault(java.util.Locale.JAPAN)
+            assertEquals(L10n.AppLang.JA, L10n.currentLang)
+
+            java.util.Locale.setDefault(java.util.Locale.SIMPLIFIED_CHINESE)
+            assertEquals(L10n.AppLang.ZH, L10n.currentLang)
+        } finally {
+            java.util.Locale.setDefault(prevLocale)
+            L10n.setLanguagePreference("system")
+        }
+    }
 }

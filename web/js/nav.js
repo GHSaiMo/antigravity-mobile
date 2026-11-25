@@ -839,9 +839,11 @@ function renderConversationList(summaries, { forceReorder = false } = {}) {
       const wsName = item.workspaceName || wsUri.split("/").filter(Boolean).pop() || "Chat";
       const timeStr = formatRelativeTime(item.lastModifiedTime);
       const stepCount = item.stepCount || 0;
-      const stepLabel = (window.I18n && window.I18n.isEn && window.I18n.isEn())
-        ? (stepCount === 1 ? "step" : "steps")
-        : (typeof t === "function" ? t("步骤") : "步骤");
+      const stepLabel = (window.I18n && window.I18n.isZh && window.I18n.isZh())
+        ? "步骤"
+        : ((window.I18n && window.I18n.isJa && window.I18n.isJa())
+            ? "ステップ"
+            : (stepCount === 1 ? "step" : "steps"));
 
       const idEsc = escapeHtml(item.id || "");
       const isSideQuestion = Boolean(item.isSideQuestion);

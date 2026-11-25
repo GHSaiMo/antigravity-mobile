@@ -2362,16 +2362,16 @@ function buildStepPlanCardHtml(plan, isActivePlan) {
   const circ = 2 * Math.PI * r;
   const ratio = total > 0 ? Math.max(0, Math.min(1, done / total)) : 0;
   const parts = [];
-  const isEnglish = typeof isEn === "function" && isEn();
+  const isChinese = typeof isZh === "function" && isZh();
   const isJapanese = typeof isJa === "function" && isJa();
   if (total > 0) {
-    parts.push(isEnglish ? `${done}/${total} steps` : (isJapanese ? `${done}/${total} ステップ` : `${done}/${total} 步`));
+    parts.push(isChinese ? `${done}/${total} 步` : (isJapanese ? `${done}/${total} ステップ` : `${done}/${total} steps`));
   }
   if (failed > 0) {
-    parts.push(isEnglish ? `${failed} failed` : (isJapanese ? `${failed} 失敗` : `${failed} 失败`));
+    parts.push(isChinese ? `${failed} 失败` : (isJapanese ? `${failed} 失敗` : `${failed} failed`));
   }
   if (skipped > 0) {
-    parts.push(isEnglish ? `${skipped} skipped` : (isJapanese ? `${skipped} スキップ` : `${skipped} 跳过`));
+    parts.push(isChinese ? `${skipped} 跳过` : (isJapanese ? `${skipped} スキップ` : `${skipped} skipped`));
   }
   const label = parts.join(" · ");
   return `
@@ -2641,11 +2641,11 @@ function generateItemHtml(item, isRunning, isLastItem, isActivePlan = false) {
       ? (typeof t === "function"
           ? t(`💭 已深度思考${item.thinkingDuration ? ` (${item.thinkingDuration})` : ""}`)
           : `💭 已深度思考${item.thinkingDuration ? ` (${escapeHtml(item.thinkingDuration)})` : ""}`)
-      : (window.I18n?.isEn?.()
-          ? `⚡ Thought &amp; executed <strong>${toolCount}</strong> ${toolCount === 1 ? "action" : "actions"}`
+      : (window.I18n?.isZh?.()
+          ? `⚡ 已思考并执行 <strong>${toolCount}</strong> 项操作`
           : (window.I18n?.isJa?.()
               ? `⚡ 思考して <strong>${toolCount}</strong> 件の操作を実行`
-              : `⚡ 已思考并执行 <strong>${toolCount}</strong> 项操作`));
+              : `⚡ Thought &amp; executed <strong>${toolCount}</strong> ${toolCount === 1 ? "action" : "actions"}`));
 
     return `
       <details class="tool-batch-accordion">

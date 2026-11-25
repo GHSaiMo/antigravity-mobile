@@ -77,10 +77,15 @@ func (f *FCMClient) DeviceToken() string {
 }
 
 // SetDeviceLang records the preferred notification language ("zh", "en", or "ja") for the Android device.
+// Any explicit non-empty locale other than Chinese or Japanese is stored as "en" so it never falls back to Chinese.
 func (f *FCMClient) SetDeviceLang(lang string) {
-	norm := i18n.NormalizeLang(lang)
-	if norm == "" {
+	rawLang := strings.TrimSpace(lang)
+	if rawLang == "" {
 		return
+	}
+	norm := i18n.NormalizeLang(rawLang)
+	if norm == "" {
+		norm = i18n.LangEn
 	}
 	f.mu.Lock()
 	defer f.mu.Unlock()

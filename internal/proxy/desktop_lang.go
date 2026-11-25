@@ -50,6 +50,7 @@ func ResolveDesktopLang(r *http.Request) string {
 			if norm := i18n.NormalizeLang(q); norm != "" {
 				return norm
 			}
+			return i18n.LangEn
 		} else {
 			if al := parseAcceptLanguage(r.Header.Get("Accept-Language")); al != "" {
 				return al
@@ -63,6 +64,7 @@ func ResolveDesktopLang(r *http.Request) string {
 			if norm := i18n.NormalizeLang(v); norm != "" {
 				return norm
 			}
+			return i18n.LangEn
 		}
 	}
 	if al := parseAcceptLanguage(r.Header.Get("Accept-Language")); al != "" {

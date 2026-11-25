@@ -306,20 +306,20 @@ function renderPacedMetricBox(title, titleClass, bucket, tier, options = {}) {
   if (pace) {
     const tr = (s) => (typeof t === "function" ? t(s) : s);
     const statusLoc = tr(pace.status);
-    const winLoc = window.I18n?.isEn?.()
-      ? (pace.windowLabel === "5小时" ? "5h" : "7d")
+    const winLoc = window.I18n?.isZh?.()
+      ? pace.windowLabel
       : (window.I18n?.isJa?.()
           ? (pace.windowLabel === "5小时" ? "5時間" : "7日間")
-          : pace.windowLabel);
-    if (window.I18n?.isEn?.()) {
-      paceTooltip = `\n• Pace: ${statusLoc}\n• Used: ${pace.used.toFixed(1)}% (${winLoc} even-pace target ${pace.expectedUsed.toFixed(1)}%)\n• Expected remaining: ${pace.expectedRemaining.toFixed(1)}% (white marker)`;
-      cursorHtml = `<div class="weekly-pace-cursor ${pace.isOver ? "over-pacing" : ""}" style="left: ${pace.expectedRemaining.toFixed(1)}%;" title="${winLoc} even-pace baseline: ${pace.expectedRemaining.toFixed(1)}%"></div>`;
+          : (pace.windowLabel === "5小时" ? "5h" : "7d"));
+    if (window.I18n?.isZh?.()) {
+      paceTooltip = `\n• 消耗节奏：${pace.status}\n• 已使用：${pace.used.toFixed(1)}% (${pace.windowLabel}匀速应耗 ${pace.expectedUsed.toFixed(1)}%)\n• 理论应剩：${pace.expectedRemaining.toFixed(1)}% (白色游标位置)`;
+      cursorHtml = `<div class="weekly-pace-cursor ${pace.isOver ? "over-pacing" : ""}" style="left: ${pace.expectedRemaining.toFixed(1)}%;" title="${pace.windowLabel}匀速基准线: ${pace.expectedRemaining.toFixed(1)}%"></div>`;
     } else if (window.I18n?.isJa?.()) {
       paceTooltip = `\n• 消費ペース：${statusLoc}\n• 使用済み：${pace.used.toFixed(1)}% (${winLoc}均等ペース目安 ${pace.expectedUsed.toFixed(1)}%)\n• 理論残量：${pace.expectedRemaining.toFixed(1)}% (白マーカー位置)`;
       cursorHtml = `<div class="weekly-pace-cursor ${pace.isOver ? "over-pacing" : ""}" style="left: ${pace.expectedRemaining.toFixed(1)}%;" title="${winLoc}均等ペース基準線: ${pace.expectedRemaining.toFixed(1)}%"></div>`;
     } else {
-      paceTooltip = `\n• 消耗节奏：${pace.status}\n• 已使用：${pace.used.toFixed(1)}% (${pace.windowLabel}匀速应耗 ${pace.expectedUsed.toFixed(1)}%)\n• 理论应剩：${pace.expectedRemaining.toFixed(1)}% (白色游标位置)`;
-      cursorHtml = `<div class="weekly-pace-cursor ${pace.isOver ? "over-pacing" : ""}" style="left: ${pace.expectedRemaining.toFixed(1)}%;" title="${pace.windowLabel}匀速基准线: ${pace.expectedRemaining.toFixed(1)}%"></div>`;
+      paceTooltip = `\n• Pace: ${statusLoc}\n• Used: ${pace.used.toFixed(1)}% (${winLoc} even-pace target ${pace.expectedUsed.toFixed(1)}%)\n• Expected remaining: ${pace.expectedRemaining.toFixed(1)}% (white marker)`;
+      cursorHtml = `<div class="weekly-pace-cursor ${pace.isOver ? "over-pacing" : ""}" style="left: ${pace.expectedRemaining.toFixed(1)}%;" title="${winLoc} even-pace baseline: ${pace.expectedRemaining.toFixed(1)}%"></div>`;
     }
   }
   const resetText = getQuotaResetDisplayText(bucket);

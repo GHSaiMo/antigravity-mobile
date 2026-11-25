@@ -15,27 +15,34 @@ const (
 
 var (
 	mu         sync.RWMutex
-	activeLang = LangZh
+	activeLang = LangEn
 )
 
 // Init initializes the language setting according to the following precedence:
 // 1. Explicit argument `override` (e.g. from --lang flag)
 // 2. Environment variables: `MGY_LANG` or `MULTIGRAVITY_LANG`
 // 3. System locale auto-detection (macOS / Linux / Windows)
-// Defaults to LangZh if detection is indeterminate or Chinese, else LangJa or LangEn.
+// Defaults to LangEn unless explicitly configured or detected as Chinese (zh) or Japanese (ja).
 func Init(override string) {
 	mu.Lock()
 	defer mu.Unlock()
 
-	override = normalizeLang(override)
-	if override != "" {
-		activeLang = override
+	if raw := strings.TrimSpace(override); raw != "" && !strings.EqualFold(raw, "auto") && !strings.EqualFold(raw, "system") {
+		if norm := normalizeLang(raw); norm != "" {
+			activeLang = norm
+		} else {
+			activeLang = LangEn
+		}
 		return
 	}
 
 	for _, envKey := range []string{"MGY_LANG", "MULTIGRAVITY_LANG"} {
-		if val := normalizeLang(os.Getenv(envKey)); val != "" {
-			activeLang = val
+		if raw := strings.TrimSpace(os.Getenv(envKey)); raw != "" && !strings.EqualFold(raw, "auto") && !strings.EqualFold(raw, "system") {
+			if norm := normalizeLang(raw); norm != "" {
+				activeLang = norm
+			} else {
+				activeLang = LangEn
+			}
 			return
 		}
 	}
@@ -46,7 +53,7 @@ func Init(override string) {
 		return
 	}
 
-	activeLang = LangZh
+	activeLang = LangEn
 }
 
 // SetLang explicitly sets the active language ("zh", "en", or "ja").
@@ -90,36 +97,50 @@ func T(zh, en string) string {
 }
 
 // T3 returns zh, en, or ja according to the active language.
+// If ja is active and the Japanese string is empty, it falls back to English.
 func T3(zh, en, ja string) string {
 	switch GetLang() {
 	case LangZh:
 		return zh
 	case LangJa:
-		return ja
+		if ja != "" {
+			return ja
+		}
+		return en
 	default:
 		return en
 	}
 }
 
 // T3For returns zh, en, or ja according to an explicit language code.
+// Non-zh/ja codes and missing Japanese strings fall back to English.
 func T3For(lang, zh, en, ja string) string {
 	switch normalizeLang(lang) {
 	case LangZh:
 		return zh
 	case LangJa:
-		return ja
+		if ja != "" {
+			return ja
+		}
+		return en
 	default:
 		return en
 	}
 }
 
-// ResolveLang returns the normalized language ("zh", "en", or "ja") if lang is valid,
-// otherwise falling back to the gateway's active language.
+// ResolveLang resolves a caller/device language string into "zh", "en", or "ja".
+// Explicit non-empty locales other than Chinese or Japanese (e.g. "ko-KR", "fr-FR")
+// always fall back to English ("en") rather than the gateway host language.
+// Only an empty string falls back to GetLang() (which itself defaults to "en").
 func ResolveLang(lang string) string {
-	if n := normalizeLang(lang); n != "" {
+	trimmed := strings.TrimSpace(lang)
+	if trimmed == "" {
+		return GetLang()
+	}
+	if n := normalizeLang(trimmed); n != "" {
 		return n
 	}
-	return GetLang()
+	return LangEn
 }
 
 // Sprintf formats according to the active language's format string.

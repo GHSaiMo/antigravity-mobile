@@ -106,16 +106,16 @@ func TestDetectSystemLanguagePosixNeutralFallback(t *testing.T) {
 			want:     LangJa,
 		},
 		{
-			name:     "Linux empty locale env defaults to zh",
+			name:     "Linux empty locale env defaults to en",
 			env:      map[string]string{},
 			isDarwin: false,
-			want:     LangZh,
+			want:     LangEn,
 		},
 		{
-			name:     "Linux LANG=UTF-8 only defaults to zh",
+			name:     "Linux LANG=UTF-8 only defaults to en",
 			env:      map[string]string{"LANG": "UTF-8"},
 			isDarwin: false,
-			want:     LangZh,
+			want:     LangEn,
 		},
 	}
 

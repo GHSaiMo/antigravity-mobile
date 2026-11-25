@@ -39,5 +39,5 @@ func DetectSystemLanguage() string {
 		return LangEn
 	}
 
-	return LangZh
+	return LangEn
 }

@@ -49,7 +49,7 @@ object L10n {
     val isChinese: Boolean
         get() = currentLang == AppLang.ZH
 
-    private data class PatternRule(
+    internal data class PatternRule(
         val regex: Regex,
         val transform: (MatchResult) -> String
     )
@@ -221,27 +221,42 @@ object L10n {
         map
     }
 
-    fun t(chinese: String): String {
-        val lang = currentLang
-        if (lang == AppLang.ZH || chinese.isEmpty()) return chinese
-
-        val activeDict = if (lang == AppLang.JA) dictJa else dictEn
-        val activeRules = if (lang == AppLang.JA) patternRulesJa else patternRulesEn
-
+    private fun lookupIn(
+        chinese: String,
+        dict: Map<String, String>,
+        rules: List<PatternRule>
+    ): String? {
         // 1. 精确匹配
-        val exact = activeDict[chinese]
-        if (exact != null) return exact
+        dict[chinese]?.let { return it }
 
         // 2. 正则模式匹配
-        for (rule in activeRules) {
+        for (rule in rules) {
             val m = rule.regex.matchEntire(chinese)
             if (m != null) {
                 return rule.transform(m)
             }
         }
+        return null
+    }
+
+    internal fun translateWithFallback(
+        chinese: String,
+        lang: AppLang,
+        jaDict: Map<String, String> = dictJa,
+        jaRules: List<PatternRule> = patternRulesJa
+    ): String {
+        if (lang == AppLang.ZH || chinese.isEmpty()) return chinese
+
+        if (lang == AppLang.JA) {
+            lookupIn(chinese, jaDict, jaRules)?.let { return it }
+        }
+        // English-first fallback: EN and any untranslated JA key/pattern fall back to English, never Chinese.
+        lookupIn(chinese, dictEn, patternRulesEn)?.let { return it }
 
         return chinese
     }
+
+    fun t(chinese: String): String = translateWithFallback(chinese, currentLang)
 
     fun format(chinese: String, vararg args: Any): String {
         val translated = t(chinese)

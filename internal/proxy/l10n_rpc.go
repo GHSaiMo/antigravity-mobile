@@ -166,10 +166,10 @@ func translateRPCTextJa(s string) (string, bool) {
 }
 
 // LocalizeRPCResponseForLang translates display strings of an allowlisted unary JSON RPC response
-// for lang ("zh" | "ja" | "en"). English passes upstream text through verbatim.
+// for lang ("zh" | "ja" | "en"). English and any other non-zh/ja language pass upstream English through verbatim.
 func LocalizeRPCResponseForLang(path string, body []byte, lang string) []byte {
 	norm := i18n.NormalizeLang(lang)
-	if norm == i18n.LangEn || !isL10nRPCPath(path) || len(body) == 0 || len(body) > 1<<20 {
+	if (norm != i18n.LangZh && norm != i18n.LangJa) || !isL10nRPCPath(path) || len(body) == 0 || len(body) > 1<<20 {
 		return body
 	}
 	return reRPCTextField.ReplaceAllFunc(body, func(m []byte) []byte {
@@ -201,7 +201,7 @@ func localizeRPCResponse(resp *http.Response) error {
 		return nil
 	}
 	lang := ResolveDesktopLang(resp.Request)
-	if lang == i18n.LangEn {
+	if lang != i18n.LangZh && lang != i18n.LangJa {
 		return nil
 	}
 	reqPath := ""
@@ -270,7 +270,8 @@ func localizeConnectEnvelopes(path string, body []byte) []byte {
 
 // localizeConnectEnvelopesForLang translates an enveloped body (Connect streaming / grpc-web) for lang.
 func localizeConnectEnvelopesForLang(path string, body []byte, lang string) []byte {
-	if i18n.NormalizeLang(lang) == i18n.LangEn {
+	norm := i18n.NormalizeLang(lang)
+	if norm != i18n.LangZh && norm != i18n.LangJa {
 		return body
 	}
 	var out []byte

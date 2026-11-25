@@ -53,6 +53,17 @@ func TestResolveDesktopLangPrecedence(t *testing.T) {
 		t.Fatalf("?lang=zh should override cookie en, got %q", got)
 	}
 
+	// 3b. Explicit non-zh/ja ?lang= or cookie maps to en (never falls through to zh)
+	reqUnknownQuery := httptest.NewRequest(http.MethodGet, "/?lang=ko-KR", nil)
+	if got := ResolveDesktopLang(reqUnknownQuery); got != i18n.LangEn {
+		t.Fatalf("?lang=ko-KR should fall back to en, got %q", got)
+	}
+	reqUnknownCookie := httptest.NewRequest(http.MethodGet, "/", nil)
+	reqUnknownCookie.AddCookie(&http.Cookie{Name: DesktopLangCookieName, Value: "de-DE"})
+	if got := ResolveDesktopLang(reqUnknownCookie); got != i18n.LangEn {
+		t.Fatalf("cookie de-DE should fall back to en, got %q", got)
+	}
+
 	// 4. Empty Accept-Language falls back to gateway active lang
 	reqEmpty := httptest.NewRequest(http.MethodGet, "/", nil)
 	if got := ResolveDesktopLang(reqEmpty); got != i18n.LangZh {
@@ -98,6 +109,14 @@ func TestLocalizeRPCResponseForLang(t *testing.T) {
 	enOut := LocalizeRPCResponseForLang(path, body, i18n.LangEn)
 	if string(enOut) != string(body) {
 		t.Fatalf("EN RPC response should remain verbatim English, got: %s", string(enOut))
+	}
+
+	// Empty or unsupported locale must also stay verbatim English (never fall back to Chinese)
+	for _, fallbackLang := range []string{"", "ko-KR", "fr-FR"} {
+		out := LocalizeRPCResponseForLang(path, body, fallbackLang)
+		if string(out) != string(body) || containsHan(out) {
+			t.Fatalf("RPC response for %q should remain verbatim English, got: %s", fallbackLang, string(out))
+		}
 	}
 
 	jaOut := LocalizeRPCResponseForLang(path, body, i18n.LangJa)

@@ -386,7 +386,7 @@ func (a *quotaAlerter) Observe(q *CockpitQuotaResponse, liveEmail string) {
 	}
 	lang := i18n.NormalizeLang(a.cfg.Lang())
 	if lang == "" {
-		lang = i18n.LangZh
+		lang = i18n.LangEn
 	}
 
 	var hostIdleSince time.Time

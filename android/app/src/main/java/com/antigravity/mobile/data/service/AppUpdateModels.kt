@@ -250,23 +250,48 @@ object AppUpdateParser {
 
     /**
      * Extracts a clean, concise mobile-friendly release note snippet.
-     * When bilingual (Chinese + English) notes are separated by `---` or an English heading,
-     * selects the language matching [preferChinese].
+     * Supports bilingual (Chinese + English) and trilingual (Chinese + English + Japanese) notes:
+     * only Chinese users see the Chinese section; Japanese users see Japanese (if present) or English;
+     * everyone else sees English.
      */
-    fun formatReleaseNotes(raw: String, preferChinese: Boolean, maxLines: Int = 12): String {
+    fun formatReleaseNotes(
+        raw: String,
+        preferChinese: Boolean,
+        maxLines: Int = 12,
+        preferJapanese: Boolean = false
+    ): String {
         val trimmed = raw.trim()
         if (trimmed.isBlank()) return ""
 
         val englishMarkerRegex = Regex("""(?m)^#{1,3}\s+.*(English|What's New|Highlights|Release Notes).*$""")
-        val markerMatch = englishMarkerRegex.find(trimmed)
-        val section = if (markerMatch != null && markerMatch.range.first > 20) {
-            if (preferChinese) {
-                trimmed.substring(0, markerMatch.range.first).trim()
-            } else {
-                trimmed.substring(markerMatch.range.first).trim()
+        val japaneseMarkerRegex = Regex("""(?m)^#{1,3}\s+.*(日本語|Japanese|🇯🇵).*$""")
+        val enMatch = englishMarkerRegex.find(trimmed)
+        val jaMatch = japaneseMarkerRegex.find(trimmed)
+
+        val section = when {
+            preferChinese -> {
+                val cutoff = listOfNotNull(enMatch?.range?.first, jaMatch?.range?.first)
+                    .filter { it > 20 }
+                    .minOrNull()
+                if (cutoff != null) trimmed.substring(0, cutoff).trim() else trimmed
             }
-        } else {
-            trimmed
+            preferJapanese && jaMatch != null -> {
+                val nextAfterJa = enMatch?.range?.first?.takeIf { it > jaMatch.range.first }
+                if (nextAfterJa != null) {
+                    trimmed.substring(jaMatch.range.first, nextAfterJa).trim()
+                } else {
+                    trimmed.substring(jaMatch.range.first).trim()
+                }
+            }
+            enMatch != null -> {
+                val nextAfterEn = jaMatch?.range?.first?.takeIf { it > enMatch.range.first }
+                if (nextAfterEn != null) {
+                    trimmed.substring(enMatch.range.first, nextAfterEn).trim()
+                } else {
+                    trimmed.substring(enMatch.range.first).trim()
+                }
+            }
+            else -> trimmed
         }
 
         val cleanedLines = section.lineSequence()

@@ -109,3 +109,49 @@ func TestDetectSystemLanguagePosixLocales(t *testing.T) {
 		t.Fatalf("expected zh from LANG=zh_CN.UTF-8, got %s", GetLang())
 	}
 }
+
+func TestEnglishFirstFallbackPolicy(t *testing.T) {
+	t.Cleanup(func() { SetLang(LangEn) })
+
+	// 1. Explicit non-zh/ja override or env resolves to en even if system locale is Chinese.
+	t.Setenv("LANG", "zh_CN.UTF-8")
+	t.Setenv("MGY_LANG", "")
+	t.Setenv("MULTIGRAVITY_LANG", "")
+	Init("fr-FR")
+	if !IsEn() {
+		t.Fatalf("expected en for Init(fr-FR), got %s", GetLang())
+	}
+
+	t.Setenv("MGY_LANG", "ko-KR")
+	Init("")
+	if !IsEn() {
+		t.Fatalf("expected en for MGY_LANG=ko-KR, got %s", GetLang())
+	}
+
+	// 2. ResolveLang maps any explicit unsupported locale to en even when gateway activeLang is zh.
+	SetLang(LangZh)
+	for _, raw := range []string{"fr-FR", "ko-KR", "de", "es-ES", "en-GB"} {
+		if got := ResolveLang(raw); got != LangEn {
+			t.Fatalf("ResolveLang(%q) under zh host = %q, want en", raw, got)
+		}
+	}
+	if got := ResolveLang(""); got != LangZh {
+		t.Fatalf("ResolveLang(\"\") under zh host = %q, want zh", got)
+	}
+	SetLang(LangEn)
+	if got := ResolveLang(""); got != LangEn {
+		t.Fatalf("ResolveLang(\"\") under en host = %q, want en", got)
+	}
+
+	// 3. Missing Japanese copy in T3/T3For falls back to English, never Chinese.
+	SetLang(LangJa)
+	if got := T3("中文", "English", ""); got != "English" {
+		t.Fatalf("T3 missing ja = %q, want English", got)
+	}
+	if got := T3For("ja", "中文", "English", ""); got != "English" {
+		t.Fatalf("T3For(ja) missing ja = %q, want English", got)
+	}
+	if got := T3For("ko", "中文", "English", "日本語"); got != "English" {
+		t.Fatalf("T3For(ko) = %q, want English", got)
+	}
+}

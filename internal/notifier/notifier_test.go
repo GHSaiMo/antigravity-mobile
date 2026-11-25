@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"antigravity-mobile/internal/config"
+	"antigravity-mobile/internal/i18n"
 	"antigravity-mobile/internal/proxy"
 )
 
@@ -225,6 +226,11 @@ func TestNotifierOnTrajectoryUpdate_RunningInteraction(t *testing.T) {
 }
 
 func TestNotifier_NotifyFailed(t *testing.T) {
+	prevLang := i18n.GetLang()
+	defer i18n.SetLang(prevLang)
+
+	// Default English
+	i18n.SetLang(i18n.LangEn)
 	sender := &mockSender{}
 	cfg := config.NotificationConfig{Enabled: true}
 	n := NewNotifierWithSender(cfg, sender)
@@ -238,11 +244,23 @@ func TestNotifier_NotifyFailed(t *testing.T) {
 	if len(got) != 1 {
 		t.Fatalf("expected 1 payload, got %d", len(got))
 	}
-	if got[0].Title != MsgTitleFailed {
-		t.Errorf("expected title %q, got %q", MsgTitleFailed, got[0].Title)
+	if got[0].Title != "❌ Antigravity Task Failed" {
+		t.Errorf("expected English title, got %q", got[0].Title)
 	}
 	if got[0].Level != "timeSensitive" {
 		t.Errorf("expected level timeSensitive, got %q", got[0].Level)
+	}
+
+	// Explicit Chinese
+	i18n.SetLang(i18n.LangZh)
+	senderZh := &mockSender{}
+	nZh := NewNotifierWithSender(cfg, senderZh)
+	if err := nZh.NotifyFailed("cas_fail_2", "Failed task", 5); err != nil {
+		t.Fatalf("expected nil error, got: %v", err)
+	}
+	gotZh := senderZh.snapshot()
+	if len(gotZh) != 1 || gotZh[0].Title != MsgTitleFailed {
+		t.Errorf("expected Chinese title %q, got %+v", MsgTitleFailed, gotZh)
 	}
 }
 

@@ -236,7 +236,11 @@ class NarrationAudioPlayer(private val context: Context, private val apiClient: 
         var engine: TextToSpeech? = null
         engine = TextToSpeech(context) { status ->
             if (status == TextToSpeech.SUCCESS) {
-                engine?.language = Locale.SIMPLIFIED_CHINESE
+                engine?.language = when (L10n.currentLang) {
+                    L10n.AppLang.ZH -> Locale.SIMPLIFIED_CHINESE
+                    L10n.AppLang.JA -> Locale.JAPANESE
+                    L10n.AppLang.EN -> Locale.US
+                }
                 engine?.speak(text, TextToSpeech.QUEUE_FLUSH, null, "narration")
             } else {
                 stop()

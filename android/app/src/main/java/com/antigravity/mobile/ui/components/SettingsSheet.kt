@@ -1510,8 +1510,13 @@ private fun AppUpdateDialog(
         else -> null
     } ?: return
 
-    val formattedNotes = remember(release.releaseNotes, L10n.isChinese) {
-        AppUpdateParser.formatReleaseNotes(release.releaseNotes, preferChinese = L10n.isChinese)
+    val currentLang = L10n.currentLang
+    val formattedNotes = remember(release.releaseNotes, currentLang) {
+        AppUpdateParser.formatReleaseNotes(
+            release.releaseNotes,
+            preferChinese = currentLang == L10n.AppLang.ZH,
+            preferJapanese = currentLang == L10n.AppLang.JA
+        )
     }
 
     AlertDialog(

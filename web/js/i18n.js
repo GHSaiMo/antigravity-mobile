@@ -4253,30 +4253,34 @@
     if (!dateStr) return "";
     const diff = (Date.now() - new Date(dateStr).getTime()) / 1000;
     if (diff < 60) {
+      if (activeLang === "zh-CN") return "刚刚";
       if (activeLang === "ja") return "たった今";
-      return activeLang === "en" ? "Just now" : "刚刚";
+      return "Just now";
     }
     if (diff < 3600) {
       const m = Math.floor(diff / 60);
+      if (activeLang === "zh-CN") return `${m}分钟前`;
       if (activeLang === "ja") return `${m}分前`;
-      return activeLang === "en" ? `${m}m ago` : `${m}分钟前`;
+      return `${m}m ago`;
     }
     if (diff < 86400) {
       const h = Math.floor(diff / 3600);
+      if (activeLang === "zh-CN") return `${h}小时前`;
       if (activeLang === "ja") return `${h}時間前`;
-      return activeLang === "en" ? `${h}h ago` : `${h}小时前`;
+      return `${h}h ago`;
     }
     if (diff < 604800) {
       const d = Math.floor(diff / 86400);
+      if (activeLang === "zh-CN") return `${d}天前`;
       if (activeLang === "ja") return `${d}日前`;
-      return activeLang === "en" ? `${d}d ago` : `${d}天前`;
+      return `${d}d ago`;
     }
     const dt = new Date(dateStr);
-    if (activeLang === "en") {
-      const months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
-      return `${months[dt.getMonth()]} ${dt.getDate()}`;
+    if (activeLang === "zh-CN" || activeLang === "ja") {
+      return `${dt.getMonth() + 1}月${dt.getDate()}日`;
     }
-    return `${dt.getMonth() + 1}月${dt.getDate()}日`;
+    const months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+    return `${months[dt.getMonth()]} ${dt.getDate()}`;
   }
 
   function isEn() {
@@ -4291,23 +4295,41 @@
     return activeLang === "ja";
   }
 
-  function translateText(text) {
-    if (typeof text !== "string" || activeLang === "zh-CN") return text;
-    const dict = DICTS[activeLang] || DICT_EN;
-    const rules = DYNAMIC_RULES_BY_LANG[activeLang] || DYNAMIC_RULES_EN;
-    if (dict[text]) {
+  function applyDictAndRules(text, trimmed, dict, rules) {
+    if (dict && dict[text]) {
       return dict[text];
     }
-    const trimmed = text.trim();
-    if (dict[trimmed]) {
+    if (dict && dict[trimmed]) {
       return text.replace(trimmed, dict[trimmed]);
     }
-    for (let i = 0; i < rules.length; i++) {
-      const rule = rules[i];
-      const re = Array.isArray(rule) ? rule[0] : rule?.regex;
-      const repl = Array.isArray(rule) ? rule[1] : rule?.replace;
-      if (re && re.test(trimmed)) {
-        return text.replace(trimmed, trimmed.replace(re, repl));
+    if (rules) {
+      for (let i = 0; i < rules.length; i++) {
+        const rule = rules[i];
+        const re = Array.isArray(rule) ? rule[0] : rule?.regex;
+        const repl = Array.isArray(rule) ? rule[1] : rule?.replace;
+        if (re && re.test(trimmed)) {
+          return text.replace(trimmed, trimmed.replace(re, repl));
+        }
+      }
+    }
+    return null;
+  }
+
+  function translateText(text) {
+    if (typeof text !== "string" || activeLang === "zh-CN") return text;
+    const trimmed = text.trim();
+    const dict = DICTS[activeLang] || DICT_EN;
+    const rules = DYNAMIC_RULES_BY_LANG[activeLang] || DYNAMIC_RULES_EN;
+    const hit = applyDictAndRules(text, trimmed, dict, rules);
+    if (hit !== null) {
+      return hit;
+    }
+    // English-first fallback: if a non-Chinese language (e.g. Japanese) misses a key/pattern,
+    // fall back to English rather than leaking the Chinese source key.
+    if (dict !== DICT_EN || rules !== DYNAMIC_RULES_EN) {
+      const enFallback = applyDictAndRules(text, trimmed, DICT_EN, DYNAMIC_RULES_EN);
+      if (enFallback !== null) {
+        return enFallback;
       }
     }
     return text;
@@ -4454,22 +4476,22 @@
         const key = el.getAttribute("data-i18n");
         if (key) {
           if (!el._i18nRawText) el._i18nRawText = el.textContent;
-          el.textContent = isChinese ? el._i18nRawText : (dict[key] || translateText(el._i18nRawText));
+          el.textContent = isChinese ? el._i18nRawText : (dict[key] || DICT_EN[key] || translateText(el._i18nRawText));
         }
         const phKey = el.getAttribute("data-i18n-placeholder");
         if (phKey) {
           if (!el._i18nRawPh) el._i18nRawPh = el.placeholder;
-          el.placeholder = isChinese ? el._i18nRawPh : (dict[phKey] || translateText(el._i18nRawPh));
+          el.placeholder = isChinese ? el._i18nRawPh : (dict[phKey] || DICT_EN[phKey] || translateText(el._i18nRawPh));
         }
         const titleKey = el.getAttribute("data-i18n-title");
         if (titleKey) {
           if (!el._i18nRawTitle) el._i18nRawTitle = el.title;
-          el.title = isChinese ? el._i18nRawTitle : (dict[titleKey] || translateText(el._i18nRawTitle));
+          el.title = isChinese ? el._i18nRawTitle : (dict[titleKey] || DICT_EN[titleKey] || translateText(el._i18nRawTitle));
         }
         const ariaKey = el.getAttribute("data-i18n-aria");
         if (ariaKey) {
           if (!el._i18nRawAria) el._i18nRawAria = el.getAttribute("aria-label");
-          el.setAttribute("aria-label", isChinese ? el._i18nRawAria : (dict[ariaKey] || translateText(el._i18nRawAria)));
+          el.setAttribute("aria-label", isChinese ? el._i18nRawAria : (dict[ariaKey] || DICT_EN[ariaKey] || translateText(el._i18nRawAria)));
         }
       });
 

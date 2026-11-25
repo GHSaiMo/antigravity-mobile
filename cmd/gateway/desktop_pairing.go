@@ -68,6 +68,10 @@ func desktopPairingCopyFor(lang string) desktopPairingCopy {
 
 func renderDesktopPairingHTML(lang string) string {
 	c := desktopPairingCopyFor(lang)
+	curLang := i18n.NormalizeLang(lang)
+	if curLang == "" {
+		curLang = i18n.LangEn
+	}
 	return fmt.Sprintf(`<!DOCTYPE html>
 <html lang="%s">
 <head>
@@ -168,7 +172,7 @@ func renderDesktopPairingHTML(lang string) string {
 })();
 </script>
 </body>
-</html>`, c.htmlLang, c.pageTitle, c.heading, c.desc, c.placeholder, c.submit, c.hint, i18n.NormalizeLang(lang), c.errEmpty, c.errHttpPrefix, c.errExpired)
+</html>`, c.htmlLang, c.pageTitle, c.heading, c.desc, c.placeholder, c.submit, c.hint, curLang, c.errEmpty, c.errHttpPrefix, c.errExpired)
 }
 
 func serveDesktopPairingPage(w http.ResponseWriter, r *http.Request) {

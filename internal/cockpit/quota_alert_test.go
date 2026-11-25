@@ -8,6 +8,8 @@ import (
 	"sync/atomic"
 	"testing"
 	"time"
+
+	"antigravity-mobile/internal/i18n"
 )
 
 var t0 = time.Date(2026, 10, 9, 8, 0, 0, 0, time.UTC)
@@ -232,8 +234,8 @@ func TestAlertFollowsLiveAccount(t *testing.T) {
 	q := &CockpitQuotaResponse{CurrentAccount: &a1, Accounts: []AccountQuota{a1, a2}}
 	// Cockpit 记录的当前账号是 a，但 language_server 实际在用 b：以实际在用的为准
 	h.a.Observe(q, "B@x.com")
-	if len(h.sent) != 1 || !strings.Contains(h.sent[0].Body, "账号 b***@x.com") || strings.Contains(h.sent[0].Body, "a***@x.com") {
-		t.Errorf("expected an alert for the live account b@x.com only, got %+v", h.sent)
+	if len(h.sent) != 1 || !strings.Contains(h.sent[0].Body, "Account b***@x.com") || strings.Contains(h.sent[0].Body, "a***@x.com") {
+		t.Errorf("expected an English-default alert for the live account b@x.com only, got %+v", h.sent)
 	}
 }
 
@@ -248,6 +250,35 @@ func TestAlertMissingGemini5hIsIgnored(t *testing.T) {
 }
 
 func TestAlertMessageContent(t *testing.T) {
+	prevLang := i18n.GetLang()
+	defer i18n.SetLang(prevLang)
+
+	// 1. Default English alert
+	i18n.SetLang(i18n.LangEn)
+	hEn := newHarness(t, "")
+	hEn.feed(0.40, 10*time.Minute)
+	hEn.feed(0.32, 10*time.Minute)
+	hEn.feed(0.24, 10*time.Minute)
+	hEn.feed(0.18, 10*time.Minute)
+	if len(hEn.sent) != 1 {
+		t.Fatalf("expected one English alert, got %+v", hEn.sent)
+	}
+	aEn := hEn.sent[0]
+	if aEn.Title != "⚠️ Gemini 5h quota down to 18%" {
+		t.Errorf("en title = %q", aEn.Title)
+	}
+	if !strings.Contains(aEn.Body, "Account ta***@gmail.com") || strings.Contains(aEn.Body, "taojiuzhen@gmail.com") {
+		t.Errorf("email prefix must be masked in push body: %q", aEn.Body)
+	}
+	if !strings.Contains(aEn.Body, "resets in 3h 20m (12:00)") {
+		t.Errorf("en body should state reset countdown: %q", aEn.Body)
+	}
+	if !strings.Contains(aEn.Body, "runs out around") {
+		t.Errorf("en body should carry exhaustion prediction: %q", aEn.Body)
+	}
+
+	// 2. Explicit Chinese alert
+	i18n.SetLang(i18n.LangZh)
 	h := newHarness(t, "")
 	// 先有 3 个稳定消耗的样本，再触发 20%：正文应带预测
 	h.feed(0.40, 10*time.Minute)
@@ -279,17 +310,29 @@ func TestAlertMessageOmitsPredictionWithoutEnoughData(t *testing.T) {
 	if len(h.sent) != 1 {
 		t.Fatalf("expected one alert, got %d", len(h.sent))
 	}
-	if strings.Contains(h.sent[0].Body, "预计") {
+	if strings.Contains(h.sent[0].Body, "预计") || strings.Contains(h.sent[0].Body, "runs out") {
 		t.Errorf("a single sample must not produce a prediction: %q", h.sent[0].Body)
 	}
 }
 
 func TestAlertTitleWhenExhausted(t *testing.T) {
+	prevLang := i18n.GetLang()
+	defer i18n.SetLang(prevLang)
+
+	i18n.SetLang(i18n.LangEn)
+	if got := alertTitle("critical", 0); got != "🚨 Gemini 5h quota exhausted" {
+		t.Errorf("en title = %q", got)
+	}
+	if got := alertTitle("critical", 0.04); got != "🚨 Gemini 5h quota down to 4%" {
+		t.Errorf("en title = %q", got)
+	}
+
+	i18n.SetLang(i18n.LangZh)
 	if got := alertTitle("critical", 0); got != "🚨 Gemini 5h 额度已用完" {
-		t.Errorf("title = %q", got)
+		t.Errorf("zh title = %q", got)
 	}
 	if got := alertTitle("critical", 0.04); got != "🚨 Gemini 5h 额度仅剩 4%" {
-		t.Errorf("title = %q", got)
+		t.Errorf("zh title = %q", got)
 	}
 }
 

@@ -38,8 +38,8 @@ func detectSystemLanguagePosix(isDarwin bool, macReader func() string) string {
 			return LangEn
 		}
 	}
-	// When nothing is set in the environment, default to Chinese on localized systems
-	return LangZh
+	// When nothing is set in the environment and no OS UI language is available, default to English.
+	return LangEn
 }
 
 func readMacOSLocale() string {

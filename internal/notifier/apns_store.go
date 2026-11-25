@@ -352,11 +352,16 @@ func (s *PushDeviceStore) UpdateSoundPreferences(deviceID, soundComplete, soundA
 }
 
 // UpdateLanguage records the preferred notification language ("zh", "en", or "ja") for a paired iOS device.
+// Any explicit non-empty locale other than Chinese or Japanese is stored as "en" so it never falls back to Chinese.
 func (s *PushDeviceStore) UpdateLanguage(deviceID, lang string) error {
 	deviceID = strings.TrimSpace(deviceID)
-	norm := i18n.NormalizeLang(lang)
-	if deviceID == "" || norm == "" {
+	rawLang := strings.TrimSpace(lang)
+	if deviceID == "" || rawLang == "" {
 		return nil
+	}
+	norm := i18n.NormalizeLang(rawLang)
+	if norm == "" {
+		norm = i18n.LangEn
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()

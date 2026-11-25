@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"antigravity-mobile/internal/e2ee"
+	"antigravity-mobile/internal/i18n"
 )
 
 func TestPairingManager_GenerateAndConsume(t *testing.T) {
@@ -181,6 +182,24 @@ func TestPrintPairingQRCode(t *testing.T) {
 }
 
 func TestFormatPairingQRCode(t *testing.T) {
+	prevLang := i18n.GetLang()
+	defer i18n.SetLang(prevLang)
+
+	// Default English output
+	i18n.SetLang(i18n.LangEn)
+	enOut := FormatPairingQRCode("825a5a50.jiuge.space", 443, "abc123code", true, "192.168.50.9")
+	if !strings.Contains(enOut, "Multigravity Mobile One-Tap Pairing") {
+		t.Errorf("expected English header banner in output, got: %s", enOut)
+	}
+	if !strings.Contains(enOut, "Cloudflare") || !strings.Contains(enOut, "🔗 Pairing URI:") {
+		t.Errorf("expected English Cloudflare & Pairing URI in output, got: %s", enOut)
+	}
+	if strings.Contains(enOut, "jiuge.space") {
+		t.Errorf("domain should be hidden from output")
+	}
+
+	// Explicit Chinese output
+	i18n.SetLang(i18n.LangZh)
 	out := FormatPairingQRCode("825a5a50.jiuge.space", 443, "abc123code", true, "192.168.50.9")
 	if !strings.Contains(out, "Multigravity 客户端扫码一键配对") && !strings.Contains(out, "Antigravity Mobile 客户端扫码一键配对") {
 		t.Errorf("expected header banner in output")
