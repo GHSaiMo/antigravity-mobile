@@ -80,6 +80,11 @@ data class WorkspaceFilterOption(
     val latestModifiedMs: Long
 )
 
+data class BranchGroup(
+    val root: ConversationItem,
+    val branches: List<ConversationItem>
+)
+
 class ConversationListViewModel(
     private val apiClient: ApiClient,
     val prefs: PreferencesManager,
@@ -93,6 +98,15 @@ class ConversationListViewModel(
 
     private val _searchQuery = MutableStateFlow("")
     val searchQuery: StateFlow<String> = _searchQuery.asStateFlow()
+
+    private val _expandedBranchParentIds = MutableStateFlow<Set<String>>(emptySet())
+    val expandedBranchParentIds: StateFlow<Set<String>> = _expandedBranchParentIds.asStateFlow()
+
+    private val _searchCollapsedBranchParentIds = MutableStateFlow<Set<String>>(emptySet())
+    val searchCollapsedBranchParentIds: StateFlow<Set<String>> = _searchCollapsedBranchParentIds.asStateFlow()
+
+    private val _manuallyCollapsedActionBranchParentIds = MutableStateFlow<Set<String>>(emptySet())
+    val manuallyCollapsedActionBranchParentIds: StateFlow<Set<String>> = _manuallyCollapsedActionBranchParentIds.asStateFlow()
 
     private val _selectedWorkspaceFilter = MutableStateFlow<WorkspaceFilter?>(null)
     val selectedWorkspaceFilter: StateFlow<WorkspaceFilter?> = _selectedWorkspaceFilter.asStateFlow()
@@ -1021,9 +1035,89 @@ class ConversationListViewModel(
     }
 
     fun onSearchQueryChanged(query: String) {
+        if (_searchQuery.value != query) {
+            _searchCollapsedBranchParentIds.value = emptySet()
+        }
         _searchQuery.value = query
         applyFilter()
         searchContent(query.trim())
+    }
+
+    fun toggleBranchGroup(parentId: String, hasAction: Boolean) {
+        val isSearching = _searchQuery.value.trim().isNotEmpty()
+        if (isSearching) {
+            val cur = _searchCollapsedBranchParentIds.value
+            _searchCollapsedBranchParentIds.value = if (parentId in cur) cur - parentId else cur + parentId
+            return
+        }
+        val currentlyExpanded = if (hasAction) {
+            parentId !in _manuallyCollapsedActionBranchParentIds.value
+        } else {
+            parentId in _expandedBranchParentIds.value
+        }
+        if (currentlyExpanded) {
+            _expandedBranchParentIds.value = _expandedBranchParentIds.value - parentId
+            if (hasAction) {
+                _manuallyCollapsedActionBranchParentIds.value = _manuallyCollapsedActionBranchParentIds.value + parentId
+            }
+        } else {
+            _manuallyCollapsedActionBranchParentIds.value = _manuallyCollapsedActionBranchParentIds.value - parentId
+            _expandedBranchParentIds.value = _expandedBranchParentIds.value + parentId
+        }
+    }
+
+    companion object {
+        /** 将有序会话列表归组为顶层节点及其拍平后的附属旁路列表（支持多层旁路拍平，避免套娃折叠）。 */
+        fun groupConversationsWithBranches(items: List<ConversationItem>): List<BranchGroup> {
+            if (items.isEmpty()) return emptyList()
+            val byId = HashMap<String, ConversationItem>(items.size)
+            for (item in items) {
+                if (!byId.containsKey(item.id)) byId[item.id] = item
+            }
+            val branchesByRoot = LinkedHashMap<String, MutableList<ConversationItem>>()
+            val roots = ArrayList<ConversationItem>(items.size)
+
+            fun resolveVisibleRootId(item: ConversationItem): String? {
+                if (!item.isSideQuestion) return null
+                var currentParentId = item.branchParentId?.trim()
+                var highestVisibleAncestor: String? = null
+                val visited = HashSet<String>()
+                visited.add(item.id)
+                while (!currentParentId.isNullOrEmpty() && visited.add(currentParentId)) {
+                    val parent = byId[currentParentId] ?: break
+                    highestVisibleAncestor = parent.id
+                    if (!parent.isSideQuestion) break
+                    currentParentId = parent.branchParentId?.trim()
+                }
+                return highestVisibleAncestor
+            }
+
+            for (item in items) {
+                val rootId = resolveVisibleRootId(item)
+                if (rootId != null) {
+                    branchesByRoot.getOrPut(rootId) { mutableListOf() }.add(item)
+                } else {
+                    roots.add(item)
+                }
+            }
+            val groups = roots.mapTo(ArrayList(roots.size)) { root ->
+                BranchGroup(root = root, branches = branchesByRoot[root.id].orEmpty())
+            }
+            // 防御性兜底：极端环引用情况下不丢失任何会话
+            val emitted = HashSet<String>(items.size)
+            for (group in groups) {
+                emitted.add(group.root.id)
+                for (b in group.branches) emitted.add(b.id)
+            }
+            if (emitted.size < items.size) {
+                for (item in items) {
+                    if (emitted.add(item.id)) {
+                        groups.add(BranchGroup(root = item, branches = emptyList()))
+                    }
+                }
+            }
+            return groups
+        }
     }
 
     fun toggleWorkspaceFilter(item: ConversationItem) {
@@ -1213,6 +1307,9 @@ class ConversationListViewModel(
         prefs.clear()
         _uiState.value = ConversationListUiState.Success(emptyList())
         rawConversations = emptyList()
+        _expandedBranchParentIds.value = emptySet()
+        _searchCollapsedBranchParentIds.value = emptySet()
+        _manuallyCollapsedActionBranchParentIds.value = emptySet()
         _selectedWorkspaceFilter.value = null
         _workspaceFilterOptions.value = emptyList()
         _totalVisibleCount.value = 0

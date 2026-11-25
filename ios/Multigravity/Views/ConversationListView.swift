@@ -1147,11 +1147,33 @@ public struct ConversationListView: View {
                 .listRowBackground(Color.clear)
             }
             
-            ForEach(viewModel.filteredConversations) { item in
-                let isBranchChild = item.isSideQuestion
-                let hasVisibleParent = isBranchChild && (item.branchParentId.map { pid in viewModel.filteredConversations.contains(where: { $0.id == pid }) } ?? false)
-                conversationCard(for: item, isAttachedBranchChild: hasVisibleParent)
-                    .offset(x: item.id == viewModel.filteredConversations.first?.id ? firstCardPeekOffset : 0)
+            let displayRows = makeDisplayRows()
+            let firstConversationId = viewModel.filteredConversations.first?.id
+            ForEach(displayRows) { row in
+                switch row {
+                case .branchToggle(let parentId, let branches, let isExpanded, let aggregateStatus):
+                    branchGroupToggleRow(
+                        parentId: parentId,
+                        branches: branches,
+                        isExpanded: isExpanded,
+                        aggregateStatus: aggregateStatus
+                    )
+                    .listRowInsets(EdgeInsets(
+                        top: 0,
+                        leading: 16,
+                        bottom: isExpanded ? 2 : 6,
+                        trailing: 16
+                    ))
+                    .listRowSeparator(.hidden)
+                    .listRowBackground(Color.clear)
+
+                case .conversation(let item, let isAttachedBranchChild, let isLastBranchChild, let hasAttachedBranches):
+                    conversationCard(
+                        for: item,
+                        isAttachedBranchChild: isAttachedBranchChild,
+                        isLastBranchChild: isLastBranchChild
+                    )
+                    .offset(x: item.id == firstConversationId ? firstCardPeekOffset : 0)
                     .contentShape(Rectangle())
                     .onTapGesture {
                         openConversation(item)
@@ -1174,9 +1196,9 @@ public struct ConversationListView: View {
                         }
                     ))
                     .listRowInsets(EdgeInsets(
-                        top: hasVisibleParent ? 2 : 6,
+                        top: isAttachedBranchChild ? 1 : 6,
                         leading: 16,
-                        bottom: 6,
+                        bottom: hasAttachedBranches ? 2 : (isAttachedBranchChild && !isLastBranchChild ? 2 : 6),
                         trailing: 16
                     ))
                     .listRowSeparator(.hidden)
@@ -1279,8 +1301,8 @@ public struct ConversationListView: View {
                             : String(localized: "确定删除此会话吗？\n此操作将永久删除会话记录且无法撤销。"),
                         isPresented: Binding(
                             get: { showDeleteConfirm && conversationToDelete?.id == item.id },
-                            set: { if !$0 { 
-                                showDeleteConfirm = false 
+                            set: { if !$0 {
+                                showDeleteConfirm = false
                                 conversationToDelete = nil
                             } }
                         ),
@@ -1300,8 +1322,9 @@ public struct ConversationListView: View {
                             conversationToDelete = nil
                         }
                     }
+                }
             }
-            .animation(.spring(response: 0.34, dampingFraction: 0.86), value: viewModel.filteredConversations.map(\.id))
+            .animation(.spring(response: 0.34, dampingFraction: 0.86), value: displayRows.map(\.id))
 
             if viewModel.selectedWorkspaceFilter == nil,
                viewModel.searchQuery.trimmingCharacters(in: .whitespaces).isEmpty,
@@ -1485,6 +1508,7 @@ public struct ConversationListView: View {
         settings.unpair()
         viewModel.stopAutoRefresh()
         viewModel.conversations.removeAll()
+        viewModel.resetBranchExpansionState()
         viewModel.selectedWorkspaceFilter = nil
         viewModel.errorMessage = nil
         viewModel.isLoading = false
@@ -1665,158 +1689,429 @@ public struct ConversationListView: View {
         }
     }
     
+    private enum BranchAggregateStatus: Equatable {
+        case action
+        case error
+        case working
+        case draft
+        case unread
+        case none
+    }
+
+    private enum ConversationListRow: Identifiable {
+        case conversation(ConversationItem, isAttachedBranchChild: Bool, isLastBranchChild: Bool, hasAttachedBranches: Bool)
+        case branchToggle(parentId: String, branches: [ConversationItem], isExpanded: Bool, aggregateStatus: BranchAggregateStatus)
+
+        var id: String {
+            switch self {
+            case .conversation(let item, _, _, _):
+                return item.id
+            case .branchToggle(let parentId, _, _, _):
+                return "btw-toggle-\(parentId)"
+            }
+        }
+    }
+
+    private func aggregateBranchStatus(for branches: [ConversationItem]) -> BranchAggregateStatus {
+        if branches.contains(where: { $0.status.needsAction }) { return .action }
+        if branches.contains(where: { $0.status.isError }) { return .error }
+        if branches.contains(where: { $0.isWorking }) { return .working }
+        if branches.contains(where: { $0.isDraft || CacheManager.shared.hasDraft(for: $0.id) }) { return .draft }
+        if branches.contains(where: { $0.isUnread }) { return .unread }
+        return .none
+    }
+
+    private func makeDisplayRows() -> [ConversationListRow] {
+        let _ = draftsVersion
+        let groups = ConversationListViewModel.groupConversationsWithBranches(viewModel.filteredConversations)
+        var rows: [ConversationListRow] = []
+        rows.reserveCapacity(viewModel.filteredConversations.count + groups.count)
+        for group in groups {
+            let hasBranches = !group.branches.isEmpty
+            rows.append(.conversation(
+                group.root,
+                isAttachedBranchChild: false,
+                isLastBranchChild: false,
+                hasAttachedBranches: hasBranches
+            ))
+            if hasBranches {
+                let agg = aggregateBranchStatus(for: group.branches)
+                let isExpanded = viewModel.isBranchGroupExpanded(
+                    parentId: group.root.id,
+                    hasAction: agg == .action
+                )
+                rows.append(.branchToggle(
+                    parentId: group.root.id,
+                    branches: group.branches,
+                    isExpanded: isExpanded,
+                    aggregateStatus: agg
+                ))
+                if isExpanded {
+                    for (idx, child) in group.branches.enumerated() {
+                        rows.append(.conversation(
+                            child,
+                            isAttachedBranchChild: true,
+                            isLastBranchChild: idx == group.branches.count - 1,
+                            hasAttachedBranches: false
+                        ))
+                    }
+                }
+            }
+        }
+        return rows
+    }
+
+    private func branchTreeConnector(continuesBelow: Bool, height: CGFloat = 34) -> some View {
+        let midY = height / 2
+        return ZStack(alignment: .topLeading) {
+            Rectangle()
+                .fill(Color.indigo.opacity(0.32))
+                .frame(width: 1.5, height: continuesBelow ? height : midY)
+            Rectangle()
+                .fill(Color.indigo.opacity(0.32))
+                .frame(width: 10, height: 1.5)
+                .offset(x: 0, y: midY - 0.75)
+        }
+        .frame(width: 12, height: height, alignment: .topLeading)
+        .padding(.leading, 10)
+    }
+
+    private func branchGroupToggleRow(
+        parentId: String,
+        branches: [ConversationItem],
+        isExpanded: Bool,
+        aggregateStatus: BranchAggregateStatus
+    ) -> some View {
+        let countLabel = branches.count == 1
+            ? String(localized: "1 个旁路")
+            : String(localized: "\(branches.count) 个旁路")
+        let previewTitle = branches.first?.title.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+
+        return HStack(alignment: .center, spacing: 6) {
+            branchTreeConnector(continuesBelow: isExpanded, height: 32)
+
+            Button {
+                UIImpactFeedbackGenerator(style: .light).impactOccurred()
+                withAnimation(.spring(response: 0.32, dampingFraction: 0.86)) {
+                    viewModel.toggleBranchGroup(parentId: parentId, hasAction: aggregateStatus == .action)
+                }
+            } label: {
+                HStack(spacing: 5) {
+                    Image(systemName: "arrow.triangle.branch")
+                        .font(.system(size: 10.5, weight: .semibold))
+                        .foregroundColor(.indigo)
+
+                    Text(countLabel)
+                        .font(.system(size: 11.5, weight: .semibold))
+                        .foregroundColor(.indigo)
+                        .lineLimit(1)
+                        .fixedSize(horizontal: true, vertical: false)
+
+                    if !isExpanded && !previewTitle.isEmpty {
+                        Text("·")
+                            .font(.system(size: 11.5, weight: .medium))
+                            .foregroundColor(.secondary.opacity(0.75))
+                        Text(previewTitle)
+                            .font(.system(size: 12))
+                            .foregroundColor(.secondary)
+                            .lineLimit(1)
+                            .truncationMode(.tail)
+                    }
+
+                    Spacer(minLength: 4)
+
+                    if !isExpanded {
+                        switch aggregateStatus {
+                        case .action:
+                            Text("Action")
+                                .font(.system(size: 10, weight: .bold))
+                                .lineLimit(1)
+                                .fixedSize(horizontal: true, vertical: false)
+                                .foregroundColor(.blue)
+                                .padding(.horizontal, 5.5)
+                                .padding(.vertical, 1.5)
+                                .background(Color.blue.opacity(0.15))
+                                .cornerRadius(5)
+                        case .error:
+                            Text("Error")
+                                .font(.system(size: 10, weight: .bold))
+                                .lineLimit(1)
+                                .fixedSize(horizontal: true, vertical: false)
+                                .foregroundColor(.red)
+                                .padding(.horizontal, 5.5)
+                                .padding(.vertical, 1.5)
+                                .background(Color.red.opacity(0.15))
+                                .cornerRadius(5)
+                        case .working:
+                            HStack(spacing: 3.5) {
+                                ProgressView()
+                                    .controlSize(.mini)
+                                    .tint(.green)
+                                Text("Working")
+                                    .lineLimit(1)
+                            }
+                            .fixedSize(horizontal: true, vertical: false)
+                            .font(.system(size: 10, weight: .bold))
+                            .foregroundColor(.green)
+                            .padding(.horizontal, 5.5)
+                            .padding(.vertical, 1.5)
+                            .background(Color.green.opacity(0.15))
+                            .cornerRadius(5)
+                        case .draft:
+                            Text("DRAFT")
+                                .font(.system(size: 9.5, weight: .bold))
+                                .lineLimit(1)
+                                .fixedSize(horizontal: true, vertical: false)
+                                .foregroundColor(.yellow)
+                                .padding(.horizontal, 5)
+                                .padding(.vertical, 1.5)
+                                .background(Color.yellow.opacity(0.15))
+                                .cornerRadius(5)
+                        case .unread:
+                            ZStack {
+                                Circle()
+                                    .fill(Color.blue.opacity(0.16))
+                                    .frame(width: 12, height: 12)
+                                Circle()
+                                    .fill(Color.blue)
+                                    .frame(width: 5.5, height: 5.5)
+                            }
+                            .frame(width: 14, height: 14)
+                        case .none:
+                            EmptyView()
+                        }
+                    } else {
+                        Text("收起")
+                            .font(.system(size: 11, weight: .medium))
+                            .foregroundColor(.secondary)
+                            .lineLimit(1)
+                            .fixedSize(horizontal: true, vertical: false)
+                    }
+
+                    Image(systemName: "chevron.down")
+                        .font(.system(size: 9.5, weight: .semibold))
+                        .foregroundColor(.secondary.opacity(0.85))
+                        .rotationEffect(.degrees(isExpanded ? 180 : 0))
+                        .animation(.spring(response: 0.28, dampingFraction: 0.82), value: isExpanded)
+                }
+                .padding(.horizontal, 10)
+                .padding(.vertical, 7)
+                .background(Color(uiColor: .secondarySystemBackground).opacity(isExpanded ? 0.65 : 0.85))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 10, style: .continuous)
+                        .stroke(Color.indigo.opacity(isExpanded ? 0.16 : 0.24), lineWidth: 0.75)
+                )
+                .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+                .contentShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+            }
+            .buttonStyle(.plain)
+        }
+    }
+
     @ViewBuilder
-    private func conversationCard(for item: ConversationItem, isAttachedBranchChild: Bool = false) -> some View {
+    private func conversationCard(
+        for item: ConversationItem,
+        isAttachedBranchChild: Bool = false,
+        isLastBranchChild: Bool = false
+    ) -> some View {
         let _ = draftsVersion
         let hasDraft = item.isDraft || CacheManager.shared.hasDraft(for: item.id)
         let isRecording = audioRecorder.isRecording && audioRecorder.currentCascadeId == item.id
 
         if item.isSideQuestion {
-            sideQuestionBranchRow(item: item, isAttachedChild: isAttachedBranchChild, hasDraft: hasDraft)
+            sideQuestionBranchRow(
+                item: item,
+                isAttachedChild: isAttachedBranchChild,
+                isLastChild: isLastBranchChild,
+                hasDraft: hasDraft
+            )
         } else {
             standardConversationCard(for: item, hasDraft: hasDraft, isRecording: isRecording)
         }
     }
 
-    private func sideQuestionBranchRow(item: ConversationItem, isAttachedChild: Bool, hasDraft: Bool) -> some View {
-        HStack(alignment: .center, spacing: 8) {
-            if isAttachedChild {
-                // Subtle tree elbow connector underneath the parent card
-                VStack(spacing: 0) {
-                    Rectangle()
-                        .fill(Color.indigo.opacity(0.32))
-                        .frame(width: 1.5, height: 14)
-                    HStack(spacing: 0) {
-                        Rectangle()
-                            .fill(Color.indigo.opacity(0.32))
-                            .frame(width: 10, height: 1.5)
-                    }
-                    .frame(width: 10, alignment: .leading)
-                    .offset(x: 4.25)
-                    Spacer(minLength: 0)
-                }
-                .frame(width: 14, height: 34)
-                .padding(.leading, 8)
+    @ViewBuilder
+    private func sideQuestionStatusBadge(item: ConversationItem, hasDraft: Bool) -> some View {
+        if item.status.needsAction {
+            Text("Action")
+                .font(.system(size: 10.5, weight: .bold))
+                .lineLimit(1)
+                .fixedSize(horizontal: true, vertical: false)
+                .foregroundColor(.blue)
+                .padding(.horizontal, 6)
+                .padding(.vertical, 2)
+                .background(Color.blue.opacity(0.15))
+                .cornerRadius(5)
+        } else if item.status.isError {
+            Text("Error")
+                .font(.system(size: 10.5, weight: .bold))
+                .lineLimit(1)
+                .fixedSize(horizontal: true, vertical: false)
+                .foregroundColor(.red)
+                .padding(.horizontal, 6)
+                .padding(.vertical, 2)
+                .background(Color.red.opacity(0.15))
+                .cornerRadius(5)
+        } else if item.isWorking {
+            HStack(spacing: 4) {
+                ProgressView()
+                    .controlSize(.mini)
+                    .tint(.green)
+                Text("Working")
+                    .lineLimit(1)
             }
+            .fixedSize(horizontal: true, vertical: false)
+            .font(.system(size: 10.5, weight: .bold))
+            .foregroundColor(.green)
+            .padding(.horizontal, 6)
+            .padding(.vertical, 2)
+            .background(Color.green.opacity(0.15))
+            .cornerRadius(5)
+        } else if hasDraft {
+            Text("DRAFT")
+                .font(.system(size: 10, weight: .bold))
+                .lineLimit(1)
+                .fixedSize(horizontal: true, vertical: false)
+                .foregroundColor(.yellow)
+                .padding(.horizontal, 5)
+                .padding(.vertical, 2)
+                .background(Color.yellow.opacity(0.15))
+                .cornerRadius(5)
+        } else if item.isUnread {
+            ZStack {
+                Circle()
+                    .fill(Color.blue.opacity(0.16))
+                    .frame(width: 12, height: 12)
+                Circle()
+                    .fill(Color.blue)
+                    .frame(width: 5.5, height: 5.5)
+            }
+            .frame(width: 14, height: 14)
+        }
+    }
 
-            VStack(alignment: .leading, spacing: 5) {
+    private func sideQuestionBranchRow(
+        item: ConversationItem,
+        isAttachedChild: Bool,
+        isLastChild: Bool,
+        hasDraft: Bool
+    ) -> some View {
+        HStack(alignment: .center, spacing: 6) {
+            if isAttachedChild {
+                branchTreeConnector(continuesBelow: !isLastChild, height: 36)
+
                 HStack(alignment: .center, spacing: 6) {
                     Image(systemName: "arrow.triangle.branch")
-                        .font(.system(size: 11.5, weight: .semibold))
-                        .foregroundColor(.indigo)
-
-                    Text("旁路")
-                        .font(.system(size: 10, weight: .semibold))
-                        .lineLimit(1)
-                        .fixedSize(horizontal: true, vertical: false)
-                        .foregroundColor(.indigo)
-                        .padding(.horizontal, 5)
-                        .padding(.vertical, 1.5)
-                        .background(Color.indigo.opacity(0.12))
-                        .clipShape(Capsule())
+                        .font(.system(size: 10.5, weight: .semibold))
+                        .foregroundColor(.indigo.opacity(0.85))
 
                     Text(item.title)
-                        .font(.system(size: 14, weight: .semibold))
+                        .font(.system(size: 13.5, weight: .medium))
                         .lineLimit(1)
                         .truncationMode(.tail)
                         .foregroundColor(.primary)
 
                     Spacer(minLength: 4)
 
-                    if item.status.needsAction {
-                        Text("Action")
-                            .font(.system(size: 10.5, weight: .bold))
-                            .lineLimit(1)
-                            .fixedSize(horizontal: true, vertical: false)
-                            .foregroundColor(.blue)
-                            .padding(.horizontal, 6)
-                            .padding(.vertical, 2)
-                            .background(Color.blue.opacity(0.15))
-                            .cornerRadius(5)
-                    } else if item.status.isError {
-                        Text("Error")
-                            .font(.system(size: 10.5, weight: .bold))
-                            .lineLimit(1)
-                            .fixedSize(horizontal: true, vertical: false)
-                            .foregroundColor(.red)
-                            .padding(.horizontal, 6)
-                            .padding(.vertical, 2)
-                            .background(Color.red.opacity(0.15))
-                            .cornerRadius(5)
-                    } else if item.isWorking {
-                        HStack(spacing: 4) {
-                            ProgressView()
-                                .controlSize(.mini)
-                                .tint(.green)
-                            Text("Working")
-                                .lineLimit(1)
-                        }
-                        .fixedSize(horizontal: true, vertical: false)
-                        .font(.system(size: 10.5, weight: .bold))
-                        .foregroundColor(.green)
-                        .padding(.horizontal, 6)
-                        .padding(.vertical, 2)
-                        .background(Color.green.opacity(0.15))
-                        .cornerRadius(5)
-                    } else if hasDraft {
-                        Text("DRAFT")
-                            .font(.system(size: 10, weight: .bold))
-                            .lineLimit(1)
-                            .fixedSize(horizontal: true, vertical: false)
-                            .foregroundColor(.yellow)
-                            .padding(.horizontal, 5)
-                            .padding(.vertical, 2)
-                            .background(Color.yellow.opacity(0.15))
-                            .cornerRadius(5)
-                    } else if item.isUnread {
-                        Circle()
-                            .fill(Color.indigo)
-                            .frame(width: 6, height: 6)
-                    }
-                }
-
-                HStack(spacing: 6) {
-                    if !isAttachedChild, let parentTitle = item.branchParentTitle?.trimmingCharacters(in: .whitespacesAndNewlines), !parentTitle.isEmpty {
-                        Text("来自「\(parentTitle)」")
-                            .font(.system(size: 11.5))
-                            .foregroundColor(.secondary)
-                            .lineLimit(1)
-                    } else {
-                        Text(item.isPureChat ? String(localized: "Chat") : item.workspaceName)
-                            .font(.system(size: 11.5, design: item.isPureChat ? .default : .monospaced))
-                            .foregroundColor(.secondary)
-                            .lineLimit(1)
-                    }
-
-                    Spacer(minLength: 4)
-
                     if !item.relativeTimeString.isEmpty {
                         Text(item.relativeTimeString)
-                            .font(.system(size: 11.5))
+                            .font(.system(size: 11))
                             .foregroundColor(.secondary)
                             .lineLimit(1)
                             .fixedSize(horizontal: true, vertical: false)
                     }
+
+                    sideQuestionStatusBadge(item: item, hasDraft: hasDraft)
                 }
-            }
-            .padding(.horizontal, 12)
-            .padding(.vertical, 10)
-            .background(Color(uiColor: .secondarySystemBackground).opacity(0.85))
-            .overlay(
-                RoundedRectangle(cornerRadius: 12, style: .continuous)
-                    .stroke(Color.indigo.opacity(0.20), lineWidth: 0.8)
-            )
-            .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
-            .overlay {
-                if usesSplitLayout && selectedConversationID == item.id {
-                    RoundedRectangle(cornerRadius: 12, style: .continuous)
-                        .fill(Color.accentColor.opacity(0.10))
-                    RoundedRectangle(cornerRadius: 12, style: .continuous)
-                        .stroke(Color.accentColor.opacity(0.55), lineWidth: 1.5)
+                .padding(.horizontal, 11)
+                .padding(.vertical, 9)
+                .background(Color(uiColor: .secondarySystemBackground).opacity(0.85))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 11, style: .continuous)
+                        .stroke(Color.indigo.opacity(0.18), lineWidth: 0.75)
+                )
+                .clipShape(RoundedRectangle(cornerRadius: 11, style: .continuous))
+                .overlay {
+                    if usesSplitLayout && selectedConversationID == item.id {
+                        RoundedRectangle(cornerRadius: 11, style: .continuous)
+                            .fill(Color.accentColor.opacity(0.10))
+                        RoundedRectangle(cornerRadius: 11, style: .continuous)
+                            .stroke(Color.accentColor.opacity(0.55), lineWidth: 1.5)
+                    }
                 }
+                .contentShape(.hoverEffect, RoundedRectangle(cornerRadius: 11, style: .continuous))
+                .hoverEffect(.highlight)
+            } else {
+                VStack(alignment: .leading, spacing: 5) {
+                    HStack(alignment: .center, spacing: 6) {
+                        Image(systemName: "arrow.triangle.branch")
+                            .font(.system(size: 11.5, weight: .semibold))
+                            .foregroundColor(.indigo)
+
+                        Text("旁路")
+                            .font(.system(size: 10, weight: .semibold))
+                            .lineLimit(1)
+                            .fixedSize(horizontal: true, vertical: false)
+                            .foregroundColor(.indigo)
+                            .padding(.horizontal, 5)
+                            .padding(.vertical, 1.5)
+                            .background(Color.indigo.opacity(0.12))
+                            .clipShape(Capsule())
+
+                        Text(item.title)
+                            .font(.system(size: 14, weight: .semibold))
+                            .lineLimit(1)
+                            .truncationMode(.tail)
+                            .foregroundColor(.primary)
+
+                        Spacer(minLength: 4)
+
+                        sideQuestionStatusBadge(item: item, hasDraft: hasDraft)
+                    }
+
+                    HStack(spacing: 6) {
+                        if let parentTitle = item.branchParentTitle?.trimmingCharacters(in: .whitespacesAndNewlines), !parentTitle.isEmpty {
+                            Text("来自「\(parentTitle)」")
+                                .font(.system(size: 11.5))
+                                .foregroundColor(.secondary)
+                                .lineLimit(1)
+                        } else {
+                            Text(item.isPureChat ? String(localized: "Chat") : item.workspaceName)
+                                .font(.system(size: 11.5, design: item.isPureChat ? .default : .monospaced))
+                                .foregroundColor(.secondary)
+                                .lineLimit(1)
+                        }
+
+                        Spacer(minLength: 4)
+
+                        if !item.relativeTimeString.isEmpty {
+                            Text(item.relativeTimeString)
+                                .font(.system(size: 11.5))
+                                .foregroundColor(.secondary)
+                                .lineLimit(1)
+                                .fixedSize(horizontal: true, vertical: false)
+                        }
+                    }
+                }
+                .padding(.horizontal, 12)
+                .padding(.vertical, 10)
+                .background(Color(uiColor: .secondarySystemBackground).opacity(0.85))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 12, style: .continuous)
+                        .stroke(Color.indigo.opacity(0.20), lineWidth: 0.8)
+                )
+                .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+                .overlay {
+                    if usesSplitLayout && selectedConversationID == item.id {
+                        RoundedRectangle(cornerRadius: 12, style: .continuous)
+                            .fill(Color.accentColor.opacity(0.10))
+                        RoundedRectangle(cornerRadius: 12, style: .continuous)
+                            .stroke(Color.accentColor.opacity(0.55), lineWidth: 1.5)
+                    }
+                }
+                .contentShape(.hoverEffect, RoundedRectangle(cornerRadius: 12, style: .continuous))
+                .hoverEffect(.highlight)
             }
-            .contentShape(.hoverEffect, RoundedRectangle(cornerRadius: 12, style: .continuous))
-            .hoverEffect(.highlight)
         }
     }
 

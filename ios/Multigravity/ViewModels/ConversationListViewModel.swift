@@ -61,7 +61,19 @@ public final class ConversationListViewModel {
     }
 
     public var conversations: [ConversationItem] = []
-    public var searchQuery: String = ""
+    public var searchQuery: String = "" {
+        didSet {
+            if searchQuery != oldValue {
+                searchCollapsedBranchParentIDs.removeAll()
+            }
+        }
+    }
+    /// 已手动展开旁路快问折叠组的父会话 ID 集合（默认全部折叠）。
+    public var expandedBranchParentIDs: Set<String> = []
+    /// 搜索状态下用户手动收起的父会话 ID 集合（搜索词变化时自动清空）。
+    public var searchCollapsedBranchParentIDs: Set<String> = []
+    /// 子旁路存在待审批（Action）自动展开后，用户显式手动折叠的父会话 ID 集合。
+    public var manuallyCollapsedActionBranchParentIDs: Set<String> = []
     public var selectedWorkspaceFilter: WorkspaceFilter? = nil {
         didSet {
             if selectedWorkspaceFilter != .archived {
@@ -474,6 +486,100 @@ public final class ConversationListViewModel {
             }
         }
         return result
+    }
+
+    public struct BranchGroup: Sendable {
+        public let root: ConversationItem
+        public let branches: [ConversationItem]
+    }
+
+    /// 将有序会话列表归组为顶层节点及其拍平后的附属旁路列表（支持多层旁路拍平，避免套娃折叠）。
+    public static func groupConversationsWithBranches(_ items: [ConversationItem]) -> [BranchGroup] {
+        guard !items.isEmpty else { return [] }
+        let byId = Dictionary(items.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+        var branchesByRoot: [String: [ConversationItem]] = [:]
+        var roots: [ConversationItem] = []
+        roots.reserveCapacity(items.count)
+
+        func resolveVisibleRootId(for item: ConversationItem) -> String? {
+            guard item.isSideQuestion else { return nil }
+            var currentParentId = item.branchParentId?.trimmingCharacters(in: .whitespacesAndNewlines)
+            var highestVisibleAncestor: String? = nil
+            var visited: Set<String> = [item.id]
+            while let pid = currentParentId, !pid.isEmpty, visited.insert(pid).inserted {
+                guard let parent = byId[pid] else { break }
+                highestVisibleAncestor = parent.id
+                if !parent.isSideQuestion {
+                    break
+                }
+                currentParentId = parent.branchParentId?.trimmingCharacters(in: .whitespacesAndNewlines)
+            }
+            return highestVisibleAncestor
+        }
+
+        for item in items {
+            if let rootId = resolveVisibleRootId(for: item) {
+                branchesByRoot[rootId, default: []].append(item)
+            } else {
+                roots.append(item)
+            }
+        }
+
+        var groups = roots.map { root in
+            BranchGroup(root: root, branches: branchesByRoot[root.id] ?? [])
+        }
+        // 防御性兜底：极端环引用情况下不丢失任何会话
+        var emitted = Set<String>()
+        emitted.reserveCapacity(items.count)
+        for group in groups {
+            emitted.insert(group.root.id)
+            for b in group.branches { emitted.insert(b.id) }
+        }
+        if emitted.count < items.count {
+            for item in items where emitted.insert(item.id).inserted {
+                groups.append(BranchGroup(root: item, branches: []))
+            }
+        }
+        return groups
+    }
+
+    public func isBranchGroupExpanded(parentId: String, hasAction: Bool) -> Bool {
+        let isSearching = !searchQuery.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        if isSearching {
+            return !searchCollapsedBranchParentIDs.contains(parentId)
+        }
+        if hasAction {
+            return !manuallyCollapsedActionBranchParentIDs.contains(parentId)
+        }
+        return expandedBranchParentIDs.contains(parentId)
+    }
+
+    public func toggleBranchGroup(parentId: String, hasAction: Bool) {
+        let isSearching = !searchQuery.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        if isSearching {
+            if searchCollapsedBranchParentIDs.contains(parentId) {
+                searchCollapsedBranchParentIDs.remove(parentId)
+            } else {
+                searchCollapsedBranchParentIDs.insert(parentId)
+            }
+            return
+        }
+        let currentlyExpanded = isBranchGroupExpanded(parentId: parentId, hasAction: hasAction)
+        if currentlyExpanded {
+            expandedBranchParentIDs.remove(parentId)
+            if hasAction {
+                manuallyCollapsedActionBranchParentIDs.insert(parentId)
+            }
+        } else {
+            manuallyCollapsedActionBranchParentIDs.remove(parentId)
+            expandedBranchParentIDs.insert(parentId)
+        }
+    }
+
+    public func resetBranchExpansionState() {
+        expandedBranchParentIDs.removeAll()
+        searchCollapsedBranchParentIDs.removeAll()
+        manuallyCollapsedActionBranchParentIDs.removeAll()
     }
 
     public var filteredConversations: [ConversationItem] {

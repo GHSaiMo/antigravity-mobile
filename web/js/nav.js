@@ -729,6 +729,271 @@ async function markConversationAsRead(cascadeId) {
 }
 
 let showArchivedOnly = false;
+const expandedBranchParentIds = new Set();
+const searchCollapsedBranchParentIds = new Set();
+const manuallyCollapsedActionBranchParentIds = new Set();
+let lastBranchSearchQuery = "";
+
+function groupConversationsWithBranches(items) {
+  if (!Array.isArray(items) || items.length === 0) return [];
+  const byId = new Map();
+  for (const item of items) {
+    if (item && item.id && !byId.has(item.id)) byId.set(item.id, item);
+  }
+  const branchesByRoot = new Map();
+  const roots = [];
+
+  const resolveVisibleRootId = (item) => {
+    if (!item || !item.isSideQuestion) return null;
+    let currentParentId = typeof item.branchParentId === "string" ? item.branchParentId.trim() : "";
+    let highestVisibleAncestor = null;
+    const visited = new Set([item.id]);
+    while (currentParentId && !visited.has(currentParentId)) {
+      visited.add(currentParentId);
+      const parent = byId.get(currentParentId);
+      if (!parent) break;
+      highestVisibleAncestor = parent.id;
+      if (!parent.isSideQuestion) break;
+      currentParentId = typeof parent.branchParentId === "string" ? parent.branchParentId.trim() : "";
+    }
+    return highestVisibleAncestor;
+  };
+
+  for (const item of items) {
+    const rootId = resolveVisibleRootId(item);
+    if (rootId) {
+      if (!branchesByRoot.has(rootId)) branchesByRoot.set(rootId, []);
+      branchesByRoot.get(rootId).push(item);
+    } else {
+      roots.push(item);
+    }
+  }
+  const groups = roots.map((root) => ({
+    root,
+    branches: branchesByRoot.get(root.id) || [],
+  }));
+  // 防御性兜底：极端环引用情况下不丢失任何会话
+  const emitted = new Set();
+  for (const g of groups) {
+    emitted.add(g.root.id);
+    for (const b of g.branches) emitted.add(b.id);
+  }
+  if (emitted.size < items.length) {
+    for (const item of items) {
+      if (item && item.id && !emitted.has(item.id)) {
+        emitted.add(item.id);
+        groups.push({ root: item, branches: [] });
+      }
+    }
+  }
+  return groups;
+}
+
+function getBranchAggregateStatus(branches) {
+  if (!Array.isArray(branches) || branches.length === 0) return "none";
+  if (branches.some((b) => isConversationNeedsAction(b))) return "action";
+  if (branches.some((b) => Boolean(b.hasError) || b.status === "CASCADE_RUN_STATUS_ERROR")) return "error";
+  if (branches.some((b) => isConversationRunning(b))) return "working";
+  if (branches.some((b) => DraftManager.has(b.id))) return "draft";
+  if (branches.some((b) => isConversationUnread(b))) return "unread";
+  return "none";
+}
+
+function isBranchGroupExpanded(parentId, hasAction, isSearching) {
+  if (isSearching) return !searchCollapsedBranchParentIds.has(parentId);
+  if (hasAction) return !manuallyCollapsedActionBranchParentIds.has(parentId);
+  return expandedBranchParentIds.has(parentId);
+}
+
+function toggleBranchGroup(parentId, hasAction, isSearching) {
+  if (isSearching) {
+    if (searchCollapsedBranchParentIds.has(parentId)) {
+      searchCollapsedBranchParentIds.delete(parentId);
+    } else {
+      searchCollapsedBranchParentIds.add(parentId);
+    }
+    return;
+  }
+  const currentlyExpanded = isBranchGroupExpanded(parentId, hasAction, false);
+  if (currentlyExpanded) {
+    expandedBranchParentIds.delete(parentId);
+    if (hasAction) manuallyCollapsedActionBranchParentIds.add(parentId);
+  } else {
+    manuallyCollapsedActionBranchParentIds.delete(parentId);
+    expandedBranchParentIds.add(parentId);
+  }
+}
+
+function renderConversationCardHtml(item, { isAttachedBranchChild = false, isLastBranchChild = false, hasAttachedBranches = false } = {}) {
+  const hasError = !!item.hasError || item.status === "CASCADE_RUN_STATUS_ERROR";
+  const hasAction = !hasError && !!item.needsInput;
+  const isRunning = !hasError && !hasAction && isConversationRunning(item);
+  const hasSwarm = Boolean(item.hasSwarm);
+  const isSwarmWorking = hasSwarm && (Number(item.swarmWorkingCount || 0) > 0 || isRunning);
+  const swarmBeeHtml =
+    hasSwarm && typeof SwarmManager !== "undefined" && typeof SwarmManager.renderListBeeBadge === "function"
+      ? SwarmManager.renderListBeeBadge(isSwarmWorking)
+      : "";
+  const hasDraft = !hasError && !hasAction && !isRunning && DraftManager.has(item.id);
+  const isUnread = !hasError && !isRunning && !hasAction && !hasDraft && isConversationUnread(item);
+  const unreadDotHtml = isUnread
+    ? `<div class="status-unread-dot" title="未读新消息" data-testid="status-unread-dot"><div class="dot-halo"></div><div class="dot-core"></div></div>`
+    : "";
+  const badgeHtml = hasError
+    ? `<span class="badge badge-error">error</span>`
+    : (hasAction
+      ? `<span class="badge badge-action">ACTION</span>`
+      : (isRunning
+        ? `<span class="badge badge-running">RUNNING</span>`
+        : (hasDraft
+          ? `<span class="badge badge-draft">DRAFT</span>`
+          : unreadDotHtml)));
+  const title = formatConversationTitle(item.annotations, item.summary, typeof t === "function" ? t("未命名会话") : "未命名会话");
+  const isPinned = Boolean(item.annotations?.pinned);
+  const pinIconHtml = isPinned
+    ? `<svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor" class="conv-pin-icon" title="${typeof t === "function" ? t("已置顶") : "已置顶"}" style="color: #f59e0b; margin-right: 4px; flex-shrink: 0;"><path d="M16 12V4h1V2H7v2h1v8l-2 2v2h5.2v6h1.6v-6H18v-2l-2-2z"/></svg>`
+    : "";
+  const wsUri = item.workspaceUris?.[0] || item.workspaces?.[0]?.workspaceFolderAbsoluteUri || "";
+  const wsName = item.workspaceName || wsUri.split("/").filter(Boolean).pop() || "Chat";
+  const timeStr = formatRelativeTime(item.lastModifiedTime);
+  const stepCount = item.stepCount || 0;
+  const stepLabel = (window.I18n && window.I18n.isZh && window.I18n.isZh())
+    ? "步骤"
+    : ((window.I18n && window.I18n.isJa && window.I18n.isJa())
+        ? "ステップ"
+        : (stepCount === 1 ? "step" : "steps"));
+
+  const idEsc = escapeHtml(item.id || "");
+  const isSideQuestion = Boolean(item.isSideQuestion);
+  const isArchived = Boolean(item.annotations?.archived);
+  const archiveLabel = isArchived
+    ? (typeof t === "function" ? t("取消归档") : "取消归档")
+    : (typeof t === "function" ? t("归档会话") : "归档会话");
+
+  const actionsHtml = `
+    <div class="conv-card-actions">
+      <button class="conv-card-archive-btn${isArchived ? " is-unarchive" : ""}" type="button" aria-label="${archiveLabel}" title="${archiveLabel}" data-id="${idEsc}" data-archived="${isArchived ? "1" : "0"}">
+        <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round">
+          <polyline points="21 8 21 21 3 21 3 8"></polyline>
+          <rect x="1" y="3" width="22" height="5"></rect>
+          <line x1="10" y1="12" x2="14" y2="12"></line>
+        </svg>
+      </button>
+      <button class="conv-card-delete-btn" type="button" aria-label="${typeof t === "function" ? t("删除会话") : "删除会话"}" data-id="${idEsc}">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+          <polyline points="3 6 5 6 21 6"></polyline>
+          <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
+        </svg>
+      </button>
+    </div>
+  `;
+
+  if (isSideQuestion && isAttachedBranchChild) {
+    const wrapperClasses = [
+      "conv-card-wrapper",
+      "is-side-question",
+      "is-branch-child",
+      "is-branch-compact",
+      isLastBranchChild ? "is-branch-last" : "",
+    ].filter(Boolean).join(" ");
+    return `
+      <div class="${wrapperClasses}" data-id="${idEsc}">
+        ${actionsHtml}
+        <div class="conv-card conv-branch-compact-card" data-id="${idEsc}" data-title="${escapeHtml(title)}">
+          <span class="conv-branch-compact-icon" aria-hidden="true">⑂</span>
+          <span class="conv-branch-compact-title" data-i18n-skip="1">${escapeHtml(title)}</span>
+          <span class="conv-branch-compact-right">
+            ${timeStr ? `<span class="conv-branch-compact-time">${escapeHtml(timeStr)}</span>` : ""}
+            ${badgeHtml}
+          </span>
+        </div>
+      </div>
+    `;
+  }
+
+  const wrapperClasses = [
+    "conv-card-wrapper",
+    isSideQuestion ? "is-side-question" : "",
+    hasAttachedBranches ? "has-branch-toggle" : "",
+  ].filter(Boolean).join(" ");
+  const branchPillHtml = isSideQuestion
+    ? `<span class="conv-branch-tag">⑂ ${typeof t === "function" ? t("旁路") : "旁路"}</span>`
+    : "";
+  const subMetaHtml = isSideQuestion && item.branchParentTitle
+    ? `<span class="ws-name">${typeof t === "function" ? t("来自") : "来自"}「<span data-i18n-skip="1">${escapeHtml(item.branchParentTitle)}</span>」</span>`
+    : `${wsName === "Chat"
+        ? `<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path>
+          </svg>`
+        : `<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path>
+          </svg>`}
+      <span class="ws-name" data-i18n-skip="1">${escapeHtml(wsName)}</span>${formatConvPrBadge(item)}`;
+  const rightMetaHtml = isSideQuestion ? escapeHtml(timeStr) : `${stepCount} ${stepLabel} • ${timeStr}`;
+
+  return `
+    <div class="${wrapperClasses}" data-id="${idEsc}">
+      ${actionsHtml}
+      <div class="conv-card" data-id="${idEsc}" data-title="${escapeHtml(title)}">
+        <div class="conv-card-top">
+          <div class="conv-title">${pinIconHtml}${swarmBeeHtml}${branchPillHtml}<span data-i18n-skip="1">${escapeHtml(title)}</span></div>
+          ${badgeHtml}
+        </div>
+        <div class="conv-card-bottom">
+          <div class="conv-meta">
+            ${subMetaHtml}
+          </div>
+          <span class="conv-steps-time">${rightMetaHtml}</span>
+        </div>
+      </div>
+    </div>
+  `;
+}
+
+function renderBranchToggleRowHtml(parentId, branches, isExpanded, aggStatus) {
+  const parentIdEsc = escapeHtml(parentId || "");
+  const count = branches.length;
+  const rawCountLabel = count === 1 ? "1 个旁路" : `${count} 个旁路`;
+  const countLabel = typeof t === "function" ? t(rawCountLabel) : rawCountLabel;
+  const firstBranch = branches[0];
+  const previewTitle = firstBranch
+    ? formatConversationTitle(firstBranch.annotations, firstBranch.summary, "")
+    : "";
+  const hasAction = aggStatus === "action";
+
+  let aggStatusHtml = "";
+  if (!isExpanded) {
+    if (aggStatus === "action") {
+      aggStatusHtml = `<span class="badge badge-action conv-branch-toggle-badge">ACTION</span>`;
+    } else if (aggStatus === "error") {
+      aggStatusHtml = `<span class="badge badge-error conv-branch-toggle-badge">error</span>`;
+    } else if (aggStatus === "working") {
+      aggStatusHtml = `<span class="badge badge-running conv-branch-toggle-badge">RUNNING</span>`;
+    } else if (aggStatus === "draft") {
+      aggStatusHtml = `<span class="badge badge-draft conv-branch-toggle-badge">DRAFT</span>`;
+    } else if (aggStatus === "unread") {
+      aggStatusHtml = `<div class="status-unread-dot conv-branch-toggle-dot" title="未读新消息"><div class="dot-halo"></div><div class="dot-core"></div></div>`;
+    }
+  } else {
+    const collapseLabel = typeof t === "function" ? t("收起") : "收起";
+    aggStatusHtml = `<span class="conv-branch-toggle-collapse">${escapeHtml(collapseLabel)}</span>`;
+  }
+
+  return `
+    <div class="conv-branch-toggle-wrap${isExpanded ? " is-expanded" : ""}" data-branch-parent="${parentIdEsc}">
+      <button type="button" class="conv-branch-toggle-btn" data-branch-parent="${parentIdEsc}" data-has-action="${hasAction ? "1" : "0"}" aria-expanded="${isExpanded ? "true" : "false"}">
+        <span class="conv-branch-toggle-icon" aria-hidden="true">⑂</span>
+        <span class="conv-branch-toggle-count">${escapeHtml(countLabel)}</span>
+        ${!isExpanded && previewTitle ? `<span class="conv-branch-toggle-sep" aria-hidden="true">·</span><span class="conv-branch-toggle-preview" data-i18n-skip="1">${escapeHtml(previewTitle)}</span>` : ""}
+        <span class="conv-branch-toggle-spacer"></span>
+        ${aggStatusHtml}
+        <svg class="conv-branch-toggle-chevron" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <polyline points="6 9 12 15 18 9"></polyline>
+        </svg>
+      </button>
+    </div>
+  `;
+}
 
 function renderConversationList(summaries, { forceReorder = false } = {}) {
   const listEl = document.getElementById("conversations-list");
@@ -804,108 +1069,41 @@ function renderConversationList(summaries, { forceReorder = false } = {}) {
     return;
   }
 
-  const visibleIds = new Set(items.map((it) => it.id));
-  listEl.innerHTML = archivedBannerHtml + items
-    .map((item) => {
-      const hasError = !!item.hasError || item.status === "CASCADE_RUN_STATUS_ERROR";
-      const hasAction = !hasError && !!item.needsInput;
-      const isRunning = !hasError && !hasAction && isConversationRunning(item);
-      const hasSwarm = Boolean(item.hasSwarm);
-      const isSwarmWorking = hasSwarm && (Number(item.swarmWorkingCount || 0) > 0 || isRunning);
-      const swarmBeeHtml =
-        hasSwarm && typeof SwarmManager !== "undefined" && typeof SwarmManager.renderListBeeBadge === "function"
-          ? SwarmManager.renderListBeeBadge(isSwarmWorking)
-          : "";
-      const hasDraft = !hasError && !hasAction && !isRunning && DraftManager.has(item.id);
-      const isUnread = !hasError && !isRunning && !hasAction && !hasDraft && isConversationUnread(item);
-      const unreadDotHtml = isUnread
-        ? `<div class="status-unread-dot" title="未读新消息" data-testid="status-unread-dot"><div class="dot-halo"></div><div class="dot-core"></div></div>`
-        : "";
-      const badgeHtml = hasError
-        ? `<span class="badge badge-error">error</span>`
-        : (hasAction
-          ? `<span class="badge badge-action">ACTION</span>`
-          : (isRunning
-            ? `<span class="badge badge-running">RUNNING</span>`
-            : (hasDraft
-              ? `<span class="badge badge-draft">DRAFT</span>`
-              : unreadDotHtml)));
-      const title = formatConversationTitle(item.annotations, item.summary, typeof t === "function" ? t("未命名会话") : "未命名会话");
-      const isPinned = Boolean(item.annotations?.pinned);
-      const pinIconHtml = isPinned
-        ? `<svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor" class="conv-pin-icon" title="${typeof t === "function" ? t("已置顶") : "已置顶"}" style="color: #f59e0b; margin-right: 4px; flex-shrink: 0;"><path d="M16 12V4h1V2H7v2h1v8l-2 2v2h5.2v6h1.6v-6H18v-2l-2-2z"/></svg>`
-        : "";
-      const wsUri = item.workspaceUris?.[0] || item.workspaces?.[0]?.workspaceFolderAbsoluteUri || "";
-      const wsName = item.workspaceName || wsUri.split("/").filter(Boolean).pop() || "Chat";
-      const timeStr = formatRelativeTime(item.lastModifiedTime);
-      const stepCount = item.stepCount || 0;
-      const stepLabel = (window.I18n && window.I18n.isZh && window.I18n.isZh())
-        ? "步骤"
-        : ((window.I18n && window.I18n.isJa && window.I18n.isJa())
-            ? "ステップ"
-            : (stepCount === 1 ? "step" : "steps"));
+  if (query !== lastBranchSearchQuery) {
+    lastBranchSearchQuery = query;
+    searchCollapsedBranchParentIds.clear();
+  }
 
-      const idEsc = escapeHtml(item.id || "");
-      const isSideQuestion = Boolean(item.isSideQuestion);
-      const hasVisibleParent = isSideQuestion && !!item.branchParentId && visibleIds.has(item.branchParentId);
-      const wrapperClasses = [
-        "conv-card-wrapper",
-        isSideQuestion ? "is-side-question" : "",
-        hasVisibleParent ? "is-branch-child" : "",
-      ].filter(Boolean).join(" ");
-      const branchPillHtml = isSideQuestion
-        ? `<span class="conv-branch-tag">⑂ ${typeof t === "function" ? t("旁路") : "旁路"}</span>`
-        : "";
-      const subMetaHtml = isSideQuestion && !hasVisibleParent && item.branchParentTitle
-        ? `<span class="ws-name">${typeof t === "function" ? t("来自") : "来自"}「<span data-i18n-skip="1">${escapeHtml(item.branchParentTitle)}</span>」</span>`
-        : `${wsName === "Chat"
-            ? `<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path>
-              </svg>`
-            : `<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path>
-              </svg>`}
-          <span class="ws-name" data-i18n-skip="1">${escapeHtml(wsName)}</span>${formatConvPrBadge(item)}`;
-      const rightMetaHtml = isSideQuestion ? escapeHtml(timeStr) : `${stepCount} ${stepLabel} • ${timeStr}`;
-
-      const isArchived = Boolean(item.annotations?.archived);
-      const archiveLabel = isArchived
-        ? (typeof t === "function" ? t("取消归档") : "取消归档")
-        : (typeof t === "function" ? t("归档会话") : "归档会话");
-
-      return `
-        <div class="${wrapperClasses}" data-id="${idEsc}">
-          <div class="conv-card-actions">
-            <button class="conv-card-archive-btn${isArchived ? " is-unarchive" : ""}" type="button" aria-label="${archiveLabel}" title="${archiveLabel}" data-id="${idEsc}" data-archived="${isArchived ? "1" : "0"}">
-              <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round">
-                <polyline points="21 8 21 21 3 21 3 8"></polyline>
-                <rect x="1" y="3" width="22" height="5"></rect>
-                <line x1="10" y1="12" x2="14" y2="12"></line>
-              </svg>
-            </button>
-            <button class="conv-card-delete-btn" type="button" aria-label="${typeof t === "function" ? t("删除会话") : "删除会话"}" data-id="${idEsc}">
-              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
-                <polyline points="3 6 5 6 21 6"></polyline>
-                <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
-              </svg>
-            </button>
-          </div>
-          <div class="conv-card" data-id="${idEsc}" data-title="${escapeHtml(title)}">
-            <div class="conv-card-top">
-              <div class="conv-title">${pinIconHtml}${swarmBeeHtml}${branchPillHtml}<span data-i18n-skip="1">${escapeHtml(title)}</span></div>
-              ${badgeHtml}
-            </div>
-            <div class="conv-card-bottom">
-              <div class="conv-meta">
-                ${subMetaHtml}
-              </div>
-              <span class="conv-steps-time">${rightMetaHtml}</span>
-            </div>
-          </div>
-        </div>
-      `;
-    })
-    .join("") + archivedFooterHtml;
+  const isSearching = Boolean(query);
+  const groups = groupConversationsWithBranches(items);
+  const htmlParts = [];
+  for (const group of groups) {
+    const hasBranches = group.branches.length > 0;
+    htmlParts.push(
+      renderConversationCardHtml(group.root, {
+        isAttachedBranchChild: false,
+        isLastBranchChild: false,
+        hasAttachedBranches: hasBranches,
+      })
+    );
+    if (hasBranches) {
+      const aggStatus = getBranchAggregateStatus(group.branches);
+      const isExpanded = isBranchGroupExpanded(group.root.id, aggStatus === "action", isSearching);
+      htmlParts.push(renderBranchToggleRowHtml(group.root.id, group.branches, isExpanded, aggStatus));
+      if (isExpanded) {
+        group.branches.forEach((child, idx) => {
+          htmlParts.push(
+            renderConversationCardHtml(child, {
+              isAttachedBranchChild: true,
+              isLastBranchChild: idx === group.branches.length - 1,
+              hasAttachedBranches: false,
+            })
+          );
+        });
+      }
+    }
+  }
+  listEl.innerHTML = archivedBannerHtml + htmlParts.join("") + archivedFooterHtml;
 
   attachConversationCardInteractions();
   updateAppBadgeFromList(items);
@@ -1094,6 +1292,20 @@ function initConversationCardDelegation() {
   });
 
   listEl.addEventListener("click", (e) => {
+    const branchToggleBtn = e.target.closest(".conv-branch-toggle-btn");
+    if (branchToggleBtn) {
+      e.stopPropagation();
+      closeOtherCards();
+      triggerHaptic("light");
+      const parentId = branchToggleBtn.getAttribute("data-branch-parent");
+      const hasAction = branchToggleBtn.getAttribute("data-has-action") === "1";
+      const q = (document.getElementById("conv-search")?.value || "").toLowerCase().trim();
+      if (parentId) {
+        toggleBranchGroup(parentId, hasAction, Boolean(q));
+        renderConversationList(currentTrajectories || {}, { forceReorder: false });
+      }
+      return;
+    }
     const openArchBtn = e.target.closest(".conv-open-archived-btn");
     if (openArchBtn) {
       e.stopPropagation();

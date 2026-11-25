@@ -9696,27 +9696,191 @@ dialog::backdrop {
   resize: none;
 }
 
-/* /btw Side-Question Branch Architecture (List tree rows, Inline anchor cards, Collapsed shared prefix) */
+/* /btw Side-Question Branch Architecture (Collapsible toggle strip, Compact tree rows, Inline anchor cards, Collapsed shared prefix) */
+.conv-branch-toggle-wrap {
+  position: relative;
+  padding-left: 22px;
+  margin-top: -8px;
+}
+.conv-branch-toggle-wrap::before {
+  content: "";
+  position: absolute;
+  left: 10px;
+  top: -4px;
+  width: 10px;
+  height: calc(50% + 4px);
+  border-left: 1.5px solid rgba(99, 102, 241, 0.34);
+  border-bottom: 1.5px solid rgba(99, 102, 241, 0.34);
+  border-bottom-left-radius: 5px;
+  pointer-events: none;
+}
+.conv-branch-toggle-wrap.is-expanded::after {
+  content: "";
+  position: absolute;
+  left: 10px;
+  top: 50%;
+  bottom: -4px;
+  width: 1.5px;
+  background: rgba(99, 102, 241, 0.34);
+  pointer-events: none;
+}
+.conv-branch-toggle-btn {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  padding: 7px 10px;
+  border-radius: 10px;
+  border: 0.75px solid rgba(99, 102, 241, 0.24);
+  background: var(--ios-secondary-bg);
+  color: var(--ios-label);
+  font-family: inherit;
+  text-align: left;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  transition: background-color 0.14s ease, border-color 0.14s ease, opacity 0.14s ease;
+}
+.conv-branch-toggle-wrap.is-expanded .conv-branch-toggle-btn {
+  border-color: rgba(99, 102, 241, 0.16);
+  opacity: 0.88;
+}
+.conv-branch-toggle-btn:active {
+  background: var(--ios-tertiary-bg);
+}
+.conv-branch-toggle-icon {
+  color: var(--ios-indigo, #5856d6);
+  font-size: 11px;
+  font-weight: 700;
+  flex-shrink: 0;
+}
+.conv-branch-toggle-count {
+  color: var(--ios-indigo, #5856d6);
+  font-size: 11.5px;
+  font-weight: 600;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+.conv-branch-toggle-sep {
+  color: var(--ios-secondary-label);
+  opacity: 0.7;
+  font-size: 11.5px;
+  flex-shrink: 0;
+}
+.conv-branch-toggle-preview {
+  font-size: 12px;
+  color: var(--ios-secondary-label);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  min-width: 0;
+  flex: 1 1 auto;
+}
+.conv-branch-toggle-spacer {
+  flex: 1 0 4px;
+}
+.conv-branch-toggle-preview + .conv-branch-toggle-spacer {
+  flex: 0 0 4px;
+}
+.conv-branch-toggle-collapse {
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--ios-secondary-label);
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+.conv-branch-toggle-badge {
+  font-size: 9.5px;
+  padding: 1.5px 5.5px;
+  border-radius: 5px;
+}
+.conv-branch-toggle-dot {
+  transform: scale(0.88);
+  flex-shrink: 0;
+}
+.conv-branch-toggle-chevron {
+  color: var(--ios-secondary-label);
+  opacity: 0.85;
+  flex-shrink: 0;
+  transition: transform 0.24s cubic-bezier(0.32, 0.72, 0, 1);
+}
+.conv-branch-toggle-wrap.is-expanded .conv-branch-toggle-chevron {
+  transform: rotate(180deg);
+}
+
 .conv-card-wrapper.is-branch-child {
   padding-left: 22px;
-  margin-top: -4px;
+  margin-top: -8px;
   position: relative;
 }
 .conv-card-wrapper.is-branch-child::before {
   content: "";
   position: absolute;
   left: 10px;
-  top: -6px;
+  top: 0;
   width: 10px;
-  height: 26px;
-  border-left: 1.5px solid rgba(99, 102, 241, 0.36);
-  border-bottom: 1.5px solid rgba(99, 102, 241, 0.36);
-  border-bottom-left-radius: 6px;
+  height: 50%;
+  border-left: 1.5px solid rgba(99, 102, 241, 0.34);
+  border-bottom: 1.5px solid rgba(99, 102, 241, 0.34);
+  border-bottom-left-radius: 5px;
+  pointer-events: none;
+}
+.conv-card-wrapper.is-branch-child:not(.is-branch-last)::after {
+  content: "";
+  position: absolute;
+  left: 10px;
+  top: 50%;
+  bottom: 0;
+  width: 1.5px;
+  background: rgba(99, 102, 241, 0.34);
   pointer-events: none;
 }
 .conv-card-wrapper.is-side-question .conv-card {
-  border-color: rgba(99, 102, 241, 0.24);
+  border: 0.75px solid rgba(99, 102, 241, 0.22);
   padding: 10px 12px;
+}
+.conv-card-wrapper.is-branch-compact {
+  contain-intrinsic-size: auto 42px;
+}
+.conv-card-wrapper.is-branch-compact .conv-card-archive-btn,
+.conv-card-wrapper.is-branch-compact .conv-card-delete-btn {
+  width: 32px;
+  height: 32px;
+}
+.conv-card-wrapper.is-branch-compact .conv-card.conv-branch-compact-card {
+  flex-direction: row;
+  align-items: center;
+  gap: 6px;
+  padding: 9px 11px;
+  border-radius: 11px;
+  border: 0.75px solid rgba(99, 102, 241, 0.18);
+}
+.conv-branch-compact-icon {
+  color: var(--ios-indigo, #5856d6);
+  opacity: 0.85;
+  font-size: 11px;
+  font-weight: 700;
+  flex-shrink: 0;
+}
+.conv-branch-compact-title {
+  font-size: 13.5px;
+  font-weight: 500;
+  color: var(--ios-label);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  min-width: 0;
+  flex: 1 1 auto;
+}
+.conv-branch-compact-right {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+}
+.conv-branch-compact-time {
+  font-size: 11px;
+  color: var(--ios-secondary-label);
+  white-space: nowrap;
 }
 .conv-branch-tag {
   display: inline-flex;
