@@ -10,35 +10,69 @@ import android.provider.Settings
 import android.util.Log
 import androidx.core.content.FileProvider
 import com.antigravity.mobile.ui.util.loc
+import java.io.BufferedOutputStream
 import java.io.File
 import java.io.FileOutputStream
+import java.io.IOException
+import java.io.InputStream
 import java.security.MessageDigest
+import java.util.concurrent.CopyOnWriteArrayList
 import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicBoolean
+import java.util.concurrent.atomic.AtomicInteger
+import java.util.concurrent.atomic.AtomicLong
+import java.util.concurrent.atomic.AtomicReference
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.isActive
+import kotlinx.coroutines.job
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeoutOrNull
+import okhttp3.Call
 import okhttp3.OkHttpClient
 import okhttp3.Request
+import okhttp3.Response
 
 /**
- * Direct-distribution in-app update manager & APK installer (GitHub Releases + China mirror fallback).
+ * Direct-distribution in-app update manager & APK installer (GitHub Releases + multi-mirror racing).
  *
  * Strictly compiled ONLY into the `direct` Gradle flavor. The `play` flavor compiles a zero-permission
  * no-op implementation so Google Play policy scanners never see APK download or installation APIs.
  */
 object AppUpdateInstaller {
     private const val TAG = "AppUpdateInstaller"
+    private const val USER_AGENT = "Multigravity-Android"
     private const val PREFS_NAME = "agy_standard_prefs"
     private const val KEY_LAST_CHECK_MS = "app_update_last_check_ms"
     private const val BACKGROUND_CHECK_INTERVAL_MS = 6L * 60L * 60L * 1000L // 6 hours
     private const val UPDATES_SUBDIR = "updates"
+
+    // Racing & stall-watchdog parameters for smooth downloads across both Mainland China and overseas.
+    private const val RACE_PROLOGUE_BYTES = 64 * 1024 // 64 KB real APK bytes proves actual bandwidth
+    private const val RACE_TIMEOUT_MS = 10_000L
+    private const val RACE_WAVE_SIZE = 4
+    private const val DIRECT_HEAD_START_MS = 250L
+    private const val MIRROR_HEAD_START_MS = 350L
+    private const val STREAM_BUFFER_SIZE = 64 * 1024
+    private const val OUTPUT_BUFFER_SIZE = 128 * 1024
+    private const val PROGRESS_EMIT_INTERVAL_MS = 150L
+    private const val STALL_TIMEOUT_WITH_BACKUP_MS = 6_000L
+    private const val STALL_TIMEOUT_LAST_RESORT_MS = 15_000L
+    private const val LOW_SPEED_GRACE_MS = 3_500L
+    private const val LOW_SPEED_WINDOW_MS = 5_000L
+    private const val MIN_ACCEPTABLE_BYTES_PER_SEC = 40L * 1024L
+    private const val LOW_SPEED_MIN_REMAINING_BYTES = 512L * 1024L
 
     const val isSupported: Boolean = true
 
@@ -54,8 +88,9 @@ object AppUpdateInstaller {
 
     private val probeClient: OkHttpClient by lazy {
         OkHttpClient.Builder()
-            .connectTimeout(5, TimeUnit.SECONDS)
-            .readTimeout(8, TimeUnit.SECONDS)
+            .connectTimeout(4, TimeUnit.SECONDS)
+            .readTimeout(6, TimeUnit.SECONDS)
+            .callTimeout(10, TimeUnit.SECONDS)
             .followRedirects(true)
             .followSslRedirects(true)
             .build()
@@ -63,11 +98,34 @@ object AppUpdateInstaller {
 
     private val downloadClient: OkHttpClient by lazy {
         OkHttpClient.Builder()
-            .connectTimeout(8, TimeUnit.SECONDS)
-            .readTimeout(30, TimeUnit.SECONDS)
+            .connectTimeout(5, TimeUnit.SECONDS)
+            .readTimeout(10, TimeUnit.SECONDS)
+            .retryOnConnectionFailure(true)
             .followRedirects(true)
             .followSslRedirects(true)
             .build()
+    }
+
+    private data class DownloadCandidate(
+        val url: String,
+        val usingMirror: Boolean
+    )
+
+    private class RacedStream(
+        val candidate: DownloadCandidate,
+        val call: Call,
+        val response: Response,
+        val input: InputStream,
+        val prologue: ByteArray,
+        val prologueLength: Int,
+        val contentLength: Long,
+        val prologueElapsedMs: Long
+    ) {
+        fun closeQuietly() {
+            runCatching { input.close() }
+            runCatching { response.close() }
+            runCatching { call.cancel() }
+        }
     }
 
     fun cleanupOldApks(context: Context) {
@@ -190,25 +248,65 @@ object AppUpdateInstaller {
 
             val targetFile = File(updatesDir, release.apkFileName)
             val tempFile = File(updatesDir, "${release.apkFileName}.tmp")
-
-            val urlsToTry = if (release.usedMirrorForCheck) {
-                listOf(release.mirrorDownloadUrl to true, release.directDownloadUrl to false)
-            } else {
-                listOf(release.directDownloadUrl to false, release.mirrorDownloadUrl to true)
-            }
+            val allCandidates = buildDownloadCandidates(release)
+            val failedUrls = LinkedHashSet<String>()
 
             var lastError: Throwable? = null
+            var checksumMismatchCount = 0
             var downloadedSha256: String? = null
+            val expectedHash = release.expectedSha256?.lowercase()
 
-            for ((url, isMirror) in urlsToTry) {
+            while (failedUrls.size < allCandidates.size) {
+                val remaining = allCandidates.filter { it.url !in failedUrls }
+                if (remaining.isEmpty()) break
+                val wave = remaining.take(RACE_WAVE_SIZE)
+
+                _state.value = AppUpdateState.Downloading(
+                    release = release,
+                    downloadedBytes = 0L,
+                    totalBytes = release.sizeBytes,
+                    usingMirror = release.usedMirrorForCheck,
+                    speedBytesPerSec = 0L,
+                    selectingChannel = true
+                )
+
+                val raced = try {
+                    raceForFastestStream(wave, preferMirror = release.usedMirrorForCheck)
+                } catch (ce: CancellationException) {
+                    tempFile.delete()
+                    _state.value = AppUpdateState.Available(release)
+                    return@launch
+                }
+
+                if (raced == null) {
+                    wave.forEach { failedUrls.add(it.url) }
+                    lastError = IOException("All candidates in wave failed or timed out")
+                    continue
+                }
+
+                val hasBackupCandidates = allCandidates.any {
+                    it.url != raced.candidate.url && it.url !in failedUrls
+                }
+
                 try {
-                    _state.value = AppUpdateState.Downloading(
+                    val sha256 = streamFromRacedWithWatchdog(
+                        raced = raced,
+                        tempFile = tempFile,
                         release = release,
-                        downloadedBytes = 0L,
-                        totalBytes = release.sizeBytes,
-                        usingMirror = isMirror
+                        hasBackupCandidates = hasBackupCandidates
                     )
-                    downloadedSha256 = streamDownloadWithSha256(url, tempFile, release, isMirror)
+                    if (!expectedHash.isNullOrBlank() && sha256 != expectedHash) {
+                        Log.e(
+                            TAG,
+                            "APK SHA-256 mismatch from ${raced.candidate.url}! expected=$expectedHash actual=$sha256"
+                        )
+                        checksumMismatchCount++
+                        tempFile.delete()
+                        failedUrls.add(raced.candidate.url)
+                        lastError = IOException("SHA-256 mismatch")
+                        continue
+                    }
+                    downloadedSha256 = sha256
                     lastError = null
                     break
                 } catch (ce: CancellationException) {
@@ -216,27 +314,26 @@ object AppUpdateInstaller {
                     _state.value = AppUpdateState.Available(release)
                     return@launch
                 } catch (e: Exception) {
-                    Log.w(TAG, "APK download failed (mirror=$isMirror): ${e.message}")
+                    Log.w(
+                        TAG,
+                        "APK stream failed (mirror=${raced.candidate.usingMirror}, url=${raced.candidate.url}): ${e.message}"
+                    )
                     tempFile.delete()
+                    failedUrls.add(raced.candidate.url)
                     lastError = e
+                } finally {
+                    raced.closeQuietly()
                 }
             }
 
             if (lastError != null || downloadedSha256 == null || !tempFile.exists()) {
+                val errMsg = if (checksumMismatchCount > 0 && checksumMismatchCount == failedUrls.size) {
+                    "安装包校验未通过，请重试或前往 GitHub 手动下载".loc
+                } else {
+                    "下载安装包失败，请检查网络或前往浏览器下载".loc
+                }
                 _state.value = AppUpdateState.Error(
-                    message = "下载安装包失败，请检查网络或前往浏览器下载".loc,
-                    release = release
-                )
-                return@launch
-            }
-
-            // 1. Verify SHA-256 against official checksums.txt whenever available.
-            val expectedHash = release.expectedSha256?.lowercase()
-            if (!expectedHash.isNullOrBlank() && downloadedSha256 != expectedHash) {
-                Log.e(TAG, "APK SHA-256 mismatch! expected=$expectedHash actual=$downloadedSha256")
-                tempFile.delete()
-                _state.value = AppUpdateState.Error(
-                    message = "安装包校验未通过，请重试或前往 GitHub 手动下载".loc,
+                    message = errMsg,
                     release = release
                 )
                 return@launch
@@ -355,33 +452,56 @@ object AppUpdateInstaller {
         }.getOrDefault(false)
     }
 
-    private fun fetchLatestRelease(): Result<AppReleaseInfo> {
-        // 1. Primary: Official GitHub Releases API
+    private fun buildDownloadCandidates(release: AppReleaseInfo): List<DownloadCandidate> {
+        val direct = DownloadCandidate(release.directDownloadUrl, usingMirror = false)
+        val mirrorUrls = release.mirrorDownloadUrls
+            .ifEmpty { AppUpdateParser.buildMirrorUrls(release.directDownloadUrl) }
+            .ifEmpty { listOf(release.mirrorDownloadUrl) }
+            .filter { it.isNotBlank() && it != release.directDownloadUrl }
+            .distinct()
+        val mirrors = mirrorUrls.map { DownloadCandidate(it, usingMirror = true) }
+        return if (release.usedMirrorForCheck) {
+            mirrors + direct
+        } else {
+            listOf(direct) + mirrors
+        }
+    }
+
+    private suspend fun fetchLatestRelease(): Result<AppReleaseInfo> {
+        // 1. Primary: Official GitHub Releases API (already carries official asset SHA-256 `digest`).
         val directResult = runCatching {
             val req = Request.Builder()
                 .url(AppUpdateParser.GITHUB_LATEST_API_URL)
                 .header("Accept", "application/vnd.github+json")
-                .header("User-Agent", "Multigravity-Android")
+                .header("User-Agent", USER_AGENT)
                 .build()
             probeClient.newCall(req).execute().use { resp ->
                 if (!resp.isSuccessful) error("HTTP ${resp.code}")
                 val body = resp.body?.string().orEmpty()
                 val (release, checksumsUrl) = AppUpdateParser.parseGitHubRelease(body)
                     ?: error("No APK asset in latest release")
-                val sha256 = checksumsUrl?.let { fetchTextOrNull(it) }
-                    ?.let { AppUpdateParser.parseApkChecksum(it)?.second }
-                release.copy(expectedSha256 = sha256)
+                if (!release.expectedSha256.isNullOrBlank()) {
+                    release
+                } else {
+                    val sha256 = checksumsUrl?.let { fetchTextOrNull(it) }
+                        ?.let { AppUpdateParser.parseApkChecksum(it)?.second }
+                    release.copy(expectedSha256 = sha256)
+                }
             }
         }
         if (directResult.isSuccess) return directResult
 
-        // 2. Fallback: China mirror `ghfast.top` via checksums.txt (+ best-effort release notes)
+        // 2. Fallback: Race China mirrors for `checksums.txt` (+ tagged `release_notes.md`).
         return runCatching {
-            val checksumsText = fetchTextOrNull(AppUpdateParser.MIRROR_LATEST_CHECKSUMS_URL)
-                ?: error("Mirror checksums unavailable")
-            val notesText = fetchTextOrNull(AppUpdateParser.MIRROR_RELEASE_NOTES_URL).orEmpty()
-            AppUpdateParser.buildReleaseFromChecksums(checksumsText, notesText)
+            val checksumsText = fetchFirstText(AppUpdateParser.buildLatestChecksumsMirrorUrls()) { text ->
+                AppUpdateParser.parseApkChecksum(text) != null
+            } ?: error("Mirror checksums unavailable")
+            val parsedBase = AppUpdateParser.buildReleaseFromChecksums(checksumsText)
                 ?: error("Could not parse APK release from mirror checksums")
+            val notesText = fetchFirstText(AppUpdateParser.buildReleaseNotesMirrorUrls(parsedBase.tagName)) { text ->
+                text.isNotBlank() && !text.trimStart().startsWith("<!DOCTYPE", ignoreCase = true)
+            }.orEmpty()
+            parsedBase.copy(releaseNotes = notesText.trim())
         }
     }
 
@@ -389,7 +509,7 @@ object AppUpdateInstaller {
         return runCatching {
             val req = Request.Builder()
                 .url(url)
-                .header("User-Agent", "Multigravity-Android")
+                .header("User-Agent", USER_AGENT)
                 .build()
             probeClient.newCall(req).execute().use { resp ->
                 if (!resp.isSuccessful) return@use null
@@ -398,60 +518,370 @@ object AppUpdateInstaller {
         }.getOrNull()
     }
 
-    private fun streamDownloadWithSha256(
-        url: String,
-        tempFile: File,
-        release: AppReleaseInfo,
-        usingMirror: Boolean
-    ): String {
-        val req = Request.Builder()
-            .url(url)
-            .header("User-Agent", "Multigravity-Android")
-            .build()
-        downloadClient.newCall(req).execute().use { resp ->
-            if (!resp.isSuccessful) error("Download HTTP ${resp.code}")
-            val body = resp.body ?: error("Empty response body")
-            val total = body.contentLength().takeIf { it > 0L } ?: release.sizeBytes
-            val digest = MessageDigest.getInstance("SHA-256")
-            var downloaded = 0L
-            var lastEmitMs = 0L
+    private suspend fun fetchFirstText(
+        urls: List<String>,
+        validator: (String) -> Boolean
+    ): String? = coroutineScope {
+        if (urls.isEmpty()) return@coroutineScope null
+        val resultDeferred = CompletableDeferred<String?>()
+        val activeCalls = CopyOnWriteArrayList<Call>()
+        val remaining = AtomicInteger(urls.size)
 
-            body.byteStream().use { input ->
-                FileOutputStream(tempFile).use { output ->
-                    val buffer = ByteArray(16 * 1024)
-                    while (true) {
-                        val read = input.read(buffer)
-                        if (read < 0) break
-                        if (read == 0) continue
-                        output.write(buffer, 0, read)
-                        digest.update(buffer, 0, read)
-                        downloaded += read
-
-                        val now = System.currentTimeMillis()
-                        if (now - lastEmitMs >= 120L) {
-                            lastEmitMs = now
-                            _state.value = AppUpdateState.Downloading(
-                                release = release,
-                                downloadedBytes = downloaded,
-                                totalBytes = total,
-                                usingMirror = usingMirror
-                            )
+        val jobs = urls.map { url ->
+            launch(Dispatchers.IO) {
+                var call: Call? = null
+                try {
+                    if (resultDeferred.isCompleted) return@launch
+                    val req = Request.Builder()
+                        .url(url)
+                        .header("User-Agent", USER_AGENT)
+                        .build()
+                    val createdCall = probeClient.newCall(req)
+                    call = createdCall
+                    activeCalls.add(createdCall)
+                    if (resultDeferred.isCompleted) {
+                        createdCall.cancel()
+                        return@launch
+                    }
+                    createdCall.execute().use { resp ->
+                        if (!resp.isSuccessful) return@launch
+                        val text = resp.body?.string() ?: return@launch
+                        if (validator(text)) {
+                            resultDeferred.complete(text)
                         }
                     }
-                    output.flush()
+                } catch (ce: CancellationException) {
+                    throw ce
+                } catch (_: Exception) {
+                    // Try other mirrors
+                } finally {
+                    if (remaining.decrementAndGet() == 0 && !resultDeferred.isCompleted) {
+                        resultDeferred.complete(null)
+                    }
                 }
+            }
+        }
+
+        try {
+            withTimeoutOrNull(8_000L) { resultDeferred.await() }
+        } finally {
+            resultDeferred.complete(null)
+            jobs.forEach { it.cancel() }
+            activeCalls.forEach { runCatching { it.cancel() } }
+        }
+    }
+
+    private fun hasApkZipMagic(bytes: ByteArray, length: Int): Boolean {
+        return length >= 4 &&
+            bytes[0] == 0x50.toByte() &&
+            bytes[1] == 0x4B.toByte() &&
+            bytes[2] == 0x03.toByte() &&
+            bytes[3] == 0x04.toByte()
+    }
+
+    /**
+     * Races candidate channels in parallel and picks the first one that delivers a real 64 KB
+     * APK/ZIP prologue (`PK\x03\x04`). Winning connection stays open so zero bytes or RTT are wasted.
+     */
+    private suspend fun raceForFastestStream(
+        candidates: List<DownloadCandidate>,
+        preferMirror: Boolean
+    ): RacedStream? = coroutineScope {
+        if (candidates.isEmpty()) return@coroutineScope null
+        val winnerDeferred = CompletableDeferred<RacedStream?>()
+        val winningStream = AtomicReference<RacedStream?>(null)
+        val raceClosed = AtomicBoolean(false)
+        val activeCalls = CopyOnWriteArrayList<Call>()
+        val remaining = AtomicInteger(candidates.size)
+        val hasDirect = candidates.any { !it.usingMirror }
+        val hasMirror = candidates.any { it.usingMirror }
+
+        val racerJobs = candidates.map { candidate ->
+            launch(Dispatchers.IO) {
+                var resp: Response? = null
+                var call: Call? = null
+                var ownershipTransferred = false
+                try {
+                    if (!preferMirror && candidate.usingMirror && hasDirect) {
+                        delay(DIRECT_HEAD_START_MS)
+                    } else if (preferMirror && !candidate.usingMirror && hasMirror) {
+                        delay(MIRROR_HEAD_START_MS)
+                    }
+                    if (winnerDeferred.isCompleted || raceClosed.get()) return@launch
+
+                    val req = Request.Builder()
+                        .url(candidate.url)
+                        .header("User-Agent", USER_AGENT)
+                        .build()
+                    val createdCall = downloadClient.newCall(req)
+                    call = createdCall
+                    activeCalls.add(createdCall)
+                    if (winnerDeferred.isCompleted || raceClosed.get()) {
+                        createdCall.cancel()
+                        return@launch
+                    }
+
+                    val startMs = System.currentTimeMillis()
+                    val response = createdCall.execute()
+                    resp = response
+                    if (!response.isSuccessful) {
+                        return@launch
+                    }
+                    val contentType = response.header("Content-Type").orEmpty()
+                    if (contentType.contains("text/html", ignoreCase = true)) {
+                        return@launch
+                    }
+                    val body = response.body ?: return@launch
+                    val input = body.byteStream()
+                    val prologue = ByteArray(RACE_PROLOGUE_BYTES)
+                    var readTotal = 0
+                    while (readTotal < RACE_PROLOGUE_BYTES) {
+                        if (winnerDeferred.isCompleted || raceClosed.get() || !isActive) return@launch
+                        val n = input.read(prologue, readTotal, RACE_PROLOGUE_BYTES - readTotal)
+                        if (n < 0) break
+                        if (n > 0) {
+                            readTotal += n
+                            if (readTotal >= 4 && !hasApkZipMagic(prologue, readTotal)) {
+                                return@launch
+                            }
+                        }
+                    }
+                    if (readTotal < 4 || !hasApkZipMagic(prologue, readTotal)) {
+                        return@launch
+                    }
+
+                    val elapsedMs = (System.currentTimeMillis() - startMs).coerceAtLeast(1L)
+                    val stream = RacedStream(
+                        candidate = candidate,
+                        call = createdCall,
+                        response = response,
+                        input = input,
+                        prologue = prologue,
+                        prologueLength = readTotal,
+                        contentLength = body.contentLength(),
+                        prologueElapsedMs = elapsedMs
+                    )
+                    if (!raceClosed.get() && winningStream.compareAndSet(null, stream)) {
+                        ownershipTransferred = true
+                        if (raceClosed.get()) {
+                            if (winningStream.compareAndSet(stream, null)) {
+                                stream.closeQuietly()
+                            }
+                        } else {
+                            winnerDeferred.complete(stream)
+                        }
+                    } else {
+                        ownershipTransferred = true
+                        stream.closeQuietly()
+                    }
+                } catch (ce: CancellationException) {
+                    throw ce
+                } catch (e: Exception) {
+                    Log.d(TAG, "Race candidate failed (${candidate.url}): ${e.message}")
+                } finally {
+                    if (!ownershipTransferred) {
+                        runCatching { resp?.close() }
+                        runCatching { call?.cancel() }
+                    }
+                    if (remaining.decrementAndGet() == 0 && !winnerDeferred.isCompleted) {
+                        winnerDeferred.complete(null)
+                    }
+                }
+            }
+        }
+
+        var handedOff = false
+        try {
+            val winner = withTimeoutOrNull(RACE_TIMEOUT_MS) {
+                winnerDeferred.await()
+            }
+            raceClosed.set(true)
+            winnerDeferred.complete(null)
+            val claimed = if (winner != null && winningStream.compareAndSet(winner, null)) {
+                handedOff = true
+                winner
+            } else {
+                null
+            }
+            val keepCall = claimed?.call
+            racerJobs.forEach { it.cancel() }
+            activeCalls.forEach { c ->
+                if (c !== keepCall) runCatching { c.cancel() }
+            }
+            claimed
+        } finally {
+            raceClosed.set(true)
+            winnerDeferred.complete(null)
+            racerJobs.forEach { it.cancel() }
+            val leftover = winningStream.getAndSet(null)
+            if (!handedOff) {
+                activeCalls.forEach { runCatching { it.cancel() } }
+                leftover?.closeQuietly()
+            } else if (leftover != null) {
+                leftover.closeQuietly()
+            }
+        }
+    }
+
+    private suspend fun streamFromRacedWithWatchdog(
+        raced: RacedStream,
+        tempFile: File,
+        release: AppReleaseInfo,
+        hasBackupCandidates: Boolean
+    ): String = coroutineScope {
+        val total = raced.contentLength.takeIf { it > 0L } ?: release.sizeBytes
+        val digest = MessageDigest.getInstance("SHA-256")
+        val streamStartMs = System.currentTimeMillis()
+        val downloadedRef = AtomicLong(0L)
+        val lastReadMsRef = AtomicLong(streamStartMs)
+        val abortReason = AtomicReference<String?>(null)
+        val stallTimeoutMs = if (hasBackupCandidates) {
+            STALL_TIMEOUT_WITH_BACKUP_MS
+        } else {
+            STALL_TIMEOUT_LAST_RESORT_MS
+        }
+
+        val cancelHandle = currentCoroutineContext().job.invokeOnCompletion {
+            runCatching { raced.call.cancel() }
+        }
+
+        val watchdogJob = launch(Dispatchers.Default) {
+            val samples = ArrayDeque<Pair<Long, Long>>()
+            samples.addLast(streamStartMs to 0L)
+            while (isActive) {
+                delay(1_000L)
+                val now = System.currentTimeMillis()
+                val curBytes = downloadedRef.get()
+                if (now - lastReadMsRef.get() >= stallTimeoutMs) {
+                    abortReason.compareAndSet(null, "Stream stalled for ${stallTimeoutMs / 1000}s")
+                    runCatching { raced.call.cancel() }
+                    return@launch
+                }
+                samples.addLast(now to curBytes)
+                while (samples.size > 6) {
+                    samples.removeFirst()
+                }
+                if (hasBackupCandidates && now - streamStartMs >= LOW_SPEED_GRACE_MS) {
+                    val oldest = samples.first()
+                    val windowMs = now - oldest.first
+                    if (windowMs >= LOW_SPEED_WINDOW_MS) {
+                        val windowSpeed = ((curBytes - oldest.second) * 1000L) / windowMs
+                        val remainingBytes = if (total > 0L) (total - curBytes) else Long.MAX_VALUE
+                        if (windowSpeed < MIN_ACCEPTABLE_BYTES_PER_SEC &&
+                            remainingBytes > LOW_SPEED_MIN_REMAINING_BYTES
+                        ) {
+                            abortReason.compareAndSet(
+                                null,
+                                "Channel too slow (${windowSpeed / 1024} KB/s)"
+                            )
+                            runCatching { raced.call.cancel() }
+                            return@launch
+                        }
+                    }
+                }
+            }
+        }
+
+        try {
+            var downloaded = 0L
+            val initialSpeed = (raced.prologueLength.toLong() * 1000L) / raced.prologueElapsedMs
+            var smoothedSpeed = initialSpeed
+            var speedWindowStartMs = streamStartMs
+            var speedWindowStartBytes = 0L
+            var lastEmitMs = 0L
+
+            BufferedOutputStream(FileOutputStream(tempFile), OUTPUT_BUFFER_SIZE).use { output ->
+                // 1. Flush the already-downloaded 64 KB prologue immediately.
+                output.write(raced.prologue, 0, raced.prologueLength)
+                digest.update(raced.prologue, 0, raced.prologueLength)
+                downloaded = raced.prologueLength.toLong()
+                downloadedRef.set(downloaded)
+                speedWindowStartBytes = downloaded
+                val afterPrologueMs = System.currentTimeMillis()
+                lastReadMsRef.set(afterPrologueMs)
+                lastEmitMs = afterPrologueMs
+
+                _state.value = AppUpdateState.Downloading(
+                    release = release,
+                    downloadedBytes = downloaded,
+                    totalBytes = total,
+                    usingMirror = raced.candidate.usingMirror,
+                    speedBytesPerSec = smoothedSpeed,
+                    selectingChannel = false
+                )
+
+                // 2. Continue streaming from the exact same open socket.
+                val buffer = ByteArray(STREAM_BUFFER_SIZE)
+                while (true) {
+                    if (!currentCoroutineContext().isActive) {
+                        throw CancellationException("Download cancelled")
+                    }
+                    val read = raced.input.read(buffer)
+                    if (read < 0) break
+                    if (read == 0) continue
+
+                    output.write(buffer, 0, read)
+                    digest.update(buffer, 0, read)
+                    downloaded += read
+                    val now = System.currentTimeMillis()
+                    downloadedRef.set(downloaded)
+                    lastReadMsRef.set(now)
+
+                    val windowElapsed = now - speedWindowStartMs
+                    if (windowElapsed >= 1_000L) {
+                        val instantSpeed = ((downloaded - speedWindowStartBytes) * 1000L) / windowElapsed
+                        smoothedSpeed = if (smoothedSpeed <= 0L) {
+                            instantSpeed
+                        } else {
+                            (smoothedSpeed * 4L + instantSpeed * 6L) / 10L
+                        }
+                        speedWindowStartMs = now
+                        speedWindowStartBytes = downloaded
+                    }
+
+                    if (now - lastEmitMs >= PROGRESS_EMIT_INTERVAL_MS) {
+                        lastEmitMs = now
+                        _state.value = AppUpdateState.Downloading(
+                            release = release,
+                            downloadedBytes = downloaded,
+                            totalBytes = total,
+                            usingMirror = raced.candidate.usingMirror,
+                            speedBytesPerSec = smoothedSpeed,
+                            selectingChannel = false
+                        )
+                    }
+                }
+                output.flush()
             }
 
             if (downloaded < 1024L) {
-                error("Downloaded file too small ($downloaded bytes)")
+                throw IOException("Downloaded file too small ($downloaded bytes)")
             }
+            if (raced.contentLength > 0L && downloaded < raced.contentLength) {
+                throw IOException("Truncated APK download ($downloaded / ${raced.contentLength})")
+            }
+
             _state.value = AppUpdateState.Downloading(
                 release = release,
                 downloadedBytes = downloaded,
                 totalBytes = if (total > 0L) total else downloaded,
-                usingMirror = usingMirror
+                usingMirror = raced.candidate.usingMirror,
+                speedBytesPerSec = smoothedSpeed,
+                selectingChannel = false
             )
-            return digest.digest().joinToString("") { "%02x".format(it) }
+            digest.digest().joinToString("") { "%02x".format(it) }
+        } catch (e: IOException) {
+            if (!currentCoroutineContext().isActive) {
+                throw CancellationException("Download cancelled", e)
+            }
+            val reason = abortReason.get()
+            if (reason != null) {
+                throw IOException(reason, e)
+            }
+            throw e
+        } finally {
+            watchdogJob.cancel()
+            cancelHandle.dispose()
         }
     }
 

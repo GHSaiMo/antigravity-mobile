@@ -19,6 +19,9 @@
         <domain includeSubdomains="true">github.com</domain>
         <domain includeSubdomains="true">githubusercontent.com</domain>
         <domain includeSubdomains="true">ghfast.top</domain>
+        <domain includeSubdomains="true">gh-proxy.com</domain>
+        <domain includeSubdomains="true">gh-proxy.org</domain>
+        <domain includeSubdomains="true">ghproxy.net</domain>
         <domain includeSubdomains="true">googleapis.com</domain>
         <domain includeSubdomains="true">cloudflare.com</domain>
         <domain includeSubdomains="true">jiuge.space</domain>

@@ -61,6 +61,10 @@ class AppUpdateParserTest {
             "https://ghfast.top/https://github.com/GHSaiMo/antigravity-mobile/releases/download/v1.2.7/Multigravity-v1.2.7.apk",
             release.mirrorDownloadUrl
         )
+        assertTrue(release.mirrorDownloadUrls.contains("https://edgeone.gh-proxy.com/https://github.com/GHSaiMo/antigravity-mobile/releases/download/v1.2.7/Multigravity-v1.2.7.apk"))
+        assertTrue(release.mirrorDownloadUrls.contains("https://gh-proxy.org/https://github.com/GHSaiMo/antigravity-mobile/releases/download/v1.2.7/Multigravity-v1.2.7.apk"))
+        assertTrue(release.mirrorDownloadUrls.contains("https://ghfast.top/https://github.com/GHSaiMo/antigravity-mobile/releases/download/v1.2.7/Multigravity-v1.2.7.apk"))
+        assertTrue(release.mirrorDownloadUrls.contains("https://ghproxy.net/https://github.com/GHSaiMo/antigravity-mobile/releases/download/v1.2.7/Multigravity-v1.2.7.apk"))
         assertEquals(
             "f67cc2d455e1a24aad0396a8720459eadc2269062bcbb8a58cb060c1c1ee8125",
             release.expectedSha256
@@ -69,7 +73,7 @@ class AppUpdateParserTest {
     }
 
     @Test
-    fun `parseGitHubRelease parses latest release json and ignores prerelease`() {
+    fun `parseGitHubRelease parses latest release json, asset digest, and ignores prerelease`() {
         val json = """
             {
               "tag_name": "v1.2.7",
@@ -86,6 +90,7 @@ class AppUpdateParserTest {
                 {
                   "name": "Multigravity-v1.2.7.apk",
                   "size": 14680064,
+                  "digest": "sha256:EBC7975D168A5927B05392F8970DD54D46334CC8D4CBAFC6D4887EC71CD479DF",
                   "browser_download_url": "https://github.com/GHSaiMo/antigravity-mobile/releases/download/v1.2.7/Multigravity-v1.2.7.apk"
                 }
               ]
@@ -99,9 +104,14 @@ class AppUpdateParserTest {
         assertEquals(14680064L, release.sizeBytes)
         assertFalse(release.usedMirrorForCheck)
         assertEquals(
+            "ebc7975d168a5927b05392f8970dd54d46334cc8d4cbafc6d4887ec71cd479df",
+            release.expectedSha256
+        )
+        assertEquals(
             "https://github.com/GHSaiMo/antigravity-mobile/releases/download/v1.2.7/checksums.txt",
             checksumsUrl
         )
+        assertTrue(release.mirrorDownloadUrls.size >= 4)
 
         val zhNotes = AppUpdateParser.formatReleaseNotes(release.releaseNotes, preferChinese = true)
         assertTrue(zhNotes.contains("新增应用内检查更新"))
@@ -130,5 +140,111 @@ class AppUpdateParserTest {
 
         val prereleaseJson = json.replace("\"prerelease\": false", "\"prerelease\": true")
         assertNull(AppUpdateParser.parseGitHubRelease(prereleaseJson))
+    }
+
+    @Test
+    fun `formatReleaseNotes strips trilingual preamble and shows only active language`() {
+        val realStyleNotes = """
+            # 🚀 Multigravity v1.2.7
+
+            > 🎉 **Multigravity iOS 版现已正式上架 [Apple App Store](https://apps.apple.com/app/id6835508934)！**
+            >
+            > 🎉 **Multigravity for iOS is officially available on the [App Store](https://apps.apple.com/app/id6835508934)!**
+            >
+            > 🎉 **Multigravity iOS 版は Apple App Store で正式配信中！**
+
+            ---
+
+            ## 🇨🇳 中文更新说明
+
+            > ⚠️ **Android 升级提示**：自本版本起启用独立私有签名。
+            > **存量 `v1.2.6` 用户**：请先卸载旧版再安装新版。
+
+            ### ✨ 核心亮点与新特性
+
+            - 🌍 **全端三语深度打磨**：
+              - 支持自动协商语言。
+            - 📦 **全端版本号对齐**：Android `1.2.7`。
+
+            ---
+
+            ## 🇺🇸 English Release Notes
+
+            > ⚠️ **Android Upgrade Notice**: New private signing key.
+
+            ### ✨ Highlights & New Features
+
+            - 🌍 **Full Trilingual Polish**:
+              - Automatic language negotiation.
+
+            ---
+
+            ## 🇯🇵 日本語リリースノート
+
+            > ⚠️ **Android アップグレードのご案内**：新しい専用署名鍵を使用。
+
+            - 🌍 **全クライアント 3 言語対応**：自動言語切替を追加。
+        """.trimIndent()
+
+        val zh = AppUpdateParser.formatReleaseNotes(realStyleNotes, preferChinese = true, preferJapanese = false)
+        assertTrue(zh.contains("Android 升级提示"))
+        assertTrue(zh.contains("全端三语深度打磨"))
+        assertTrue(zh.contains("  · 支持自动协商语言。"))
+        assertTrue(zh.contains("全端版本号对齐"))
+        assertFalse(zh.contains("中文更新说明"))
+        assertFalse(zh.contains("officially available"))
+        assertFalse(zh.contains("正式配信中"))
+        assertFalse(zh.contains("Apple App Store"))
+        assertFalse(zh.contains("English Release Notes"))
+        assertFalse(zh.contains("Full Trilingual Polish"))
+        assertFalse(zh.contains("日本語リリースノート"))
+        assertFalse(zh.contains("> "))
+
+        val en = AppUpdateParser.formatReleaseNotes(realStyleNotes, preferChinese = false, preferJapanese = false)
+        assertTrue(en.contains("Android Upgrade Notice"))
+        assertTrue(en.contains("Full Trilingual Polish"))
+        assertTrue(en.contains("  · Automatic language negotiation."))
+        assertFalse(en.contains("English Release Notes"))
+        assertFalse(en.contains("中文更新说明"))
+        assertFalse(en.contains("全端三语深度打磨"))
+        assertFalse(en.contains("日本語リリースノート"))
+        assertFalse(en.contains("正式配信中"))
+
+        val ja = AppUpdateParser.formatReleaseNotes(realStyleNotes, preferChinese = false, preferJapanese = true)
+        assertTrue(ja.contains("Android アップグレードのご案内"))
+        assertTrue(ja.contains("全クライアント 3 言語対応"))
+        assertFalse(ja.contains("日本語リリースノート"))
+        assertFalse(ja.contains("全端三语深度打磨"))
+        assertFalse(ja.contains("Full Trilingual Polish"))
+        assertFalse(ja.contains("officially available"))
+    }
+
+    @Test
+    fun `formatReleaseNotes handles legacy preamble without chinese heading and strips markdown links`() {
+        val legacyNotes = """
+            - 修复连接稳定性，详情见 [官网](https://mgy.jiuge.space)
+
+            ---
+
+            ## English
+            - Improved connection stability, see [Website](https://mgy.jiuge.space)
+        """.trimIndent()
+
+        val zh = AppUpdateParser.formatReleaseNotes(legacyNotes, preferChinese = true)
+        assertEquals("• 修复连接稳定性，详情见 官网", zh)
+
+        val en = AppUpdateParser.formatReleaseNotes(legacyNotes, preferChinese = false)
+        assertEquals("• Improved connection stability, see Website", en)
+    }
+
+    @Test
+    fun `parseGitHubAssetDigest validates sha256 format`() {
+        assertEquals(
+            "ebc7975d168a5927b05392f8970dd54d46334cc8d4cbafc6d4887ec71cd479df",
+            AppUpdateParser.parseGitHubAssetDigest("sha256:EBC7975D168A5927B05392F8970DD54D46334CC8D4CBAFC6D4887EC71CD479DF")
+        )
+        assertNull(AppUpdateParser.parseGitHubAssetDigest("md5:123456"))
+        assertNull(AppUpdateParser.parseGitHubAssetDigest("sha256:short"))
+        assertNull(AppUpdateParser.parseGitHubAssetDigest(null))
     }
 }

@@ -1407,7 +1407,7 @@ private fun MainSettingsContent(
                                     )
                                 }
                                 is AppUpdateState.Downloading -> {
-                                    val pct = if (st.totalBytes > 0L) {
+                                    val pct = if (!st.selectingChannel && st.downloadedBytes > 0L && st.totalBytes > 0L) {
                                         ((st.downloadedBytes * 100L) / st.totalBytes).coerceIn(0L, 100L)
                                     } else {
                                         -1L
@@ -1510,7 +1510,8 @@ private fun AppUpdateDialog(
         else -> null
     } ?: return
 
-    val currentLang = L10n.currentLang
+    val langPref by L10n.currentLangFlow.collectAsState()
+    val currentLang = remember(langPref) { L10n.currentLang }
     val formattedNotes = remember(release.releaseNotes, currentLang) {
         AppUpdateParser.formatReleaseNotes(
             release.releaseNotes,
@@ -1557,7 +1558,7 @@ private fun AppUpdateDialog(
 
                 when (state) {
                     is AppUpdateState.Downloading -> {
-                        val progress = if (state.totalBytes > 0L) {
+                        val progress = if (!state.selectingChannel && state.downloadedBytes > 0L && state.totalBytes > 0L) {
                             (state.downloadedBytes.toFloat() / state.totalBytes.toFloat()).coerceIn(0f, 1f)
                         } else {
                             null
@@ -1580,15 +1581,27 @@ private fun AppUpdateDialog(
                                 trackColor = colors.border
                             )
                         }
-                        val dlMb = String.format("%.1f MB", state.downloadedBytes / (1024.0 * 1024.0))
-                        val totalMb = if (state.totalBytes > 0L) {
-                            " / " + String.format("%.1f MB", state.totalBytes / (1024.0 * 1024.0))
+                        val statusText = if (state.selectingChannel && state.downloadedBytes <= 0L) {
+                            "正在选择最快通道…".loc
                         } else {
-                            ""
+                            val dlMb = String.format("%.1f MB", state.downloadedBytes / (1024.0 * 1024.0))
+                            val totalMb = if (state.totalBytes > 0L) {
+                                " / " + String.format("%.1f MB", state.totalBytes / (1024.0 * 1024.0))
+                            } else {
+                                ""
+                            }
+                            val speedSuffix = when {
+                                state.speedBytesPerSec >= 1024L * 1024L ->
+                                    " · " + String.format("%.1f MB/s", state.speedBytesPerSec / (1024.0 * 1024.0))
+                                state.speedBytesPerSec >= 1024L ->
+                                    " · ${state.speedBytesPerSec / 1024L} KB/s"
+                                else -> ""
+                            }
+                            val channelLabel = if (state.usingMirror) "国内镜像".loc else "GitHub"
+                            "${"正在下载".loc} ($channelLabel) · $dlMb$totalMb$speedSuffix"
                         }
-                        val channelLabel = if (state.usingMirror) "国内镜像".loc else "GitHub"
                         Text(
-                            text = "${"正在下载".loc} ($channelLabel) · $dlMb$totalMb",
+                            text = statusText,
                             color = colors.textMuted,
                             fontSize = 12.sp
                         )
