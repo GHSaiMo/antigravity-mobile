@@ -502,7 +502,9 @@ async function openMarkdownViewer(uri, title) {
   const sheet = document.getElementById("sheet-markdown-viewer");
   if (!sheet) return;
 
-  currentViewerUri = uri || "implementation_plan.md";
+  const isRemoteOrUi = /^(?:https?|ui):\/\//i.test(uri || "");
+  const normalizedUri = (!isRemoteOrUi && uri) ? uri.split("#")[0] : uri;
+  currentViewerUri = normalizedUri || "implementation_plan.md";
   currentViewerData = null;
 
   const titleEl = document.getElementById("md-viewer-title");
@@ -513,7 +515,7 @@ async function openMarkdownViewer(uri, title) {
   const proceedBar = document.getElementById("md-viewer-proceed-bar");
 
   // Determine display title & subtitle
-  let rawFilename = (uri || "").split("/").pop().split("?")[0] || uri;
+  let rawFilename = (currentViewerUri || "").split("#")[0].split("?")[0].split("/").pop() || currentViewerUri;
   let filename = rawFilename;
   try {
     filename = decodeURIComponent(rawFilename);
@@ -832,10 +834,11 @@ function initMarkdownViewer() {
     let isLocalMd = !!dataMdUrl || link.classList.contains("markdown-file-link");
     if (!isLocalMd) {
       const lower = href.toLowerCase();
+      const lowerPath = lower.split("#")[0].split("?")[0].replace(/:l?\d+(?:[:-]l?\d+)?$/i, "");
       const isHttp = lower.startsWith("http://") || lower.startsWith("https://");
       const isExternal = isHttp && !lower.includes(window.location.host);
       if (!isExternal && !isPreviewableBinary(href)) {
-        if (lower.endsWith(".md") || lower.endsWith(".markdown") || lower.endsWith(".html") || lower.endsWith(".htm") || lower.endsWith(".rmd") || lower.endsWith(".rmarkdown") || lower.endsWith(".r") || lower.endsWith(".rprofile") || lower.includes("/brain/") || lower.includes("/static/artifacts/")) {
+        if (lowerPath.endsWith(".md") || lowerPath.endsWith(".markdown") || lowerPath.endsWith(".html") || lowerPath.endsWith(".htm") || lowerPath.endsWith(".rmd") || lowerPath.endsWith(".rmarkdown") || lowerPath.endsWith(".r") || lowerPath.endsWith(".rprofile") || lower.includes("/brain/") || lower.includes("/static/artifacts/")) {
           isLocalMd = true;
         }
       }

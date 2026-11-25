@@ -11,6 +11,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"regexp"
 	"runtime"
 	"strconv"
 	"strings"
@@ -48,8 +49,126 @@ func (m *ArtifactMetadata) IsUserFacing() bool {
 
 const maxReadSizeBytes = 10 * 1024 * 1024 // 10MB limit
 
+var trailingLineSuffixPattern = regexp.MustCompile(`(?i):L?\d+(?:[:-]L?\d+)?$`)
+
+// stripTrailingLineSuffix removes trailing editor line/column locators such as
+// ":123", ":123:45", ":123-456", or ":L10-L20" while preserving Windows drive letters.
+func stripTrailingLineSuffix(s string) string {
+	loc := trailingLineSuffixPattern.FindStringIndex(s)
+	if loc == nil || loc[0] <= 0 {
+		return s
+	}
+	prefix := s[:loc[0]]
+	if len(prefix) == 1 && isWindowsDriveLetter(prefix[0]) {
+		return s
+	}
+	return prefix
+}
+
+// stripURILocationSuffix strips URL fragment (#...) and query (?...) delimiters
+// as well as any trailing editor line/column locator.
+func stripURILocationSuffix(raw string, useLastHash bool) string {
+	s := raw
+	if useLastHash {
+		if idx := strings.LastIndex(s, "#"); idx != -1 {
+			s = s[:idx]
+		}
+	} else if idx := strings.Index(s, "#"); idx != -1 {
+		s = s[:idx]
+	}
+	if idx := strings.Index(s, "?"); idx != -1 {
+		s = s[:idx]
+	}
+	return stripTrailingLineSuffix(s)
+}
+
+func hasURILocationHint(raw string) bool {
+	if strings.ContainsAny(raw, "#?") {
+		return true
+	}
+	lower := strings.ToLower(raw)
+	if strings.Contains(lower, "%23") || strings.Contains(lower, "%3f") {
+		return true
+	}
+	return trailingLineSuffixPattern.MatchString(raw)
+}
+
+func isExistingReadableFile(p string) bool {
+	if p == "" || !IsSafeReadableFilePath(p) {
+		return false
+	}
+	fi, err := os.Stat(p)
+	return err == nil && !fi.IsDir()
+}
+
 // ResolveLocalFilePath normalizes a URI, relative path, or artifact path to an absolute filesystem path.
+// It also tolerates URL fragments (#L10-L20, #section), query strings (?v=1), and trailing editor
+// line/column suffixes (:10, :10:5) without breaking real filenames that contain literal '#' or ':'.
 func ResolveLocalFilePath(rawURI, cascadeID string) (string, error) {
+	raw := strings.TrimSpace(rawURI)
+	exactPath, exactErr := resolveLocalFilePathExact(raw, cascadeID)
+	if !hasURILocationHint(raw) {
+		return exactPath, exactErr
+	}
+	// If the literal path already points to a readable file on disk (e.g. "Report #1.md"), preserve it.
+	if exactErr == nil && isExistingReadableFile(exactPath) {
+		return exactPath, nil
+	}
+
+	candidates := make([]string, 0, 4)
+	addCandidate := func(c string) {
+		c = strings.TrimSpace(c)
+		if c == "" {
+			return
+		}
+		for _, existing := range candidates {
+			if existing == c {
+				return
+			}
+		}
+		candidates = append(candidates, c)
+	}
+
+	// 1. Primary: strip raw fragment/query before percent-unescaping so "%23" in filenames stays intact.
+	primary := stripURILocationSuffix(raw, false)
+	addCandidate(primary)
+	// 2. Pre-unescaped filenames with literal '#' plus trailing fragment (e.g. "Report #1.md#L10-L20").
+	if strings.Count(raw, "#") > 1 {
+		addCandidate(stripURILocationSuffix(raw, true))
+	}
+	// 3. Double-encoded fragment/query fallback (e.g. "notes.md%23L10-L20").
+	lowerRaw := strings.ToLower(raw)
+	if strings.Contains(lowerRaw, "%23") || strings.Contains(lowerRaw, "%3f") {
+		if unescaped, err := url.PathUnescape(raw); err == nil && unescaped != raw {
+			addCandidate(stripURILocationSuffix(unescaped, false))
+			if strings.Count(unescaped, "#") > 1 {
+				addCandidate(stripURILocationSuffix(unescaped, true))
+			}
+		}
+	}
+
+	var (
+		primaryPath string
+		primaryErr  error
+		hasPrimary  bool
+	)
+	for i, cand := range candidates {
+		p, err := resolveLocalFilePathExact(cand, cascadeID)
+		if i == 0 {
+			primaryPath, primaryErr, hasPrimary = p, err, true
+		}
+		if err == nil && isExistingReadableFile(p) {
+			return p, nil
+		}
+	}
+
+	if hasPrimary {
+		return primaryPath, primaryErr
+	}
+	return exactPath, exactErr
+}
+
+func resolveLocalFilePathExact(rawURI, cascadeID string) (string, error) {
 	home, err := os.UserHomeDir()
 	if err != nil {
 		return "", fmt.Errorf("unable to determine user home directory: %w", err)

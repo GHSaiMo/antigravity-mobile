@@ -364,13 +364,41 @@ extension ChatViewModel {
         }
     }
     
+    private func strippingLocalURIFragment(_ raw: String) -> String {
+        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        let lower = trimmed.lowercased()
+        if lower.hasPrefix("http://") || lower.hasPrefix("https://") || lower.hasPrefix("ui://") {
+            return trimmed
+        }
+        if var comps = URLComponents(string: trimmed),
+           comps.fragment != nil || (lower.hasPrefix("file://") && comps.query != nil) {
+            comps.fragment = nil
+            if lower.hasPrefix("file://") {
+                comps.query = nil
+            }
+            if let stripped = comps.string, !stripped.isEmpty {
+                return stripped
+            }
+        }
+        if let hashIdx = trimmed.firstIndex(of: "#") {
+            let prefix = String(trimmed[..<hashIdx])
+            if !prefix.isEmpty {
+                return prefix
+            }
+        }
+        return trimmed
+    }
+
     @MainActor
     public func openMarkdownViewer(uri: String, title: String? = nil, forceRefresh: Bool = false) {
-        let cleanURI = uri.trimmingCharacters(in: .whitespacesAndNewlines)
+        let cleanURI = strippingLocalURIFragment(uri)
         guard !cleanURI.isEmpty else { return }
         
         let unescapedURI = cleanURI.removingPercentEncoding ?? cleanURI
-        let rawFileName = (unescapedURI as NSString).lastPathComponent
+        let pathOnlyURI = unescapedURI.split(separator: "#", maxSplits: 1).first
+            .flatMap { $0.split(separator: "?", maxSplits: 1).first }
+            .map(String.init) ?? unescapedURI
+        let rawFileName = (pathOnlyURI as NSString).lastPathComponent
         var fileName = rawFileName.removingPercentEncoding ?? rawFileName
         if fileName.isEmpty || fileName == "/" {
             fileName = "document.md"
@@ -494,11 +522,14 @@ extension ChatViewModel {
     
     @MainActor
     public func prefetchMarkdownArtifact(uri: String) {
-        let cleanURI = uri.trimmingCharacters(in: .whitespacesAndNewlines)
+        let cleanURI = strippingLocalURIFragment(uri)
         guard !cleanURI.isEmpty, let url = settings.serverURL else { return }
         
         let unescapedURI = cleanURI.removingPercentEncoding ?? cleanURI
-        let rawFileName = (unescapedURI as NSString).lastPathComponent
+        let pathOnlyURI = unescapedURI.split(separator: "#", maxSplits: 1).first
+            .flatMap { $0.split(separator: "?", maxSplits: 1).first }
+            .map(String.init) ?? unescapedURI
+        let rawFileName = (pathOnlyURI as NSString).lastPathComponent
         var fileName = rawFileName.removingPercentEncoding ?? rawFileName
         if fileName.isEmpty || fileName == "/" {
             fileName = "document.md"

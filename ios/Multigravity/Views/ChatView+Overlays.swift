@@ -214,6 +214,17 @@ extension ChatView {
         let unescaped = clean.removingPercentEncoding ?? clean
         let lower = unescaped.lowercased()
         let pathLower = url.path.lowercased()
+        let fileTargetURI: String = {
+            if url.scheme?.lowercased() == "file",
+               var comps = URLComponents(url: url, resolvingAgainstBaseURL: false) {
+                comps.fragment = nil
+                comps.query = nil
+                if let stripped = comps.url?.absoluteString, !stripped.isEmpty {
+                    return stripped
+                }
+            }
+            return unescaped
+        }()
 
         // 0. Native Sidecar UI links (sidecar://<id>/...)
         if url.scheme?.lowercased() == "sidecar" {
@@ -272,14 +283,17 @@ extension ChatView {
         }()
         
         let uriLower = (uriParam ?? "").lowercased()
+        let uriPathLower = uriLower.split(separator: "#", maxSplits: 1).first
+            .flatMap { $0.split(separator: "?", maxSplits: 1).first }
+            .map(String.init) ?? uriLower
         let isZipFile = lower.hasSuffix(".zip") || pathLower.hasSuffix(".zip") || uriLower.hasSuffix(".zip") ||
             lower.contains(".zip?") || lower.contains(".zip#")
         if isZipFile {
             UIImpactFeedbackGenerator(style: .medium).impactOccurred()
-            if FileIconResolver.isWeChatChatArchive(decodedFileName) || FileIconResolver.isWeChatChatArchive(unescaped) {
-                viewModel.openWeChatArchive(uri: unescaped, fileName: decodedFileName)
+            if FileIconResolver.isWeChatChatArchive(decodedFileName) || FileIconResolver.isWeChatChatArchive(fileTargetURI) {
+                viewModel.openWeChatArchive(uri: fileTargetURI, fileName: decodedFileName)
             } else {
-                viewModel.downloadAndPreviewDocument(uri: unescaped, fileName: decodedFileName, isHTML: false)
+                viewModel.downloadAndPreviewDocument(uri: fileTargetURI, fileName: decodedFileName, isHTML: false)
             }
             return .handled
         }
@@ -297,18 +311,21 @@ extension ChatView {
         let allPreviewExtensions = documentExtensions + imageExtensions + videoExtensions + audioExtensions
         
         let isPreviewableFile = allPreviewExtensions.contains { ext in
-            lower.hasSuffix(ext) || pathLower.hasSuffix(ext) || uriLower.hasSuffix(ext) || lower.contains(ext + "?") || lower.contains(ext + "#")
+            lower.hasSuffix(ext) || pathLower.hasSuffix(ext) || uriPathLower.hasSuffix(ext) || lower.contains(ext + "?") || lower.contains(ext + "#")
         }
         
         if isPreviewableFile {
             UIImpactFeedbackGenerator(style: .medium).impactOccurred()
-            viewModel.downloadAndPreviewDocument(uri: unescaped, fileName: decodedFileName, isHTML: isHTML)
+            viewModel.downloadAndPreviewDocument(uri: fileTargetURI, fileName: decodedFileName, isHTML: isHTML)
             return .handled
         }
         
         // 2. Markdown & Plan Artifacts
         let isMarkdownArtifact = lower.hasSuffix(".md") || lower.hasSuffix(".markdown") ||
             pathLower.hasSuffix(".md") || pathLower.hasSuffix(".markdown") ||
+            uriPathLower.hasSuffix(".md") || uriPathLower.hasSuffix(".markdown") ||
+            lower.contains(".md#") || lower.contains(".md?") ||
+            lower.contains(".markdown#") || lower.contains(".markdown?") ||
             lower.contains("implementation_plan") || lower.contains("walkthrough") ||
             lower.contains("/brain/") || lower.contains("/static/artifacts/")
         if isMarkdownArtifact {
@@ -320,7 +337,7 @@ extension ChatView {
                 }
                 return decodedFileName
             }()
-            viewModel.openMarkdownViewer(uri: unescaped, title: docTitle)
+            viewModel.openMarkdownViewer(uri: fileTargetURI, title: docTitle)
             return .handled
         }
         

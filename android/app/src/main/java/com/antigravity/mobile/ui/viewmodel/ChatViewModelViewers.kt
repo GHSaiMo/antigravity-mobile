@@ -13,15 +13,26 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.net.URLDecoder
 
+private fun stripLocalUriFragment(raw: String): String {
+    val trimmed = raw.trim()
+    val lower = trimmed.lowercase()
+    if (lower.startsWith("http://") || lower.startsWith("https://") || lower.startsWith("ui://")) {
+        return trimmed
+    }
+    val hashIdx = trimmed.indexOf('#')
+    return if (hashIdx > 0) trimmed.substring(0, hashIdx) else trimmed
+}
+
 internal fun ChatViewModel.openMarkdownViewer(uri: String, title: String) {
-    val isPlan = uri.contains("implementation_plan", ignoreCase = true) || title.contains("implementation_plan", ignoreCase = true)
+    val cleanUri = stripLocalUriFragment(uri)
+    val isPlan = cleanUri.contains("implementation_plan", ignoreCase = true) || title.contains("implementation_plan", ignoreCase = true)
     val targetUri = if (isPlan && !_uiState.value.proceedArtifactUri.isNullOrBlank()) {
-        _uiState.value.proceedArtifactUri!!
+        stripLocalUriFragment(_uiState.value.proceedArtifactUri!!)
     } else {
-        uri
+        cleanUri
     }
 
-    val rawFilename = targetUri.substringAfterLast('/')
+    val rawFilename = targetUri.substringBefore('#').substringBefore('?').substringAfterLast('/')
     val decodedFilename = try { URLDecoder.decode(rawFilename, "UTF-8") } catch (_: Exception) { rawFilename }
     val decodedTitle = try { URLDecoder.decode(title, "UTF-8") } catch (_: Exception) { title }
     val initialTitle = when {
@@ -130,13 +141,14 @@ internal fun ChatViewModel.downloadAndPreviewDocument(uri: String, fileName: Str
     documentDownloadJob?.cancel()
     _documentDownloadProgress.value = 0f
 
+    val targetUri = stripLocalUriFragment(uri)
     val decodedFileName = try { URLDecoder.decode(fileName, "UTF-8") } catch (_: Exception) { fileName }
     val cascadeId = _uiState.value.cascadeId
 
     // 0. If uri is already a local file, preview immediately without network request
     val localCandidate = when {
-        uri.startsWith("file://") -> java.io.File(uri.removePrefix("file://"))
-        uri.startsWith("/") -> java.io.File(uri)
+        targetUri.startsWith("file://") -> java.io.File(targetUri.removePrefix("file://").substringBefore('?'))
+        targetUri.startsWith("/") -> java.io.File(targetUri.substringBefore('?'))
         else -> null
     }
     if (localCandidate != null && localCandidate.exists() && localCandidate.length() > 0) {
@@ -149,7 +161,7 @@ internal fun ChatViewModel.downloadAndPreviewDocument(uri: String, fileName: Str
     }
 
     // 1. Check local cache first
-    val cached = documentCacheManager?.getCachedFile(uri, decodedFileName, cascadeId)
+    val cached = documentCacheManager?.getCachedFile(targetUri, decodedFileName, cascadeId)
     if (cached != null && cached.exists() && cached.length() > 0) {
         _uiState.value = _uiState.value.copy(
             isDownloadingDocument = false,
@@ -160,7 +172,7 @@ internal fun ChatViewModel.downloadAndPreviewDocument(uri: String, fileName: Str
     }
 
     // 2. Prepare target file in cache
-    val target = documentCacheManager?.cacheFile(uri, decodedFileName, cascadeId)
+    val target = documentCacheManager?.cacheFile(targetUri, decodedFileName, cascadeId)
         ?: java.io.File.createTempFile("doc_", "_$decodedFileName")
 
     _uiState.value = _uiState.value.copy(
@@ -172,7 +184,7 @@ internal fun ChatViewModel.downloadAndPreviewDocument(uri: String, fileName: Str
     documentDownloadJob = viewModelScope.launch {
         val res = try {
             apiClient.downloadFile(
-                uri = uri,
+                uri = targetUri,
                 targetFile = target,
                 cascadeId = cascadeId,
                 onProgress = { progress, _, _ ->

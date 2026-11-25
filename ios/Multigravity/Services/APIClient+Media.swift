@@ -164,12 +164,18 @@ extension APIClient {
         
         // Fast-path: Check persistent local cache first
         let initialFileName: String = {
+            let stripSuffix: (String) -> String = { s in
+                let noHash = s.split(separator: "#", maxSplits: 1).first.map(String.init) ?? s
+                return noHash.split(separator: "?", maxSplits: 1).first.map(String.init) ?? noHash
+            }
             if let comps = URLComponents(string: uri),
                let paramUri = comps.queryItems?.first(where: { $0.name == "uri" })?.value, !paramUri.isEmpty {
-                let fn = (paramUri as NSString).lastPathComponent.removingPercentEncoding ?? (paramUri as NSString).lastPathComponent
+                let cleanParam = stripSuffix(paramUri)
+                let fn = (cleanParam as NSString).lastPathComponent.removingPercentEncoding ?? (cleanParam as NSString).lastPathComponent
                 if !fn.isEmpty && fn != "raw" { return fn }
             }
-            let last = (uri as NSString).lastPathComponent.removingPercentEncoding ?? (uri as NSString).lastPathComponent
+            let cleanUri = stripSuffix(uri)
+            let last = (cleanUri as NSString).lastPathComponent.removingPercentEncoding ?? (cleanUri as NSString).lastPathComponent
             return (last.isEmpty || last == "raw") ? "document" : last
         }()
         

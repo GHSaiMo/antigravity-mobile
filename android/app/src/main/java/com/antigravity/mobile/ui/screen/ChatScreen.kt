@@ -1197,11 +1197,12 @@ fun ChatScreen(
         dismissKeyboard()
         val clean = uri.trim()
         val lower = clean.lowercase()
+        val pathLower = lower.substringBefore('#').substringBefore('?').replace(Regex(""":l?\d+(?:[:-]l?\d+)?$"""), "")
         val rawName = title.ifEmpty {
             val uriParam = runCatching {
                 Uri.parse(clean).getQueryParameter("uri")
             }.getOrNull()?.takeIf { it.isNotBlank() }
-            val pathForName = (uriParam ?: clean.substringBefore('?').substringBefore('#')).trimEnd('/')
+            val pathForName = (uriParam ?: clean).substringBefore('#').substringBefore('?').trimEnd('/')
             pathForName.substringAfterLast('/')
         }
         val decodedFileName = try {
@@ -1254,7 +1255,7 @@ fun ChatScreen(
             ) {
                 haptic.medium()
                 viewModel.downloadAndPreviewDocument(clean, decodedFileName)
-            } else if (lower.endsWith(".md") || lower.endsWith(".markdown") ||
+            } else if (pathLower.endsWith(".md") || pathLower.endsWith(".markdown") ||
                 lower.contains("/brain/") || lower.contains("/static/artifacts/") ||
                 lower.contains("implementation_plan") || lower.contains("walkthrough")
             ) {

@@ -94,11 +94,12 @@ object FileIconResolver {
      * These must be previewed via downloadAndPreviewDocument rather than the text-based Markdown viewer.
      */
     fun isPreviewableDocument(pathOrName: String): Boolean {
-        var str = pathOrName.trim().trim('`', '\'', '"')
+        val str = pathOrName.trim().trim('`', '\'', '"')
         if (str.isEmpty()) return false
         val lower = str.lowercase()
+        val pathLower = lower.substringBefore('#').substringBefore('?').replace(lineSuffixRegex, "")
         return allPreviewExtensions.any { ext ->
-            lower.endsWith(ext) || lower.contains("$ext?") || lower.contains("$ext#")
+            pathLower.endsWith(ext) || lower.endsWith(ext) || lower.contains("$ext?") || lower.contains("$ext#")
         }
     }
 
@@ -238,12 +239,13 @@ object FileIconResolver {
      * Checks whether a file is an accessible document, presentation, sheet, or image.
      */
     fun isAccessibleDocument(pathOrName: String): Boolean {
-        var str = pathOrName.trim().trim('`', '\'', '"')
+        val str = pathOrName.trim().trim('`', '\'', '"')
         if (str.isEmpty()) return false
         val lower = str.lowercase()
+        val pathLower = lower.substringBefore('#').substringBefore('?').replace(lineSuffixRegex, "")
 
         // Markdown and plan artifacts
-        if (lower.endsWith(".md") || lower.endsWith(".markdown") ||
+        if (pathLower.endsWith(".md") || pathLower.endsWith(".markdown") ||
             lower.contains("/brain/") || lower.contains("/static/artifacts/") ||
             lower.contains("implementation_plan") || lower.contains("walkthrough")
         ) {
@@ -251,7 +253,7 @@ object FileIconResolver {
         }
 
         return allPreviewExtensions.any { ext ->
-            lower.endsWith(ext) || lower.contains("$ext?") || lower.contains("$ext#")
+            pathLower.endsWith(ext) || lower.endsWith(ext) || lower.contains("$ext?") || lower.contains("$ext#")
         }
     }
 

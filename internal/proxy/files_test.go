@@ -701,3 +701,132 @@ func TestTempDirReadableFilesAndWorkspaceConfinement(t *testing.T) {
 		t.Errorf("expected 403 when ALLOWED_WORKSPACE_ROOTS excludes temp dir, got %d", rrBlocked.Code)
 	}
 }
+
+func TestResolveLocalFilePathFragmentsQueriesAndLineLocators(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("ALLOWED_WORKSPACE_ROOTS", "")
+	t.Setenv("MULTIGRAVITY_ALLOWED_WORKSPACE_ROOTS", "")
+	resetWorkspaceRootsForTest()
+	t.Cleanup(resetWorkspaceRootsForTest)
+
+	docsDir := filepath.Join(home, "Projects", "demo", "private-docs")
+	if err := os.MkdirAll(docsDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	guidePath := filepath.Join(docsDir, "relay_pool_and_e2ee_ops_guide.md")
+	const guideBody = "# Relay Pool & E2EE Ops Guide\nSection 9\n"
+	if err := os.WriteFile(guidePath, []byte(guideBody), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	hashFilePath := filepath.Join(docsDir, "Report #1.md")
+	const hashBody = "# Report #1\n"
+	if err := os.WriteFile(hashFilePath, []byte(hashBody), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	envPath := filepath.Join(docsDir, ".env")
+	if err := os.WriteFile(envPath, []byte("SECRET=1\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	p := &Proxy{}
+
+	// 1. Standard file:// URI with GitHub-style line range fragment (#L748-L779), query, and :line locators
+	guideCases := []string{
+		"file://" + filepath.ToSlash(guidePath) + "#L748-L779",
+		"file://" + filepath.ToSlash(guidePath) + "#section-9",
+		"file://" + filepath.ToSlash(guidePath) + "?v=1#L748-L779",
+		"file://" + filepath.ToSlash(guidePath) + "%23L748-L779",
+		guidePath + "#L748-L779",
+		guidePath + ":748",
+		guidePath + ":748:12",
+		guidePath + ":L748-L779",
+	}
+	for _, rawURI := range guideCases {
+		got, err := ResolveLocalFilePath(rawURI, "test-cascade")
+		if err != nil {
+			t.Fatalf("ResolveLocalFilePath(%q) failed: %v", rawURI, err)
+		}
+		if got != guidePath {
+			t.Errorf("ResolveLocalFilePath(%q) = %q, want %q", rawURI, got, guidePath)
+		}
+
+		req := httptest.NewRequest(http.MethodGet, "/api/v1/files/content?uri="+url.QueryEscape(rawURI)+"&cascade_id=test-cascade", nil)
+		rr := httptest.NewRecorder()
+		p.HandleFileContent(rr, req)
+		if rr.Code != http.StatusOK {
+			t.Fatalf("HandleFileContent(%q) returned %d: %s", rawURI, rr.Code, rr.Body.String())
+		}
+		var res FileContentResult
+		if err := json.Unmarshal(rr.Body.Bytes(), &res); err != nil {
+			t.Fatalf("HandleFileContent(%q) invalid json: %v", rawURI, err)
+		}
+		if res.Content != guideBody {
+			t.Errorf("HandleFileContent(%q) content = %q, want %q", rawURI, res.Content, guideBody)
+		}
+		if res.Filename != "relay_pool_and_e2ee_ops_guide.md" {
+			t.Errorf("HandleFileContent(%q) filename = %q", rawURI, res.Filename)
+		}
+	}
+
+	// 2. Real filenames containing '#' (percent-encoded or pre-unescaped, with or without #L fragment)
+	hashCases := []string{
+		"file://" + filepath.ToSlash(filepath.Join(docsDir, "Report%20%231.md")),
+		"file://" + filepath.ToSlash(filepath.Join(docsDir, "Report%20%231.md")) + "#L10-L20",
+		"file://" + filepath.ToSlash(hashFilePath),
+		"file://" + filepath.ToSlash(hashFilePath) + "#L10-L20",
+		hashFilePath,
+		hashFilePath + "#L10-L20",
+	}
+	for _, rawURI := range hashCases {
+		got, err := ResolveLocalFilePath(rawURI, "")
+		if err != nil {
+			t.Fatalf("ResolveLocalFilePath(%q) failed: %v", rawURI, err)
+		}
+		if got != hashFilePath {
+			t.Errorf("ResolveLocalFilePath(%q) = %q, want %q", rawURI, got, hashFilePath)
+		}
+		res, err := GetFileContent(rawURI, "")
+		if err != nil {
+			t.Fatalf("GetFileContent(%q) failed: %v", rawURI, err)
+		}
+		if res.Content != hashBody {
+			t.Errorf("GetFileContent(%q) content = %q, want %q", rawURI, res.Content, hashBody)
+		}
+	}
+
+	// 3. Static artifact & bare filename with cascadeID + fragment
+	gotStatic, err := ResolveLocalFilePath("/static/artifacts/casc-99/plan.md#L1-L20", "")
+	if err != nil {
+		t.Fatalf("static artifact with fragment failed: %v", err)
+	}
+	wantStatic := filepath.Join(home, ".gemini", "antigravity", "brain", "casc-99", "plan.md")
+	if gotStatic != wantStatic {
+		t.Errorf("got %q, want %q", gotStatic, wantStatic)
+	}
+
+	gotBare, err := ResolveLocalFilePath("implementation_plan.md#L5-L12", "casc-99")
+	if err != nil {
+		t.Fatalf("bare filename with fragment failed: %v", err)
+	}
+	wantBare := filepath.Join(home, ".gemini", "antigravity", "brain", "casc-99", "implementation_plan.md")
+	if gotBare != wantBare {
+		t.Errorf("got %q, want %q", gotBare, wantBare)
+	}
+
+	// 4. Security: fragments must never bypass sensitive file restrictions
+	unsafeCases := []string{
+		"file://" + filepath.ToSlash(envPath) + "#L1-L5",
+		"file://" + filepath.ToSlash(envPath) + "#safe.md",
+		"file:///etc/passwd#L1-L5",
+		"file://" + filepath.ToSlash(filepath.Join(home, ".ssh", "id_rsa")) + "#notes.md",
+	}
+	for _, rawURI := range unsafeCases {
+		if got, err := ResolveLocalFilePath(rawURI, ""); err == nil {
+			t.Errorf("expected ResolveLocalFilePath(%q) to reject sensitive path, got %q", rawURI, got)
+		}
+	}
+}

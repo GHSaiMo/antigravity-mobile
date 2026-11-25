@@ -691,6 +691,7 @@ function extractImageFileName(rawPath) {
   if (clean.startsWith("MEDIA:")) clean = clean.slice(6).trim();
   clean = clean.replace(/^[`"'<(\[]+|[`>"')\]]+$/g, "");
   if (clean.startsWith("file://")) clean = clean.slice(7);
+  if (clean.includes("#")) clean = clean.split("#")[0];
   if (clean.includes("?")) clean = clean.split("?")[0];
   const parts = clean.split("/");
   const last = parts.pop() || "";
@@ -702,7 +703,7 @@ function extractImageFileName(rawPath) {
  */
 function isImageResource(url) {
   if (!url) return false;
-  const clean = url.split("?")[0].toLowerCase();
+  const clean = url.split("#")[0].split("?")[0].toLowerCase();
   return clean.endsWith(".png") || clean.endsWith(".jpg") || clean.endsWith(".jpeg") ||
          clean.endsWith(".webp") || clean.endsWith(".gif") || clean.endsWith(".svg") ||
          clean.endsWith(".bmp") || clean.endsWith(".ico") || clean.startsWith("data:image/");
@@ -1257,8 +1258,9 @@ function renderInlineMarkdown(text) {
     }
     const icon = resolveFileIcon(htmlUnescape(displayLinkText)) || resolveFileIcon(rawUrl);
     const lower = rawUrl.toLowerCase();
+    const lowerPath = lower.split("#")[0].split("?")[0].replace(/:l?\d+(?:[:-]l?\d+)?$/i, "");
     const isDoc = isPreviewableDocumentResource(rawUrl);
-    const isMd = !isDoc && (lower.endsWith(".md") || lower.endsWith(".markdown") || lower.includes("/brain/") || lower.includes("implementation_plan") || lower.includes("walkthrough"));
+    const isMd = !isDoc && (lowerPath.endsWith(".md") || lowerPath.endsWith(".markdown") || lower.includes("/brain/") || lower.includes("implementation_plan") || lower.includes("walkthrough"));
     const isPlan = !isDoc && (lower.includes("implementation_plan") || displayLinkText.toLowerCase().includes("implementation_plan") || lower.includes("walkthrough") || displayLinkText.toLowerCase().includes("walkthrough"));
     const extraClass = isPlan ? " plan-btn-link" : (isMd ? " markdown-file-link" : "");
     const arrowSvg = isPlan ? '<svg class="plan-btn-arrow" width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"></path><polyline points="15 3 21 3 21 9"></polyline><line x1="10" y1="14" x2="21" y2="3"></line></svg>' : '';
