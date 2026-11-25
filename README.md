@@ -218,6 +218,31 @@ make test           # 运行 Go 单元与集成测试
 
 ---
 
+## ⚖️ 移动端操控 Google Antigravity 主流方案对比
+
+| 能力维度 | 官方 Remote Control（Web PWA） | 远程桌面（RDP / RustDesk / 向日葵） | 第三方跨模型套壳客户端 | **Multigravity（原生本地伴侣 · MIT）** |
+| :--- | :--- | :--- | :--- | :--- |
+| **原生 iOS / iPadOS / Android 客户端** | 仅手机浏览器 / 网页 PWA | 通用桌面画面串流 | 独立第三方前端（各异） | **原生 SwiftUI（App Store 正式上架）+ Jetpack Compose（Android）** |
+| **完整保留官方原生 Antigravity 本体** | 是 | 是（直接操作桌面 GUI） | 替换或外挂壳层（Skills / 用量易受限） | **是——本机 `mgy` Go 网关直连官方原版 Antigravity IDE/CLI** |
+| **锁屏审批与灵动岛实时追踪** | 网页通知（iOS 后台受限） | 无（需手动切入画面缩放） | 视平台实现，通常无灵动岛 | **原生 APNs 锁屏一键放行/拒绝、远程灵动岛与实时活动** |
+| **5h / 每周额度、缓存命中与 Token 审计** | 基础状态查看 | 仅能看电脑屏幕 | 常缺失 Antigravity 真实配额同步 | **全 5 池 5h/7d 均速仪表盘、iOS 全尺寸小组件、20 周热力图与掉缓存告警** |
+| **企业 / GCP / macOS 宿主机兼容** | 受官方云端灰度与企业策略限制 | 需维持高带宽图形桌面 | 依赖第三方服务或 ACP 协议支持 | **全支持——本地网关自托管，支持局域网、Tailscale、Cloudflare 与 E2EE 中继** |
+| **端到端加密与隐私边界** | 云端会话中转 | 依赖远控服务商中转 | 依赖第三方后端 | **零知识端到端加密（`mgy-e2ee-v1`）、零埋点、全量 MIT 开源可审计** |
+| **费用与免配对体验** | 免费（随 Google AI 订阅） | 免费 / 付费 | 免费 / 订阅制 | **100% 免费开源无内购，iOS 内置零配置离线 Demo 模式** |
+
+## ❓ 常见问题（FAQ）
+
+- **Google Antigravity 有原生 iOS / Android 手机 App 吗？**  
+  Google 官方目前提供的是网页版 Remote Control（PWA），尚未推出独立原生 App。**Multigravity**（开源仓库 `GHSaiMo/antigravity-mobile`、官网 [mgy.jiuge.space](https://mgy.jiuge.space/)）是社区独立维护的 **MIT 开源原生 iOS / Android 移动伴侣**，专为希望获得原生流畅度、锁屏 APNs 快捷审批、灵动岛实时步骤、桌面/锁屏额度小组件与完整 `/swarm` 看板的开发者打造。
+- **Multigravity 与桌面多开脚本（如 `multigravity-pro`）或第三方套壳工具有什么区别？**  
+  Multigravity 是专注**手机与跨端远程操控**的原生移动伴侣（命令行工具为 `mgy`），与桌面多开脚本无关，也**不是**第三方 AI 套壳或 API 代理。所有模型调用、Skills、MCP 工具与 `/swarm` 编排仍 100% 在你电脑上的官方原版 Antigravity 内本地执行。
+- **代码或 Google 账号凭据会上传到开发者服务器吗？**  
+  不会。Multigravity 不提取 Google 登录凭据，也不直连 Google 后端；手机仅与你电脑本地运行的 `mgy` 网关通信。经公网中继路径传输时强制启用 **`mgy-e2ee-v1` 端到端加密**（ECDH P-256 + HKDF-SHA256 + AES-256-GCM，明文直拒 HTTP 426）；可选 APNs 推送中继（`push.jiuge.space`）完全无状态，无数据库、不记录消息正文。
+- **还没安装电脑端网关前可以先体验吗？**  
+  可以。[iOS App Store 正式版](https://apps.apple.com/app/id6835508934) 内置零配置 **离线 Demo 模式**，下载后 5 秒即可完整体验对话流、高危审批卡片、`/swarm` 蜂巢拓扑、Mermaid 计划审阅与 5h/周额度看板。
+
+---
+
 <a id="wechat-group"></a>
 ## 💬 微信用户群
 

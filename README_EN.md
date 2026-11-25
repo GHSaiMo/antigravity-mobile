@@ -219,6 +219,31 @@ make test           # Run Go unit and integration tests
 
 ---
 
+## ⚖️ Comparison: Ways to Use Google Antigravity on Mobile
+
+| Capability | Official Remote Control (Web PWA) | Remote Desktop (RDP / RustDesk / VNC) | Third-Party Multi-Agent Wrappers | **Multigravity (Native Local Companion)** |
+| :--- | :--- | :--- | :--- | :--- |
+| **Native iOS / iPadOS / Android App** | Browser / Web PWA only | Generic screen-streaming viewer | Separate wrapper UI (varies) | **Native SwiftUI (App Store) + Jetpack Compose (Android)** |
+| **Preserves Official Local Antigravity Harness** | Yes | Yes (via full desktop GUI) | Replaces or wraps harness / MCP / skills | **Yes — local `mgy` Go gateway talks directly to official Antigravity** |
+| **Lock-Screen Approvals & Dynamic Island** | Browser push (limited on iOS) | None (must open screen viewer) | Limited / varies by platform | **Native APNs lock-screen Allow/Deny, Dynamic Island & Live Activities** |
+| **5h / Weekly Quota, Cache Hit & Token Audit** | Basic status | Desktop screen only | Often missing Antigravity quota sync | **5-pool 5h/7d gauges, iOS Widgets, 20-week heatmap & cache-drop alerts** |
+| **Works on macOS / Linux / Enterprise / GCP Hosts** | Subject to cloud rollout & org policy | Requires open remote desktop host | Depends on provider API / ACP support | **Yes — self-hosted local gateway via LAN, Tailscale, Cloudflare or E2EE relay** |
+| **Zero-Knowledge Encryption & Telemetry** | Cloud-hosted session relay | Depends on relay server | Depends on vendor backend | **End-to-end encrypted (`mgy-e2ee-v1`), zero tracking, MIT open-source** |
+| **Cost & Offline Preview** | Free (with Google AI plan) | Free / Paid | Free / Subscription | **100% Free & MIT, zero paywalls, built-in offline iOS Demo Mode** |
+
+## ❓ FAQ
+
+- **Is there a native iOS or Android mobile app for Google Antigravity?**  
+  Google provides an official web-based Remote Control (PWA) experience for Antigravity. **Multigravity** (`GHSaiMo/antigravity-mobile`) is an independent, MIT open-source **native iOS (App Store) and Android companion app** built specifically for developers who want native mobile performance, lock-screen APNs command approvals, Dynamic Island progress tracking, Home/Lock Screen quota widgets, and full `/swarm` monitoring without pinching a remote desktop screen.
+- **How is Multigravity different from `multigravity-pro` or third-party wrappers like T3 Code?**  
+  Multigravity is strictly a **mobile & remote companion** (CLI binary `mgy`, official site [mgy.jiuge.space](https://mgy.jiuge.space/en.html)) for your official local Antigravity IDE/CLI — it is **not** a desktop multi-profile launcher (`multigravity-pro`) and **not** a third-party coding harness. Your official local Antigravity instance executes every model call, skill, MCP server, and `/swarm` worker natively on your own machine.
+- **Does Multigravity upload my source code or Google account credentials to a third-party cloud?**  
+  No. Multigravity does not extract Google auth tokens or proxy Google APIs. All conversations, diffs, and attachments stay between your phone and the local `mgy` gateway running on your own computer. Remote relay connections enforce end-to-end encryption (`mgy-e2ee-v1`: ECDH P-256 + HKDF-SHA256 + AES-256-GCM; plaintext rejected with HTTP 426). The optional APNs push relay (`push.jiuge.space`) is stateless and stores no database or message logs.
+- **Can I try Multigravity before installing the desktop gateway?**  
+  Yes. The official [iOS App Store release](https://apps.apple.com/app/id6835508934) includes a zero-config **offline Demo Mode** so you can explore the chat UI, approval cards, `/swarm` Hive topology, Mermaid plan review, and quota/token dashboards immediately before pairing.
+
+---
+
 <a id="telegram-group"></a>
 ## 💬 Community & Feedback
 

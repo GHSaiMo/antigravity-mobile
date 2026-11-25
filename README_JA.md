@@ -219,6 +219,31 @@ make test           # Go のユニットテストおよび結合テストを実�
 
 ---
 
+## ⚖️ Google Antigravity をスマホから操作する主な方法の比較
+
+| 機能・特徴 | 公式 Remote Control（Web / PWA） | リモートデスクトップ（RDP / RustDesk） | サードパーティ製ラッパー | **Multigravity（ネイティブ・ローカルコンパニオン）** |
+| :--- | :--- | :--- | :--- | :--- |
+| **ネイティブ iOS / iPadOS / Android アプリ** | モバイルブラウザ / Web PWA のみ | 汎用画面ストリーミング | 独自フロントエンド（ツール依存） | **ネイティブ SwiftUI（App Store 正式版）+ Jetpack Compose（Android）** |
+| **純正ローカル Antigravity 本体を維持** | はい | はい（デスクトップ画面経由） | ハーネスや MCP / Skills を置換・ラップ | **はい — ローカル Go ゲートウェイ `mgy` が純正 Antigravity と直接連携** |
+| **ロック画面承認 & Dynamic Island** | Web 通知（iOS バックグラウンド制約あり） | なし（画面を開いて操作が必要） | 限定的 / プラットフォーム依存 | **ネイティブ APNs ロック画面承認・Dynamic Island・ライブアクティビティ対応** |
+| **5時間 / 週間クォータ & キャッシュ監査** | 基本ステータスのみ | PC 画面のみ | Antigravity クォータ同期が非対応な場合あり | **全 5 プール 5h/7d ゲージ・iOS ウィジェット・20 週ヒートマップ・キャッシュ低下警告** |
+| **macOS / Linux / 企業 / GCP 環境対応** | 段階ロールアウト・組織ポリシー依存 | 画面共有ホスト常時稼働が必要 | 外部 API / ACP 対応に依存 | **全面対応 — LAN / Tailscale / Cloudflare / E2EE リレーでセルフホスト直結** |
+| **ゼロ知識暗号化 & テレメトリ** | クラウド中継 | リモートデスクトップ中継に依存 | ベンダーのバックエンドに依存 | **エンドツーエンド暗号化（`mgy-e2ee-v1`）・追跡ゼロ・MIT オープンソース** |
+| **料金 & 事前お試し** | 無料（Google AI プラン付帯） | 無料 / 有料 | 無料 / サブスクリプション | **完全無料・MIT・アプリ内課金なし・オフライン Demo モード内蔵** |
+
+## ❓ よくある質問（FAQ）
+
+- **Google Antigravity にネイティブの iOS / Android アプリはありますか？**  
+  Google 公式が提供しているのは Web ベースの Remote Control（PWA）です。**Multigravity**（リポジトリ `GHSaiMo/antigravity-mobile`、公式サイト [mgy.jiuge.space/ja.html](https://mgy.jiuge.space/ja.html)）は、ネイティブ UI、ロック画面からの APNs ワンタップ承認、Dynamic Island 進捗表示、ホーム／ロック画面クォータウィジェット、`/swarm` 監視を求める開発者向けに作られた **MIT オープンソースのネイティブ iOS / Android コンパニオンアプリ**です。
+- **デスクトップ向けマルチプロファイルツール（`multigravity-pro`）やサードパーティ製ラッパーとは何が違いますか？**  
+  Multigravity は純正ローカル Antigravity IDE / CLI 専用の**モバイル＆リモートコンパニオン**（CLI バイナリ `mgy`）であり、デスクトップ複数起動スクリプトや外部 API ラッパーではありません。すべてのモデル推論・Skills・MCP・`/swarm` はお使いの PC 上の純正 Antigravity 内でそのまま実行されます。
+- **ソースコードや Google 認証情報が開発者サーバーに送信されることはありますか？**  
+  ありません。Multigravity は Google 認証トークンを抽出せず、会話・差分・添付ファイルはすべてスマホとご自身の PC 上で動くローカル `mgy` ゲートウェイ間でのみ通信されます。リレー経路ではエンドツーエンド暗号化（`mgy-e2ee-v1`：ECDH P-256 + HKDF-SHA256 + AES-256-GCM、平文は HTTP 426 で拒否）を強制し、オプションの APNs 通知リレー（`push.jiuge.space`）もステートレスでログやデータベースを一切保持しません。
+- **PC 側ゲートウェイを入れる前にアプリを試せますか？**  
+  はい。[iOS App Store 正式版](https://apps.apple.com/app/id6835508934) には設定不要の**オフライン Demo モード**が内蔵されており、ペアリング前にチャット・高リスク承認・`/swarm` トポロジー・Mermaid 計画レビュー・クォータ画面をすぐ体験できます。
+
+---
+
 <a id="telegram-group"></a>
 ## 💬 コミュニティ・フィードバック
 
