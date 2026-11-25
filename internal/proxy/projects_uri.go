@@ -92,10 +92,10 @@ func uriToPath(rawURI string) string {
 		return rawURI
 	}
 
-	// Fix 2-slash file://d:/... -> file:///d:/...
+	// Fix 2-slash file://d:/... or file://d%3A/... -> file:///d:/...
 	if strings.HasPrefix(rawURI, "file://") && !strings.HasPrefix(rawURI, "file:///") {
 		rest := strings.TrimPrefix(rawURI, "file://")
-		if len(rest) >= 2 && isWindowsDriveLetter(rest[0]) && rest[1] == ':' {
+		if len(rest) >= 2 && isWindowsDriveLetter(rest[0]) && (rest[1] == ':' || (len(rest) >= 4 && strings.EqualFold(rest[1:4], "%3a"))) {
 			rawURI = "file:///" + rest
 		}
 	}
@@ -111,9 +111,11 @@ func uriToPath(rawURI string) string {
 
 	u, err := url.Parse(rawURI)
 	var path string
+	var host string
 	if err != nil {
 		path = strings.TrimPrefix(rawURI, "file://")
 	} else {
+		host = u.Host
 		p, uErr := url.PathUnescape(u.Path)
 		if uErr == nil {
 			path = p
@@ -129,6 +131,9 @@ func uriToPath(rawURI string) string {
 	}
 
 	if runtime.GOOS == "windows" {
+		if host != "" && !strings.EqualFold(host, "localhost") {
+			return filepath.Clean(`\\` + host + filepath.FromSlash(path))
+		}
 		if len(path) > 2 && (path[0] == '/' || path[0] == '\\') && isWindowsDriveLetter(path[1]) && path[2] == ':' {
 			path = path[1:]
 		}

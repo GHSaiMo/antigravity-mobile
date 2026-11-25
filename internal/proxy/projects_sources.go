@@ -42,6 +42,8 @@ func getAntigravityAppStoragePaths() []string {
 			filepath.Join(home, "Library", "Application Support", "Antigravity IDE", "app_storage.json"),
 			filepath.Join(home, "AppData", "Roaming", "Antigravity", "app_storage.json"),
 			filepath.Join(home, "AppData", "Roaming", "Antigravity IDE", "app_storage.json"),
+			filepath.Join(home, ".config", "Antigravity", "app_storage.json"),
+			filepath.Join(home, ".config", "Antigravity IDE", "app_storage.json"),
 		)
 	}
 	return paths
@@ -84,13 +86,19 @@ type geminiProjectConfigFile struct {
 }
 
 var (
-	geminiCfgCacheMu         sync.RWMutex
-	cachedSidecarProjStamp   string
-	cachedSidecarProjAt      time.Time
-	cachedSidecarProjIDs     map[string]bool
-	cachedGeminiCfgProjStamp string
-	cachedGeminiCfgProjAt    time.Time
-	cachedGeminiCfgProjects  []ProjectItem
+	geminiCfgCacheMu           sync.RWMutex
+	cachedSidecarProjStamp     string
+	cachedSidecarProjAt        time.Time
+	cachedSidecarProjIDs       map[string]bool
+	cachedGeminiCfgProjStamp   string
+	cachedGeminiCfgProjAt      time.Time
+	cachedGeminiCfgProjects    []ProjectItem
+	cachedGeminiAutoRootStamp  string
+	cachedGeminiAutoRootAt     time.Time
+	cachedGeminiAutoRoots      []string
+	cachedWSStorageRootStamp   string
+	cachedWSStorageRootAt      time.Time
+	cachedWSStorageAutoRoots   []string
 )
 
 func invalidateGeminiConfigCaches() {
@@ -99,6 +107,10 @@ func invalidateGeminiConfigCaches() {
 	cachedSidecarProjIDs = nil
 	cachedGeminiCfgProjStamp = ""
 	cachedGeminiCfgProjects = nil
+	cachedGeminiAutoRootStamp = ""
+	cachedGeminiAutoRoots = nil
+	cachedWSStorageRootStamp = ""
+	cachedWSStorageAutoRoots = nil
 	geminiCfgCacheMu.Unlock()
 }
 
@@ -309,6 +321,209 @@ func fetchProjectsFromGeminiConfig() []ProjectItem {
 	return items
 }
 
+// fetchAutoWorkspaceRootsFromGeminiConfig collects every local folder path referenced by
+// non-sidecar Antigravity project config JSONs (including multi-folder projects).
+func fetchAutoWorkspaceRootsFromGeminiConfig() []string {
+	dirs := getGeminiConfigProjectsDirs()
+	sidecarIDs := fetchSidecarProjectIDs()
+
+	var stampBuf strings.Builder
+	for _, dir := range dirs {
+		cleanDir := filepath.Clean(dir)
+		stampBuf.WriteString(cleanDir)
+		if fi, err := os.Stat(cleanDir); err == nil {
+			fmt.Fprintf(&stampBuf, ":%d|", fi.ModTime().UnixNano())
+		} else {
+			stampBuf.WriteString(":missing|")
+		}
+	}
+	fmt.Fprintf(&stampBuf, "#sc=%d", len(sidecarIDs))
+	stamp := stampBuf.String()
+	now := time.Now()
+
+	geminiCfgCacheMu.RLock()
+	if cachedGeminiAutoRoots != nil && cachedGeminiAutoRootStamp == stamp && now.Sub(cachedGeminiAutoRootAt) < 2*time.Second {
+		cp := make([]string, len(cachedGeminiAutoRoots))
+		copy(cp, cachedGeminiAutoRoots)
+		geminiCfgCacheMu.RUnlock()
+		return cp
+	}
+	geminiCfgCacheMu.RUnlock()
+
+	roots := make([]string, 0, 8)
+	seen := make(map[string]bool)
+	addURI := func(rawURI string) {
+		rawURI = strings.TrimSpace(rawURI)
+		if rawURI == "" || isRemoteURI(rawURI) {
+			return
+		}
+		norm := normalizeURI(rawURI)
+		if norm == "" || isRemoteURI(norm) {
+			return
+		}
+		p := uriToPath(norm)
+		if p == "" || seen[p] {
+			return
+		}
+		seen[p] = true
+		roots = append(roots, p)
+	}
+
+	for _, dir := range dirs {
+		cleanDir := filepath.Clean(dir)
+		entries, err := os.ReadDir(cleanDir)
+		if err != nil {
+			continue
+		}
+		for _, entry := range entries {
+			if entry.IsDir() || !strings.HasSuffix(strings.ToLower(entry.Name()), ".json") {
+				continue
+			}
+			if strings.EqualFold(entry.Name(), "outside-of-project.json") {
+				continue
+			}
+			data, err := os.ReadFile(filepath.Join(cleanDir, entry.Name()))
+			if err != nil || len(data) == 0 {
+				continue
+			}
+			var prj geminiProjectConfigFile
+			if err := json.Unmarshal(data, &prj); err != nil || prj.ID == "" || prj.ID == "outside-of-project" || sidecarIDs[prj.ID] {
+				continue
+			}
+			if prj.ProjectResources == nil {
+				continue
+			}
+			for _, r := range prj.ProjectResources.Resources {
+				if r.FolderURI != "" {
+					addURI(r.FolderURI)
+				}
+				if r.GitFolder != nil && r.GitFolder.FolderURI != "" {
+					addURI(r.GitFolder.FolderURI)
+				}
+			}
+		}
+	}
+
+	geminiCfgCacheMu.Lock()
+	cachedGeminiAutoRootStamp = stamp
+	cachedGeminiAutoRootAt = now
+	cachedGeminiAutoRoots = make([]string, len(roots))
+	copy(cachedGeminiAutoRoots, roots)
+	geminiCfgCacheMu.Unlock()
+	return roots
+}
+
+// fetchAutoWorkspaceRootsFromWorkspaceStorage collects local folder paths from
+// User/workspaceStorage/*/workspace.json with a lightweight directory mtime cache.
+func fetchAutoWorkspaceRootsFromWorkspaceStorage() []string {
+	wsRoots := getAntigravityWorkspaceStoragePaths()
+
+	var stampBuf strings.Builder
+	seenDirs := make(map[string]bool, len(wsRoots))
+	cleanRoots := make([]string, 0, len(wsRoots))
+	for _, wsRoot := range wsRoots {
+		cleanRoot := filepath.Clean(wsRoot)
+		if seenDirs[cleanRoot] {
+			continue
+		}
+		seenDirs[cleanRoot] = true
+		cleanRoots = append(cleanRoots, cleanRoot)
+		stampBuf.WriteString(cleanRoot)
+		if fi, err := os.Stat(cleanRoot); err == nil {
+			fmt.Fprintf(&stampBuf, ":%d|", fi.ModTime().UnixNano())
+		} else {
+			stampBuf.WriteString(":missing|")
+		}
+	}
+	stamp := stampBuf.String()
+	now := time.Now()
+
+	geminiCfgCacheMu.RLock()
+	if cachedWSStorageAutoRoots != nil && cachedWSStorageRootStamp == stamp && now.Sub(cachedWSStorageRootAt) < 5*time.Second {
+		cp := make([]string, len(cachedWSStorageAutoRoots))
+		copy(cp, cachedWSStorageAutoRoots)
+		geminiCfgCacheMu.RUnlock()
+		return cp
+	}
+	geminiCfgCacheMu.RUnlock()
+
+	roots := make([]string, 0, 8)
+	seen := make(map[string]bool)
+	for _, cleanRoot := range cleanRoots {
+		entries, err := os.ReadDir(cleanRoot)
+		if err != nil {
+			continue
+		}
+		for _, entry := range entries {
+			if !entry.IsDir() {
+				continue
+			}
+			data, err := os.ReadFile(filepath.Join(cleanRoot, entry.Name(), "workspace.json"))
+			if err != nil || len(data) == 0 {
+				continue
+			}
+			var wsObj struct {
+				Folder string `json:"folder"`
+			}
+			if err := json.Unmarshal(data, &wsObj); err != nil {
+				continue
+			}
+			rawURI := strings.TrimSpace(wsObj.Folder)
+			if rawURI == "" || isRemoteURI(rawURI) {
+				continue
+			}
+			norm := normalizeURI(rawURI)
+			if norm == "" || isRemoteURI(norm) {
+				continue
+			}
+			p := uriToPath(norm)
+			if p == "" || seen[p] {
+				continue
+			}
+			seen[p] = true
+			roots = append(roots, p)
+		}
+	}
+
+	geminiCfgCacheMu.Lock()
+	cachedWSStorageRootStamp = stamp
+	cachedWSStorageRootAt = now
+	cachedWSStorageAutoRoots = make([]string, len(roots))
+	copy(cachedWSStorageAutoRoots, roots)
+	geminiCfgCacheMu.Unlock()
+	return roots
+}
+
+// syncDiscoveredWorkspaceRootsFromReadProjectsJSON extracts local project folder URIs
+// from an upstream ReadProjects JSON response and registers them as discovered workspace roots.
+func syncDiscoveredWorkspaceRootsFromReadProjectsJSON(raw []byte) {
+	if len(raw) == 0 {
+		return
+	}
+	var readResp struct {
+		Projects []geminiProjectConfigFile `json:"projects"`
+	}
+	if err := json.Unmarshal(raw, &readResp); err != nil || len(readResp.Projects) == 0 {
+		return
+	}
+	sidecarIDs := fetchSidecarProjectIDs()
+	paths := make([]string, 0, len(readResp.Projects))
+	for _, prj := range readResp.Projects {
+		if prj.ID == "" || prj.ID == "outside-of-project" || sidecarIDs[prj.ID] || prj.ProjectResources == nil {
+			continue
+		}
+		for _, r := range prj.ProjectResources.Resources {
+			if r.FolderURI != "" && !isRemoteURI(r.FolderURI) {
+				paths = append(paths, r.FolderURI)
+			}
+			if r.GitFolder != nil && r.GitFolder.FolderURI != "" && !isRemoteURI(r.GitFolder.FolderURI) {
+				paths = append(paths, r.GitFolder.FolderURI)
+			}
+		}
+	}
+	syncDiscoveredWorkspaceRoots(paths)
+}
+
 // fetchOfficialProjects loads projectsOrder and calls upstream ReadProjects to get the exact 21 projects in order.
 func (p *Proxy) fetchOfficialProjects(port int, token string, sessionStats map[string]struct {
 	count      int
@@ -426,17 +641,26 @@ func (p *Proxy) fetchOfficialProjects(port int, token string, sessionStats map[s
 						isWs bool
 					})
 
+					var allLocalResourceURIs []string
 					for _, prj := range readResp.Projects {
 						uri := ""
 						if prj.ProjectResources != nil {
 							for _, r := range prj.ProjectResources.Resources {
 								if r.FolderURI != "" {
-									uri = r.FolderURI
-									break
+									if !isRemoteURI(r.FolderURI) {
+										allLocalResourceURIs = append(allLocalResourceURIs, r.FolderURI)
+									}
+									if uri == "" {
+										uri = r.FolderURI
+									}
 								}
 								if r.GitFolder != nil && r.GitFolder.FolderURI != "" {
-									uri = r.GitFolder.FolderURI
-									break
+									if !isRemoteURI(r.GitFolder.FolderURI) {
+										allLocalResourceURIs = append(allLocalResourceURIs, r.GitFolder.FolderURI)
+									}
+									if uri == "" {
+										uri = r.GitFolder.FolderURI
+									}
 								}
 							}
 						}
@@ -452,6 +676,7 @@ func (p *Proxy) fetchOfficialProjects(port int, token string, sessionStats map[s
 							isWs: prj.IsWorkspaceOnly,
 						}
 					}
+					syncDiscoveredWorkspaceRoots(allLocalResourceURIs)
 
 					var orderedItems []ProjectItem
 					for _, id := range order {

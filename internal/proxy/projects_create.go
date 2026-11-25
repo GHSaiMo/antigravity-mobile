@@ -146,6 +146,25 @@ func (p *Proxy) HandleCreateCascade(w http.ResponseWriter, r *http.Request) {
 			}
 		} else {
 			resolvedWS, wsErr := validateWorkspaceDir(wsURI, false)
+			if wsErr != nil && !hasExplicitAllowedWorkspaceRoots() {
+				// Cold-start fallback: refresh discovered projects (ReadProjects RPC / state.vscdb / trajectories)
+				// so a registered workspace outside $HOME is recognized even before GET /gateway/projects.
+				if projects, err := p.GetProjects(); err == nil && len(projects) > 0 {
+					paths := make([]string, 0, len(projects))
+					for _, prj := range projects {
+						if isRemoteURI(prj.URI) {
+							continue
+						}
+						if prj.Path != "" {
+							paths = append(paths, prj.Path)
+						} else if prj.URI != "" {
+							paths = append(paths, prj.URI)
+						}
+					}
+					syncDiscoveredWorkspaceRoots(paths)
+				}
+				resolvedWS, wsErr = validateWorkspaceDir(wsURI, false)
+			}
 			if wsErr != nil {
 				http.Error(w, wsErr.Error(), http.StatusForbidden)
 				return

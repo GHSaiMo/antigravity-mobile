@@ -16,6 +16,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"time"
 	"unicode/utf8"
 )
 
@@ -326,14 +327,217 @@ func joinUnder(root, extra string) (string, error) {
 	return full, nil
 }
 
+const autoWorkspaceRootsTTL = 2 * time.Second
+
 var (
-	workspaceRootsMu    sync.RWMutex
-	workspaceRootsHome  string
-	workspaceRootsExtra string
-	workspaceRoots      []string
-	readableRootsTmpDir string
-	readableFileRoots   []string
+	workspaceRootsMu         sync.RWMutex
+	workspaceRootsHome       string
+	workspaceRootsExtra      string
+	workspaceRootsEnvKey     string
+	workspaceRootsDiscVer    uint64
+	workspaceRootsSeq        uint64
+	workspaceRootsAt         time.Time
+	workspaceRoots           []string
+	readableRootsTmpDir      string
+	readableRootsSeq         uint64
+	readableFileRoots        []string
+	discoveredRootsEnvKey    string
+	discoveredRootsVersion   uint64
+	discoveredWorkspaceRoots []string
 )
+
+// sensitiveDirSubstrings lists lower-cased directory substrings blocked from file and workspace access.
+var sensitiveDirSubstrings = []string{
+	"/.ssh/", "/.gnupg/", "/.aws/", "/.docker/", "/library/keychains/",
+	"/library/application support/",
+	"/library/cookies/", "/library/safari/", "/library/mail/",
+	"/library/messages/", "/library/containers/", "/library/group containers/",
+	"/.kube/", "/.config/gcloud/", "/gcloud/",
+	"/.multigravity/",
+	"/.antigravity-mobile/",
+	"/.antigravity_cockpit/", "/.cockpit-tools/", "/.hal9000/",
+	"/.claude/", "/.codex/", "/.cursor/",
+	"/.acme.sh/", "/.lego/", "/.certbot/",
+	"/.config/gh/", "/.config/hub/", "/.config/rclone/", "/.config/op/", "/.config/doctl/",
+	"/.config/google-chrome/", "/.config/chromium/", "/.config/bravesoftware/", "/.mozilla/",
+	"/.azure/", "/.oci/", "/.terraform.d/", "/.password-store/", "/.local/share/keyrings/",
+	"/.cargo/", "/.gem/", "/.m2/", "/.gradle/", "/.config/pip/",
+	// Antigravity internal session connection & presence lock directories (contain LS port & CSRF token).
+	"/.gemini/antigravity/daemon/", "/.gemini/antigravity/presence/",
+}
+
+func hasSensitiveDirComponent(resolved string) bool {
+	// Lower-cased: macOS/Windows file systems are case-insensitive, so ~/.AWS must match /.aws/.
+	slashPath := strings.ToLower(strings.ReplaceAll(filepath.ToSlash(resolved), `\`, "/"))
+	for _, sd := range sensitiveDirSubstrings {
+		if strings.Contains(slashPath, sd) || strings.HasSuffix(slashPath, strings.TrimSuffix(sd, "/")) {
+			return true
+		}
+	}
+	return false
+}
+
+func hasPathPrefixForOS(goos, path, prefix, sep string) bool {
+	if goos == "windows" || goos == "darwin" {
+		lp := strings.ToLower(path)
+		lpre := strings.ToLower(prefix)
+		return strings.HasPrefix(lp, lpre) || lp+sep == lpre
+	}
+	return strings.HasPrefix(path, prefix) || path+sep == prefix
+}
+
+func hasExplicitAllowedWorkspaceRoots() bool {
+	return strings.TrimSpace(os.Getenv("MULTIGRAVITY_ALLOWED_WORKSPACE_ROOTS")) != "" ||
+		strings.TrimSpace(os.Getenv("ALLOWED_WORKSPACE_ROOTS")) != ""
+}
+
+func currentWorkspaceRootsEnvKey(home string) string {
+	return home + "|" + os.Getenv("APPDATA") + "|" + os.Getenv("ANTIGRAVITY_APP_DATA_DIR")
+}
+
+// isBlockedAutoWorkspaceRoot rejects system roots, broad OS directories, temp roots,
+// and sensitive credential directories from ever being auto-added via project discovery.
+func isBlockedAutoWorkspaceRoot(resolved string) bool {
+	if resolved == "" || strings.ContainsRune(resolved, 0) || strings.HasPrefix(resolved, "-") {
+		return true
+	}
+	if isDriveRoot(resolved) {
+		return true
+	}
+	if hasSensitiveDirComponent(resolved) {
+		return true
+	}
+	slash := strings.ToLower(strings.TrimRight(strings.ReplaceAll(filepath.ToSlash(resolved), `\`, "/"), "/"))
+	if slash == "" {
+		return true
+	}
+	for _, sysPrefix := range []string{
+		"/etc", "/private/etc", "/system", "/proc", "/sys", "/dev",
+	} {
+		if slash == sysPrefix || strings.HasPrefix(slash, sysPrefix+"/") {
+			return true
+		}
+	}
+	if len(slash) >= 3 && isWindowsDriveLetter(slash[0]) && slash[1] == ':' {
+		rest := slash[2:]
+		for _, winPrefix := range []string{"/windows", "/programdata"} {
+			if rest == winPrefix || strings.HasPrefix(rest, winPrefix+"/") {
+				return true
+			}
+		}
+		switch rest {
+		case "/users", "/program files", "/program files (x86)":
+			return true
+		}
+	}
+	switch slash {
+	case "/var", "/private/var", "/tmp", "/private/tmp", "/usr", "/bin", "/sbin",
+		"/library", "/volumes", "/mnt", "/media", "/opt", "/users", "/home":
+		return true
+	}
+	if tmpDir := strings.TrimSpace(os.TempDir()); tmpDir != "" {
+		cleanTmp := strings.ToLower(strings.TrimRight(filepath.ToSlash(filepath.Clean(tmpDir)), "/"))
+		resolvedTmp := strings.ToLower(strings.TrimRight(filepath.ToSlash(evalSymlinksExistingPrefix(tmpDir)), "/"))
+		if slash == cleanTmp || slash == resolvedTmp {
+			return true
+		}
+	}
+	if slash == "/root" {
+		if home, err := os.UserHomeDir(); err != nil || strings.ToLower(strings.TrimRight(filepath.ToSlash(filepath.Clean(home)), "/")) != "/root" {
+			return true
+		}
+	}
+	return false
+}
+
+func normalizeAutoWorkspaceRoot(raw string) string {
+	p := strings.TrimSpace(raw)
+	if p == "" || strings.ContainsRune(p, 0) || isRemoteURI(p) {
+		return ""
+	}
+	if strings.HasPrefix(p, "file://") {
+		p = uriToPath(p)
+	}
+	p = strings.TrimSpace(p)
+	if p == "" || !filepath.IsAbs(p) {
+		return ""
+	}
+	clean := filepath.Clean(p)
+	if isDriveRoot(clean) {
+		return ""
+	}
+	resolved := evalSymlinksExistingPrefix(clean)
+	if isBlockedAutoWorkspaceRoot(resolved) {
+		return ""
+	}
+	fi, err := os.Stat(resolved)
+	if err != nil || !fi.IsDir() {
+		return ""
+	}
+	return resolved
+}
+
+// syncDiscoveredWorkspaceRoots records local project directories discovered from
+// Antigravity's official project sources (ReadProjects RPC, state.vscdb, trajectories)
+// so workspaces outside $HOME (e.g. D:\ on Windows or /Volumes on macOS) work seamlessly.
+func syncDiscoveredWorkspaceRoots(rawPaths []string) {
+	if len(rawPaths) == 0 {
+		return
+	}
+	home, err := os.UserHomeDir()
+	if err != nil || home == "" {
+		return
+	}
+	envKey := currentWorkspaceRootsEnvKey(home)
+
+	var valid []string
+	for _, raw := range rawPaths {
+		if resolved := normalizeAutoWorkspaceRoot(raw); resolved != "" {
+			valid = append(valid, resolved)
+		}
+	}
+	if len(valid) == 0 {
+		return
+	}
+
+	workspaceRootsMu.Lock()
+	defer workspaceRootsMu.Unlock()
+
+	if discoveredRootsEnvKey != envKey {
+		discoveredRootsEnvKey = envKey
+		discoveredWorkspaceRoots = nil
+	}
+	added := false
+	for _, v := range valid {
+		exists := false
+		for _, cur := range discoveredWorkspaceRoots {
+			if runtime.GOOS == "windows" || runtime.GOOS == "darwin" {
+				if strings.EqualFold(cur, v) {
+					exists = true
+					break
+				}
+			} else if cur == v {
+				exists = true
+				break
+			}
+		}
+		if !exists {
+			discoveredWorkspaceRoots = append(discoveredWorkspaceRoots, v)
+			added = true
+		}
+	}
+	if added {
+		discoveredRootsVersion++
+		workspaceRootsAt = time.Time{}
+	}
+}
+
+func invalidateWorkspaceRootsCache() {
+	workspaceRootsMu.Lock()
+	discoveredRootsVersion++
+	workspaceRootsAt = time.Time{}
+	workspaceRootsMu.Unlock()
+}
 
 // evalSymlinksExistingPrefix resolves symlinks along the longest existing ancestor prefix of p,
 // re-attaching any not-yet-created trailing path segments cleanly. This prevents parent-directory
@@ -379,7 +583,7 @@ func appendNormalizedRootPrefix(dst []string, raw string) []string {
 			p += sep
 		}
 		for _, existing := range dst {
-			if existing == p {
+			if hasPathPrefixForOS(runtime.GOOS, candidate, existing, sep) {
 				return
 			}
 		}
@@ -394,23 +598,44 @@ func appendNormalizedRootPrefix(dst []string, raw string) []string {
 
 // AllowedWorkspaceRoots returns directory prefixes that may be served via the file APIs.
 // ~/.gemini/antigravity is always included. If ALLOWED_WORKSPACE_ROOTS is set,
-// those roots replace the default. Otherwise the paired computer's home directory is allowed;
-// IsSafeFilePath still rejects credential stores and secret filenames.
+// those roots replace the default. Otherwise the paired computer's home directory
+// plus Antigravity-registered local workspace roots (e.g. projects on D:\, /Volumes, /data)
+// are allowed; IsSafeFilePath still rejects credential stores and secret filenames.
 func AllowedWorkspaceRoots() []string {
+	roots, _ := allowedWorkspaceRootsWithSeq()
+	return roots
+}
+
+func allowedWorkspaceRootsWithSeq() ([]string, uint64) {
 	home, err := os.UserHomeDir()
 	if err != nil || home == "" {
-		return nil
+		return nil, 0
 	}
 	extra := strings.TrimSpace(os.Getenv("MULTIGRAVITY_ALLOWED_WORKSPACE_ROOTS"))
 	if extra == "" {
 		extra = strings.TrimSpace(os.Getenv("ALLOWED_WORKSPACE_ROOTS"))
 	}
+	envKey := currentWorkspaceRootsEnvKey(home)
 
 	workspaceRootsMu.RLock()
 	if workspaceRoots != nil && workspaceRootsHome == home && workspaceRootsExtra == extra {
-		cached := workspaceRoots
-		workspaceRootsMu.RUnlock()
-		return cached
+		if extra != "" || (workspaceRootsEnvKey == envKey &&
+			workspaceRootsDiscVer == discoveredRootsVersion &&
+			time.Since(workspaceRootsAt) < autoWorkspaceRootsTTL) {
+			cached := workspaceRoots
+			seq := workspaceRootsSeq
+			workspaceRootsMu.RUnlock()
+			return cached, seq
+		}
+	}
+	var discoveredSnapshot []string
+	var discVer uint64
+	if extra == "" {
+		discVer = discoveredRootsVersion
+		if discoveredRootsEnvKey == envKey && len(discoveredWorkspaceRoots) > 0 {
+			discoveredSnapshot = make([]string, len(discoveredWorkspaceRoots))
+			copy(discoveredSnapshot, discoveredWorkspaceRoots)
+		}
 	}
 	workspaceRootsMu.RUnlock()
 
@@ -431,16 +656,39 @@ func AllowedWorkspaceRoots() []string {
 		}
 	} else {
 		roots = appendNormalizedRootPrefix(roots, home)
+		// Automatically include local directories registered as Antigravity projects
+		// (outside $HOME, such as Windows D:\, macOS /Volumes, Linux /data, or symlinks).
+		for _, raw := range fetchAutoWorkspaceRootsFromGeminiConfig() {
+			if resolved := normalizeAutoWorkspaceRoot(raw); resolved != "" {
+				roots = appendNormalizedRootPrefix(roots, resolved)
+			}
+		}
+		for _, raw := range fetchAutoWorkspaceRootsFromWorkspaceStorage() {
+			if resolved := normalizeAutoWorkspaceRoot(raw); resolved != "" {
+				roots = appendNormalizedRootPrefix(roots, resolved)
+			}
+		}
+		for _, raw := range discoveredSnapshot {
+			if resolved := normalizeAutoWorkspaceRoot(raw); resolved != "" {
+				roots = appendNormalizedRootPrefix(roots, resolved)
+			}
+		}
 	}
 
 	workspaceRootsMu.Lock()
 	workspaceRootsHome = home
 	workspaceRootsExtra = extra
+	workspaceRootsEnvKey = envKey
+	workspaceRootsDiscVer = discVer
+	workspaceRootsAt = time.Now()
+	workspaceRootsSeq++
+	seq := workspaceRootsSeq
 	workspaceRoots = roots
 	readableRootsTmpDir = ""
+	readableRootsSeq = 0
 	readableFileRoots = nil
 	workspaceRootsMu.Unlock()
-	return roots
+	return roots, seq
 }
 
 // AllowedReadableFileRoots returns directory prefixes that may be served read-only
@@ -450,7 +698,7 @@ func AllowedWorkspaceRoots() []string {
 // on Unix) are also included so agent-generated temporary media/artifacts can be previewed
 // or downloaded without exposing temp directories as writable workspace roots.
 func AllowedReadableFileRoots() []string {
-	wsRoots := AllowedWorkspaceRoots()
+	wsRoots, wsSeq := allowedWorkspaceRootsWithSeq()
 	if len(wsRoots) == 0 {
 		return nil
 	}
@@ -469,7 +717,7 @@ func AllowedReadableFileRoots() []string {
 	tmpDir := strings.TrimSpace(os.TempDir())
 
 	workspaceRootsMu.RLock()
-	if readableFileRoots != nil && workspaceRootsHome == home && workspaceRootsExtra == extra && readableRootsTmpDir == tmpDir {
+	if readableFileRoots != nil && workspaceRootsHome == home && workspaceRootsExtra == extra && readableRootsTmpDir == tmpDir && readableRootsSeq == wsSeq {
 		cached := readableFileRoots
 		workspaceRootsMu.RUnlock()
 		return cached
@@ -490,8 +738,9 @@ func AllowedReadableFileRoots() []string {
 	}
 
 	workspaceRootsMu.Lock()
-	if workspaceRootsHome == home && workspaceRootsExtra == extra {
+	if workspaceRootsHome == home && workspaceRootsExtra == extra && workspaceRootsSeq == wsSeq {
 		readableRootsTmpDir = tmpDir
+		readableRootsSeq = wsSeq
 		readableFileRoots = roots
 	}
 	workspaceRootsMu.Unlock()
@@ -502,10 +751,19 @@ func resetWorkspaceRootsForTest() {
 	workspaceRootsMu.Lock()
 	workspaceRootsHome = ""
 	workspaceRootsExtra = ""
+	workspaceRootsEnvKey = ""
+	workspaceRootsDiscVer = 0
+	workspaceRootsSeq = 0
+	workspaceRootsAt = time.Time{}
 	workspaceRoots = nil
 	readableRootsTmpDir = ""
+	readableRootsSeq = 0
 	readableFileRoots = nil
+	discoveredRootsEnvKey = ""
+	discoveredRootsVersion = 0
+	discoveredWorkspaceRoots = nil
 	workspaceRootsMu.Unlock()
+	invalidateGeminiConfigCaches()
 }
 
 // IsSafeFilePath validates that the resolved path is within an allowed workspace directory
@@ -529,32 +787,10 @@ func isSafePathUnderRoots(path string, roots []string) bool {
 	clean := filepath.Clean(path)
 	resolved := evalSymlinksExistingPrefix(clean)
 
-	// Lower-cased: macOS/Windows file systems are case-insensitive, so ~/.AWS must match /.aws/.
+	if hasSensitiveDirComponent(resolved) {
+		return false
+	}
 	slashPath := strings.ToLower(filepath.ToSlash(resolved))
-	sensitiveDirs := []string{
-		"/.ssh/", "/.gnupg/", "/.aws/", "/.docker/", "/Library/Keychains/",
-		"/Library/Application Support/",
-		"/Library/Cookies/", "/Library/Safari/", "/Library/Mail/",
-		"/Library/Messages/", "/Library/Containers/", "/Library/Group Containers/",
-		"/.kube/", "/.config/gcloud/", "/gcloud/",
-		"/.multigravity/",
-		"/.antigravity-mobile/",
-		"/.antigravity_cockpit/", "/.cockpit-tools/", "/.hal9000/",
-		"/.claude/", "/.codex/", "/.cursor/",
-		"/.acme.sh/", "/.lego/", "/.certbot/",
-		"/.config/gh/", "/.config/hub/", "/.config/rclone/", "/.config/op/", "/.config/doctl/",
-		"/.config/google-chrome/", "/.config/chromium/", "/.config/bravesoftware/", "/.mozilla/",
-		"/.azure/", "/.oci/", "/.terraform.d/", "/.password-store/", "/.local/share/keyrings/",
-		"/.cargo/", "/.gem/", "/.m2/", "/.gradle/", "/.config/pip/",
-		// Antigravity internal session connection & presence lock directories (contain LS port & CSRF token).
-		"/.gemini/antigravity/daemon/", "/.gemini/antigravity/presence/",
-	}
-	for _, sd := range sensitiveDirs {
-		sd = strings.ToLower(sd)
-		if strings.Contains(slashPath, sd) || strings.HasSuffix(slashPath, strings.TrimSuffix(sd, "/")) {
-			return false
-		}
-	}
 	for _, sf := range []string{
 		"/.gemini/settings.json",
 		"/.gemini/config/config.json",
@@ -613,7 +849,7 @@ func isSafePathUnderRoots(path string, roots []string) bool {
 
 	sep := string(filepath.Separator)
 	for _, prefix := range roots {
-		if strings.HasPrefix(resolved, prefix) || resolved+sep == prefix {
+		if hasPathPrefixForOS(runtime.GOOS, resolved, prefix, sep) {
 			return true
 		}
 	}
@@ -658,6 +894,20 @@ func validateWorkspaceDir(rawPath string, mustExist bool) (string, error) {
 		return "", fmt.Errorf("非法的工作区路径")
 	}
 	if !IsSafeFilePath(resolved) {
+		reason := "outside_allowed_roots"
+		if hasSensitiveDirComponent(resolved) {
+			reason = "sensitive_dir"
+		}
+		roots := AllowedWorkspaceRoots()
+		if len(roots) > 12 {
+			roots = roots[:12]
+		}
+		slog.Warn("[Files] rejected workspace path",
+			"reason", reason,
+			"raw", rawPath,
+			"resolved", resolved,
+			"allowedRoots", roots,
+		)
 		return "", fmt.Errorf("工作区路径不在允许访问的目录范围内")
 	}
 	if fi, err := os.Stat(resolved); err == nil {

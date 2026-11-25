@@ -43,6 +43,7 @@ func (p *Proxy) invalidateProjectsCache() {
 	p.cachedProjectsAt = time.Time{}
 	p.projectsCacheMu.Unlock()
 	invalidateGeminiConfigCaches()
+	invalidateWorkspaceRootsCache()
 }
 
 // GetProjects discovers all projects from local IDE database and trajectory history.
@@ -295,9 +296,18 @@ func (p *Proxy) buildProjectsList(port int, token string) ([]ProjectItem, error)
 	}
 
 	result := make([]ProjectItem, 0, len(projectMap))
+	discoveredPaths := make([]string, 0, len(projectMap))
 	for _, prj := range projectMap {
 		result = append(result, *prj)
+		if !isRemoteURI(prj.URI) {
+			if prj.Path != "" {
+				discoveredPaths = append(discoveredPaths, prj.Path)
+			} else if prj.URI != "" {
+				discoveredPaths = append(discoveredPaths, prj.URI)
+			}
+		}
 	}
+	syncDiscoveredWorkspaceRoots(discoveredPaths)
 
 	sort.Slice(result, func(i, j int) bool {
 		if result[i].LastActive != nil && result[j].LastActive != nil {

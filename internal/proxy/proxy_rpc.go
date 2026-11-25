@@ -482,6 +482,7 @@ func (p *Proxy) handleReadProjects(w http.ResponseWriter, r *http.Request, rp ht
 		p.lastReadProjectsResp = make([]byte, len(respBytes))
 		copy(p.lastReadProjectsResp, respBytes)
 		p.projectsCacheMu.Unlock()
+		syncDiscoveredWorkspaceRootsFromReadProjectsJSON(respBytes)
 
 		for k, v := range rec.header {
 			w.Header()[k] = v

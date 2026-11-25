@@ -138,7 +138,20 @@ func filePathToURI(p string) string {
 	if strings.HasPrefix(p, "file://") {
 		return p
 	}
-	u := url.URL{Scheme: "file", Path: filepath.ToSlash(p)}
+	slashed := filepath.ToSlash(p)
+	// Handle UNC paths such as \\wsl.localhost\Ubuntu\home\user\proj -> file://wsl.localhost/Ubuntu/home/user/proj
+	if strings.HasPrefix(slashed, "//") {
+		rest := strings.TrimPrefix(slashed, "//")
+		if idx := strings.IndexByte(rest, '/'); idx > 0 {
+			u := url.URL{Scheme: "file", Host: rest[:idx], Path: rest[idx:]}
+			return u.String()
+		}
+	}
+	// Handle Windows drive paths such as D:\Projects\app -> file:///D:/Projects/app
+	if len(slashed) >= 2 && isWindowsDriveLetter(slashed[0]) && slashed[1] == ':' {
+		slashed = "/" + slashed
+	}
+	u := url.URL{Scheme: "file", Path: slashed}
 	return u.String()
 }
 

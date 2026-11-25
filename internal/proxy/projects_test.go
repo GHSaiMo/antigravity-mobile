@@ -1079,3 +1079,105 @@ func TestBuildWorkspaceDisplayNameResolver(t *testing.T) {
 		t.Fatalf("expected (proj-unknown, not Truck9000), got (%q, %q)", pid, disp)
 	}
 }
+
+func TestHandleCreateCascade_RegisteredExternalProjectOutsideHome(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home)
+	t.Setenv("APPDATA", "")
+	t.Setenv("ANTIGRAVITY_APP_DATA_DIR", "")
+	t.Setenv("ALLOWED_WORKSPACE_ROOTS", "")
+	t.Setenv("MULTIGRAVITY_ALLOWED_WORKSPACE_ROOTS", "")
+	resetWorkspaceRootsForTest()
+	t.Cleanup(resetWorkspaceRootsForTest)
+
+	extRoot := t.TempDir()
+	yijuDir := filepath.Join(extRoot, "yiju_9000")
+	rpcOnlyDir := filepath.Join(extRoot, "rpc_only_external")
+	unregDir := filepath.Join(extRoot, "unregistered_dir")
+	for _, d := range []string{yijuDir, rpcOnlyDir, unregDir} {
+		if err := os.MkdirAll(d, 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	// 1. Register yiju_9000 in ~/.gemini/config/projects/
+	cfgDir := filepath.Join(home, ".gemini", "config", "projects")
+	if err := os.MkdirAll(cfgDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	yijuJSON := fmt.Sprintf(`{
+		"id": "yiju-pid-001",
+		"name": "yiju_9000",
+		"projectResources": {"resources": [{"folderUri": %q}]}
+	}`, filePathToURI(yijuDir))
+	if err := os.WriteFile(filepath.Join(cfgDir, "yiju-pid-001.json"), []byte(yijuJSON), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	// 2. Put rpcOnlyDir ONLY in app_storage.json + upstream ReadProjects RPC (not in ~/.gemini/config/projects/)
+	appStorageDir := filepath.Join(home, "Library", "Application Support", "Antigravity")
+	if err := os.MkdirAll(appStorageDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(appStorageDir, "app_storage.json"), []byte(`{"projectsOrder":"[\"rpc-only-pid-002\"]"}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	mockUpstream := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch {
+		case strings.HasSuffix(r.URL.Path, "/ReadProjects"):
+			resp := fmt.Sprintf(`{"projects":[{"id":"rpc-only-pid-002","name":"rpc_only_external","projectResources":{"resources":[{"folderUri":%q}]}}]}`, filePathToURI(rpcOnlyDir))
+			_, _ = w.Write([]byte(resp))
+		case strings.HasSuffix(r.URL.Path, "/StartCascade"):
+			_, _ = w.Write([]byte(`{"cascadeId":"cascade-ext-ok"}`))
+		case strings.HasSuffix(r.URL.Path, "/GetAllCascadeTrajectories"):
+			_, _ = w.Write([]byte(`{"trajectorySummaries":{}}`))
+		default:
+			_, _ = w.Write([]byte(`{}`))
+		}
+	}))
+	defer mockUpstream.Close()
+
+	port := mockUpstream.Listener.Addr().(*net.TCPAddr).Port
+	insp := inspector.NewInspector(5 * time.Second)
+	p := NewProxy(insp)
+	p.activePort = port
+	p.activeToken = "test-token"
+
+	// Case A: Config-registered project outside $HOME succeeds without ALLOWED_WORKSPACE_ROOTS
+	bodyA, _ := json.Marshal(CreateCascadeRequest{
+		WorkspaceURI: filePathToURI(yijuDir),
+		ProjectID:    "yiju-pid-001",
+		Prompt:       "你好",
+	})
+	recA := httptest.NewRecorder()
+	p.HandleCreateCascade(recA, httptest.NewRequest(http.MethodPost, "/gateway/cascade/new", strings.NewReader(string(bodyA))))
+	if recA.Code != http.StatusOK {
+		t.Fatalf("Case A (config-registered external workspace) expected 200, got %d: %s", recA.Code, recA.Body.String())
+	}
+
+	// Case B: Cold-start fallback discovers ReadProjects-only workspace outside $HOME
+	bodyB, _ := json.Marshal(CreateCascadeRequest{
+		WorkspaceURI: filePathToURI(rpcOnlyDir),
+		ProjectID:    "rpc-only-pid-002",
+		Prompt:       "你好",
+	})
+	recB := httptest.NewRecorder()
+	p.HandleCreateCascade(recB, httptest.NewRequest(http.MethodPost, "/gateway/cascade/new", strings.NewReader(string(bodyB))))
+	if recB.Code != http.StatusOK {
+		t.Fatalf("Case B (ReadProjects cold-start fallback) expected 200, got %d: %s", recB.Code, recB.Body.String())
+	}
+
+	// Case C: Unregistered directory outside $HOME is still rejected with 403
+	bodyC, _ := json.Marshal(CreateCascadeRequest{
+		WorkspaceURI: filePathToURI(unregDir),
+		Prompt:       "你好",
+	})
+	recC := httptest.NewRecorder()
+	p.HandleCreateCascade(recC, httptest.NewRequest(http.MethodPost, "/gateway/cascade/new", strings.NewReader(string(bodyC))))
+	if recC.Code != http.StatusForbidden {
+		t.Fatalf("Case C (unregistered external workspace) expected 403, got %d: %s", recC.Code, recC.Body.String())
+	}
+}

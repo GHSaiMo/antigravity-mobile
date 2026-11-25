@@ -830,3 +830,212 @@ func TestResolveLocalFilePathFragmentsQueriesAndLineLocators(t *testing.T) {
 		}
 	}
 }
+
+func TestHasPathPrefixForOS_CaseSensitivity(t *testing.T) {
+	cases := []struct {
+		name   string
+		goos   string
+		path   string
+		prefix string
+		sep    string
+		want   bool
+	}{
+		{"windows_drive_case_diff", "windows", `c:\users\alice\yiju_9000`, `C:\Users\Alice\`, `\`, true},
+		{"windows_exact_dir_case_diff", "windows", `d:\yiju_9000`, `D:\Yiju_9000\`, `\`, true},
+		{"windows_sibling_prefix_rejected", "windows", `d:\yiju_9000_evil`, `D:\yiju_9000\`, `\`, false},
+		{"darwin_case_diff", "darwin", "/Users/Hal9000/yiju_9000", "/Users/hal9000/", "/", true},
+		{"darwin_sibling_prefix_rejected", "darwin", "/Volumes/SSD/yiju_9000_other", "/Volumes/SSD/yiju_9000/", "/", false},
+		{"linux_case_sensitive_reject", "linux", "/home/Alice/yiju_9000", "/home/alice/", "/", false},
+		{"linux_exact_match", "linux", "/data/yiju_9000", "/data/yiju_9000/", "/", true},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := hasPathPrefixForOS(tc.goos, tc.path, tc.prefix, tc.sep); got != tc.want {
+				t.Errorf("hasPathPrefixForOS(%q, %q, %q, %q) = %v, want %v", tc.goos, tc.path, tc.prefix, tc.sep, got, tc.want)
+			}
+		})
+	}
+}
+
+func TestIsBlockedAutoWorkspaceRoot(t *testing.T) {
+	blocked := []string{
+		"/",
+		"/etc",
+		"/etc/nginx",
+		"/private/etc",
+		"/System/Library",
+		"/proc",
+		"/sys",
+		"/dev",
+		"/tmp",
+		"/var",
+		"/Users",
+		"/Volumes",
+		os.TempDir(),
+		"C:\\",
+		"D:\\",
+		"C:\\Windows",
+		"C:\\Windows\\System32",
+		"C:\\Users",
+		"/Users/alice/.ssh",
+		"/Users/alice/.hal9000/yiju_9000",
+	}
+	for _, p := range blocked {
+		if !isBlockedAutoWorkspaceRoot(p) {
+			t.Errorf("expected %q to be blocked as auto workspace root", p)
+		}
+	}
+
+	allowed := []string{
+		"/Volumes/ExternalSSD/yiju_9000",
+		"/data/yiju_9000",
+		"/opt/apps/yiju_9000",
+		"D:\\yiju_9000",
+		"E:\\Projects\\yiju_9000",
+	}
+	for _, p := range allowed {
+		if isBlockedAutoWorkspaceRoot(p) {
+			t.Errorf("expected %q to be allowed as auto workspace root", p)
+		}
+	}
+}
+
+func TestFilePathToURI_WindowsAndUNC(t *testing.T) {
+	if got := filePathToURI("D:/Projects/yiju_9000"); got != "file:///D:/Projects/yiju_9000" {
+		t.Errorf("got %q, want file:///D:/Projects/yiju_9000", got)
+	}
+	if got := filePathToURI("//wsl.localhost/Ubuntu/home/alice/yiju_9000"); got != "file://wsl.localhost/Ubuntu/home/alice/yiju_9000" {
+		t.Errorf("got %q, want file://wsl.localhost/Ubuntu/home/alice/yiju_9000", got)
+	}
+}
+
+func TestAutoRegisteredWorkspaceRoots_GeminiConfigAndWorkspaceStorage(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home)
+	t.Setenv("APPDATA", "")
+	t.Setenv("ANTIGRAVITY_APP_DATA_DIR", "")
+	t.Setenv("ALLOWED_WORKSPACE_ROOTS", "")
+	t.Setenv("MULTIGRAVITY_ALLOWED_WORKSPACE_ROOTS", "")
+	resetWorkspaceRootsForTest()
+	t.Cleanup(resetWorkspaceRootsForTest)
+
+	// External directories completely outside $HOME (simulates D:\, /Volumes/SSD, /data)
+	extRoot := t.TempDir()
+	projA := filepath.Join(extRoot, "yiju_9000")
+	projA2 := filepath.Join(extRoot, "yiju_9000_sub")
+	projB := filepath.Join(extRoot, "legacy_ws_proj")
+	projSymTarget := filepath.Join(extRoot, "symlink_target_proj")
+	unregistered := filepath.Join(extRoot, "unregistered_secret")
+	for _, d := range []string{projA, projA2, projB, projSymTarget, unregistered} {
+		if err := os.MkdirAll(d, 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	readmeA := filepath.Join(projA, "README.md")
+	envA := filepath.Join(projA, ".env")
+	if err := os.WriteFile(readmeA, []byte("# yiju_9000\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(envA, []byte("SECRET=1\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	// Register multi-folder project (projA + projA2) and a malicious /etc entry in ~/.gemini/config/projects/
+	cfgDir := filepath.Join(home, ".gemini", "config", "projects")
+	if err := os.MkdirAll(cfgDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	projAJSON := `{
+		"id": "yiju-project-id",
+		"name": "yiju_9000",
+		"projectResources": {
+			"resources": [
+				{"folderUri": "` + filePathToURI(projA) + `"},
+				{"gitFolder": {"folderUri": "` + filePathToURI(projA2) + `"}}
+			]
+		}
+	}`
+	if err := os.WriteFile(filepath.Join(cfgDir, "yiju-project-id.json"), []byte(projAJSON), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(cfgDir, "bad-etc.json"), []byte(`{"id":"bad-etc","name":"etc","projectResources":{"resources":[{"folderUri":"file:///etc"}]}}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	// Register symlink project inside $HOME pointing to external volume
+	var linkedProj string
+	if runtime.GOOS != "windows" {
+		linkedProj = filepath.Join(home, "Projects", "linked-yiju")
+		if err := os.MkdirAll(filepath.Dir(linkedProj), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Symlink(projSymTarget, linkedProj); err != nil {
+			t.Fatal(err)
+		}
+		symJSON := `{"id":"sym-id","name":"linked-yiju","projectResources":{"resources":[{"folderUri":"` + filePathToURI(linkedProj) + `"}]}}`
+		if err := os.WriteFile(filepath.Join(cfgDir, "sym-id.json"), []byte(symJSON), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		// Symlink inside projA escaping to unregistered directory must still be blocked
+		if err := os.Symlink(unregistered, filepath.Join(projA, "escape_link")); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	// Register projB via workspaceStorage/*/workspace.json
+	wsStorageDir := filepath.Join(home, ".config", "Antigravity", "User", "workspaceStorage", "hash-proj-b")
+	if err := os.MkdirAll(wsStorageDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(wsStorageDir, "workspace.json"), []byte(`{"folder":"`+filePathToURI(projB)+`"}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	resetWorkspaceRootsForTest()
+
+	// 1. Registered external projects must pass validateWorkspaceDir & file checks
+	for _, d := range []string{projA, projA2, projB} {
+		if _, err := validateWorkspaceDir(d, true); err != nil {
+			t.Errorf("expected registered external project %q to pass validateWorkspaceDir, got: %v", d, err)
+		}
+		if _, err := validateWorkspaceDir(filePathToURI(d), true); err != nil {
+			t.Errorf("expected registered external project URI %q to pass validateWorkspaceDir, got: %v", filePathToURI(d), err)
+		}
+	}
+	if linkedProj != "" {
+		if _, err := validateWorkspaceDir(linkedProj, true); err != nil {
+			t.Errorf("expected registered symlinked project %q to pass validateWorkspaceDir, got: %v", linkedProj, err)
+		}
+	}
+
+	// Regular files inside registered external project must be readable, while secrets remain blocked
+	if !IsSafeFilePath(readmeA) || !IsSafeReadableFilePath(readmeA) {
+		t.Errorf("expected regular file %q in registered external project to be allowed", readmeA)
+	}
+	if IsSafeFilePath(envA) || IsSafeReadableFilePath(envA) {
+		t.Errorf("expected sensitive file %q in registered external project to stay blocked", envA)
+	}
+	if runtime.GOOS != "windows" {
+		if IsSafeFilePath(filepath.Join(projA, "escape_link")) {
+			t.Errorf("expected symlink inside registered project escaping to unregistered dir to be blocked")
+		}
+	}
+
+	// 2. Unregistered external directory and blocked system roots must remain rejected
+	if _, err := validateWorkspaceDir(unregistered, true); err == nil {
+		t.Errorf("expected unregistered external dir %q to be rejected", unregistered)
+	}
+	if runtime.GOOS != "windows" {
+		if _, err := validateWorkspaceDir("/etc", true); err == nil {
+			t.Errorf("expected /etc to remain rejected even if listed in project config")
+		}
+	}
+
+	// 3. Explicit ALLOWED_WORKSPACE_ROOTS must still strictly override auto-registered projects
+	t.Setenv("ALLOWED_WORKSPACE_ROOTS", filepath.Join(home, "OnlyHere"))
+	resetWorkspaceRootsForTest()
+	if _, err := validateWorkspaceDir(projA, true); err == nil {
+		t.Errorf("expected explicit ALLOWED_WORKSPACE_ROOTS to override auto-registered external project %q", projA)
+	}
+}
