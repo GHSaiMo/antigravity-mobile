@@ -838,3 +838,62 @@ func TestReadDesktopSelectedModel_CarbonEnums(t *testing.T) {
 		t.Fatalf("expected Gemini 4 Carbon (High), got %q", name)
 	}
 }
+
+func TestBuildModelTables_OrchestratorThinkingEffortsAndHighDefault(t *testing.T) {
+	resetLiveModels(t)
+	g := "MODEL_PROVIDER_GOOGLE"
+	raw := map[string]upstreamModel{
+		"gemini-pro-orchestrator-neon-low":    {DisplayName: "Orchestrator (Neon) (Low)", Model: "MODEL_PLACEHOLDER_M701", ModelProvider: g, Recommended: true, Thinking: true, TagTitle: "New"},
+		"gemini-pro-orchestrator-neon-medium": {DisplayName: "Orchestrator (Neon) (Medium)", Model: "MODEL_PLACEHOLDER_M702", ModelProvider: g, Recommended: true, Thinking: true, TagTitle: "New"},
+		"gemini-pro-orchestrator-neon-high":   {DisplayName: "Orchestrator (Neon) (High)", Model: "MODEL_PLACEHOLDER_M703", ModelProvider: g, Recommended: true, Thinking: true, TagTitle: "New"},
+		"gemini-pro-orchestrator-neon-xhigh":  {DisplayName: "Orchestrator (Neon) (XHigh)", Model: "MODEL_PLACEHOLDER_M704", ModelProvider: g, Recommended: true, Thinking: true, TagTitle: "New"},
+		"gemini-pro-orchestrator-argon-low":   {DisplayName: "Orchestrator (Argon, Low)", Model: "MODEL_PLACEHOLDER_M705", ModelProvider: g, Recommended: true, Thinking: true, TagTitle: "New"},
+		"gemini-pro-orchestrator-argon-xhigh": {DisplayName: "Orchestrator (Argon, Extra High)", Model: "MODEL_PLACEHOLDER_M706", ModelProvider: g, Recommended: true, Thinking: true, TagTitle: "New"},
+		"custom-multi-agent-high":             {DisplayName: "Orchestrator (Carbon - High)", Model: "MODEL_PLACEHOLDER_M707", ModelProvider: g, Recommended: true, Thinking: true},
+	}
+	curated := []string{
+		"gemini-pro-orchestrator-neon-low",
+		"gemini-pro-orchestrator-neon-medium",
+		"gemini-pro-orchestrator-neon-high",
+		"gemini-pro-orchestrator-neon-xhigh",
+		"gemini-pro-orchestrator-argon-low",
+		"gemini-pro-orchestrator-argon-xhigh",
+		"custom-multi-agent-high",
+	}
+	o, bi, be := buildModelTables(raw, curated)
+	liveModels.set(o, bi, be, "")
+
+	res, live := liveModels.snapshot()
+	if !live {
+		t.Fatal("expected live models")
+	}
+	if res.Defaults["orchestrator"] != "gemini-pro-orchestrator-neon-high" {
+		t.Fatalf("orchestrator default = %q, want gemini-pro-orchestrator-neon-high", res.Defaults["orchestrator"])
+	}
+	orch := idsOf(res.Models, "orchestrator")
+	if len(orch) != len(curated) {
+		t.Fatalf("expected all %d orchestrator options classified as orchestrator, got %v", len(curated), orch)
+	}
+	byID := map[string]ModelOption{}
+	for _, opt := range res.Models {
+		byID[opt.ID] = opt
+	}
+	if got := byID["gemini-pro-orchestrator-neon-xhigh"].Name; got != "Orchestrator (Neon) (Extra)" {
+		t.Errorf("xhigh display name = %q, want Orchestrator (Neon) (Extra)", got)
+	}
+	if got := byID["gemini-pro-orchestrator-argon-xhigh"].Name; got != "Orchestrator (Argon, Extra)" {
+		t.Errorf("argon extra high display name = %q, want Orchestrator (Argon, Extra)", got)
+	}
+
+	// Unknown orchestrator slug without preferredDefaults hit still prefers High over Low/Extra
+	o2, bi2, be2 := buildModelTables(map[string]upstreamModel{
+		"custom-orch-low":   {DisplayName: "Orchestrator (Titanium) (Low)", Model: "MODEL_PLACEHOLDER_M711", ModelProvider: g, Recommended: true},
+		"custom-orch-xhigh": {DisplayName: "Orchestrator (Titanium) (XHigh)", Model: "MODEL_PLACEHOLDER_M712", ModelProvider: g, Recommended: true},
+		"custom-orch-high":  {DisplayName: "Orchestrator (Titanium) (High)", Model: "MODEL_PLACEHOLDER_M713", ModelProvider: g, Recommended: true},
+	}, []string{"custom-orch-low", "custom-orch-xhigh", "custom-orch-high"})
+	liveModels.set(o2, bi2, be2, "")
+	res2, _ := liveModels.snapshot()
+	if res2.Defaults["orchestrator"] != "custom-orch-high" {
+		t.Fatalf("unknown orchestrator default = %q, want custom-orch-high", res2.Defaults["orchestrator"])
+	}
+}

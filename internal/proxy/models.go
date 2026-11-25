@@ -58,9 +58,17 @@ type ModelsResponse struct {
 
 // 兜底默认值候选（按优先级排列）：实时列表里存在时才会被采用。
 var preferredDefaults = map[string][]string{
-	"gemini":       {"gemini-4-neon-high", "gemini-4-hydrogen-high", "gemini-4-carbon-high", "gemini-3.8-flash-high", "gemini-4-argon-high"},
-	"claude":       {"claude-opus-4-6-thinking", "claude-opus-5-5-high"},
-	"orchestrator": {"gemini-pro-orchestrator-neon", "gemini-pro-orchestrator", "gemini-pro-orchestrator-argon"},
+	"gemini": {"gemini-4-neon-high", "gemini-4-hydrogen-high", "gemini-4-carbon-high", "gemini-3.8-flash-high", "gemini-4-argon-high"},
+	"claude": {"claude-opus-4-6-thinking", "claude-opus-5-5-high"},
+	"orchestrator": {
+		"gemini-pro-orchestrator-neon-high",
+		"gemini-pro-orchestrator-neon",
+		"gemini-pro-orchestrator-carbon-high",
+		"gemini-pro-orchestrator-high",
+		"gemini-pro-orchestrator",
+		"gemini-pro-orchestrator-argon-high",
+		"gemini-pro-orchestrator-argon",
+	},
 }
 
 // fallbackModels is used until the first successful query, or when language_server is unreachable.
@@ -131,10 +139,11 @@ type modelRegistry struct {
 
 var liveModels = &modelRegistry{}
 
-func providerOf(modelProvider, id string) string {
+func providerOf(modelProvider, id, displayName string) string {
 	lower := strings.ToLower(modelProvider + " " + id)
+	nameLower := strings.ToLower(strings.TrimSpace(displayName))
 	switch {
-	case strings.Contains(lower, "orch"):
+	case strings.Contains(lower, "orch") || strings.HasPrefix(nameLower, "orchestrator"):
 		return "orchestrator"
 	case strings.Contains(lower, "anthropic") || strings.Contains(lower, "claude"):
 		return "claude"
@@ -184,8 +193,9 @@ func legacyRank(id string) int {
 }
 
 var (
-	versionRe  = regexp.MustCompile(`\d+(?:\.\d+)*`)
-	effortRank = map[string]int{"xhigh": 0, "extra": 0, "high": 1, "medium": 2, "low": 3}
+	versionRe          = regexp.MustCompile(`\d+(?:\.\d+)*`)
+	extraHighSuffixRe  = regexp.MustCompile(`(?i)(\(|[\s,\-·/|:]\s*)(xhigh|extra[\s\-]+high)\)`)
+	effortTokenInParen = regexp.MustCompile(`(?i)(?:^|[\s,\-·/|:(])(extra[\s\-]+high|xhigh|extra|high|medium|med|low)\s*\)$`)
 )
 
 // versionKey extracts the numeric version from a display name ("Gemini 3.8 Flash (High)" -> [3 8]).
@@ -203,13 +213,28 @@ func versionKey(name string) []int {
 }
 
 func effortOf(name string) int {
-	lower := strings.ToLower(name)
-	for k, v := range effortRank {
-		if strings.Contains(lower, "("+k+")") {
-			return v
+	lower := strings.ToLower(strings.TrimSpace(name))
+	if m := effortTokenInParen.FindStringSubmatch(lower); len(m) == 2 {
+		switch strings.ToLower(strings.TrimSpace(m[1])) {
+		case "xhigh", "extra", "extra high", "extra-high":
+			return 0
+		case "high":
+			return 1
+		case "medium", "med":
+			return 2
+		case "low":
+			return 3
 		}
 	}
 	return 3
+}
+
+func isHighEffortOption(opt ModelOption) bool {
+	if effortOf(opt.Name) == 1 {
+		return true
+	}
+	lowerID := strings.ToLower(strings.TrimSpace(opt.ID))
+	return strings.HasSuffix(lowerID, "-high") && !strings.HasSuffix(lowerID, "-extra-high")
 }
 
 func lessVersionDesc(a, b []int) (less, decided bool) {
@@ -225,11 +250,12 @@ func lessVersionDesc(a, b []int) (less, decided bool) {
 }
 
 func normalizeModelDisplayName(name string) string {
-	// Align "(XHigh)" with the desktop client's "(Extra)" label.
-	if strings.HasSuffix(name, "(XHigh)") {
-		return strings.TrimSuffix(name, "(XHigh)") + "(Extra)"
+	// Align "(XHigh)" / "(Extra High)" (including combined parens like "(Neon, XHigh)") with "(Extra)".
+	trimmed := strings.TrimSpace(name)
+	if trimmed == "" {
+		return name
 	}
-	return name
+	return extraHighSuffixRe.ReplaceAllString(trimmed, "${1}Extra)")
 }
 
 func isExcludedPickerModel(id string) bool {
@@ -278,7 +304,7 @@ func buildModelTables(raw map[string]upstreamModel, curatedIDs []string) (option
 		opt := ModelOption{
 			ID:             id,
 			Name:           normalizeModelDisplayName(m.DisplayName),
-			Provider:       providerOf(m.ModelProvider, id),
+			Provider:       providerOf(m.ModelProvider, id, m.DisplayName),
 			Enum:           m.Model,
 			SupportsImages: m.SupportsImages,
 			Thinking:       m.Thinking,
@@ -445,6 +471,14 @@ func (r *modelRegistry) snapshot() (ModelsResponse, bool) {
 			}
 			if chosen != "" {
 				break
+			}
+		}
+		if chosen == "" && provider == "orchestrator" {
+			for _, o := range out.Models {
+				if o.Provider == provider && isHighEffortOption(o) {
+					chosen = o.ID
+					break
+				}
 			}
 		}
 		if chosen == "" {

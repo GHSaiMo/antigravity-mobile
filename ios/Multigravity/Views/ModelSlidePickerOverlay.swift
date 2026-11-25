@@ -62,7 +62,8 @@ public final class ModelSlidePickerState {
         var prevProvider: ModelProviderKind? = nil
 
         for family in families {
-            let kind = ModelDefaultsLogic.providerKind(forID: family.variants.first?.id ?? family.provider)
+            let kind = ModelProviderKind(rawValue: family.provider.lowercased())
+                ?? ModelDefaultsLogic.providerKind(forID: family.variants.first?.id ?? family.provider)
             let isFirstInGroup = prevProvider != nil && prevProvider != kind
 
             if !family.hasEffortVariants && family.variants.count > 1 && kind != .orchestrator {
@@ -86,32 +87,23 @@ public final class ModelSlidePickerState {
             } else {
                 let ordered = family.variantsTopToBottom
                 let fullTitle: String
-                let compactTitle: String?
                 if kind == .orchestrator {
-                    if ordered.count > 1 {
-                        fullTitle = family.name.isEmpty ? "Orchestrator" : family.name
-                        compactTitle = "Orch"
-                    } else {
-                        let raw = ordered.first?.rawName.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-                        fullTitle = raw.isEmpty ? (family.name.isEmpty ? "Orchestrator" : family.name) : raw
-                        let short = ModelDefaultsLogic.formatFullNameToCompact(fullTitle)
-                        compactTitle = short.isEmpty ? "Orch" : short
-                    }
+                    let source = family.name.isEmpty ? (ordered.first?.rawName ?? "Orchestrator") : family.name
+                    fullTitle = ModelDefaultsLogic.formatOrchestratorSlidePickerTitle(source)
                 } else {
                     fullTitle = family.name
-                    compactTitle = nil
                 }
                 builtRows.append(
                     ModelPickerRow(
                         id: family.id,
                         title: fullTitle,
-                        compactTitle: compactTitle,
+                        compactTitle: nil,
                         providerKind: kind,
                         isGroupStart: isFirstInGroup,
                         variantsTopToBottom: ordered,
                         defaultVariantIndex: family.defaultVariantIndexTopToBottom,
                         hasSubmenu: ordered.count > 1,
-                        usesEffortLabels: family.hasEffortVariants
+                        usesEffortLabels: family.hasEffortVariants || ordered.contains(where: { $0.effortRank != nil })
                     )
                 )
             }

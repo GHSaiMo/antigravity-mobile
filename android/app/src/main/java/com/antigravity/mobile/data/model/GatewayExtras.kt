@@ -272,16 +272,56 @@ enum class ModelEffortRank(val rank: Int, val displayLabel: String) {
     EXTRA(3, "Extra");
 
     companion object {
+        fun parsePure(raw: String): ModelEffortRank? = when (raw.trim().lowercase()) {
+            "xhigh", "extra", "extra high", "extra-high" -> EXTRA
+            "high" -> HIGH
+            "medium", "med" -> MEDIUM
+            "low" -> LOW
+            else -> null
+        }
+
         fun parse(raw: String): ModelEffortRank? {
+            parsePure(raw)?.let { return it }
             val lower = raw.trim().lowercase()
             return when {
-                lower == "low" || lower.endsWith("-low") -> LOW
-                lower == "medium" || lower == "med" || lower.endsWith("-medium") -> MEDIUM
-                lower == "high" || lower.endsWith("-high") -> HIGH
-                lower == "xhigh" || lower == "extra" || lower == "extra high" || lower == "extra-high" ||
-                    lower.endsWith("-xhigh") || lower.endsWith("-extra") -> EXTRA
+                lower.endsWith("-xhigh") || lower.endsWith("-extra-high") || lower.endsWith("-extra") -> EXTRA
+                lower.endsWith("-high") -> HIGH
+                lower.endsWith("-medium") -> MEDIUM
+                lower.endsWith("-low") -> LOW
                 else -> null
             }
+        }
+
+        /** Splits a trailing effort qualifier from a combined label such as `"Neon, High"`, `"Neon - Extra High"`, or `"Neon Medium"`. */
+        fun extractTrailingEffort(raw: String): Pair<String, ModelEffortRank>? {
+            val trimmed = raw.trim()
+            if (trimmed.isEmpty()) return null
+            parsePure(trimmed)?.let { return "" to it }
+            val lower = trimmed.lowercase()
+            val candidates = listOf(
+                "extra high" to EXTRA,
+                "extra-high" to EXTRA,
+                "xhigh" to EXTRA,
+                "extra" to EXTRA,
+                "medium" to MEDIUM,
+                "med" to MEDIUM,
+                "high" to HIGH,
+                "low" to LOW
+            )
+            val separators = setOf(' ', '\t', ',', '-', '·', '/', '|', ':', '–', '—')
+            for ((suffix, rank) in candidates) {
+                if (!lower.endsWith(suffix)) continue
+                val splitIdx = trimmed.length - suffix.length
+                if (splitIdx == 0) return "" to rank
+                if (trimmed[splitIdx - 1] !in separators) continue
+                var baseEnd = splitIdx
+                while (baseEnd > 0 && trimmed[baseEnd - 1] in separators) {
+                    baseEnd--
+                }
+                val base = trimmed.substring(0, baseEnd).trim()
+                return base to rank
+            }
+            return null
         }
     }
 }
@@ -312,7 +352,7 @@ data class ModelFamily(
 
     /** Matches desktop order: Low (top) -> Medium -> High -> Extra (bottom). */
     val variantsTopToBottom: List<ModelVariant>
-        get() = if (!hasEffortVariants) {
+        get() = if (!hasEffortVariants && !(variants.size > 1 && variants.any { it.effortRank != null })) {
             variants
         } else {
             variants.sortedBy { it.effortRank?.rank ?: Int.MAX_VALUE }
@@ -321,6 +361,12 @@ data class ModelFamily(
     val defaultVariant: ModelVariant?
         get() {
             val ordered = variantsTopToBottom
+            if (provider.equals("orchestrator", ignoreCase = true)) {
+                return ordered.firstOrNull { it.effortRank == ModelEffortRank.HIGH }
+                    ?: ordered.firstOrNull { it.effortRank == ModelEffortRank.MEDIUM }
+                    ?: ordered.firstOrNull { it.effortRank == ModelEffortRank.EXTRA }
+                    ?: ordered.firstOrNull()
+            }
             return ordered.firstOrNull { it.effortRank == ModelEffortRank.MEDIUM }
                 ?: ordered.firstOrNull { it.effortRank == ModelEffortRank.HIGH }
                 ?: ordered.firstOrNull()
@@ -445,16 +491,17 @@ object ModelDefaults {
         "claude-sonnet-5-5-low" to "Sonnet 5.5 · Low",
         "claude-opus-4-6-thinking" to "Opus 4.6 · Think",
         "claude-sonnet-4-6" to "Sonnet 4.6 · Think",
-        "gemini-pro-orchestrator-neon" to "Orch · Neon",
-        "orchestrator-neon" to "Orch · Neon",
-        "gemini-pro-orchestrator" to "Orch · Carbon",
-        "gemini-pro-orchestrator-argon" to "Orch · Argon",
-        "orchestrator-carbon" to "Orch · Carbon",
-        "orchestrator-argon" to "Orch · Argon",
+        "gemini-pro-orchestrator-neon" to "Orch Neon",
+        "orchestrator-neon" to "Orch Neon",
+        "gemini-pro-orchestrator" to "Orch Carbon",
+        "gemini-pro-orchestrator-argon" to "Orch Argon",
+        "orchestrator-carbon" to "Orch Carbon",
+        "orchestrator-argon" to "Orch Argon",
         "gpt-oss-120b-medium" to "GPT-OSS · Med"
     )
 
-    /** 将未知模型 ID 转为统一规范的展示名（如 `claude-sonnet-5-5-high` → `Claude Sonnet 5.5 (High)`）。 */
+    /** 将未知模型 ID 转为统一规范的展示名（如 `claude-sonnet-5-5-high` → `Claude Sonnet 5.5 (High)`，
+     * `gemini-pro-orchestrator-neon-high` → `Orchestrator (Neon) (High)`）。 */
     fun formatIDAsDisplayName(id: String): String {
         val trimmed = id.trim()
         if (trimmed.isEmpty()) return ""
@@ -462,11 +509,35 @@ object ModelDefaults {
 
         val tokens = trimmed.split("-").filter { it.isNotEmpty() }.toMutableList()
         if (tokens.isEmpty()) return trimmed
-        val qualifiers = setOf("high", "medium", "low", "xhigh", "extra", "thinking")
         var qualifier: String? = null
-        if (tokens.size > 1 && tokens.last().lowercase() in qualifiers) {
-            val q = tokens.removeAt(tokens.lastIndex).lowercase()
-            qualifier = if (q == "xhigh" || q == "extra") "Extra" else q.replaceFirstChar { it.uppercase() }
+        if (tokens.size >= 2 &&
+            tokens[tokens.size - 2].equals("extra", ignoreCase = true) &&
+            tokens[tokens.size - 1].equals("high", ignoreCase = true)
+        ) {
+            tokens.removeAt(tokens.lastIndex)
+            tokens.removeAt(tokens.lastIndex)
+            qualifier = "Extra"
+        } else {
+            val qualifiers = setOf("high", "medium", "low", "xhigh", "extra", "thinking")
+            if (tokens.size > 1 && tokens.last().lowercase() in qualifiers) {
+                val q = tokens.removeAt(tokens.lastIndex).lowercase()
+                qualifier = if (q == "xhigh" || q == "extra") "Extra" else q.replaceFirstChar { it.uppercase() }
+            }
+        }
+        val lowerTokens = tokens.map { it.lowercase() }
+        val isGeminiProOrch = lowerTokens.size >= 3 &&
+            lowerTokens[0] == "gemini" && lowerTokens[1] == "pro" && lowerTokens[2] == "orchestrator"
+        if (isGeminiProOrch || lowerTokens.firstOrNull() == "orchestrator") {
+            val rest = if (isGeminiProOrch) tokens.drop(3) else tokens.drop(1)
+            val modelName = if (rest.isEmpty()) {
+                if (isGeminiProOrch) "Carbon" else ""
+            } else {
+                rest.joinToString(" ") { tok ->
+                    if (tok.first().isLetter()) tok.replaceFirstChar { it.uppercase() } else tok
+                }
+            }
+            val base = if (modelName.isEmpty()) "Orchestrator" else "Orchestrator ($modelName)"
+            return if (qualifier != null) "$base ($qualifier)" else base
         }
         val parts = mutableListOf<String>()
         for (token in tokens) {
@@ -485,12 +556,92 @@ object ModelDefaults {
         return if (qualifier != null) "$base ($qualifier)" else base
     }
 
+    private val EXTRA_HIGH_IN_PAREN_REGEX = Regex("""(\(|[\s,\-·/|:]\s*)(xhigh|extra[\s\-]+high)\)""", RegexOption.IGNORE_CASE)
+    private val ORCH_TRIM_CHARS = charArrayOf(' ', '\t', '-', '·', ',', '/', ':', '|', '–', '—', '(', ')')
+
     private fun normalizeDisplayName(name: String): String {
-        return if (name.endsWith("(XHigh)")) {
-            name.removeSuffix("(XHigh)") + "(Extra)"
-        } else {
-            name
+        val trimmed = name.trim()
+        if (trimmed.isEmpty()) return name
+        return EXTRA_HIGH_IN_PAREN_REGEX.replace(trimmed, "$1Extra)")
+    }
+
+    private fun cleanOrchestratorModelPart(raw: String): String {
+        var s = raw.trim().trim(*ORCH_TRIM_CHARS)
+        val lower = s.lowercase()
+        s = when {
+            lower.startsWith("gemini 4 ") -> s.drop("gemini 4 ".length)
+            lower.startsWith("gemini ") -> s.drop("gemini ".length)
+            lower.startsWith("claude ") -> s.drop("claude ".length)
+            else -> s
         }
+        return s.trim(*ORCH_TRIM_CHARS)
+    }
+
+    /**
+     * 解析任意格式的 Orchestrator 展示名与 ID，拆出底层模型名（如 `Neon` / `Carbon` / `Argon`）和可选思考强度。
+     * 支持：`Orchestrator (Neon) (High)`、`Orchestrator Neon (High)`、`Orchestrator (Neon, High)`、
+     * `Orchestrator (Neon - Extra High)`、`Orchestrator (Neon High)`、`Gemini 4 Neon Orchestrator (High)`、`Orchestrator (Neon)` 等。
+     */
+    fun parseOrchestratorName(fullName: String, id: String = ""): Pair<String, ModelEffortRank?> {
+        val normalized = normalizeDisplayName(fullName).trim()
+        if (normalized.isEmpty()) return "" to ModelEffortRank.parse(id)
+
+        fun stripOrchPrefixOrSuffix(text: String): String {
+            var s = text.trim()
+            if (s.lowercase().startsWith("orchestrator")) {
+                s = s.drop("orchestrator".length).trim()
+            }
+            if (s.lowercase().endsWith("(orchestrator)")) {
+                s = s.dropLast("(orchestrator)".length).trim()
+            } else if (s.lowercase().endsWith("orchestrator")) {
+                s = s.dropLast("orchestrator".length).trim()
+            }
+            return cleanOrchestratorModelPart(s)
+        }
+
+        val openParen = normalized.lastIndexOf('(')
+        if (openParen > 0 && normalized.endsWith(')')) {
+            val prefix = normalized.substring(0, openParen).trim()
+            val inside = normalized.substring(openParen + 1, normalized.length - 1).trim()
+
+            val pureEffort = ModelEffortRank.parsePure(inside)
+            if (pureEffort != null) {
+                val pOpen = prefix.lastIndexOf('(')
+                if (pOpen > 0 && prefix.endsWith(')')) {
+                    val pBefore = prefix.substring(0, pOpen).trim()
+                    val pInner = prefix.substring(pOpen + 1, prefix.length - 1).trim()
+                    if (pBefore.lowercase().startsWith("orchestrator")) {
+                        return cleanOrchestratorModelPart(pInner) to pureEffort
+                    }
+                    if (pInner.equals("orchestrator", ignoreCase = true)) {
+                        return cleanOrchestratorModelPart(pBefore) to pureEffort
+                    }
+                }
+                return stripOrchPrefixOrSuffix(prefix) to pureEffort
+            }
+
+            val split = ModelEffortRank.extractTrailingEffort(inside)
+            if (split != null) {
+                val (base, effort) = split
+                return when {
+                    prefix.lowercase().startsWith("orchestrator") -> cleanOrchestratorModelPart(base) to effort
+                    base.equals("orchestrator", ignoreCase = true) -> cleanOrchestratorModelPart(prefix) to effort
+                    else -> cleanOrchestratorModelPart(base) to effort
+                }
+            }
+
+            val idEffort = ModelEffortRank.parse(id)
+            return when {
+                prefix.lowercase().startsWith("orchestrator") -> cleanOrchestratorModelPart(inside) to idEffort
+                inside.equals("orchestrator", ignoreCase = true) -> cleanOrchestratorModelPart(prefix) to idEffort
+                else -> stripOrchPrefixOrSuffix(normalized) to idEffort
+            }
+        }
+
+        ModelEffortRank.extractTrailingEffort(normalized)?.let { (base, effort) ->
+            return stripOrchPrefixOrSuffix(base) to effort
+        }
+        return stripOrchPrefixOrSuffix(normalized) to ModelEffortRank.parse(id)
     }
 
     /** 始终返回人类可读的统一展示名（实时目录 → 静态映射 → 规范格式化），不暴露小写裸 ID。 */
@@ -515,21 +666,15 @@ object ModelDefaults {
 
     /**
      * 长按模型滑选菜单的展示名：去掉开头的 Gemini / Claude 厂商前缀，从模型号开始显示；
-     * Orchestrator 简写为 `Orch · <模型名>`，节省空间且避免重复厂商名（左侧行已按厂商着色分组）。
+     * Orchestrator 简写为 `Orch <模型名>`，节省空间且避免重复厂商名（左侧行已按厂商着色分组）。
      */
     fun formatSlidePickerTitle(rawTitle: String): String {
         val trimmed = rawTitle.trim()
         if (trimmed.isEmpty()) return ""
         val lower = trimmed.lowercase()
         if (lower.startsWith("orchestrator")) {
-            val openParen = trimmed.indexOf('(')
-            val closeParen = trimmed.lastIndexOf(')')
-            if (openParen >= 0 && closeParen > openParen) {
-                val inner = trimmed.substring(openParen + 1, closeParen).trim()
-                if (inner.isNotEmpty()) return "Orch · $inner"
-            }
-            val rest = trimmed.drop("orchestrator".length).trim()
-            return if (rest.isNotEmpty()) "Orch · $rest" else "Orch"
+            val (modelName, _) = parseOrchestratorName(trimmed)
+            return if (modelName.isNotEmpty()) "Orch $modelName" else "Orch"
         }
         return when {
             lower.startsWith("gemini ") -> trimmed.drop("gemini ".length).trimStart()
@@ -548,8 +693,17 @@ object ModelDefaults {
     }
 
     fun formatFullNameToCompact(full: String): String {
-        val trimmed = full.trim()
+        val trimmed = normalizeDisplayName(full).trim()
         if (trimmed.isEmpty()) return ""
+        if (trimmed.lowercase().startsWith("orchestrator")) {
+            val (modelName, effort) = parseOrchestratorName(trimmed)
+            val base = if (modelName.isEmpty()) "Orch" else "Orch $modelName"
+            if (effort != null) {
+                val shortEffort = if (effort == ModelEffortRank.MEDIUM) "Med" else effort.displayLabel
+                return "$base · $shortEffort"
+            }
+            return base
+        }
         val openParen = trimmed.lastIndexOf('(')
         if (openParen > 0 && trimmed.endsWith(')')) {
             var base = trimmed.substring(0, openParen).trim()
@@ -564,7 +718,7 @@ object ModelDefaults {
             when (variant.lowercase()) {
                 "medium" -> variant = "Med"
                 "thinking" -> variant = "Think"
-                "xhigh" -> variant = "Extra"
+                "xhigh", "extra high", "extra-high" -> variant = "Extra"
             }
             return "$base · $variant"
         }
@@ -644,20 +798,29 @@ object ModelDefaults {
         val familyOrder = mutableListOf<String>()
 
         for (opt in effective) {
-            val fullName = if (opt.name.isBlank()) displayName(opt.id, options) else opt.name
-            var familyName = fullName
-            var variantLabel = "默认".loc
-            val openParen = fullName.lastIndexOf('(')
-            if (openParen > 0 && fullName.endsWith(')')) {
-                familyName = fullName.substring(0, openParen).trim()
-                variantLabel = fullName.substring(openParen + 1, fullName.length - 1).trim()
-            }
+            val fullName = if (opt.name.isBlank()) displayName(opt.id, options) else normalizeDisplayName(opt.name)
             val p = opt.provider.lowercase()
             val familyProvider = when {
                 isClaude(opt.id) || p == "claude" -> "claude"
-                opt.id.contains("orch", ignoreCase = true) || familyName.contains("orch", ignoreCase = true) -> "orchestrator"
+                p == "orchestrator" || providerKind(opt.id) == "orchestrator" ||
+                    fullName.lowercase().startsWith("orchestrator") -> "orchestrator"
                 p == "gemini" || opt.id.contains("gemini", ignoreCase = true) -> "gemini"
                 else -> "other"
+            }
+            var familyName = fullName
+            var variantLabel = "默认".loc
+            if (familyProvider == "orchestrator") {
+                val (modelName, effort) = parseOrchestratorName(fullName, opt.id)
+                familyName = if (modelName.isEmpty()) "Orchestrator" else "Orchestrator ($modelName)"
+                if (effort != null) {
+                    variantLabel = effort.displayLabel
+                }
+            } else {
+                val openParen = fullName.lastIndexOf('(')
+                if (openParen > 0 && fullName.endsWith(')')) {
+                    familyName = fullName.substring(0, openParen).trim()
+                    variantLabel = fullName.substring(openParen + 1, fullName.length - 1).trim()
+                }
             }
             val variant = ModelVariant(
                 id = opt.id,

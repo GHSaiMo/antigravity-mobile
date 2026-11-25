@@ -155,32 +155,23 @@ class ModelSlidePickerState {
                 }
             } else {
                 val ordered = family.variantsTopToBottom
-                val fullTitle: String
-                val compactTitle: String?
-                if (kind == "orchestrator") {
-                    if (ordered.size > 1) {
-                        fullTitle = family.name.ifBlank { "Orchestrator" }
-                        compactTitle = "Orch"
-                    } else {
-                        val rawTitle = ordered.firstOrNull()?.rawName?.trim().orEmpty().ifEmpty { family.name }
-                        fullTitle = rawTitle.ifEmpty { "Orchestrator" }
-                        compactTitle = ModelDefaults.formatSlidePickerTitle(rawTitle).ifEmpty { "Orch" }
-                    }
+                val fullTitle = if (kind == "orchestrator") {
+                    val source = family.name.ifBlank { ordered.firstOrNull()?.rawName.orEmpty().ifBlank { "Orchestrator" } }
+                    ModelDefaults.formatSlidePickerTitle(source).ifEmpty { "Orch" }
                 } else {
-                    fullTitle = ModelDefaults.formatSlidePickerTitle(family.name).ifEmpty { family.name }
-                    compactTitle = null
+                    ModelDefaults.formatSlidePickerTitle(family.name).ifEmpty { family.name }
                 }
                 builtRows.add(
                     ModelPickerRow(
                         id = family.id,
                         title = fullTitle,
-                        compactTitle = compactTitle,
+                        compactTitle = null,
                         providerKind = kind,
                         isGroupStart = isFirstInGroup,
                         variantsTopToBottom = ordered,
                         defaultVariantIndex = family.defaultVariantIndexTopToBottom,
                         hasSubmenu = ordered.size > 1,
-                        usesEffortLabels = family.hasEffortVariants
+                        usesEffortLabels = family.hasEffortVariants || ordered.any { it.effortRank != null }
                     )
                 )
             }

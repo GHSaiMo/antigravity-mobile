@@ -145,9 +145,85 @@ class ModelDefaultsTest {
         assertEquals("3.8 Flash", ModelDefaults.formatSlidePickerTitle("Gemini 3.8 Flash"))
         assertEquals("Opus 5.5", ModelDefaults.formatSlidePickerTitle("Claude Opus 5.5"))
         assertEquals("Sonnet 4.6", ModelDefaults.formatSlidePickerTitle("Claude Sonnet 4.6"))
-        assertEquals("Orch · Carbon", ModelDefaults.formatSlidePickerTitle("Orchestrator (Carbon)"))
-        assertEquals("Orch · Argon", ModelDefaults.formatSlidePickerTitle("Orchestrator (Argon)"))
+        assertEquals("Orch Carbon", ModelDefaults.formatSlidePickerTitle("Orchestrator (Carbon)"))
+        assertEquals("Orch Argon", ModelDefaults.formatSlidePickerTitle("Orchestrator (Argon)"))
+        assertEquals("Orch Neon", ModelDefaults.formatSlidePickerTitle("Orchestrator (Neon) (High)"))
+        assertEquals("Orch Neon", ModelDefaults.formatSlidePickerTitle("Orchestrator (Neon, High)"))
         assertEquals("Orch", ModelDefaults.formatSlidePickerTitle("Orchestrator"))
+    }
+
+    @Test
+    fun orchestratorFamiliesGroupByModelWithEffortSubmenuAndDefaultHigh() {
+        val options = listOf(
+            ModelOption(id = "gemini-pro-orchestrator-neon-low", name = "Orchestrator (Neon) (Low)", provider = "orchestrator"),
+            ModelOption(id = "gemini-pro-orchestrator-neon-medium", name = "Orchestrator (Neon) (Medium)", provider = "orchestrator"),
+            ModelOption(id = "gemini-pro-orchestrator-neon-high", name = "Orchestrator (Neon) (High)", provider = "orchestrator"),
+            ModelOption(id = "gemini-pro-orchestrator-neon-xhigh", name = "Orchestrator (Neon) (XHigh)", provider = "orchestrator"),
+            ModelOption(id = "gemini-pro-orchestrator-carbon-medium", name = "Orchestrator (Carbon, Medium)", provider = "orchestrator"),
+            ModelOption(id = "gemini-pro-orchestrator-carbon-high", name = "Orchestrator (Carbon, High)", provider = "orchestrator"),
+            ModelOption(id = "gemini-pro-orchestrator-carbon-low", name = "Orchestrator (Carbon, Low)", provider = "orchestrator"),
+            ModelOption(id = "gemini-pro-orchestrator-argon-low", name = "Orchestrator Argon (Low)", provider = "orchestrator"),
+            ModelOption(id = "gemini-pro-orchestrator-argon-medium", name = "Orchestrator Argon (Medium)", provider = "orchestrator"),
+            ModelOption(id = "gemini-pro-orchestrator-argon-high", name = "Orchestrator Argon (High)", provider = "orchestrator"),
+            ModelOption(id = "gemini-pro-orchestrator-hydrogen-xhigh", name = "Orchestrator (Gemini 4 Hydrogen - Extra High)", provider = "orchestrator")
+        )
+        val families = ModelDefaults.modelFamilies(options)
+        assertEquals(
+            listOf("Orchestrator (Neon)", "Orchestrator (Carbon)", "Orchestrator (Argon)", "Orchestrator (Hydrogen)"),
+            families.map { it.name }
+        )
+        assertEquals(
+            listOf("Orch Neon", "Orch Carbon", "Orch Argon", "Orch Hydrogen"),
+            families.map { ModelDefaults.formatSlidePickerTitle(it.name) }
+        )
+
+        val neon = families[0]
+        assertTrue(neon.hasEffortVariants)
+        assertEquals(
+            listOf(
+                "gemini-pro-orchestrator-neon-low",
+                "gemini-pro-orchestrator-neon-medium",
+                "gemini-pro-orchestrator-neon-high",
+                "gemini-pro-orchestrator-neon-xhigh"
+            ),
+            neon.variantsTopToBottom.map { it.id }
+        )
+        assertEquals("gemini-pro-orchestrator-neon-high", neon.defaultVariant?.id)
+        assertEquals(2, neon.defaultVariantIndexTopToBottom)
+
+        val carbon = families[1]
+        assertEquals("gemini-pro-orchestrator-carbon-high", carbon.defaultVariant?.id)
+        assertEquals(2, carbon.defaultVariantIndexTopToBottom)
+
+        val argon = families[2]
+        assertEquals("gemini-pro-orchestrator-argon-high", argon.defaultVariant?.id)
+        assertEquals(2, argon.defaultVariantIndexTopToBottom)
+
+        // Compact display names keep both Orch + model name and effort
+        assertEquals("Orch Neon · High", ModelDefaults.compactDisplayName("gemini-pro-orchestrator-neon-high", options))
+        assertEquals("Orch Carbon · Med", ModelDefaults.compactDisplayName("gemini-pro-orchestrator-carbon-medium", options))
+        assertEquals("Orch Neon · Extra", ModelDefaults.compactDisplayName("gemini-pro-orchestrator-neon-xhigh", options))
+        assertEquals("Orch Hydrogen · Extra", ModelDefaults.compactDisplayName("gemini-pro-orchestrator-hydrogen-xhigh", options))
+    }
+
+    @Test
+    fun legacySingleEffortOrchestratorsStayDistinctLevelOneRows() {
+        val options = listOf(
+            ModelOption(id = "gemini-pro-orchestrator-neon", name = "Orchestrator (Neon)", provider = "orchestrator"),
+            ModelOption(id = "gemini-pro-orchestrator", name = "Orchestrator (Carbon)", provider = "orchestrator"),
+            ModelOption(id = "gemini-pro-orchestrator-argon", name = "Orchestrator (Argon)", provider = "orchestrator")
+        )
+        val families = ModelDefaults.modelFamilies(options)
+        assertEquals(
+            listOf("Orchestrator (Neon)", "Orchestrator (Carbon)", "Orchestrator (Argon)"),
+            families.map { it.name }
+        )
+        assertTrue(families.all { it.variants.size == 1 && !it.hasEffortVariants })
+        assertEquals(
+            listOf("Orch Neon", "Orch Carbon", "Orch Argon"),
+            families.map { ModelDefaults.formatSlidePickerTitle(it.name) }
+        )
+        assertEquals("Orch Neon", ModelDefaults.compactDisplayName("gemini-pro-orchestrator-neon", options))
     }
 
     @Test

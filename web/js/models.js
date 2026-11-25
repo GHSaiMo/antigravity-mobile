@@ -98,7 +98,101 @@ function modelProviderLabel(id) {
 }
 
 function normalizeDisplayName(raw) {
-  return String(raw || "").trim().replace(/\s*\(Xhigh\)/i, " (Extra)");
+  return String(raw || "")
+    .trim()
+    .replace(/(\(|[\s,\-·/|:]\s*)(xhigh|extra[\s\-]+high)\)/gi, "$1Extra)");
+}
+
+function parsePureEffortRank(raw) {
+  const s = String(raw || "").trim().toLowerCase();
+  if (s === "xhigh" || s === "extra" || s === "extra high" || s === "extra-high") return 3;
+  if (s === "high") return 2;
+  if (s === "medium" || s === "med") return 1;
+  if (s === "low") return 0;
+  return -1;
+}
+
+function extractTrailingEffort(raw) {
+  const trimmed = String(raw || "").trim();
+  if (!trimmed) return null;
+  const pure = parsePureEffortRank(trimmed);
+  if (pure >= 0) return { base: "", rank: pure };
+  const m = trimmed.match(/^(.*?)[\s,\-·/|:–—]+(extra[\s\-]+high|xhigh|extra|medium|med|high|low)$/i);
+  if (!m) return null;
+  const rank = parsePureEffortRank(m[2]);
+  if (rank < 0) return null;
+  return { base: m[1].trim(), rank };
+}
+
+function cleanOrchestratorModelPart(raw) {
+  let s = String(raw || "").trim().replace(/^[\s\-·,/:|–—()]+|[\s\-·,/:|–—()]+$/g, "");
+  const lower = s.toLowerCase();
+  if (lower.startsWith("gemini 4 ")) s = s.slice("gemini 4 ".length);
+  else if (lower.startsWith("gemini ")) s = s.slice("gemini ".length);
+  else if (lower.startsWith("claude ")) s = s.slice("claude ".length);
+  return s.replace(/^[\s\-·,/:|–—()]+|[\s\-·,/:|–—()]+$/g, "");
+}
+
+function parseOrchestratorName(fullName, id = "") {
+  const normalized = normalizeDisplayName(fullName);
+  const stripOrch = (text) => {
+    let s = String(text || "").trim();
+    if (/^orchestrator\b/i.test(s)) s = s.slice("orchestrator".length).trim();
+    if (/\(orchestrator\)$/i.test(s)) s = s.slice(0, -"(orchestrator)".length).trim();
+    else if (/\borchestrator$/i.test(s)) s = s.slice(0, -"orchestrator".length).trim();
+    return cleanOrchestratorModelPart(s);
+  };
+  if (!normalized) {
+    return { modelName: "", effortRank: parseEffortRank(id) };
+  }
+  const m = normalized.match(/^(.+?)\s*\(([^()]+)\)$/);
+  if (m) {
+    const prefix = m[1].trim();
+    const inside = m[2].trim();
+    const pureEffort = parsePureEffortRank(inside);
+    if (pureEffort >= 0) {
+      const pm = prefix.match(/^(.+?)\s*\(([^()]+)\)$/);
+      if (pm) {
+        const pBefore = pm[1].trim();
+        const pInner = pm[2].trim();
+        if (/^orchestrator\b/i.test(pBefore)) {
+          return { modelName: cleanOrchestratorModelPart(pInner), effortRank: pureEffort };
+        }
+        if (/^orchestrator$/i.test(pInner)) {
+          return { modelName: cleanOrchestratorModelPart(pBefore), effortRank: pureEffort };
+        }
+      }
+      return { modelName: stripOrch(prefix), effortRank: pureEffort };
+    }
+    const split = extractTrailingEffort(inside);
+    if (split) {
+      if (/^orchestrator\b/i.test(prefix)) {
+        return { modelName: cleanOrchestratorModelPart(split.base), effortRank: split.rank };
+      }
+      if (/^orchestrator$/i.test(split.base)) {
+        return { modelName: cleanOrchestratorModelPart(prefix), effortRank: split.rank };
+      }
+      return { modelName: cleanOrchestratorModelPart(split.base), effortRank: split.rank };
+    }
+    const idRank = parseEffortRank(id);
+    if (/^orchestrator\b/i.test(prefix)) {
+      return { modelName: cleanOrchestratorModelPart(inside), effortRank: idRank };
+    }
+    if (/^orchestrator$/i.test(inside)) {
+      return { modelName: cleanOrchestratorModelPart(prefix), effortRank: idRank };
+    }
+    return { modelName: stripOrch(normalized), effortRank: idRank };
+  }
+  const split = extractTrailingEffort(normalized);
+  if (split) {
+    return { modelName: stripOrch(split.base), effortRank: split.rank };
+  }
+  return { modelName: stripOrch(normalized), effortRank: parseEffortRank(id) };
+}
+
+function formatOrchestratorSlidePickerTitle(rawTitle) {
+  const { modelName } = parseOrchestratorName(rawTitle);
+  return modelName ? `Orch ${modelName}` : "Orch";
 }
 
 function formatModelIDAsDisplayName(id) {
@@ -108,11 +202,27 @@ function formatModelIDAsDisplayName(id) {
   if (staticHit) return staticHit;
   const tokens = trimmed.split("-").filter(Boolean);
   if (!tokens.length) return trimmed;
-  const qualifiers = new Set(["xhigh", "extra", "high", "medium", "low", "thinking"]);
   let qualifier = null;
-  if (tokens.length > 1 && qualifiers.has(tokens[tokens.length - 1].toLowerCase())) {
-    const q = tokens.pop().toLowerCase();
-    qualifier = q === "xhigh" ? "Extra" : (q.charAt(0).toUpperCase() + q.slice(1));
+  if (tokens.length >= 2 && tokens[tokens.length - 2].toLowerCase() === "extra" && tokens[tokens.length - 1].toLowerCase() === "high") {
+    tokens.pop();
+    tokens.pop();
+    qualifier = "Extra";
+  } else {
+    const qualifiers = new Set(["xhigh", "extra", "high", "medium", "low", "thinking"]);
+    if (tokens.length > 1 && qualifiers.has(tokens[tokens.length - 1].toLowerCase())) {
+      const q = tokens.pop().toLowerCase();
+      qualifier = (q === "xhigh" || q === "extra") ? "Extra" : (q.charAt(0).toUpperCase() + q.slice(1));
+    }
+  }
+  const lowerTokens = tokens.map((t) => t.toLowerCase());
+  const isGeminiProOrch = lowerTokens.length >= 3 && lowerTokens[0] === "gemini" && lowerTokens[1] === "pro" && lowerTokens[2] === "orchestrator";
+  if (isGeminiProOrch || lowerTokens[0] === "orchestrator") {
+    const rest = isGeminiProOrch ? tokens.slice(3) : tokens.slice(1);
+    const modelName = rest.length
+      ? rest.map((tok) => (/^[a-z]/i.test(tok) ? tok.charAt(0).toUpperCase() + tok.slice(1) : tok)).join(" ")
+      : (isGeminiProOrch ? "Carbon" : "");
+    const base = modelName ? `Orchestrator (${modelName})` : "Orchestrator";
+    return qualifier ? `${base} (${qualifier})` : base;
   }
   const parts = [];
   for (const tok of tokens) {
@@ -144,9 +254,19 @@ function modelDisplayName(id) {
   return (m && m.name) ? normalizeDisplayName(m.name) : formatModelIDAsDisplayName(id);
 }
 
-function compactModelDisplayName(id) {
-  const full = modelDisplayName(id);
-  const match = full.match(/^(.+?)\s*\(([^)]+)\)$/);
+function formatFullNameToCompact(full) {
+  const trimmed = normalizeDisplayName(full);
+  if (!trimmed) return "";
+  if (/^orchestrator\b/i.test(trimmed)) {
+    const { modelName, effortRank } = parseOrchestratorName(trimmed);
+    const base = modelName ? `Orch ${modelName}` : "Orch";
+    if (effortRank >= 0) {
+      const shortEffort = ["Low", "Med", "High", "Extra"][effortRank];
+      return `${base} · ${shortEffort}`;
+    }
+    return base;
+  }
+  const match = trimmed.match(/^(.+?)\s*\(([^)]+)\)$/);
   if (match) {
     let base = match[1].trim();
     let variant = match[2].trim();
@@ -158,16 +278,20 @@ function compactModelDisplayName(id) {
     const vl = variant.toLowerCase();
     if (vl === "medium") variant = "Med";
     else if (vl === "thinking") variant = "Think";
-    else if (vl === "xhigh") variant = "Extra";
+    else if (vl === "xhigh" || vl === "extra high" || vl === "extra-high") variant = "Extra";
     return `${base} · ${variant}`;
   }
-  let base = full;
+  let base = trimmed;
   const bl = base.toLowerCase();
   if (bl.startsWith("gemini 4 ")) base = base.slice("gemini 4 ".length);
   else if (bl.startsWith("gemini ")) base = base.slice("gemini ".length);
   else if (bl.startsWith("claude ")) base = base.slice("claude ".length);
   else if (bl.startsWith("orchestrator")) base = "Orch";
   return base;
+}
+
+function compactModelDisplayName(id) {
+  return formatFullNameToCompact(modelDisplayName(id));
 }
 
 function providerSortRank(p) {
@@ -202,11 +326,13 @@ function allSortedModelOptions() {
 }
 
 function parseEffortRank(labelOrId) {
-  const s = String(labelOrId || "").toLowerCase();
-  if (/\blow\b/.test(s) || s.endsWith("-low")) return 0;
-  if (/\bmedium\b|\bmed\b/.test(s) || s.endsWith("-medium")) return 1;
-  if (/\bhigh\b/.test(s) && !/\bxhigh\b|\bextra\b/.test(s) || s.endsWith("-high")) return 2;
-  if (/\bxhigh\b|\bextra\b/.test(s) || s.endsWith("-xhigh")) return 3;
+  const pure = parsePureEffortRank(labelOrId);
+  if (pure >= 0) return pure;
+  const s = String(labelOrId || "").trim().toLowerCase();
+  if (s.endsWith("-xhigh") || s.endsWith("-extra-high") || s.endsWith("-extra")) return 3;
+  if (s.endsWith("-high")) return 2;
+  if (s.endsWith("-medium")) return 1;
+  if (s.endsWith("-low")) return 0;
   return -1;
 }
 
@@ -221,15 +347,27 @@ function buildModelFamilies() {
   const order = [];
   for (const opt of opts) {
     const fullName = opt.name ? normalizeDisplayName(opt.name) : modelDisplayName(opt.id);
+    const kind = modelProviderKind(opt.id);
+    const optProv = String(opt.provider || "").toLowerCase();
+    const prov = (kind === "orchestrator" || optProv === "orchestrator" || /^orchestrator\b/i.test(fullName))
+      ? "orchestrator"
+      : (optProv || kind);
+
     let familyName = fullName;
     let variantLabel = "默认";
-    const m = fullName.match(/^(.+?)\s*\(([^)]+)\)$/);
-    if (m) {
-      familyName = m[1].trim();
-      variantLabel = m[2].trim();
+    if (prov === "orchestrator") {
+      const { modelName, effortRank } = parseOrchestratorName(fullName, opt.id);
+      familyName = modelName ? `Orchestrator (${modelName})` : "Orchestrator";
+      if (effortRank >= 0) {
+        variantLabel = ["Low", "Medium", "High", "Extra"][effortRank];
+      }
+    } else {
+      const m = fullName.match(/^(.+?)\s*\(([^)]+)\)$/);
+      if (m) {
+        familyName = m[1].trim();
+        variantLabel = m[2].trim();
+      }
     }
-    const kind = modelProviderKind(opt.id);
-    const prov = (kind === "orchestrator" || !opt.provider) ? kind : opt.provider.toLowerCase();
     const variant = { id: opt.id, label: variantLabel, rawName: fullName, tag: opt.tag || null };
     if (!map.has(familyName)) {
       order.push(familyName);
@@ -240,20 +378,26 @@ function buildModelFamilies() {
   }
   const families = order.map((k) => {
     const fam = map.get(k);
-    const hasEffort = fam.variants.length > 1 && fam.variants.every((v) => parseEffortRank(v.label) >= 0 || parseEffortRank(v.id) >= 0);
-    const ordered = hasEffort
+    const variantRank = (v) => (parseEffortRank(v.label) >= 0 ? parseEffortRank(v.label) : parseEffortRank(v.id));
+    const hasEffort = fam.variants.length > 1 && fam.variants.every((v) => variantRank(v) >= 0);
+    const hasAnyEffort = fam.variants.length > 1 && fam.variants.some((v) => variantRank(v) >= 0);
+    const ordered = hasAnyEffort
       ? [...fam.variants].sort((a, b) => {
-          const ra = parseEffortRank(a.label) >= 0 ? parseEffortRank(a.label) : parseEffortRank(a.id);
-          const rb = parseEffortRank(b.label) >= 0 ? parseEffortRank(b.label) : parseEffortRank(b.id);
+          const ra = variantRank(a) >= 0 ? variantRank(a) : Number.MAX_SAFE_INTEGER;
+          const rb = variantRank(b) >= 0 ? variantRank(b) : Number.MAX_SAFE_INTEGER;
           return ra - rb; // Low -> Medium -> High -> Extra
         })
       : fam.variants;
-    const medIdx = ordered.findIndex((v) => (parseEffortRank(v.label) >= 0 ? parseEffortRank(v.label) : parseEffortRank(v.id)) === 1);
-    const highIdx = ordered.findIndex((v) => (parseEffortRank(v.label) >= 0 ? parseEffortRank(v.label) : parseEffortRank(v.id)) === 2);
-    const defaultIdx = medIdx >= 0 ? medIdx : (highIdx >= 0 ? highIdx : 0);
+    const medIdx = ordered.findIndex((v) => variantRank(v) === 1);
+    const highIdx = ordered.findIndex((v) => variantRank(v) === 2);
+    const extraIdx = ordered.findIndex((v) => variantRank(v) === 3);
+    const defaultIdx = fam.provider === "orchestrator"
+      ? (highIdx >= 0 ? highIdx : (medIdx >= 0 ? medIdx : (extraIdx >= 0 ? extraIdx : 0)))
+      : (medIdx >= 0 ? medIdx : (highIdx >= 0 ? highIdx : 0));
     return {
       ...fam,
       hasEffortVariants: hasEffort,
+      hasAnyEffortVariants: hasAnyEffort,
       variantsTopToBottom: ordered,
       defaultVariantIndex: defaultIdx
     };
@@ -572,27 +716,20 @@ function openWebModelPicker(anchorEl) {
       });
     } else {
       let fullTitle = fam.name;
-      let compactTitle = null;
       if (fam.provider === "orchestrator") {
-        if (fam.variantsTopToBottom.length > 1) {
-          fullTitle = fam.name || "Orchestrator";
-          compactTitle = "Orch";
-        } else {
-          const raw = fam.variantsTopToBottom[0]?.rawName || fam.name || "Orchestrator";
-          fullTitle = raw;
-          compactTitle = formatFullNameToCompact(raw) || "Orch";
-        }
+        const source = fam.name || fam.variantsTopToBottom[0]?.rawName || "Orchestrator";
+        fullTitle = formatOrchestratorSlidePickerTitle(source);
       }
       rows.push({
         id: fam.id,
         title: fullTitle,
-        compactTitle,
+        compactTitle: null,
         provider: fam.provider,
         isGroupStart,
         variants: fam.variantsTopToBottom,
         defaultVariantIndex: fam.defaultVariantIndex,
         hasSubmenu: fam.variantsTopToBottom.length > 1,
-        usesEffortLabels: fam.hasEffortVariants
+        usesEffortLabels: fam.hasEffortVariants || fam.hasAnyEffortVariants
       });
     }
     prevProv = fam.provider;

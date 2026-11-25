@@ -40,14 +40,66 @@ public enum ModelEffortRank: Int, Comparable, Sendable {
         }
     }
 
+    public static func parsePure(_ raw: String) -> ModelEffortRank? {
+        switch raw.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() {
+        case "xhigh", "extra", "extra high", "extra-high": return .extra
+        case "high": return .high
+        case "medium", "med": return .medium
+        case "low": return .low
+        default: return nil
+        }
+    }
+
     public static func parse(_ raw: String) -> ModelEffortRank? {
+        if let pure = parsePure(raw) { return pure }
         let lower = raw.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-        if lower == "low" || lower.hasSuffix("-low") { return .low }
-        if lower == "medium" || lower == "med" || lower.hasSuffix("-medium") { return .medium }
-        if lower == "high" || lower.hasSuffix("-high") { return .high }
-        if lower == "xhigh" || lower == "extra" || lower == "extra high" || lower == "extra-high"
-            || lower.hasSuffix("-xhigh") || lower.hasSuffix("-extra") {
+        if lower.hasSuffix("-xhigh") || lower.hasSuffix("-extra-high") || lower.hasSuffix("-extra") {
             return .extra
+        }
+        if lower.hasSuffix("-high") { return .high }
+        if lower.hasSuffix("-medium") { return .medium }
+        if lower.hasSuffix("-low") { return .low }
+        return nil
+    }
+
+    /// Splits a trailing effort qualifier from a combined label such as `"Neon, High"`, `"Neon - Extra High"`, or `"Neon Medium"`.
+    public static func extractTrailingEffort(from raw: String) -> (base: String, effort: ModelEffortRank)? {
+        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return nil }
+        if let direct = parsePure(trimmed) {
+            return ("", direct)
+        }
+        let lower = trimmed.lowercased()
+        let candidates: [(suffix: String, rank: ModelEffortRank)] = [
+            ("extra high", .extra),
+            ("extra-high", .extra),
+            ("xhigh", .extra),
+            ("extra", .extra),
+            ("medium", .medium),
+            ("med", .medium),
+            ("high", .high),
+            ("low", .low),
+        ]
+        let separators: Set<Character> = [" ", "\t", ",", "-", "·", "/", "|", ":", "–", "—"]
+        for (suffix, rank) in candidates {
+            guard lower.hasSuffix(suffix) else { continue }
+            let splitIdx = trimmed.index(trimmed.endIndex, offsetBy: -suffix.count)
+            if splitIdx == trimmed.startIndex {
+                return ("", rank)
+            }
+            let prevChar = trimmed[trimmed.index(before: splitIdx)]
+            guard separators.contains(prevChar) else { continue }
+            var baseEnd = splitIdx
+            while baseEnd > trimmed.startIndex {
+                let c = trimmed[trimmed.index(before: baseEnd)]
+                if separators.contains(c) {
+                    baseEnd = trimmed.index(before: baseEnd)
+                } else {
+                    break
+                }
+            }
+            let base = String(trimmed[..<baseEnd]).trimmingCharacters(in: .whitespacesAndNewlines)
+            return (base, rank)
         }
         return nil
     }
@@ -96,7 +148,8 @@ public struct ModelFamily: Identifiable, Hashable, Sendable {
     /// Variants ordered from top to bottom in the floating effort list:
     /// Matches desktop order: Low (top) -> Medium -> High -> Extra (bottom).
     public var variantsTopToBottom: [ModelVariant] {
-        guard hasEffortVariants else { return variants }
+        let shouldSortByEffort = hasEffortVariants || (variants.count > 1 && variants.contains(where: { $0.effortRank != nil }))
+        guard shouldSortByEffort else { return variants }
         return variants.sorted { lhs, rhs in
             let l = lhs.effortRank?.rawValue ?? Int.max
             let r = rhs.effortRank?.rawValue ?? Int.max
@@ -104,15 +157,23 @@ public struct ModelFamily: Identifiable, Hashable, Sendable {
         }
     }
 
-    /// Default variant when selecting the family: Medium first, then High, else first.
+    /// Default variant when selecting the family:
+    /// Orchestrator prefers High first (then Medium, Extra, else first);
+    /// other families prefer Medium first, then High, else first.
     public var defaultVariant: ModelVariant? {
         let ordered = variantsTopToBottom
+        if provider.lowercased() == "orchestrator" {
+            if let high = ordered.first(where: { $0.effortRank == .high }) { return high }
+            if let med = ordered.first(where: { $0.effortRank == .medium }) { return med }
+            if let extra = ordered.first(where: { $0.effortRank == .extra }) { return extra }
+            return ordered.first
+        }
         if let med = ordered.first(where: { $0.effortRank == .medium }) { return med }
         if let high = ordered.first(where: { $0.effortRank == .high }) { return high }
         return ordered.first
     }
 
-    /// Index of the anchor variant (Medium when available) in `variantsTopToBottom` so it aligns horizontally with the family row.
+    /// Index of the anchor variant (High for Orchestrator, Medium for others when available) in `variantsTopToBottom` so it aligns horizontally with the family row.
     public var defaultVariantIndexTopToBottom: Int {
         let ordered = variantsTopToBottom
         guard let target = defaultVariant,
@@ -288,16 +349,17 @@ public enum ModelDefaultsLogic {
         "claude-sonnet-5-5-low": "Sonnet 5.5 · Low",
         "claude-opus-4-6-thinking": "Opus 4.6 · Think",
         "claude-sonnet-4-6": "Sonnet 4.6 · Think",
-        "gemini-pro-orchestrator-neon": "Orch · Neon",
-        "orchestrator-neon": "Orch · Neon",
-        "gemini-pro-orchestrator": "Orch · Carbon",
-        "gemini-pro-orchestrator-argon": "Orch · Argon",
-        "orchestrator-carbon": "Orch · Carbon",
-        "orchestrator-argon": "Orch · Argon",
+        "gemini-pro-orchestrator-neon": "Orch Neon",
+        "orchestrator-neon": "Orch Neon",
+        "gemini-pro-orchestrator": "Orch Carbon",
+        "gemini-pro-orchestrator-argon": "Orch Argon",
+        "orchestrator-carbon": "Orch Carbon",
+        "orchestrator-argon": "Orch Argon",
         "gpt-oss-120b-medium": "GPT-OSS · Med",
     ]
 
-    /// 将未知模型 ID 转为统一规范的展示名（如 `claude-sonnet-5-5-high` → `Claude Sonnet 5.5 (High)`）。
+    /// 将未知模型 ID 转为统一规范的展示名（如 `claude-sonnet-5-5-high` → `Claude Sonnet 5.5 (High)`，
+    /// `gemini-pro-orchestrator-neon-high` → `Orchestrator (Neon) (High)`）。
     public static func formatIDAsDisplayName(_ id: String) -> String {
         let trimmed = id.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return "" }
@@ -306,16 +368,41 @@ public enum ModelDefaultsLogic {
         }
         let tokens = trimmed.split(separator: "-").map(String.init)
         guard !tokens.isEmpty else { return trimmed }
-        let trailingQualifiers: Set<String> = ["high", "medium", "low", "xhigh", "extra", "thinking"]
         var qualifier: String? = nil
         var core = tokens
-        if let last = core.last, trailingQualifiers.contains(last.lowercased()), core.count > 1 {
-            if last.lowercased() == "xhigh" || last.lowercased() == "extra" {
-                qualifier = "Extra"
-            } else {
-                qualifier = last.prefix(1).uppercased() + last.dropFirst().lowercased()
+        if core.count >= 2,
+           core[core.count - 2].lowercased() == "extra",
+           core[core.count - 1].lowercased() == "high" {
+            qualifier = "Extra"
+            core.removeLast(2)
+        } else {
+            let trailingQualifiers: Set<String> = ["high", "medium", "low", "xhigh", "extra", "thinking"]
+            if let last = core.last, trailingQualifiers.contains(last.lowercased()), core.count > 1 {
+                if last.lowercased() == "xhigh" || last.lowercased() == "extra" {
+                    qualifier = "Extra"
+                } else {
+                    qualifier = last.prefix(1).uppercased() + last.dropFirst().lowercased()
+                }
+                core.removeLast()
             }
-            core.removeLast()
+        }
+        let coreLower = core.map { $0.lowercased() }
+        if coreLower.starts(with: ["gemini", "pro", "orchestrator"]) || coreLower.first == "orchestrator" {
+            let isGeminiProOrch = coreLower.starts(with: ["gemini", "pro", "orchestrator"])
+            let rest = isGeminiProOrch ? Array(core.dropFirst(3)) : Array(core.dropFirst(1))
+            let modelName: String
+            if rest.isEmpty {
+                modelName = isGeminiProOrch ? "Carbon" : ""
+            } else {
+                modelName = rest.map { tok in
+                    tok.first?.isLetter == true ? tok.prefix(1).uppercased() + tok.dropFirst() : tok
+                }.joined(separator: " ")
+            }
+            let base = modelName.isEmpty ? "Orchestrator" : "Orchestrator (\(modelName))"
+            if let q = qualifier {
+                return "\(base) (\(q))"
+            }
+            return base
         }
         var parts: [String] = []
         for token in core {
@@ -338,10 +425,109 @@ public enum ModelDefaultsLogic {
     }
 
     private static func normalizeDisplayName(_ name: String) -> String {
-        if name.hasSuffix("(XHigh)") {
-            return String(name.dropLast("(XHigh)".count)) + "(Extra)"
+        let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return name }
+        if let regex = try? NSRegularExpression(pattern: #"(\(|[\s,\-·/|:]\s*)(xhigh|extra[\s\-]+high)\)"#, options: [.caseInsensitive]) {
+            let range = NSRange(trimmed.startIndex..., in: trimmed)
+            return regex.stringByReplacingMatches(in: trimmed, range: range, withTemplate: "$1Extra)")
         }
-        return name
+        if trimmed.hasSuffix("(XHigh)") {
+            return String(trimmed.dropLast("(XHigh)".count)) + "(Extra)"
+        }
+        return trimmed
+    }
+
+    private static func cleanOrchestratorModelPart(_ raw: String) -> String {
+        var s = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        let trimChars = CharacterSet(charactersIn: " -·,/:|–—()")
+        s = s.trimmingCharacters(in: trimChars)
+        let lower = s.lowercased()
+        if lower.hasPrefix("gemini 4 ") {
+            s = String(s.dropFirst("gemini 4 ".count))
+        } else if lower.hasPrefix("gemini ") {
+            s = String(s.dropFirst("gemini ".count))
+        } else if lower.hasPrefix("claude ") {
+            s = String(s.dropFirst("claude ".count))
+        }
+        return s.trimmingCharacters(in: trimChars)
+    }
+
+    /// 解析任意格式的 Orchestrator 展示名与 ID，拆出底层模型名（如 `Neon` / `Carbon` / `Argon`）和可选思考强度。
+    /// 支持：`Orchestrator (Neon) (High)`、`Orchestrator Neon (High)`、`Orchestrator (Neon, High)`、
+    /// `Orchestrator (Neon - Extra High)`、`Orchestrator (Neon High)`、`Gemini 4 Neon Orchestrator (High)`、`Orchestrator (Neon)` 等。
+    public static func parseOrchestratorName(_ fullName: String, id: String = "") -> (modelName: String, effort: ModelEffortRank?) {
+        let normalized = normalizeDisplayName(fullName).trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !normalized.isEmpty else {
+            return ("", ModelEffortRank.parse(id))
+        }
+        let stripOrchPrefixOrSuffix: (String) -> String = { text in
+            var s = text.trimmingCharacters(in: .whitespacesAndNewlines)
+            if s.lowercased().hasPrefix("orchestrator") {
+                s = String(s.dropFirst("orchestrator".count)).trimmingCharacters(in: .whitespacesAndNewlines)
+            }
+            if s.lowercased().hasSuffix("(orchestrator)") {
+                s = String(s.dropLast("(orchestrator)".count)).trimmingCharacters(in: .whitespacesAndNewlines)
+            } else if s.lowercased().hasSuffix("orchestrator") {
+                s = String(s.dropLast("orchestrator".count)).trimmingCharacters(in: .whitespacesAndNewlines)
+            }
+            return cleanOrchestratorModelPart(s)
+        }
+
+        if let openParen = normalized.lastIndex(of: "("),
+           normalized.hasSuffix(")"),
+           openParen > normalized.startIndex {
+            let prefix = String(normalized[..<openParen]).trimmingCharacters(in: .whitespacesAndNewlines)
+            let inside = String(normalized[normalized.index(after: openParen)..<normalized.index(before: normalized.endIndex)])
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+
+            if let pureEffort = ModelEffortRank.parsePure(inside) {
+                // e.g. "Orchestrator (Neon) (High)", "Orchestrator Neon (High)", "Orchestrator (High)", "Gemini 4 Neon Orchestrator (High)"
+                if let pOpen = prefix.lastIndex(of: "("), prefix.hasSuffix(")"), pOpen > prefix.startIndex {
+                    let pBefore = String(prefix[..<pOpen]).trimmingCharacters(in: .whitespacesAndNewlines)
+                    let pInner = String(prefix[prefix.index(after: pOpen)..<prefix.index(before: prefix.endIndex)])
+                        .trimmingCharacters(in: .whitespacesAndNewlines)
+                    if pBefore.lowercased().hasPrefix("orchestrator") {
+                        return (cleanOrchestratorModelPart(pInner), pureEffort)
+                    }
+                    if pInner.lowercased() == "orchestrator" {
+                        return (cleanOrchestratorModelPart(pBefore), pureEffort)
+                    }
+                }
+                return (stripOrchPrefixOrSuffix(prefix), pureEffort)
+            }
+
+            if let split = ModelEffortRank.extractTrailingEffort(from: inside) {
+                // e.g. "Orchestrator (Neon, High)", "Orchestrator (Neon - Extra High)", "Orchestrator (Neon High)", "Gemini 4 Neon (Orchestrator, High)"
+                if prefix.lowercased().hasPrefix("orchestrator") {
+                    return (cleanOrchestratorModelPart(split.base), split.effort)
+                }
+                if split.base.lowercased() == "orchestrator" {
+                    return (cleanOrchestratorModelPart(prefix), split.effort)
+                }
+                return (cleanOrchestratorModelPart(split.base), split.effort)
+            }
+
+            // No effort inside parentheses, e.g. "Orchestrator (Neon)" or "Gemini 4 Hydrogen (Orchestrator)"
+            let idEffort = ModelEffortRank.parse(id)
+            if prefix.lowercased().hasPrefix("orchestrator") {
+                return (cleanOrchestratorModelPart(inside), idEffort)
+            }
+            if inside.lowercased() == "orchestrator" {
+                return (cleanOrchestratorModelPart(prefix), idEffort)
+            }
+            return (stripOrchPrefixOrSuffix(normalized), idEffort)
+        }
+
+        if let split = ModelEffortRank.extractTrailingEffort(from: normalized) {
+            return (stripOrchPrefixOrSuffix(split.base), split.effort)
+        }
+        return (stripOrchPrefixOrSuffix(normalized), ModelEffortRank.parse(id))
+    }
+
+    /// Orchestrator 一级菜单展示名：`Orch <模型名>`（无模型名时退回 `Orch`）。
+    public static func formatOrchestratorSlidePickerTitle(_ rawTitle: String) -> String {
+        let parsed = parseOrchestratorName(rawTitle)
+        return parsed.modelName.isEmpty ? "Orch" : "Orch \(parsed.modelName)"
     }
 
     public static func displayName(forID id: String, options: [ModelOption] = []) -> String {
@@ -394,8 +580,17 @@ public enum ModelDefaultsLogic {
     }
 
     public static func formatFullNameToCompact(_ full: String) -> String {
-        let trimmed = full.trimmingCharacters(in: .whitespacesAndNewlines)
+        let trimmed = normalizeDisplayName(full).trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return "" }
+        if trimmed.lowercased().hasPrefix("orchestrator") {
+            let parsed = parseOrchestratorName(trimmed)
+            let base = parsed.modelName.isEmpty ? "Orch" : "Orch \(parsed.modelName)"
+            if let effort = parsed.effort {
+                let shortEffort = effort == .medium ? "Med" : effort.displayLabel
+                return "\(base) · \(shortEffort)"
+            }
+            return base
+        }
         if let openParen = trimmed.lastIndex(of: "("),
            trimmed.hasSuffix(")"),
            openParen > trimmed.startIndex {
@@ -419,7 +614,7 @@ public enum ModelDefaultsLogic {
                 variant = "Med"
             } else if vLower == "thinking" {
                 variant = "Think"
-            } else if vLower == "xhigh" {
+            } else if vLower == "xhigh" || vLower == "extra high" || vLower == "extra-high" {
                 variant = "Extra"
             }
             return "\(base) · \(variant)"
@@ -488,28 +683,35 @@ public enum ModelDefaultsLogic {
         for opt in effectiveOptions {
             if isExcludedPickerModelID(opt.id) { continue }
             let fullName = opt.name.isEmpty ? displayName(forID: opt.id, options: options) : normalizeDisplayName(opt.name)
-            var familyName = fullName
-            var variantLabel = String(localized: "默认")
-            
-            if let openParen = fullName.lastIndex(of: "("),
-               fullName.hasSuffix(")"),
-               openParen > fullName.startIndex {
-                familyName = String(fullName[..<openParen]).trimmingCharacters(in: .whitespaces)
-                let insideStartIndex = fullName.index(after: openParen)
-                let insideEndIndex = fullName.index(before: fullName.endIndex)
-                variantLabel = String(fullName[insideStartIndex..<insideEndIndex]).trimmingCharacters(in: .whitespaces)
-            }
-            
             let p = opt.provider.lowercased()
             let familyProvider: String
             if isClaude(opt.id) || p == "claude" {
                 familyProvider = "claude"
-            } else if opt.id.lowercased().contains("orch") || familyName.lowercased().contains("orch") {
+            } else if p == "orchestrator"
+                || providerKind(forID: opt.id) == .orchestrator
+                || fullName.lowercased().hasPrefix("orchestrator") {
                 familyProvider = "orchestrator"
             } else if p == "gemini" || opt.id.lowercased().contains("gemini") {
                 familyProvider = "gemini"
             } else {
                 familyProvider = "other"
+            }
+
+            var familyName = fullName
+            var variantLabel = String(localized: "默认")
+            if familyProvider == "orchestrator" {
+                let parsed = parseOrchestratorName(fullName, id: opt.id)
+                familyName = parsed.modelName.isEmpty ? "Orchestrator" : "Orchestrator (\(parsed.modelName))"
+                if let effort = parsed.effort {
+                    variantLabel = effort.displayLabel
+                }
+            } else if let openParen = fullName.lastIndex(of: "("),
+                      fullName.hasSuffix(")"),
+                      openParen > fullName.startIndex {
+                familyName = String(fullName[..<openParen]).trimmingCharacters(in: .whitespaces)
+                let insideStartIndex = fullName.index(after: openParen)
+                let insideEndIndex = fullName.index(before: fullName.endIndex)
+                variantLabel = String(fullName[insideStartIndex..<insideEndIndex]).trimmingCharacters(in: .whitespaces)
             }
             
             let variant = ModelVariant(
