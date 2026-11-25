@@ -448,7 +448,11 @@ public struct ChatView: View {
     @ViewBuilder
     private func applyLifecycleModifiers<Content: View>(_ content: Content) -> some View {
         content
-            .background(SwipeBackEnabler())
+            .background(
+                SwipeBackEnabler(
+                    isDisabled: modelPickerState.isPresented || workflowPickerState.isPresented || commitPickerState.isPresented
+                )
+            )
             .onChange(of: ShareInbox.shared.deliveryTick) { _, _ in
                 consumeSharedFiles()
             }
