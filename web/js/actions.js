@@ -484,7 +484,7 @@ function renderViewerContent(contentEl, content, filename, uri) {
   }
 
   sheetBody?.classList.remove("is-html-preview");
-  findBtn?.classList.remove("hidden");
+  findBtn?.classList.add("hidden");
   contentEl.innerHTML = renderViewerDocumentText(content || "", filename);
   renderAllMermaidDiagrams(contentEl);
   if (typeof hydrateAllAgentEmbeds === "function") hydrateAllAgentEmbeds(contentEl);
@@ -571,6 +571,7 @@ async function openMarkdownViewer(uri, title) {
     }
   } else {
     // Reset state when not cached
+    document.getElementById("btn-md-viewer-find")?.classList.add("hidden");
     if (contentEl) {
       contentEl.closest(".md-viewer-sheet-body")?.classList.remove("is-html-preview");
       contentEl.innerHTML = "";
@@ -646,7 +647,7 @@ function closeMarkdownViewer() {
     if (contentEl && contentEl.querySelector("iframe.html-artifact-preview-frame")) {
       contentEl.innerHTML = "";
     }
-    document.getElementById("btn-md-viewer-find")?.classList.remove("hidden");
+    document.getElementById("btn-md-viewer-find")?.classList.add("hidden");
   }
   currentViewerData = null;
 }

@@ -8,25 +8,20 @@ import android.os.Build
 import android.os.Environment
 import android.provider.MediaStore
 import android.widget.Toast
-import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.clickable
-import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.FileDownload
 import androidx.compose.material.icons.filled.PlayArrow
-import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.material3.*
-import androidx.compose.runtime.*
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
@@ -77,15 +72,6 @@ fun MarkdownViewerSheet(
     val rawFilename = data.filename
     val displayFilename = remember(rawFilename) {
         try { URLDecoder.decode(rawFilename, "UTF-8") } catch (_: Exception) { rawFilename }
-    }
-    var showFindBar by remember { mutableStateOf(false) }
-    var findQuery by remember { mutableStateOf("") }
-    val matchingLines = remember(data.content, findQuery) {
-        val q = findQuery.trim()
-        if (q.isEmpty()) emptyList()
-        else data.content.lines().mapIndexedNotNull { idx, line ->
-            if (line.contains(q, ignoreCase = true)) (idx + 1) to line.trim() else null
-        }
     }
 
     ModalBottomSheet(
@@ -144,82 +130,16 @@ fun MarkdownViewerSheet(
                     textAlign = TextAlign.Center
                 )
 
-                // Top-right: Find + Share buttons
-                Row(
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    if (data.content.isNotBlank()) {
-                        ApplePreviewCircleButton(
-                            icon = Icons.Default.Search,
-                            contentDescription = "页内查找".loc,
-                            colors = colors,
-                            onClick = {
-                                haptic.light()
-                                showFindBar = !showFindBar
-                            }
-                        )
+                // Top-right: Apple native Share button
+                ApplePreviewCircleButton(
+                    icon = Icons.Default.Share,
+                    contentDescription = "分享Markdown".loc,
+                    colors = colors,
+                    onClick = {
+                        haptic.medium()
+                        shareMarkdown(context, displayFilename.ifBlank { "$displayTitle.md" }, data.content)
                     }
-                    ApplePreviewCircleButton(
-                        icon = Icons.Default.Share,
-                        contentDescription = "分享Markdown".loc,
-                        colors = colors,
-                        onClick = {
-                            haptic.medium()
-                            shareMarkdown(context, displayFilename.ifBlank { "$displayTitle.md" }, data.content)
-                        }
-                    )
-                }
-            }
-
-            if (showFindBar) {
-                Column(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(top = 8.dp),
-                    verticalArrangement = Arrangement.spacedBy(6.dp)
-                ) {
-                    OutlinedTextField(
-                        value = findQuery,
-                        onValueChange = { findQuery = it },
-                        placeholder = { Text("在文档中查找...".loc, fontSize = 13.sp) },
-                        singleLine = true,
-                        modifier = Modifier.fillMaxWidth(),
-                        trailingIcon = {
-                            if (findQuery.isNotEmpty()) {
-                                Row(verticalAlignment = Alignment.CenterVertically) {
-                                    Text("${matchingLines.size} 处".loc, color = colors.textSecondary, fontSize = 11.5.sp)
-                                    IconButton(onClick = { findQuery = "" }) {
-                                        Icon(Icons.Default.Close, contentDescription = "清除".loc, modifier = Modifier.size(16.dp))
-                                    }
-                                }
-                            }
-                        }
-                    )
-                    if (matchingLines.isNotEmpty()) {
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .horizontalScroll(rememberScrollState()),
-                            horizontalArrangement = Arrangement.spacedBy(6.dp)
-                        ) {
-                            matchingLines.take(12).forEach { (lineNum, lineText) ->
-                                Text(
-                                    text = "L$lineNum: $lineText",
-                                    color = colors.textPrimary,
-                                    fontSize = 11.sp,
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis,
-                                    modifier = Modifier
-                                        .widthIn(max = 220.dp)
-                                        .clip(RoundedCornerShape(6.dp))
-                                        .background(Color(0x38FFEB3B))
-                                        .padding(horizontal = 8.dp, vertical = 4.dp)
-                                )
-                            }
-                        }
-                    }
-                }
+                )
             }
 
             HorizontalDivider(color = colors.separator.copy(alpha = 0.5f), thickness = 0.5.dp, modifier = Modifier.padding(vertical = 10.dp))

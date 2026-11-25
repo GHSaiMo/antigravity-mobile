@@ -1259,7 +1259,7 @@
     document.addEventListener("keydown", (e) => {
       if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "f") {
         const sheet = document.getElementById("sheet-markdown-viewer");
-        if (sheet && !sheet.classList.contains("hidden")) {
+        if (sheet && !sheet.classList.contains("hidden") && activeHtmlFindFrame()) {
           e.preventDefault();
           openFindPopover(document.getElementById("md-viewer-content"));
         }
