@@ -384,6 +384,196 @@ public struct WorkspaceTrustBanner: View {
 
 // MARK: - /btw Side Question Branch UI Components
 
+private enum CompactMarkdownPreviewRenderer {
+    private static let hrRegex = try! NSRegularExpression(pattern: #"^([-*_]\s*){3,}$"#)
+    private static let tableSepRegex = try! NSRegularExpression(pattern: #"^\|?[\s:]*-{3,}[\s:]*(?:\|[\s:]*-{3,}[\s:]*)+\|?$"#)
+    private static let quoteRegex = try! NSRegularExpression(pattern: #"^(?:>\s*)+"#)
+    private static let headingRegex = try! NSRegularExpression(pattern: #"^#{1,6}\s+"#)
+    private static let bulletRegex = try! NSRegularExpression(pattern: #"^[-*+]\s+"#)
+    private static let imageRegex = try! NSRegularExpression(pattern: #"!\[([^\]]*)\]\([^)]*\)"#)
+    private static let htmlBrRegex = try! NSRegularExpression(pattern: #"(?i)<br\s*/?>"#)
+    private static let inlineFenceRegex = try! NSRegularExpression(pattern: #"(?:^|\s)(?:```|~~~)[A-Za-z0-9_-]*(?=\s|$)"#)
+    private static let brokenImgRegex = try! NSRegularExpression(pattern: #"!\[[^\]]*(?:\]\([^)]*)?$"#)
+    private static let brokenLinkRegex = try! NSRegularExpression(pattern: #"\[([^\[\]]+)\]\([^\)]*$"#)
+    private static let whitespaceRegex = try! NSRegularExpression(pattern: #"\s+"#)
+
+    static func normalize(_ raw: String) -> String {
+        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return "" }
+
+        let unified = trimmed
+            .replacingOccurrences(of: "\r\n", with: "\n")
+            .replacingOccurrences(of: "\r", with: "\n")
+        var cleanedLines: [String] = []
+        for line in unified.split(separator: "\n", omittingEmptySubsequences: true) {
+            var t = String(line).trimmingCharacters(in: .whitespacesAndNewlines)
+            if t.isEmpty || t.hasPrefix("```") || t.hasPrefix("~~~") { continue }
+            if matches(hrRegex, t) || matches(tableSepRegex, t) { continue }
+            t = replace(quoteRegex, in: t, with: "").trimmingCharacters(in: .whitespaces)
+            t = replace(headingRegex, in: t, with: "")
+            t = replace(bulletRegex, in: t, with: "• ")
+            if t.hasPrefix("|") && t.hasSuffix("|") && t.filter({ $0 == "|" }).count >= 2 {
+                let inner = t.trimmingCharacters(in: CharacterSet(charactersIn: "|"))
+                t = inner.split(separator: "|")
+                    .map { $0.trimmingCharacters(in: .whitespaces) }
+                    .filter { !$0.isEmpty }
+                    .joined(separator: " · ")
+            }
+            t = replace(imageRegex, in: t, with: "$1")
+            t = replace(htmlBrRegex, in: t, with: " ")
+            t = replace(inlineFenceRegex, in: t, with: " ")
+            t = t.trimmingCharacters(in: .whitespacesAndNewlines)
+            if !t.isEmpty {
+                cleanedLines.append(t)
+            }
+        }
+        guard !cleanedLines.isEmpty else { return "" }
+        let flat = replace(whitespaceRegex, in: cleanedLines.joined(separator: " "), with: " ")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        return repairTruncatedInlineMarkdown(flat)
+    }
+
+    static func attributed(_ raw: String, fontSize: CGFloat) -> AttributedString {
+        let normalized = normalize(raw)
+        guard !normalized.isEmpty else { return AttributedString() }
+        let processed = MathSymbolProcessor.process(normalized)
+        var attr = MarkdownContentView.renderInlineMarkdown(processed, size: fontSize)
+        // Strip interactive link attributes so tapping anywhere on the compact card opens the branch.
+        let linkRanges = attr.runs.compactMap { $0.link != nil ? $0.range : nil }
+        for range in linkRanges {
+            attr[range].link = nil
+        }
+        return attr
+    }
+
+    private static func repairTruncatedInlineMarkdown(_ text: String) -> String {
+        var suffix = ""
+        var body = text
+        if body.hasSuffix("…") {
+            suffix = "…"
+            body.removeLast()
+        } else if body.hasSuffix("...") {
+            suffix = "..."
+            body.removeLast(3)
+        }
+
+        body = replace(brokenImgRegex, in: body, with: "")
+        body = replace(brokenLinkRegex, in: body, with: "$1")
+
+        // Balance an unclosed trailing inline code backtick.
+        var chars = Array(body)
+        var inCode = false
+        var lastBacktick = -1
+        var i = 0
+        while i < chars.count {
+            if chars[i] == "\\", i + 1 < chars.count {
+                i += 2
+                continue
+            }
+            if chars[i] == "`" {
+                inCode.toggle()
+                if inCode { lastBacktick = i }
+            }
+            i += 1
+        }
+        if inCode && lastBacktick >= 0 {
+            let after = String(chars[(lastBacktick + 1)...]).trimmingCharacters(in: .whitespaces)
+            if after.isEmpty {
+                body = String(chars[..<lastBacktick]).trimmingCharacters(in: .whitespaces)
+            } else {
+                body = body.trimmingCharacters(in: .whitespaces) + "`"
+            }
+        }
+
+        // Balance unclosed ***, **, ~~, * outside code spans.
+        chars = Array(body)
+        var stack: [(delim: String, pos: Int)] = []
+        inCode = false
+        i = 0
+        while i < chars.count {
+            if chars[i] == "\\", i + 1 < chars.count {
+                i += 2
+                continue
+            }
+            if chars[i] == "`" {
+                inCode.toggle()
+                i += 1
+                continue
+            }
+            if inCode {
+                i += 1
+                continue
+            }
+            if i + 2 < chars.count && chars[i] == "*" && chars[i + 1] == "*" && chars[i + 2] == "*" {
+                if stack.last?.delim == "***" {
+                    stack.removeLast()
+                } else {
+                    stack.append(("***", i))
+                }
+                i += 3
+                continue
+            }
+            if i + 1 < chars.count && chars[i] == "*" && chars[i + 1] == "*" {
+                if stack.last?.delim == "**" {
+                    stack.removeLast()
+                } else if stack.last?.delim == "***" {
+                    stack[stack.count - 1].delim = "*"
+                } else {
+                    stack.append(("**", i))
+                }
+                i += 2
+                continue
+            }
+            if i + 1 < chars.count && chars[i] == "~" && chars[i + 1] == "~" {
+                if stack.last?.delim == "~~" {
+                    stack.removeLast()
+                } else {
+                    stack.append(("~~", i))
+                }
+                i += 2
+                continue
+            }
+            if chars[i] == "*" {
+                let prevSpace = (i == 0 || chars[i - 1].isWhitespace)
+                let nextSpace = (i + 1 >= chars.count || chars[i + 1].isWhitespace)
+                if !(prevSpace && nextSpace) {
+                    if stack.last?.delim == "*" {
+                        stack.removeLast()
+                    } else if stack.last?.delim == "***" {
+                        stack[stack.count - 1].delim = "**"
+                    } else {
+                        stack.append(("*", i))
+                    }
+                }
+            }
+            i += 1
+        }
+
+        while let top = stack.popLast() {
+            let curChars = Array(body)
+            let afterIdx = top.pos + top.delim.count
+            if afterIdx <= curChars.count && String(curChars[afterIdx...]).trimmingCharacters(in: .whitespaces).isEmpty {
+                body = String(curChars[..<top.pos]).trimmingCharacters(in: .whitespaces)
+            } else {
+                body = body.trimmingCharacters(in: .whitespaces) + top.delim
+            }
+        }
+
+        body = body.trimmingCharacters(in: .whitespacesAndNewlines)
+        return body.isEmpty ? "" : body + suffix
+    }
+
+    private static func matches(_ regex: NSRegularExpression, _ s: String) -> Bool {
+        let range = NSRange(s.startIndex..<s.endIndex, in: s)
+        return regex.firstMatch(in: s, range: range) != nil
+    }
+
+    private static func replace(_ regex: NSRegularExpression, in s: String, with template: String) -> String {
+        let range = NSRange(s.startIndex..<s.endIndex, in: s)
+        return regex.stringByReplacingMatches(in: s, range: range, withTemplate: template)
+    }
+}
+
 /// 挂在父会话源消息卡片正下方的紧凑旁路分支子卡片（点击直接进入完整分支会话）。
 public struct SideQuestionInlineCardsSection: View {
     public let items: [SideQuestionCardItem]
@@ -446,7 +636,7 @@ public struct SideQuestionInlineCardsSection: View {
 
                                 if let preview = item.answerPreview?.trimmingCharacters(in: .whitespacesAndNewlines),
                                    !preview.isEmpty {
-                                    Text(preview)
+                                    Text(CompactMarkdownPreviewRenderer.attributed(preview, fontSize: 12))
                                         .font(.system(size: 12))
                                         .foregroundColor(.secondary)
                                         .lineLimit(2)
@@ -681,7 +871,7 @@ public struct BtwSideQuestionSheet: View {
                                     .foregroundColor(.secondary)
                                 }
                                 if let preview = anchorPreview?.trimmingCharacters(in: .whitespacesAndNewlines), !preview.isEmpty {
-                                    Text(preview)
+                                    Text(CompactMarkdownPreviewRenderer.attributed(preview, fontSize: 12))
                                         .font(.system(size: 12))
                                         .foregroundColor(.secondary)
                                         .lineLimit(2)
@@ -735,7 +925,7 @@ public struct BtwSideQuestionSheet: View {
                                                     .foregroundColor(.primary)
                                                     .lineLimit(1)
                                                 if let ans = branch.answerPreview?.trimmingCharacters(in: .whitespacesAndNewlines), !ans.isEmpty {
-                                                    Text(ans)
+                                                    Text(CompactMarkdownPreviewRenderer.attributed(ans, fontSize: 11.5))
                                                         .font(.system(size: 11.5))
                                                         .foregroundColor(.secondary)
                                                         .lineLimit(1)

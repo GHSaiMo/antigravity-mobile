@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"regexp"
 	"strconv"
 	"strings"
 	"sync"
@@ -451,15 +452,191 @@ func extractSideQuestionBranchMessages(rawResp *upstreamTrajectoryResp, details 
 	return
 }
 
+var (
+	sidePreviewHRRe         = regexp.MustCompile(`^([-*_]\s*){3,}$`)
+	sidePreviewTableSepRe   = regexp.MustCompile(`^\|?[\s:]*-{3,}[\s:]*(?:\|[\s:]*-{3,}[\s:]*)+\|?$`)
+	sidePreviewQuoteRe      = regexp.MustCompile(`^(?:>\s*)+`)
+	sidePreviewHeadingRe    = regexp.MustCompile(`^#{1,6}\s+`)
+	sidePreviewBulletRe     = regexp.MustCompile(`^[-*+]\s+`)
+	sidePreviewImageRe      = regexp.MustCompile(`!\[([^\]]*)\]\([^)]*\)`)
+	sidePreviewHtmlBrRe     = regexp.MustCompile(`(?i)<br\s*/?>`)
+	sidePreviewBrokenImgRe  = regexp.MustCompile(`!\[[^\]]*(?:\]\([^)]*)?$`)
+	sidePreviewBrokenLinkRe = regexp.MustCompile(`\[([^\[\]]+)\]\([^\)]*$`)
+)
+
 func compactSidePreview(s string, maxRunes int) string {
 	s = strings.TrimSpace(s)
 	if s == "" {
 		return ""
 	}
+	normalized := strings.ReplaceAll(strings.ReplaceAll(s, "\r\n", "\n"), "\r", "\n")
+	rawLines := strings.Split(normalized, "\n")
+	cleanedLines := make([]string, 0, len(rawLines))
+	for _, line := range rawLines {
+		t := strings.TrimSpace(line)
+		if t == "" {
+			continue
+		}
+		if strings.HasPrefix(t, "```") || strings.HasPrefix(t, "~~~") {
+			continue
+		}
+		if sidePreviewHRRe.MatchString(t) || sidePreviewTableSepRe.MatchString(t) {
+			continue
+		}
+		t = sidePreviewQuoteRe.ReplaceAllString(t, "")
+		t = strings.TrimSpace(t)
+		t = sidePreviewHeadingRe.ReplaceAllString(t, "")
+		t = sidePreviewBulletRe.ReplaceAllString(t, "• ")
+		if strings.HasPrefix(t, "|") && strings.HasSuffix(t, "|") && strings.Count(t, "|") >= 2 {
+			cells := strings.Split(strings.Trim(t, "|"), "|")
+			nonEmpty := make([]string, 0, len(cells))
+			for _, cell := range cells {
+				if c := strings.TrimSpace(cell); c != "" {
+					nonEmpty = append(nonEmpty, c)
+				}
+			}
+			t = strings.Join(nonEmpty, " · ")
+		}
+		t = sidePreviewImageRe.ReplaceAllStringFunc(t, func(m string) string {
+			sub := sidePreviewImageRe.FindStringSubmatch(m)
+			if len(sub) > 1 {
+				return strings.TrimSpace(sub[1])
+			}
+			return ""
+		})
+		t = sidePreviewHtmlBrRe.ReplaceAllString(t, " ")
+		if t = strings.TrimSpace(t); t != "" {
+			cleanedLines = append(cleanedLines, t)
+		}
+	}
+	if len(cleanedLines) == 0 {
+		return ""
+	}
 	// Flatten newlines and redundant spaces for compact 1-2 line card preview.
-	lines := strings.Fields(s)
-	flat := strings.Join(lines, " ")
-	return truncateRunes(flat, maxRunes)
+	flat := strings.Join(strings.Fields(strings.Join(cleanedLines, " ")), " ")
+	return repairTruncatedInlineMarkdown(truncateRunes(flat, maxRunes))
+}
+
+func repairTruncatedInlineMarkdown(s string) string {
+	s = strings.TrimSpace(s)
+	if s == "" {
+		return ""
+	}
+	suffix := ""
+	body := s
+	if strings.HasSuffix(body, "…") {
+		suffix = "…"
+		body = strings.TrimSuffix(body, "…")
+	} else if strings.HasSuffix(body, "...") {
+		suffix = "..."
+		body = strings.TrimSuffix(body, "...")
+	}
+
+	body = sidePreviewBrokenImgRe.ReplaceAllString(body, "")
+	body = sidePreviewBrokenLinkRe.ReplaceAllString(body, "$1")
+
+	// Close or trim an unbalanced trailing inline code backtick.
+	inCode := false
+	lastBacktick := -1
+	for i := 0; i < len(body); i++ {
+		if body[i] == '\\' && i+1 < len(body) {
+			i++
+			continue
+		}
+		if body[i] == '`' {
+			inCode = !inCode
+			if inCode {
+				lastBacktick = i
+			}
+		}
+	}
+	if inCode && lastBacktick >= 0 {
+		after := strings.TrimSpace(body[lastBacktick+1:])
+		if after == "" {
+			body = strings.TrimRight(body[:lastBacktick], " \t")
+		} else {
+			body = strings.TrimRight(body, " \t") + "`"
+		}
+	}
+
+	type delimEntry struct {
+		delim string
+		pos   int
+	}
+	var stack []delimEntry
+	inCode = false
+	for i := 0; i < len(body); i++ {
+		if body[i] == '\\' && i+1 < len(body) {
+			i++
+			continue
+		}
+		if body[i] == '`' {
+			inCode = !inCode
+			continue
+		}
+		if inCode {
+			continue
+		}
+		if strings.HasPrefix(body[i:], "***") {
+			if n := len(stack); n > 0 && stack[n-1].delim == "***" {
+				stack = stack[:n-1]
+			} else {
+				stack = append(stack, delimEntry{delim: "***", pos: i})
+			}
+			i += 2
+			continue
+		}
+		if strings.HasPrefix(body[i:], "**") {
+			if n := len(stack); n > 0 && stack[n-1].delim == "**" {
+				stack = stack[:n-1]
+			} else if n > 0 && stack[n-1].delim == "***" {
+				stack[n-1].delim = "*"
+			} else {
+				stack = append(stack, delimEntry{delim: "**", pos: i})
+			}
+			i++
+			continue
+		}
+		if strings.HasPrefix(body[i:], "~~") {
+			if n := len(stack); n > 0 && stack[n-1].delim == "~~" {
+				stack = stack[:n-1]
+			} else {
+				stack = append(stack, delimEntry{delim: "~~", pos: i})
+			}
+			i++
+			continue
+		}
+		if body[i] == '*' {
+			prevSpace := i == 0 || body[i-1] == ' ' || body[i-1] == '\t'
+			nextSpace := i+1 >= len(body) || body[i+1] == ' ' || body[i+1] == '\t'
+			if prevSpace && nextSpace {
+				continue
+			}
+			if n := len(stack); n > 0 && stack[n-1].delim == "*" {
+				stack = stack[:n-1]
+			} else if n > 0 && stack[n-1].delim == "***" {
+				stack[n-1].delim = "**"
+			} else {
+				stack = append(stack, delimEntry{delim: "*", pos: i})
+			}
+		}
+	}
+
+	for len(stack) > 0 {
+		top := stack[len(stack)-1]
+		stack = stack[:len(stack)-1]
+		if top.pos+len(top.delim) <= len(body) && strings.TrimSpace(body[top.pos+len(top.delim):]) == "" {
+			body = strings.TrimRight(body[:top.pos], " \t")
+		} else {
+			body = strings.TrimRight(body, " \t") + top.delim
+		}
+	}
+
+	body = strings.TrimSpace(body)
+	if body == "" {
+		return ""
+	}
+	return body + suffix
 }
 
 func formatBtwPrompt(question, quote string) string {

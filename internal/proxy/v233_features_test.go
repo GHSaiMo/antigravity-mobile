@@ -499,3 +499,58 @@ func TestResolveSideQuestionForkStepIndexSnapsToTurnBoundary(t *testing.T) {
 		})
 	}
 }
+
+func TestCompactSidePreviewMarkdownCleanup(t *testing.T) {
+	cases := []struct {
+		name     string
+		input    string
+		maxRunes int
+		want     string
+	}{
+		{
+			name:     "preserves_inline_cjk_bold",
+			input:    "一句话定性：**这是一场由南京市秦淮区（白下高新区）政府园区主导的“以赛引才、以赛招商”型早期创业孵化赛**（属于 2026 首届）",
+			maxRunes: 140,
+			want:     "一句话定性：**这是一场由南京市秦淮区（白下高新区）政府园区主导的“以赛引才、以赛招商”型早期创业孵化赛**（属于 2026 首届）",
+		},
+		{
+			name:     "strips_headings_quotes_fences_and_bullets",
+			input:    "### 核心结论\n> **重点**：支持 `SwiftUI`\n- **第一点**：[详情](https://example.com)\n* 第二点\n```swift\nlet x = 1\n```",
+			maxRunes: 140,
+			want:     "核心结论 **重点**：支持 `SwiftUI` • **第一点**：[详情](https://example.com) • 第二点 let x = 1",
+		},
+		{
+			name:     "closes_truncated_bold_before_ellipsis",
+			input:    "一句话定性：**这是一段非常长的加粗总结文字内容",
+			maxRunes: 16,
+			want:     "一句话定性：**这是一段非常长的**…",
+		},
+		{
+			name:     "repairs_truncated_markdown_link",
+			input:    "参见 [秦淮硅巷方案](https://example.com/very/long/path)",
+			maxRunes: 22,
+			want:     "参见 秦淮硅巷方案…",
+		},
+		{
+			name:     "closes_truncated_inline_code",
+			input:    "调用 `compactSidePreviewLongName` 完成清理",
+			maxRunes: 15,
+			want:     "调用 `compactSide`…",
+		},
+		{
+			name:     "ignores_bold_inside_code_and_drops_empty_trailing_delim",
+			input:    "示例 `a **b` 结束 **",
+			maxRunes: 140,
+			want:     "示例 `a **b` 结束",
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got := compactSidePreview(tc.input, tc.maxRunes)
+			if got != tc.want {
+				t.Fatalf("compactSidePreview(%q, %d) = %q, want %q", tc.input, tc.maxRunes, got, tc.want)
+			}
+		})
+	}
+}

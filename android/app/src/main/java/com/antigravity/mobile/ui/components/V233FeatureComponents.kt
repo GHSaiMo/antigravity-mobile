@@ -453,8 +453,11 @@ fun SideQuestionInlineCardsSection(
                     }
                     val preview = item.answerPreview?.trim().orEmpty()
                     if (preview.isNotEmpty()) {
+                        val styledPreview = remember(preview, colors) {
+                            buildCompactMarkdownPreview(preview, colors, 12.sp)
+                        }
                         Text(
-                            text = preview,
+                            text = styledPreview,
                             color = colors.textSecondary,
                             fontSize = 12.sp,
                             maxLines = 2,
@@ -740,13 +743,26 @@ fun BtwSideQuestionBottomSheet(
                             )
                         }
                         val preview = anchorPreview?.trim().orEmpty()
-                        Text(
-                            text = if (preview.isNotEmpty()) preview else "将从 Step #%d 处分叉，不携带后续消息。".loc(anchorStepIndex),
-                            color = colors.textSecondary,
-                            fontSize = 12.sp,
-                            maxLines = 2,
-                            overflow = TextOverflow.Ellipsis
-                        )
+                        if (preview.isNotEmpty()) {
+                            val styledAnchor = remember(preview, colors) {
+                                buildCompactMarkdownPreview(preview, colors, 12.sp)
+                            }
+                            Text(
+                                text = styledAnchor,
+                                color = colors.textSecondary,
+                                fontSize = 12.sp,
+                                maxLines = 2,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                        } else {
+                            Text(
+                                text = "将从 Step #%d 处分叉，不携带后续消息。".loc(anchorStepIndex),
+                                color = colors.textSecondary,
+                                fontSize = 12.sp,
+                                maxLines = 2,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                        }
                     }
                 } else {
                     Row(
@@ -800,8 +816,11 @@ fun BtwSideQuestionBottomSheet(
                                         overflow = TextOverflow.Ellipsis
                                     )
                                     branch.answerPreview?.trim()?.takeIf { it.isNotEmpty() }?.let { ans ->
+                                        val styledAns = remember(ans, colors) {
+                                            buildCompactMarkdownPreview(ans, colors, 11.5.sp)
+                                        }
                                         Text(
-                                            text = ans,
+                                            text = styledAns,
                                             color = colors.textSecondary,
                                             fontSize = 11.5.sp,
                                             maxLines = 1,

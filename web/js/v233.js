@@ -730,7 +730,7 @@
           const dotClass = isRunning ? "running" : isError ? "error" : "done";
           const preview = String(c.answerPreview || "").trim();
           const previewHtml = preview
-            ? `<div class="btw-inline-card-preview">${escapeHtmlLocal(preview)}</div>`
+            ? `<div class="btw-inline-card-preview" data-i18n-skip="1">${renderBtwPreviewMarkdown(preview)}</div>`
             : isRunning
             ? `<div class="btw-inline-card-preview">正在独立生成回复…</div>`
             : "";
@@ -759,6 +759,149 @@
     }
   }
 
+  function repairTruncatedInlineMarkdown(text) {
+    let s = String(text || "").trim();
+    if (!s) return "";
+    let suffix = "";
+    let body = s;
+    if (body.endsWith("…")) {
+      suffix = "…";
+      body = body.slice(0, -1);
+    } else if (body.endsWith("...")) {
+      suffix = "...";
+      body = body.slice(0, -3);
+    }
+
+    body = body
+      .replace(/!\[[^\]]*(?:\]\([^)]*)?$/, "")
+      .replace(/\[([^\[\]]+)\]\([^\)]*$/, "$1");
+
+    let inCode = false;
+    let lastBacktick = -1;
+    for (let i = 0; i < body.length; i++) {
+      if (body[i] === "\\" && i + 1 < body.length) {
+        i++;
+        continue;
+      }
+      if (body[i] === "`") {
+        inCode = !inCode;
+        if (inCode) lastBacktick = i;
+      }
+    }
+    if (inCode && lastBacktick >= 0) {
+      const after = body.slice(lastBacktick + 1).trim();
+      body = after ? body.trimEnd() + "`" : body.slice(0, lastBacktick).trimEnd();
+    }
+
+    const stack = [];
+    inCode = false;
+    for (let i = 0; i < body.length; i++) {
+      if (body[i] === "\\" && i + 1 < body.length) {
+        i++;
+        continue;
+      }
+      if (body[i] === "`") {
+        inCode = !inCode;
+        continue;
+      }
+      if (inCode) continue;
+      if (body.startsWith("***", i)) {
+        if (stack.length && stack[stack.length - 1].delim === "***") stack.pop();
+        else stack.push({ delim: "***", pos: i });
+        i += 2;
+      } else if (body.startsWith("**", i)) {
+        if (stack.length && stack[stack.length - 1].delim === "**") stack.pop();
+        else if (stack.length && stack[stack.length - 1].delim === "***") stack[stack.length - 1].delim = "*";
+        else stack.push({ delim: "**", pos: i });
+        i += 1;
+      } else if (body.startsWith("~~", i)) {
+        if (stack.length && stack[stack.length - 1].delim === "~~") stack.pop();
+        else stack.push({ delim: "~~", pos: i });
+        i += 1;
+      } else if (body[i] === "*") {
+        const prevSpace = i === 0 || /\s/.test(body[i - 1]);
+        const nextSpace = i + 1 >= body.length || /\s/.test(body[i + 1]);
+        if (!(prevSpace && nextSpace)) {
+          if (stack.length && stack[stack.length - 1].delim === "*") stack.pop();
+          else if (stack.length && stack[stack.length - 1].delim === "***") stack[stack.length - 1].delim = "**";
+          else stack.push({ delim: "*", pos: i });
+        }
+      }
+    }
+
+    while (stack.length) {
+      const top = stack.pop();
+      const afterIdx = top.pos + top.delim.length;
+      if (afterIdx <= body.length && !body.slice(afterIdx).trim()) {
+        body = body.slice(0, top.pos).trimEnd();
+      } else {
+        body = body.trimEnd() + top.delim;
+      }
+    }
+
+    body = body.trim();
+    return body ? body + suffix : "";
+  }
+
+  function normalizeCompactPreviewMarkdown(raw) {
+    const trimmed = String(raw || "").trim();
+    if (!trimmed) return "";
+    const lines = trimmed.replace(/\r\n?/g, "\n").split("\n");
+    const cleaned = [];
+    for (const line of lines) {
+      let t = line.trim();
+      if (!t || t.startsWith("```") || t.startsWith("~~~")) continue;
+      if (/^([-*_]\s*){3,}$/.test(t) || /^\|?[\s:]*-{3,}[\s:]*(?:\|[\s:]*-{3,}[\s:]*)+\|?$/.test(t)) continue;
+      t = t.replace(/^(?:>\s*)+/, "").trimStart();
+      t = t.replace(/^#{1,6}\s+/, "");
+      t = t.replace(/^[-*+]\s+/, "• ");
+      if (t.startsWith("|") && t.endsWith("|") && (t.match(/\|/g) || []).length >= 2) {
+        t = t.slice(1, -1).split("|").map((c) => c.trim()).filter(Boolean).join(" · ");
+      }
+      t = t.replace(/!\[([^\]]*)\]\([^)]*\)/g, (_, alt) => String(alt || "").trim());
+      t = t.replace(/<br\s*\/?>/gi, " ");
+      t = t.replace(/(?:^|\s)(?:```|~~~)[A-Za-z0-9_-]*(?=\s|$)/g, " ");
+      t = t.trim();
+      if (t) cleaned.push(t);
+    }
+    if (!cleaned.length) return "";
+    return repairTruncatedInlineMarkdown(cleaned.join(" ").replace(/\s+/g, " ").trim());
+  }
+
+  function renderBtwPreviewMarkdown(raw) {
+    let text = normalizeCompactPreviewMarkdown(raw);
+    if (!text) return "";
+    const codeSpans = [];
+    text = text.replace(/`([^`]+)`/g, (_, code) => {
+      const idx = codeSpans.length;
+      const cleanCode = typeof stripWeChatDisplayPrefix === "function" ? stripWeChatDisplayPrefix(code) : code;
+      codeSpans.push(`<code class="inline-code">${escapeHtmlLocal(cleanCode)}</code>`);
+      return `\uE020CODE${idx}\uE021`;
+    });
+
+    const linkSpans = [];
+    text = text.replace(/(?<!\!)\[([^\]]+)\]\(([^)]+)\)/g, (_, label) => {
+      const idx = linkSpans.length;
+      const stripped = String(label || "").replace(/^[`*_'"]+|[`*_'"]+$/g, "").trim() || label;
+      const cleanLabel = typeof stripWeChatDisplayPrefix === "function" ? stripWeChatDisplayPrefix(stripped) : stripped;
+      linkSpans.push(`<span class="btw-md-link">${escapeHtmlLocal(cleanLabel)}</span>`);
+      return `\uE020LINK${idx}\uE021`;
+    });
+
+    let html = escapeHtmlLocal(text);
+    html = html.replace(/\*\*\*((?:[^*]|\*(?!\*\*))+?)\*\*\*/g, "<strong><em>$1</em></strong>");
+    html = html.replace(/(?<![A-Za-z0-9_{}])___((?:[^_]|_(?!__))+?)___(?![A-Za-z0-9_{}])/g, "<strong><em>$1</em></strong>");
+    html = html.replace(/\*\*((?:[^*]|\*(?!\*))+?)\*\*/g, "<strong>$1</strong>");
+    html = html.replace(/(?<![A-Za-z0-9_{}])__((?:[^_]|_(?!_))+?)__(?![A-Za-z0-9_{}])/g, "<strong>$1</strong>");
+    html = html.replace(/(?<!\*)\*([^*\n]+?)\*(?!\*)/g, "<em>$1</em>");
+    html = html.replace(/(?<![A-Za-z0-9_{}])_([^_\n]+?)_(?![A-Za-z0-9_{}])/g, "<em>$1</em>");
+    html = html.replace(/~~((?:[^~]|~(?!~))+?)~~/g, "<del>$1</del>");
+
+    html = html.replace(/\uE020LINK(\d+)\uE021/g, (_, idx) => linkSpans[Number(idx)] || "");
+    html = html.replace(/\uE020CODE(\d+)\uE021/g, (_, idx) => codeSpans[Number(idx)] || "");
+    return html;
+  }
+
   function renderBtwQuote() {
     const card = document.getElementById("btw-quote-card");
     const txt = document.getElementById("btw-quote-text");
@@ -766,11 +909,18 @@
     if (!card || !txt) return;
     if (activeBtwStepIndex !== null) {
       if (lbl) lbl.textContent = "⑂ 承接至所选消息的上下文";
-      txt.textContent = activeBtwPreview || `将从 Step #${activeBtwStepIndex} 处分叉，不携带后续消息。`;
+      if (activeBtwPreview) {
+        txt.setAttribute("data-i18n-skip", "1");
+        txt.innerHTML = renderBtwPreviewMarkdown(activeBtwPreview);
+      } else {
+        txt.removeAttribute("data-i18n-skip");
+        txt.textContent = `将从 Step #${activeBtwStepIndex} 处分叉，不携带后续消息。`;
+      }
       card.classList.remove("hidden");
     } else if (activeBtwQuote) {
       if (lbl) lbl.textContent = "引用片段";
-      txt.textContent = activeBtwQuote;
+      txt.setAttribute("data-i18n-skip", "1");
+      txt.innerHTML = renderBtwPreviewMarkdown(activeBtwQuote);
       card.classList.remove("hidden");
     } else {
       txt.textContent = "";
@@ -808,7 +958,7 @@
                 <span class="btw-origin-icon">⑂</span>
                 <div class="btw-branch-list-item-text">
                   <div class="btw-branch-list-item-title">${title}</div>
-                  ${preview ? `<div class="btw-branch-list-item-sub">${escapeHtmlLocal(preview)}</div>` : ""}
+                  ${preview ? `<div class="btw-branch-list-item-sub" data-i18n-skip="1">${renderBtwPreviewMarkdown(preview)}</div>` : ""}
                 </div>
                 ${isRunning ? `<span class="btw-inline-card-dot running"></span>` : ""}
                 <span class="btw-inline-card-arrow">›</span>

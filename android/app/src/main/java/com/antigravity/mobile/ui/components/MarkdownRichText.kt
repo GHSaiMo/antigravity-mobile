@@ -579,6 +579,291 @@ internal fun buildRichTextRenderData(
     return RichTextRenderData(annotatedString, inlineContentMap)
 }
 
+private val COMPACT_PREVIEW_HR_REGEX = Regex("""^([-*_]\s*){3,}$""")
+private val COMPACT_PREVIEW_TABLE_SEP_REGEX = Regex("""^\|?[\s:]*-{3,}[\s:]*(?:\|[\s:]*-{3,}[\s:]*)+\|?$""")
+private val COMPACT_PREVIEW_QUOTE_REGEX = Regex("""^(?:>\s*)+""")
+private val COMPACT_PREVIEW_HEADING_REGEX = Regex("""^#{1,6}\s+""")
+private val COMPACT_PREVIEW_BULLET_REGEX = Regex("""^[-*+]\s+""")
+private val COMPACT_PREVIEW_IMAGE_REGEX = Regex("""!\[([^\]]*)\]\([^)]*\)""")
+private val COMPACT_PREVIEW_HTML_BR_REGEX = Regex("""<br\s*/?>""", RegexOption.IGNORE_CASE)
+private val COMPACT_PREVIEW_INLINE_FENCE_REGEX = Regex("""(?:^|\s)(?:```|~~~)[A-Za-z0-9_-]*(?=\s|$)""")
+private val COMPACT_PREVIEW_BROKEN_IMG_REGEX = Regex("""!\[[^\]]*(?:\]\([^)]*)?$""")
+private val COMPACT_PREVIEW_BROKEN_LINK_REGEX = Regex("""\[([^\[\]]+)\]\([^\)]*$""")
+private val COMPACT_PREVIEW_WHITESPACE_REGEX = Regex("""\s+""")
+
+/**
+ * Normalizes multi-line or truncated Markdown into a compact single-paragraph inline Markdown string
+ * safe for 1-2 line card previews (strips block markers and repairs unclosed trailing delimiters).
+ */
+internal fun normalizeCompactPreviewMarkdown(raw: String): String {
+    val trimmed = raw.trim()
+    if (trimmed.isEmpty()) return ""
+
+    val unified = trimmed.replace("\r\n", "\n").replace("\r", "\n")
+    val cleanedLines = ArrayList<String>()
+    for (line in unified.split('\n')) {
+        var t = line.trim()
+        if (t.isEmpty() || t.startsWith("```") || t.startsWith("~~~")) continue
+        if (COMPACT_PREVIEW_HR_REGEX.matches(t) || COMPACT_PREVIEW_TABLE_SEP_REGEX.matches(t)) continue
+        t = COMPACT_PREVIEW_QUOTE_REGEX.replace(t, "").trimStart()
+        t = COMPACT_PREVIEW_HEADING_REGEX.replace(t, "")
+        t = COMPACT_PREVIEW_BULLET_REGEX.replace(t, "• ")
+        if (t.startsWith("|") && t.endsWith("|") && t.count { it == '|' } >= 2) {
+            t = t.trim('|').split('|').map { it.trim() }.filter { it.isNotEmpty() }.joinToString(" · ")
+        }
+        t = COMPACT_PREVIEW_IMAGE_REGEX.replace(t) { it.groups[1]?.value?.trim().orEmpty() }
+        t = COMPACT_PREVIEW_HTML_BR_REGEX.replace(t, " ")
+        t = COMPACT_PREVIEW_INLINE_FENCE_REGEX.replace(t, " ")
+        t = t.trim()
+        if (t.isNotEmpty()) cleanedLines.add(t)
+    }
+    if (cleanedLines.isEmpty()) return ""
+    val flat = COMPACT_PREVIEW_WHITESPACE_REGEX.replace(cleanedLines.joinToString(" "), " ").trim()
+    return repairTruncatedInlineMarkdown(flat)
+}
+
+private fun repairTruncatedInlineMarkdown(text: String): String {
+    var suffix = ""
+    var body = text
+    when {
+        body.endsWith("…") -> {
+            suffix = "…"
+            body = body.dropLast(1)
+        }
+        body.endsWith("...") -> {
+            suffix = "..."
+            body = body.dropLast(3)
+        }
+    }
+
+    body = COMPACT_PREVIEW_BROKEN_IMG_REGEX.replace(body, "")
+    body = COMPACT_PREVIEW_BROKEN_LINK_REGEX.replace(body, "$1")
+
+    var inCode = false
+    var lastBacktick = -1
+    var i = 0
+    while (i < body.length) {
+        if (body[i] == '\\' && i + 1 < body.length) {
+            i += 2
+            continue
+        }
+        if (body[i] == '`') {
+            inCode = !inCode
+            if (inCode) lastBacktick = i
+        }
+        i++
+    }
+    if (inCode && lastBacktick >= 0) {
+        val after = body.substring(lastBacktick + 1).trim()
+        body = if (after.isEmpty()) {
+            body.substring(0, lastBacktick).trimEnd()
+        } else {
+            body.trimEnd() + "`"
+        }
+    }
+
+    data class DelimEntry(var delim: String, val pos: Int)
+    val stack = ArrayDeque<DelimEntry>()
+    inCode = false
+    i = 0
+    while (i < body.length) {
+        if (body[i] == '\\' && i + 1 < body.length) {
+            i += 2
+            continue
+        }
+        if (body[i] == '`') {
+            inCode = !inCode
+            i++
+            continue
+        }
+        if (inCode) {
+            i++
+            continue
+        }
+        when {
+            body.startsWith("***", i) -> {
+                if (stack.lastOrNull()?.delim == "***") stack.removeLast() else stack.addLast(DelimEntry("***", i))
+                i += 3
+            }
+            body.startsWith("**", i) -> {
+                when (stack.lastOrNull()?.delim) {
+                    "**" -> stack.removeLast()
+                    "***" -> stack.last().delim = "*"
+                    else -> stack.addLast(DelimEntry("**", i))
+                }
+                i += 2
+            }
+            body.startsWith("~~", i) -> {
+                if (stack.lastOrNull()?.delim == "~~") stack.removeLast() else stack.addLast(DelimEntry("~~", i))
+                i += 2
+            }
+            body[i] == '*' -> {
+                val prevSpace = i == 0 || body[i - 1].isWhitespace()
+                val nextSpace = i + 1 >= body.length || body[i + 1].isWhitespace()
+                if (!(prevSpace && nextSpace)) {
+                    when (stack.lastOrNull()?.delim) {
+                        "*" -> stack.removeLast()
+                        "***" -> stack.last().delim = "**"
+                        else -> stack.addLast(DelimEntry("*", i))
+                    }
+                }
+                i++
+            }
+            else -> i++
+        }
+    }
+
+    while (stack.isNotEmpty()) {
+        val top = stack.removeLast()
+        val afterIdx = top.pos + top.delim.length
+        body = if (afterIdx <= body.length && body.substring(afterIdx).trim().isEmpty()) {
+            body.substring(0, top.pos).trimEnd()
+        } else {
+            body.trimEnd() + top.delim
+        }
+    }
+
+    body = body.trim()
+    return if (body.isEmpty()) "" else body + suffix
+}
+
+/**
+ * Renders compact inline Markdown (bold, italic, strikethrough, inline code, non-interactive link label)
+ * into a lightweight AnnotatedString suitable for 1-2 line clickable cards (e.g. /btw side-question previews).
+ */
+internal fun buildCompactMarkdownPreview(
+    rawText: String,
+    colors: AppColors,
+    baseFontSize: TextUnit = 12.sp
+): AnnotatedString {
+    val normalized = normalizeCompactPreviewMarkdown(rawText)
+    if (normalized.isEmpty()) return AnnotatedString("")
+
+    var processed = MathSymbolProcessor.process(normalized)
+    processed = replaceHtmlBreaks(processed)
+    processed = unwrapBacktickBold(processed)
+    processed = normalizeBoldSpaces(processed)
+
+    val codeColor = Color(0xFFE5C07B) // Desktop Amber
+
+    return buildAnnotatedString {
+        fun appendPlain(plain: String, isBold: Boolean, isItalic: Boolean, isStrike: Boolean) {
+            if (plain.isEmpty()) return
+            val displayPlain = FileIconResolver.strippingWeChatDisplayPrefix(plain)
+            val start = length
+            append(displayPlain)
+            if (isBold || isItalic || isStrike) {
+                addStyle(
+                    SpanStyle(
+                        fontWeight = if (isBold) FontWeight.Bold else FontWeight.Normal,
+                        fontStyle = if (isItalic) FontStyle.Italic else FontStyle.Normal,
+                        textDecoration = if (isStrike) TextDecoration.LineThrough else TextDecoration.None
+                    ),
+                    start,
+                    length
+                )
+            }
+        }
+
+        fun appendInline(
+            text: String,
+            isBold: Boolean = false,
+            isItalic: Boolean = false,
+            isStrike: Boolean = false,
+            depth: Int = 0
+        ) {
+            if (text.isEmpty()) return
+            if (depth > 5) {
+                appendPlain(text, isBold, isItalic, isStrike)
+                return
+            }
+
+            var lastIndex = 0
+            for (match in INLINE_TOKEN_REGEX.findAll(text)) {
+                val range = match.range
+                if (range.first > lastIndex) {
+                    appendPlain(text.substring(lastIndex, range.first), isBold, isItalic, isStrike)
+                }
+
+                val linkText = match.groups[1]?.value
+                val linkUrl = match.groups[2]?.value
+                val inlineCode = match.groups[3]?.value
+                val boldItalic1 = match.groups[4]?.value
+                val boldItalic2 = match.groups[5]?.value
+                val boldText1 = match.groups[6]?.value
+                val boldText2 = match.groups[7]?.value
+                val italicText1 = match.groups[8]?.value
+                val italicText2 = match.groups[9]?.value
+                val strikeText = match.groups[10]?.value
+
+                when {
+                    linkText != null && linkUrl != null -> {
+                        val isInnerBold = (linkText.startsWith("**") && linkText.endsWith("**") && linkText.length >= 4) ||
+                            (linkText.startsWith("__") && linkText.endsWith("__") && linkText.length >= 4)
+                        val cleanTitle = FileIconResolver.strippingWeChatDisplayPrefix(
+                            linkText.trim('`', '\'', '"', '*', '_', ' ').ifEmpty {
+                                linkUrl.substringAfterLast('/').ifEmpty { linkText }
+                            }
+                        )
+                        val start = length
+                        append(cleanTitle)
+                        addStyle(
+                            SpanStyle(
+                                color = colors.accentBlue,
+                                fontFamily = FontFamily.Monospace,
+                                fontSize = (baseFontSize.value * 0.9f).sp,
+                                fontWeight = if (isBold || isInnerBold) FontWeight.Bold else FontWeight.Medium,
+                                fontStyle = if (isItalic) FontStyle.Italic else FontStyle.Normal,
+                                textDecoration = if (isStrike) TextDecoration.LineThrough else TextDecoration.None
+                            ),
+                            start,
+                            length
+                        )
+                    }
+                    inlineCode != null -> {
+                        val displayCode = FileIconResolver.strippingWeChatDisplayPrefix(inlineCode)
+                        val start = length
+                        append(displayCode)
+                        addStyle(
+                            SpanStyle(
+                                color = codeColor,
+                                fontFamily = FontFamily.Monospace,
+                                fontSize = (baseFontSize.value * 0.9f).sp,
+                                fontWeight = if (isBold) FontWeight.Bold else FontWeight.Medium,
+                                fontStyle = if (isItalic) FontStyle.Italic else FontStyle.Normal,
+                                textDecoration = if (isStrike) TextDecoration.LineThrough else TextDecoration.None
+                            ),
+                            start,
+                            length
+                        )
+                    }
+                    boldItalic1 != null || boldItalic2 != null -> {
+                        appendInline(boldItalic1 ?: boldItalic2.orEmpty(), true, true, isStrike, depth + 1)
+                    }
+                    boldText1 != null || boldText2 != null -> {
+                        appendInline(boldText1 ?: boldText2.orEmpty(), true, isItalic, isStrike, depth + 1)
+                    }
+                    italicText1 != null || italicText2 != null -> {
+                        appendInline(italicText1 ?: italicText2.orEmpty(), isBold, true, isStrike, depth + 1)
+                    }
+                    strikeText != null -> {
+                        appendInline(strikeText, isBold, isItalic, true, depth + 1)
+                    }
+                    else -> {
+                        appendPlain(match.value, isBold, isItalic, isStrike)
+                    }
+                }
+                lastIndex = range.last + 1
+            }
+            if (lastIndex < text.length) {
+                appendPlain(text.substring(lastIndex), isBold, isItalic, isStrike)
+            }
+        }
+
+        appendInline(processed)
+    }
+}
+
 /**
  * Preprocesses bare LaTeX arrow commands into native Unicode arrows.
  */

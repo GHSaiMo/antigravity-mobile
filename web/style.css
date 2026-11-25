@@ -9775,6 +9775,22 @@ dialog::backdrop {
   -webkit-box-orient: vertical;
   overflow: hidden;
 }
+.btw-inline-card-preview strong,
+.btw-branch-list-item-sub strong,
+#btw-quote-text strong {
+  font-weight: 650;
+}
+.btw-inline-card-preview code.inline-code,
+.btw-branch-list-item-sub code.inline-code,
+#btw-quote-text code.inline-code {
+  font-size: 0.9em;
+  padding: 0 3px;
+}
+.btw-md-link {
+  color: var(--ios-blue, #007aff);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 0.9em;
+}
 
 .v233-btw-branch-list {
   display: flex;
