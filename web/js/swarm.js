@@ -62,6 +62,18 @@ const SwarmManager = (() => {
           <div class="swarm-modal-body" id="swarm-modal-content">
             <div class="swarm-loading">正在读取蜂群状态...</div>
           </div>
+          <button
+            type="button"
+            class="swarm-board-scroll-bottom-btn hidden"
+            id="swarm-board-scroll-bottom-btn"
+            aria-label="直达底部"
+            title="直达底部"
+          >
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <line x1="12" y1="5" x2="12" y2="19"></line>
+              <polyline points="19 12 12 19 5 12"></polyline>
+            </svg>
+          </button>
         </div>
       `;
       document.body.appendChild(modal);
@@ -70,6 +82,15 @@ const SwarmManager = (() => {
       modal.onclick = (e) => {
         if (e.target === modal) toggleSwarmModal(false);
       };
+
+      const modalBody = modal.querySelector("#swarm-modal-content");
+      const scrollBottomBtn = modal.querySelector("#swarm-board-scroll-bottom-btn");
+      if (modalBody && scrollBottomBtn) {
+        scrollBottomBtn.onclick = () => {
+          modalBody.scrollTo({ top: modalBody.scrollHeight, behavior: "smooth" });
+        };
+        modalBody.addEventListener("scroll", updateBoardScrollBottomBtn, { passive: true });
+      }
 
       const tabs = modal.querySelectorAll(".swarm-tab-btn");
       tabs.forEach(btn => {
@@ -81,6 +102,21 @@ const SwarmManager = (() => {
         };
       });
     }
+  }
+
+  function updateBoardScrollBottomBtn() {
+    const btn = document.getElementById("swarm-board-scroll-bottom-btn");
+    const content = document.getElementById("swarm-modal-content");
+    if (!btn || !content) return;
+    const hasBoardMsgs = activeTab === "board" && Boolean(swarmSnapshot?.messages?.length);
+    if (!hasBoardMsgs) {
+      btn.classList.add("hidden");
+      return;
+    }
+    const overflow = content.scrollHeight - content.clientHeight;
+    const distanceFromBottom = overflow - content.scrollTop;
+    const shouldShow = overflow > 40 && distanceFromBottom > 80;
+    btn.classList.toggle("hidden", !shouldShow);
   }
 
   function sync(data) {
@@ -138,6 +174,7 @@ const SwarmManager = (() => {
       }
     } else {
       modal.classList.add("hidden");
+      document.getElementById("swarm-board-scroll-bottom-btn")?.classList.add("hidden");
       if (pollInterval) {
         clearInterval(pollInterval);
         pollInterval = null;
@@ -242,6 +279,7 @@ const SwarmManager = (() => {
     if (!content) return;
     if (!swarmSnapshot) {
       content.innerHTML = `<div class="swarm-loading">暂无活跃蜂群数据</div>`;
+      updateBoardScrollBottomBtn();
       return;
     }
 
@@ -258,6 +296,11 @@ const SwarmManager = (() => {
       case "graph":
         renderGraphTab(content);
         break;
+    }
+    if (activeTab === "board") {
+      requestAnimationFrame(updateBoardScrollBottomBtn);
+    } else {
+      updateBoardScrollBottomBtn();
     }
   }
 

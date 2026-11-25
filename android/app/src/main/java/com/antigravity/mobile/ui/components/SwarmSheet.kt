@@ -5,14 +5,20 @@ import com.antigravity.mobile.ui.util.loc
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.*
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.scaleIn
+import androidx.compose.animation.scaleOut
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -26,12 +32,16 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.draw.rotate
+import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.layout.Layout
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -42,6 +52,7 @@ import androidx.compose.ui.unit.sp
 import com.antigravity.mobile.data.model.*
 import com.antigravity.mobile.data.service.ApiClient
 import com.antigravity.mobile.ui.theme.AntigravityTheme
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
@@ -1176,51 +1187,137 @@ private fun SwarmBoardTabNative(
                 Text(if (snap.messages.isEmpty()) "暂无协作留言".loc else "没有匹配筛选条件的消息".loc, color = SwarmColors.muted(isDark), fontSize = 14.sp)
             }
         } else {
-            LazyColumn(
-                modifier = Modifier.fillMaxSize(),
-                contentPadding = PaddingValues(bottom = 16.dp)
+            val listState = rememberLazyListState()
+            val coroutineScope = rememberCoroutineScope()
+            val haptic = LocalHapticFeedback.current
+            val density = LocalDensity.current
+            val bottomThresholdPx = remember(density) { with(density) { 64.dp.roundToPx() } }
+            val navBarBottom = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
+            var scrollJob by remember { mutableStateOf<Job?>(null) }
+
+            val showScrollToBottom by remember(bottomThresholdPx) {
+                derivedStateOf {
+                    if (!listState.canScrollForward) return@derivedStateOf false
+                    val layoutInfo = listState.layoutInfo
+                    val totalItems = layoutInfo.totalItemsCount
+                    if (totalItems == 0) return@derivedStateOf false
+                    val lastVisible = layoutInfo.visibleItemsInfo.lastOrNull() ?: return@derivedStateOf false
+                    if (lastVisible.index >= totalItems - 1) return@derivedStateOf false
+                    if (lastVisible.index < totalItems - 2) return@derivedStateOf true
+                    val itemBottom = lastVisible.offset + lastVisible.size
+                    val viewportEnd = layoutInfo.viewportEndOffset - layoutInfo.afterContentPadding
+                    (itemBottom - viewportEnd) > bottomThresholdPx
+                }
+            }
+
+            Box(
+                modifier = Modifier
+                    .weight(1f)
+                    .fillMaxWidth()
             ) {
-                if (snap.hasMoreBefore) {
-                    item(key = "swarm-load-earlier") {
-                        Box(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(vertical = 10.dp),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            TextButton(
-                                onClick = onLoadEarlier,
-                                enabled = !isLoadingEarlier
+                LazyColumn(
+                    state = listState,
+                    modifier = Modifier.fillMaxSize(),
+                    contentPadding = PaddingValues(bottom = 16.dp + navBarBottom)
+                ) {
+                    if (snap.hasMoreBefore) {
+                        item(key = "swarm-load-earlier") {
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(vertical = 10.dp),
+                                contentAlignment = Alignment.Center
                             ) {
-                                if (isLoadingEarlier) {
-                                    CircularProgressIndicator(
-                                        modifier = Modifier.size(14.dp),
-                                        strokeWidth = 2.dp,
-                                        color = SwarmColors.accent(isDark)
+                                TextButton(
+                                    onClick = onLoadEarlier,
+                                    enabled = !isLoadingEarlier
+                                ) {
+                                    if (isLoadingEarlier) {
+                                        CircularProgressIndicator(
+                                            modifier = Modifier.size(14.dp),
+                                            strokeWidth = 2.dp,
+                                            color = SwarmColors.accent(isDark)
+                                        )
+                                        Spacer(modifier = Modifier.width(6.dp))
+                                    }
+                                    Text(
+                                        text = if (isLoadingEarlier) "正在加载更早消息...".loc else "加载更早消息".loc,
+                                        color = SwarmColors.accent(isDark),
+                                        fontSize = 12.5.sp,
+                                        fontWeight = FontWeight.Medium
                                     )
-                                    Spacer(modifier = Modifier.width(6.dp))
                                 }
-                                Text(
-                                    text = if (isLoadingEarlier) "正在加载更早消息...".loc else "加载更早消息".loc,
-                                    color = SwarmColors.accent(isDark),
-                                    fontSize = 12.5.sp,
-                                    fontWeight = FontWeight.Medium
-                                )
                             }
                         }
                     }
+                    items(filteredMessages, key = { it.seq }) { msg ->
+                        BoardMessageRowNative(
+                            msg = msg,
+                            isExpanded = expandedSeqs.contains(msg.seq),
+                            onToggleExpand = { onToggleExpand(msg.seq) }
+                        )
+                        HorizontalDivider(
+                            modifier = Modifier.padding(start = 56.dp),
+                            thickness = 0.6.dp,
+                            color = SwarmColors.border(isDark).copy(alpha = 0.6f)
+                        )
+                    }
+                    item(key = "swarm-board-bottom") {
+                        Spacer(modifier = Modifier.height(1.dp))
+                    }
                 }
-                items(filteredMessages, key = { it.seq }) { msg ->
-                    BoardMessageRowNative(
-                        msg = msg,
-                        isExpanded = expandedSeqs.contains(msg.seq),
-                        onToggleExpand = { onToggleExpand(msg.seq) }
-                    )
-                    HorizontalDivider(
-                        modifier = Modifier.padding(start = 56.dp),
-                        thickness = 0.6.dp,
-                        color = SwarmColors.border(isDark).copy(alpha = 0.6f)
-                    )
+
+                androidx.compose.animation.AnimatedVisibility(
+                    visible = showScrollToBottom,
+                    enter = fadeIn(tween(180)) + scaleIn(tween(180), initialScale = 0.88f),
+                    exit = fadeOut(tween(150)) + scaleOut(tween(150), targetScale = 0.88f),
+                    modifier = Modifier
+                        .align(Alignment.BottomEnd)
+                        .navigationBarsPadding()
+                        .padding(end = 16.dp, bottom = 16.dp)
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .size(40.dp)
+                            .shadow(
+                                elevation = 3.dp,
+                                shape = CircleShape,
+                                ambientColor = Color.Black.copy(alpha = 0.18f),
+                                spotColor = Color.Black.copy(alpha = 0.22f)
+                            )
+                            .clip(CircleShape)
+                            .background(SwarmColors.surfaceBg(isDark).copy(alpha = if (isDark) 0.78f else 0.82f))
+                            .border(
+                                width = 0.7.dp,
+                                color = SwarmColors.border(isDark).copy(alpha = 0.85f),
+                                shape = CircleShape
+                            )
+                            .clickable(
+                                interactionSource = remember { MutableInteractionSource() },
+                                indication = null
+                            ) {
+                                haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                                scrollJob?.cancel()
+                                scrollJob = coroutineScope.launch {
+                                    val target = (listState.layoutInfo.totalItemsCount - 1).coerceAtLeast(0)
+                                    if (target > 0) {
+                                        listState.animateScrollToItem(target)
+                                        val settledTarget = (listState.layoutInfo.totalItemsCount - 1).coerceAtLeast(0)
+                                        if (listState.canScrollForward && settledTarget > 0) {
+                                            listState.scrollToItem(settledTarget)
+                                        }
+                                    }
+                                }
+                            },
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.ArrowDownward,
+                            contentDescription = "直达最新消息".loc,
+                            tint = SwarmColors.ink(isDark).copy(alpha = 0.86f),
+                            modifier = Modifier.size(18.dp)
+                        )
+                    }
                 }
             }
         }

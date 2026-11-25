@@ -1074,45 +1074,14 @@ public struct SwarmSheet: View {
                     Spacer()
                 }
             } else {
-                ScrollView {
-                    LazyVStack(alignment: .leading, spacing: 0) {
-                        if snap.hasMoreBefore {
-                            HStack {
-                                Spacer()
-                                Button(action: {
-                                    Task { await loadEarlierMessages() }
-                                }) {
-                                    HStack(spacing: 6) {
-                                        if isLoadingEarlier {
-                                            ProgressView().scaleEffect(0.75)
-                                        }
-                                        Text(isLoadingEarlier ? String(localized: "正在加载更早消息...") : String(localized: "加载更早消息"))
-                                            .font(.system(size: 12, weight: .medium))
-                                            .foregroundColor(SwarmTheme.accent)
-                                    }
-                                    .padding(.horizontal, 12)
-                                    .padding(.vertical, 6)
-                                    .background(SwarmTheme.cardBg)
-                                    .clipShape(Capsule())
-                                }
-                                .buttonStyle(.plain)
-                                .disabled(isLoadingEarlier)
-                                Spacer()
-                            }
-                            .padding(.vertical, 10)
-                        }
-                        ForEach(filtered) { msg in
-                            boardMessageRow(msg)
-                            Divider()
-                                .overlay(SwarmTheme.border.opacity(0.6))
-                                .padding(.leading, 56)
-                        }
-                    }
-                    .padding(.bottom, 16)
-                }
-                .refreshable {
-                    await loadSnapshot(silent: false)
-                }
+                SwarmBoardScrollContent(
+                    filtered: filtered,
+                    hasMoreBefore: snap.hasMoreBefore,
+                    isLoadingEarlier: isLoadingEarlier,
+                    onLoadEarlier: { Task { await loadEarlierMessages() } },
+                    onRefresh: { await loadSnapshot(silent: false) },
+                    rowBuilder: { msg in boardMessageRow(msg) }
+                )
             }
         }
     }
@@ -1740,6 +1709,138 @@ public struct SwarmSheet: View {
                 showToast(String(localized: "催促失败: \(error.localizedDescription)"))
             }
             nudgingMembers.remove(member)
+        }
+    }
+}
+
+// MARK: - Board Feed Scroll Container with Floating Scroll-to-Bottom Arrow
+
+private struct SwarmBoardScrollContent<RowContent: View>: View {
+    let filtered: [SwarmBoardMessage]
+    let hasMoreBefore: Bool
+    let isLoadingEarlier: Bool
+    let onLoadEarlier: () -> Void
+    let onRefresh: () async -> Void
+    @ViewBuilder let rowBuilder: (SwarmBoardMessage) -> RowContent
+
+    @State private var showScrollToBottom: Bool = false
+    @State private var scrollToBottomTask: Task<Void, Never>? = nil
+
+    private let bottomAnchorID = "SWARM_BOARD_BOTTOM"
+
+    var body: some View {
+        ScrollViewReader { proxy in
+            ZStack(alignment: .bottomTrailing) {
+                ScrollView {
+                    LazyVStack(alignment: .leading, spacing: 0) {
+                        if hasMoreBefore {
+                            HStack {
+                                Spacer()
+                                Button(action: onLoadEarlier) {
+                                    HStack(spacing: 6) {
+                                        if isLoadingEarlier {
+                                            ProgressView().scaleEffect(0.75)
+                                        }
+                                        Text(isLoadingEarlier ? String(localized: "正在加载更早消息...") : String(localized: "加载更早消息"))
+                                            .font(.system(size: 12, weight: .medium))
+                                            .foregroundColor(SwarmTheme.accent)
+                                    }
+                                    .padding(.horizontal, 12)
+                                    .padding(.vertical, 6)
+                                    .background(SwarmTheme.cardBg)
+                                    .clipShape(Capsule())
+                                }
+                                .buttonStyle(.plain)
+                                .disabled(isLoadingEarlier)
+                                Spacer()
+                            }
+                            .padding(.vertical, 10)
+                        }
+                        ForEach(filtered) { msg in
+                            rowBuilder(msg)
+                            Divider()
+                                .overlay(SwarmTheme.border.opacity(0.6))
+                                .padding(.leading, 56)
+                        }
+                        Color.clear
+                            .frame(maxWidth: .infinity)
+                            .frame(height: 1)
+                            .id(bottomAnchorID)
+                    }
+                    .padding(.bottom, 16)
+                }
+                .refreshable {
+                    await onRefresh()
+                }
+                .onScrollPhaseChange { _, newPhase in
+                    if newPhase == .interacting {
+                        scrollToBottomTask?.cancel()
+                        scrollToBottomTask = nil
+                    }
+                }
+                .onScrollGeometryChange(for: Bool.self) { geo in
+                    let totalHeight = geo.contentSize.height + geo.contentInsets.top + geo.contentInsets.bottom
+                    let viewportHeight = geo.containerSize.height
+                    guard viewportHeight > 0, totalHeight > viewportHeight + 40 else { return false }
+                    let distanceFromBottom = (geo.contentSize.height + geo.contentInsets.bottom) - (geo.contentOffset.y + viewportHeight)
+                    return distanceFromBottom > 80
+                } action: { _, shouldShow in
+                    if showScrollToBottom != shouldShow {
+                        withAnimation(.easeInOut(duration: 0.18)) {
+                            showScrollToBottom = shouldShow
+                        }
+                    }
+                }
+
+                if showScrollToBottom {
+                    Button(action: {
+                        UIImpactFeedbackGenerator(style: .light).impactOccurred()
+                        scrollToBottom(proxy: proxy)
+                    }) {
+                        Image(systemName: "arrow.down")
+                            .font(.system(size: 15.5, weight: .semibold))
+                            .foregroundColor(SwarmTheme.ink.opacity(0.84))
+                            .frame(width: 40, height: 40)
+                            .background(.ultraThinMaterial)
+                            .clipShape(Circle())
+                            .overlay(
+                                Circle()
+                                    .stroke(SwarmTheme.border.opacity(0.75), lineWidth: 0.6)
+                            )
+                            .shadow(color: Color.black.opacity(0.14), radius: 5, x: 0, y: 2)
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel(String(localized: "直达底部"))
+                    .padding(.trailing, 16)
+                    .padding(.bottom, 16)
+                    .transition(.opacity.combined(with: .scale(scale: 0.88)))
+                }
+            }
+            .onDisappear {
+                scrollToBottomTask?.cancel()
+                scrollToBottomTask = nil
+            }
+        }
+    }
+
+    private func scrollToBottom(proxy: ScrollViewProxy) {
+        scrollToBottomTask?.cancel()
+        let lastId = filtered.last?.id
+        withAnimation(.easeOut(duration: 0.25)) {
+            proxy.scrollTo(bottomAnchorID, anchor: .bottom)
+        }
+        // LazyVStack estimates heights of off-screen rows; do one quiet settle pass if still short of bottom.
+        scrollToBottomTask = Task { @MainActor in
+            try? await Task.sleep(nanoseconds: 280_000_000)
+            guard !Task.isCancelled else { return }
+            if showScrollToBottom {
+                if let lastId {
+                    proxy.scrollTo(lastId, anchor: .bottom)
+                }
+                withAnimation(.easeOut(duration: 0.16)) {
+                    proxy.scrollTo(bottomAnchorID, anchor: .bottom)
+                }
+            }
         }
     }
 }
