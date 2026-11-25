@@ -470,17 +470,23 @@ public enum ModelDefaultsLogic {
         }
     }
 
+    public static func isExcludedPickerModelID(_ id: String) -> Bool {
+        let lower = id.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        return lower.contains("gpt-oss") || lower.hasSuffix("-disabled")
+    }
+
     /// 将扁平模型列表按大类/家族归类（如 Gemini 4 Carbon、Gemini 4 Argon、Claude Opus 5.5、Orchestrator 等），
     /// 并按 Gemini (蓝) -> Claude (橙) -> Orchestrator (钛灰) -> Other 的厂商顺序排列，
     /// 用于长按呼出二级选择菜单（上下选模型、右滑选强度）。
     public static func modelFamilies(from options: [ModelOption]) -> [ModelFamily] {
-        let effectiveOptions: [ModelOption] = options.isEmpty ? fallbackOptions : options
+        let filteredOptions = options.filter { !isExcludedPickerModelID($0.id) }
+        let effectiveOptions: [ModelOption] = filteredOptions.isEmpty ? fallbackOptions : filteredOptions
         
         var familyMap: [String: (name: String, provider: String, variants: [ModelVariant])] = [:]
         var familyOrder: [String] = []
         
         for opt in effectiveOptions {
-            if opt.id.lowercased().contains("gpt-oss") { continue }
+            if isExcludedPickerModelID(opt.id) { continue }
             let fullName = opt.name.isEmpty ? displayName(forID: opt.id, options: options) : normalizeDisplayName(opt.name)
             var familyName = fullName
             var variantLabel = String(localized: "默认")
@@ -575,7 +581,7 @@ public enum ModelDefaultsLogic {
         catalog: ModelsResponse
     ) -> String {
         guard catalog.isLive, !catalog.models.isEmpty else { return saved }
-        let selectable = catalog.models.filter { !$0.id.lowercased().contains("gpt-oss") }
+        let selectable = catalog.models.filter { !isExcludedPickerModelID($0.id) }
         guard !selectable.isEmpty else { return saved }
         if selectable.contains(where: { $0.id == saved }) {
             return saved
@@ -687,6 +693,7 @@ public final class ModelCatalogStore {
     public private(set) var isLoading = false
     public private(set) var loadFailed = false
     private var lastRefreshedAt: Date = .distantPast
+    private var lastRefreshedBaseURL: String? = nil
 
     private init() {
         if let data = UserDefaults.standard.data(forKey: Self.storageKey),
@@ -697,7 +704,7 @@ public final class ModelCatalogStore {
 
     /// 所有可用模型（实时/缓存目录优先，离线时退回内置常用列表），按 Gemini -> Claude -> Orchestrator -> Other 排序。
     public var allOptions: [ModelOption] {
-        let raw = (catalog?.models ?? []).filter { !$0.id.lowercased().contains("gpt-oss") }
+        let raw = (catalog?.models ?? []).filter { !ModelDefaultsLogic.isExcludedPickerModelID($0.id) }
         let list = raw.isEmpty ? ModelDefaultsLogic.fallbackOptions : raw
         let rank: (String) -> Int = { p in
             switch p.lowercased() {
@@ -804,10 +811,11 @@ public final class ModelCatalogStore {
         }
     }
 
-    /// 仅在目录缺失或超过 maxAge 时刷新，避免页面切换重复打网关。
+    /// 仅在目录缺失、宿主机地址变更或超过 maxAge 时刷新，避免页面切换重复打网关。
     public func refreshIfNeeded(settings: AppSettings, baseURL: URL, maxAge: TimeInterval = 180) async {
         if isLoading { return }
-        if let cat = catalog, cat.isLive, Date().timeIntervalSince(lastRefreshedAt) < maxAge {
+        let sameHost = lastRefreshedBaseURL == baseURL.absoluteString
+        if sameHost, let cat = catalog, cat.isLive, Date().timeIntervalSince(lastRefreshedAt) < maxAge {
             return
         }
         await refresh(settings: settings, baseURL: baseURL, force: false)
@@ -822,6 +830,7 @@ public final class ModelCatalogStore {
             let fresh = try await apiClient.fetchModels(baseURL: baseURL, refresh: force)
             catalog = fresh
             lastRefreshedAt = Date()
+            lastRefreshedBaseURL = baseURL.absoluteString
             if let data = try? JSONEncoder().encode(fresh) {
                 UserDefaults.standard.set(data, forKey: Self.storageKey)
             }

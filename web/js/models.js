@@ -179,8 +179,13 @@ function providerSortRank(p) {
   }
 }
 
+function isExcludedPickerModelId(id) {
+  const lower = String(id || "").trim().toLowerCase();
+  return lower.includes("gpt-oss") || lower.endsWith("-disabled");
+}
+
 function allSortedModelOptions() {
-  const filtered = (modelCatalog.models || []).filter((m) => !String(m.id || "").toLowerCase().includes("gpt-oss"));
+  const filtered = (modelCatalog.models || []).filter((m) => !isExcludedPickerModelId(m.id));
   const raw = filtered.length > 0
     ? filtered
     : MODEL_FALLBACK_ORDER.map((id) => ({ id, name: MODEL_STATIC_NAMES[id], provider: modelProviderKind(id) }));
@@ -289,7 +294,7 @@ function setFavoriteModel(slot, id) {
 }
 
 function validatedFavoriteModel(saved, fallback, avoid = null) {
-  const selectable = (modelCatalog.models || []).filter((m) => !String(m.id || "").toLowerCase().includes("gpt-oss"));
+  const selectable = (modelCatalog.models || []).filter((m) => !isExcludedPickerModelId(m.id));
   if (!modelCatalog.live || !selectable.length) return saved;
   if (selectable.some((m) => m.id === saved)) return saved;
   const differs = (id) => !avoid || id.toLowerCase() !== avoid.toLowerCase();

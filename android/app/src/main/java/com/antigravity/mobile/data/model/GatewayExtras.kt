@@ -620,8 +620,13 @@ object ModelDefaults {
         )
     }
 
+    private fun isExcludedPickerModelId(id: String): Boolean {
+        val lower = id.trim().lowercase()
+        return lower.contains("gpt-oss") || lower.endsWith("-disabled")
+    }
+
     fun allSortedOptions(options: List<ModelOption>): List<ModelOption> {
-        val filtered = options.filterNot { it.id.contains("gpt-oss", ignoreCase = true) }
+        val filtered = options.filterNot { isExcludedPickerModelId(it.id) }
         val list = if (filtered.isEmpty()) fallbackOptions() else filtered
         return list.withIndex().sortedWith(
             compareBy<IndexedValue<ModelOption>> { (_, opt) ->
@@ -633,7 +638,7 @@ object ModelDefaults {
     }
 
     fun modelFamilies(options: List<ModelOption> = emptyList(), provider: String? = null): List<ModelFamily> {
-        val filteredOptions = options.filterNot { it.id.contains("gpt-oss", ignoreCase = true) }
+        val filteredOptions = options.filterNot { isExcludedPickerModelId(it.id) }
         val effective = if (filteredOptions.isEmpty()) fallbackOptions() else filteredOptions
         val familyMap = mutableMapOf<String, Triple<String, String, MutableList<ModelVariant>>>()
         val familyOrder = mutableListOf<String>()
@@ -715,7 +720,7 @@ object ModelDefaults {
         catalog: ModelsResponse
     ): String {
         if (!catalog.live || catalog.models.isEmpty()) return saved
-        val selectable = catalog.models.filterNot { it.id.contains("gpt-oss", ignoreCase = true) }
+        val selectable = catalog.models.filterNot { isExcludedPickerModelId(it.id) }
         if (selectable.isEmpty()) return saved
         if (selectable.any { it.id == saved }) return saved
         val differsFromAvoid: (String) -> Boolean = { id ->

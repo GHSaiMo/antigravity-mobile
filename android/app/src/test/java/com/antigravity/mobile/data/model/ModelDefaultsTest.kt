@@ -149,4 +149,32 @@ class ModelDefaultsTest {
         assertEquals("Orch · Argon", ModelDefaults.formatSlidePickerTitle("Orchestrator (Argon)"))
         assertEquals("Orch", ModelDefaults.formatSlidePickerTitle("Orchestrator"))
     }
+
+    @Test
+    fun disabledPlanGatedModelsAreExcludedFromPickerAndFavorites() {
+        val options = listOf(
+            ModelOption(id = "gemini-4-hydrogen-high", name = "Gemini 4 Hydrogen (High)", provider = "gemini"),
+            ModelOption(id = "gemini-3.8-flash-high", name = "Gemini 3.8 Flash (High)", provider = "gemini"),
+            ModelOption(id = "gemini-4-neon-disabled", name = "Gemini 4 Neon", provider = "gemini", tag = "Paid Pro"),
+            ModelOption(id = "gemini-4-carbon-disabled", name = "Gemini 4 Carbon", provider = "gemini", tag = "Paid Pro"),
+            ModelOption(id = "claude-opus-4-6-thinking", name = "Claude Opus 4.6 (Thinking)", provider = "claude")
+        )
+        assertEquals(
+            listOf("gemini-4-hydrogen-high", "gemini-3.8-flash-high", "claude-opus-4-6-thinking"),
+            ModelDefaults.allSortedOptions(options).map { it.id }
+        )
+        assertEquals(
+            listOf("Gemini 4 Hydrogen", "Gemini 3.8 Flash", "Claude Opus 4.6"),
+            ModelDefaults.modelFamilies(options).map { it.name }
+        )
+        val catalog = ModelsResponse(
+            models = options,
+            defaults = mapOf("gemini" to "gemini-4-hydrogen-high", "claude" to "claude-opus-4-6-thinking"),
+            live = true
+        )
+        assertEquals(
+            "gemini-4-hydrogen-high",
+            ModelDefaults.validatedFavorite("gemini-4-neon-disabled", ModelDefaults.FALLBACK_GEMINI, catalog = catalog)
+        )
+    }
 }

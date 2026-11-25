@@ -472,6 +472,114 @@ func TestBuildModelTables_JioLeavingSoonFlashRetainedAndUnavailableExcluded(t *t
 	}
 }
 
+func TestBuildModelTables_ExcludesDisabledPlanGatedModels(t *testing.T) {
+	resetLiveModels(t)
+	g := "MODEL_PROVIDER_GOOGLE"
+	a := "MODEL_PROVIDER_ANTHROPIC"
+	raw := map[string]upstreamModel{
+		"gemini-4-hydrogen-high":    {DisplayName: "Gemini 4 Hydrogen (High)", Model: "MODEL_PLACEHOLDER_M525", ModelProvider: g, Recommended: true, Thinking: true, TagTitle: "New"},
+		"gemini-4-hydrogen-xhigh":   {DisplayName: "Gemini 4 Hydrogen (XHigh)", Model: "MODEL_PLACEHOLDER_M528", ModelProvider: g, Recommended: true, Thinking: true, TagTitle: "New"},
+		"gemini-4-hydrogen-medium":  {DisplayName: "Gemini 4 Hydrogen (Medium)", Model: "MODEL_PLACEHOLDER_M526", ModelProvider: g, Recommended: true, Thinking: true, TagTitle: "New"},
+		"gemini-4-hydrogen-low":     {DisplayName: "Gemini 4 Hydrogen (Low)", Model: "MODEL_PLACEHOLDER_M527", ModelProvider: g, Recommended: true, Thinking: true, TagTitle: "New"},
+		"gemini-3.8-flash-high":     {DisplayName: "Gemini 3.8 Flash (High)", Model: "MODEL_PLACEHOLDER_M318", ModelProvider: g, Recommended: true, Thinking: true, TagTitle: "Leaving Soon"},
+		"gemini-3.8-flash-medium":   {DisplayName: "Gemini 3.8 Flash (Medium)", Model: "MODEL_PLACEHOLDER_M319", ModelProvider: g, Recommended: true, Thinking: true, TagTitle: "Leaving Soon"},
+		"gemini-3.8-flash-low":      {DisplayName: "Gemini 3.8 Flash (Low)", Model: "MODEL_PLACEHOLDER_M320", ModelProvider: g, Recommended: true, Thinking: true, TagTitle: "Leaving Soon"},
+		"gemini-4-carbon-disabled":  {DisplayName: "Gemini 4 Carbon", Model: "MODEL_PLACEHOLDER_M670", ModelProvider: g, Recommended: true, Disabled: true, TagTitle: "Paid Pro"},
+		"gemini-4-argon-disabled":   {DisplayName: "Gemini 4 Argon", Model: "MODEL_PLACEHOLDER_M421", ModelProvider: g, Recommended: true, Disabled: true, TagTitle: "Paid Pro"},
+		"gemini-4-neon-disabled":    {DisplayName: "Gemini 4 Neon", Model: "MODEL_PLACEHOLDER_M536", ModelProvider: g, Recommended: true, Disabled: true, TagTitle: "Paid Pro"},
+		"gemini-4-flag-only":        {DisplayName: "Gemini 4 Flag Only", Model: "MODEL_PLACEHOLDER_M991", ModelProvider: g, Recommended: true, Disabled: true, TagTitle: "Paid Pro"},
+		"gemini-4-suffix-disabled":  {DisplayName: "Gemini 4 Suffix Disabled", Model: "MODEL_PLACEHOLDER_M992", ModelProvider: g, Recommended: true, Disabled: false, TagTitle: "Paid Pro"},
+		"claude-sonnet-4-6":         {DisplayName: "Claude Sonnet 4.6 (Thinking)", Model: "MODEL_PLACEHOLDER_M35", ModelProvider: a, Recommended: true, Thinking: true, TagTitle: "Notice"},
+		"claude-opus-4-6-thinking":  {DisplayName: "Claude Opus 4.6 (Thinking)", Model: "MODEL_PLACEHOLDER_M26", ModelProvider: a, Recommended: true, Thinking: true, TagTitle: "Notice"},
+		"gpt-oss-120b-medium":       {DisplayName: "GPT-OSS 120B (Medium)", Model: "MODEL_OPENAI_GPT_OSS_120B_MEDIUM", ModelProvider: "MODEL_PROVIDER_OPENAI", Recommended: true, TagTitle: "Notice"},
+	}
+	curated := []string{
+		"gemini-4-hydrogen-high",
+		"gemini-4-hydrogen-xhigh",
+		"gemini-4-hydrogen-medium",
+		"gemini-4-hydrogen-low",
+		"gemini-3.8-flash-high",
+		"gemini-3.8-flash-medium",
+		"gemini-3.8-flash-low",
+		"claude-sonnet-4-6",
+		"claude-opus-4-6-thinking",
+		"gpt-oss-120b-medium",
+		"gemini-4-carbon-disabled",
+		"gemini-4-argon-disabled",
+		"gemini-4-neon-disabled",
+		"gemini-4-flag-only",
+		"gemini-4-suffix-disabled",
+	}
+
+	for _, tc := range []struct {
+		name       string
+		curated    []string
+		wantGemini string
+	}{
+		{
+			name:       "curated",
+			curated:    curated,
+			wantGemini: "gemini-4-hydrogen-high,gemini-4-hydrogen-xhigh,gemini-4-hydrogen-medium,gemini-4-hydrogen-low,gemini-3.8-flash-high,gemini-3.8-flash-medium,gemini-3.8-flash-low",
+		},
+		{
+			name:       "heuristic",
+			curated:    nil,
+			wantGemini: "gemini-4-hydrogen-xhigh,gemini-4-hydrogen-high,gemini-4-hydrogen-medium,gemini-4-hydrogen-low,gemini-3.8-flash-high,gemini-3.8-flash-medium,gemini-3.8-flash-low",
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			opts, byID, _ := buildModelTables(raw, tc.curated)
+			gemini := idsOf(opts, "gemini")
+			if strings.Join(gemini, ",") != tc.wantGemini {
+				t.Fatalf("gemini options = %v, want %s", gemini, tc.wantGemini)
+			}
+			for _, id := range []string{"gemini-4-carbon-disabled", "gemini-4-argon-disabled", "gemini-4-neon-disabled", "gemini-4-flag-only", "gemini-4-suffix-disabled"} {
+				if _, ok := byID[id]; !ok {
+					t.Errorf("disabled model %s must stay resolvable in byID", id)
+				}
+			}
+		})
+	}
+}
+
+func TestHandleModels_ExcludesDisabledJSONModels(t *testing.T) {
+	resetLiveModels(t)
+	p := newFakeLSProxy(t, func(w http.ResponseWriter, r *http.Request) {
+		if !strings.HasSuffix(r.URL.Path, "/GetAvailableModels") {
+			http.NotFound(w, r)
+			return
+		}
+		_, _ = w.Write([]byte(`{
+			"response": {
+				"defaultAgentModelId": "gemini-4-hydrogen-high",
+				"models": {
+					"gemini-4-hydrogen-high": {"displayName":"Gemini 4 Hydrogen (High)","model":"MODEL_PLACEHOLDER_M525","modelProvider":"MODEL_PROVIDER_GOOGLE","recommended":true,"supportsThinking":true,"tagTitle":"New"},
+					"gemini-3.8-flash-high": {"displayName":"Gemini 3.8 Flash (High)","model":"MODEL_PLACEHOLDER_M318","modelProvider":"MODEL_PROVIDER_GOOGLE","recommended":true,"supportsThinking":true,"tagTitle":"Leaving Soon"},
+					"gemini-4-neon-disabled": {"displayName":"Gemini 4 Neon","model":"MODEL_PLACEHOLDER_M536","modelProvider":"MODEL_PROVIDER_GOOGLE","recommended":true,"disabled":true,"tagTitle":"Paid Pro"}
+				},
+				"agentModelSorts": [{
+					"displayName": "Recommended",
+					"groups": [{"modelIds": ["gemini-4-hydrogen-high", "gemini-3.8-flash-high", "gemini-4-neon-disabled"]}]
+				}]
+			}
+		}`))
+	})
+
+	w := httptest.NewRecorder()
+	p.HandleModels(w, httptest.NewRequest(http.MethodGet, "/gateway/models?refresh=1", nil))
+	if w.Code != http.StatusOK {
+		t.Fatalf("status=%d", w.Code)
+	}
+	var res ModelsResponse
+	if err := json.Unmarshal(w.Body.Bytes(), &res); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	got := idsOf(res.Models, "gemini")
+	if strings.Join(got, ",") != "gemini-4-hydrogen-high,gemini-3.8-flash-high" {
+		t.Fatalf("got=%v, want [gemini-4-hydrogen-high gemini-3.8-flash-high]", got)
+	}
+}
+
 func TestBuildModelTables_EmptyCuratedFallsBackToHeuristic(t *testing.T) {
 	// 官方列表为空，或其中没有一个可用 id：退回启发式筛选，而不是给出空列表
 	for _, curated := range [][]string{nil, {}, {"no-such-model"}} {

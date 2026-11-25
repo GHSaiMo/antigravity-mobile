@@ -102,6 +102,7 @@ type upstreamModel struct {
 	ModelProvider  string    `json:"modelProvider"`
 	Recommended    bool      `json:"recommended"`
 	IsInternal     bool      `json:"isInternal"`
+	Disabled       bool      `json:"disabled"`
 	SupportsImages bool      `json:"supportsImages"`
 	Thinking       bool      `json:"supportsThinking"`
 	TagTitle       string    `json:"tagTitle"`
@@ -232,7 +233,8 @@ func normalizeModelDisplayName(name string) string {
 }
 
 func isExcludedPickerModel(id string) bool {
-	return strings.Contains(strings.ToLower(strings.TrimSpace(id)), "gpt-oss")
+	lower := strings.ToLower(strings.TrimSpace(id))
+	return strings.Contains(lower, "gpt-oss") || strings.HasSuffix(lower, "-disabled")
 }
 
 // buildModelTables turns raw upstream models into client options plus lookup tables.
@@ -252,12 +254,15 @@ func buildModelTables(raw map[string]upstreamModel, curatedIDs []string) (option
 	sort.Strings(ids)
 
 	bestByName := map[string]ModelOption{}
-	unavailable := map[string]bool{} // 厂商标了「Unavailable」的模型：仍可按 id 解析（旧会话还在用），但不再提供选择
+	unavailable := map[string]bool{} // 厂商标了「Unavailable」或 disabled 的模型：仍可按 id 解析（旧会话还在用），但不再提供选择
 	leavingSoon := map[string]bool{} // 厂商标了「Leaving Soon」的模型：下线前仍可选，但同名去重时让位于非 Leaving Soon 版本
 	candidateRank := func(id string) int {
 		r := legacyRank(id)
 		if leavingSoon[id] {
 			r += 10
+		}
+		if unavailable[id] {
+			r += 100
 		}
 		return r
 	}
@@ -281,14 +286,14 @@ func buildModelTables(raw map[string]upstreamModel, curatedIDs []string) (option
 			MaxTokens:      int64(m.MaxTokens),
 		}
 		byID[strings.ToLower(id)] = opt
-		if isUnavailableModelTag(m.TagTitle) {
+		if isUnavailableModelTag(m.TagTitle) || m.Disabled || strings.HasSuffix(strings.ToLower(opt.ID), "-disabled") {
 			unavailable[opt.ID] = true
 		}
 		if isLeavingSoon(m.TagTitle) {
 			leavingSoon[opt.ID] = true
 		}
 
-		if prev, ok := byEnum[opt.Enum]; !ok || legacyRank(opt.ID) < legacyRank(prev.ID) {
+		if prev, ok := byEnum[opt.Enum]; !ok || candidateRank(opt.ID) < candidateRank(prev.ID) {
 			if opt.Enum != "" {
 				byEnum[opt.Enum] = opt
 			}

@@ -40,6 +40,9 @@ private const val REORDER_COOLDOWN_MS = 8_000L
 /** Auto-refresh interval for Token History tab (1 hour). */
 private const val TOKEN_HISTORY_REFRESH_INTERVAL_MS = 60L * 60L * 1000L
 
+/** Auto-refresh interval for /gateway/models catalog (3 minutes, matching iOS ModelCatalogStore). */
+private const val MODEL_CATALOG_REFRESH_INTERVAL_MS = 3L * 60L * 1000L
+
 sealed interface ConversationListUiState {
     data object Loading : ConversationListUiState
     data class Success(val conversations: List<ConversationItem>) : ConversationListUiState
@@ -132,6 +135,9 @@ class ConversationListViewModel(
 
     private var lastTokenHistoryFetchAtMs: Long = 0L
     private var lastTokenHistorySessionKey: String? = null
+    private var lastModelCatalogFetchAtMs: Long = 0L
+    private var lastModelCatalogBaseUrl: String? = null
+    @Volatile private var isLoadingModelCatalog: Boolean = false
 
     private val _projects = MutableStateFlow<List<ProjectItem>>(loadInitialProjects())
     val projects: StateFlow<List<ProjectItem>> = _projects.asStateFlow()
@@ -184,6 +190,7 @@ class ConversationListViewModel(
             eventsClient.reconnect()
             loadConversations()
             loadQuotas()
+            refreshModelCatalogIfNeeded(force = false)
         }
     }
 
@@ -199,6 +206,7 @@ class ConversationListViewModel(
             loadConversations()
             loadQuotas()
             loadProjects()
+            refreshModelCatalogIfNeeded(force = false)
             prewarmMcpAndSkillsCache()
         } else {
             _uiState.value = ConversationListUiState.Success(emptyList())
@@ -540,6 +548,7 @@ class ConversationListViewModel(
                     } catch (_: Exception) {}
                 }
             }
+            loadModelCatalog(force = false)
             prewarmMcpAndSkillsCache()
         } catch (e: Exception) {
             Log.w("ConvListVM", "loadInitialData failed: ${e.message}")
@@ -604,6 +613,7 @@ class ConversationListViewModel(
                         } catch (_: Exception) {}
                     }
                 }
+                loadModelCatalog(force = true)
             } finally {
                 _isRefreshing.value = false
                 onComplete?.invoke()
@@ -618,6 +628,7 @@ class ConversationListViewModel(
         }
         // 升级自检结果随列表一起刷新（一次很小的 GET），失败时保持上一次结果
         viewModelScope.launch { apiClient.refreshGatewayCompat() }
+        refreshModelCatalogIfNeeded(force = false)
         viewModelScope.launch {
             apiClient.fetchGlobalBackgroundTasks().onSuccess {
                 _globalBackgroundTasks.value = it
@@ -938,11 +949,41 @@ class ConversationListViewModel(
         }
     }
 
-    /** 设置页「默认模型」与切号刷新用：向网关取可选模型目录并缓存/校验默认值。 */
-    suspend fun loadModelCatalog(force: Boolean = false): Result<com.antigravity.mobile.data.model.ModelsResponse> =
-        apiClient.getModels(refresh = force).onSuccess { catalog ->
-            prefs.updateModelCatalog(catalog)
+    /** 按 3 分钟节流或主机/路由变更自动静默刷新模型目录，对齐 iOS ModelCatalogStore.refreshIfNeeded。 */
+    fun refreshModelCatalogIfNeeded(force: Boolean = false) {
+        if (!prefs.isPaired() || isLoadingModelCatalog) return
+        val currentBase = apiClient.currentBaseUrl
+        val nowMs = System.currentTimeMillis()
+        val sameBase = ConnectionManager.isSameEndpoint(lastModelCatalogBaseUrl, currentBase)
+        if (!force && sameBase && prefs.cachedModelCatalog?.live == true) {
+            val elapsedMs = nowMs - lastModelCatalogFetchAtMs
+            if (elapsedMs in 0L until MODEL_CATALOG_REFRESH_INTERVAL_MS) return
         }
+        viewModelScope.launch {
+            loadModelCatalog(force = force)
+        }
+    }
+
+    /** 设置页「默认模型」、下拉刷新与切号刷新用：向网关取可选模型目录并缓存/校验默认值。 */
+    suspend fun loadModelCatalog(force: Boolean = false): Result<com.antigravity.mobile.data.model.ModelsResponse> {
+        isLoadingModelCatalog = true
+        return try {
+            val attemptedBase = apiClient.currentBaseUrl
+            val firstResult = apiClient.getModels(refresh = force)
+            val result = if (firstResult.isFailure && probeAndDetectRouteChange(attemptedBase)) {
+                apiClient.getModels(refresh = force)
+            } else {
+                firstResult
+            }
+            result.onSuccess { catalog ->
+                prefs.updateModelCatalog(catalog)
+                lastModelCatalogFetchAtMs = System.currentTimeMillis()
+                lastModelCatalogBaseUrl = apiClient.currentBaseUrl
+            }
+        } finally {
+            isLoadingModelCatalog = false
+        }
+    }
 
     fun onSearchQueryChanged(query: String) {
         _searchQuery.value = query
@@ -1148,6 +1189,8 @@ class ConversationListViewModel(
         _tokenHistory.value = null
         lastTokenHistoryFetchAtMs = 0L
         lastTokenHistorySessionKey = null
+        lastModelCatalogFetchAtMs = 0L
+        lastModelCatalogBaseUrl = null
         onComplete()
     }
 
