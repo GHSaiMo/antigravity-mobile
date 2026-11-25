@@ -20,6 +20,7 @@
 [![Swift](https://img.shields.io/badge/Swift-6.0-F05138?style=flat-square&logo=swift&logoColor=white)](https://swift.org)
 [![Go](https://img.shields.io/badge/Go-1.22+-00ADD8?style=flat-square&logo=go&logoColor=white)](https://go.dev)
 [![X](https://img.shields.io/badge/X-@MultigravityApp-000000?style=flat-square&logo=x&logoColor=white)](https://x.com/MultigravityApp)
+[![Telegram](https://img.shields.io/badge/Telegram-@mgyapp-26A5E4?style=flat-square&logo=telegram&logoColor=white)](https://t.me/mgyapp)
 [![License](https://img.shields.io/badge/License-MIT-green?style=flat-square)](LICENSE)
 
 <p align="center">
@@ -27,7 +28,7 @@
 </p>
 
 <p align="center">
-  🌐 <b>公式サイト</b>：<a href="https://mgy.jiuge.space/ja.html">mgy.jiuge.space/ja.html</a> &nbsp;·&nbsp; 🍎 <b>App Store</b>：<a href="https://apps.apple.com/app/id6835508934">iOS 正式版をダウンロード</a> &nbsp;·&nbsp; 🧪 <b>TestFlight</b>：<a href="https://testflight.apple.com/join/YM7f4aSK">パブリックベータ</a> &nbsp;·&nbsp; 📦 <a href="https://github.com/GHSaiMo/antigravity-mobile/releases/latest">最新リリース v1.2.7</a> &nbsp;·&nbsp; 𝕏 <a href="https://x.com/MultigravityApp">@MultigravityApp</a> &nbsp;·&nbsp; 💬 <a href="#wechat-group">WeChat ユーザーグループ</a> &nbsp;·&nbsp; ☕ <a href="#sponsor">スポンサー</a>
+  🌐 <b>公式サイト</b>：<a href="https://mgy.jiuge.space/ja.html">mgy.jiuge.space/ja.html</a> &nbsp;·&nbsp; 🍎 <b>App Store</b>：<a href="https://apps.apple.com/app/id6835508934">iOS 正式版をダウンロード</a> &nbsp;·&nbsp; 🧪 <b>TestFlight</b>：<a href="https://testflight.apple.com/join/YM7f4aSK">パブリックベータ</a> &nbsp;·&nbsp; 📦 <a href="https://github.com/GHSaiMo/antigravity-mobile/releases/latest">最新リリース v1.2.7</a> &nbsp;·&nbsp; 𝕏 <a href="https://x.com/MultigravityApp">@MultigravityApp</a> &nbsp;·&nbsp; ✈️ <a href="https://t.me/mgyapp">Telegram</a> &nbsp;·&nbsp; 💬 <a href="#wechat-group">WeChat ユーザーグループ</a> &nbsp;·&nbsp; ☕ <a href="#sponsor">スポンサー</a>
 </p>
 
 > 🎉 **Multigravity for iOS が Apple App Store にて正式公開されました！**  
@@ -218,10 +219,17 @@ make test           # Go のユニットテストおよび結合テストを実�
 
 ---
 
-<a id="wechat-group"></a>
-## 💬 WeChat ユーザーグループ
+<a id="telegram-group"></a>
+## 💬 コミュニティ・フィードバック
 
-以下の QR コードをスキャンして **mgy WeChat ユーザーグループ** に参加できます。使い方の共有、フィードバック、最新リリースの確認などにご活用ください（QR コードの有効期限は 7 日間です。期限切れの場合は [Issue](https://github.com/GHSaiMo/antigravity-mobile/issues) よりお知らせください）：
+### ✈️ Telegram グループ（グローバル · 日本語 / English）
+
+不具合報告・機能リクエスト・使い方の相談や最新リリースの確認は、公式 Telegram グループ **[t.me/mgyapp](https://t.me/mgyapp)** へお気軽にご参加ください（日本語での投稿も大歓迎です！）。
+
+<a id="wechat-group"></a>
+### 💬 WeChat ユーザーグループ
+
+以下の QR コードをスキャンして **mgy WeChat ユーザーグループ** に参加できます（QR コードの有効期限は 7 日間です。期限切れの場合は [Issue](https://github.com/GHSaiMo/antigravity-mobile/issues) よりお知らせください）：
 
 <p align="center">
   <img src="images/wechat_group.jpg" alt="mgy WeChat ユーザーグループ QR コード" width="260" />

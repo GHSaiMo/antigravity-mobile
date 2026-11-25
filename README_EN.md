@@ -20,6 +20,7 @@
 [![Swift](https://img.shields.io/badge/Swift-6.0-F05138?style=flat-square&logo=swift&logoColor=white)](https://swift.org)
 [![Go](https://img.shields.io/badge/Go-1.22+-00ADD8?style=flat-square&logo=go&logoColor=white)](https://go.dev)
 [![X](https://img.shields.io/badge/X-@MultigravityApp-000000?style=flat-square&logo=x&logoColor=white)](https://x.com/MultigravityApp)
+[![Telegram](https://img.shields.io/badge/Telegram-@mgyapp-26A5E4?style=flat-square&logo=telegram&logoColor=white)](https://t.me/mgyapp)
 [![License](https://img.shields.io/badge/License-MIT-green?style=flat-square)](LICENSE)
 
 <p align="center">
@@ -27,7 +28,7 @@
 </p>
 
 <p align="center">
-  🌐 <b>Website</b>: <a href="https://mgy.jiuge.space/en.html">mgy.jiuge.space/en.html</a> &nbsp;·&nbsp; 🍎 <b>App Store</b>: <a href="https://apps.apple.com/app/id6835508934">Download for iOS</a> &nbsp;·&nbsp; 🧪 <b>TestFlight</b>: <a href="https://testflight.apple.com/join/YM7f4aSK">Public Beta</a> &nbsp;·&nbsp; 📦 <a href="https://github.com/GHSaiMo/antigravity-mobile/releases/latest">Latest Release v1.2.7</a> &nbsp;·&nbsp; 𝕏 <a href="https://x.com/MultigravityApp">@MultigravityApp</a> &nbsp;·&nbsp; 💬 <a href="#wechat-group">WeChat Group</a> &nbsp;·&nbsp; ☕ <a href="#sponsor">Sponsor</a>
+  🌐 <b>Website</b>: <a href="https://mgy.jiuge.space/en.html">mgy.jiuge.space/en.html</a> &nbsp;·&nbsp; 🍎 <b>App Store</b>: <a href="https://apps.apple.com/app/id6835508934">Download for iOS</a> &nbsp;·&nbsp; 🧪 <b>TestFlight</b>: <a href="https://testflight.apple.com/join/YM7f4aSK">Public Beta</a> &nbsp;·&nbsp; 📦 <a href="https://github.com/GHSaiMo/antigravity-mobile/releases/latest">Latest Release v1.2.7</a> &nbsp;·&nbsp; 𝕏 <a href="https://x.com/MultigravityApp">@MultigravityApp</a> &nbsp;·&nbsp; ✈️ <a href="https://t.me/mgyapp">Telegram</a> &nbsp;·&nbsp; 💬 <a href="#wechat-group">WeChat Group</a> &nbsp;·&nbsp; ☕ <a href="#sponsor">Sponsor</a>
 </p>
 
 > 🎉 **Multigravity for iOS is officially available on the Apple App Store!**  
@@ -218,10 +219,17 @@ make test           # Run Go unit and integration tests
 
 ---
 
-<a id="wechat-group"></a>
-## 💬 WeChat User Group
+<a id="telegram-group"></a>
+## 💬 Community & Feedback
 
-Scan the QR code below to join the **mgy WeChat User Group** for discussions, feedback, and release updates (valid for 7 days; if expired, please open an [Issue](https://github.com/GHSaiMo/antigravity-mobile/issues) to request a refreshed QR code):
+### ✈️ Telegram Group (Global · EN / JP)
+
+Join our official Telegram group **[t.me/mgyapp](https://t.me/mgyapp)** for bug reports, feature requests, discussions, and release updates — both English and Japanese are welcome!
+
+<a id="wechat-group"></a>
+### 💬 WeChat User Group
+
+Scan the QR code below to join the **mgy WeChat User Group** (valid for 7 days; if expired, please open an [Issue](https://github.com/GHSaiMo/antigravity-mobile/issues) to request a refreshed QR code):
 
 <p align="center">
   <img src="images/wechat_group.jpg" alt="mgy WeChat User Group QR Code" width="260" />
