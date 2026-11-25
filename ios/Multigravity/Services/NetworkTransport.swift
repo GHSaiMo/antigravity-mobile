@@ -426,6 +426,39 @@ public final class NetworkTransport: Sendable {
         return (innerData, decorateResponse(innerResp, url: originalURL, forcedCellular: usedCellular, trustedByE2EE: true), 200)
     }
 
+    /// When on Wi-Fi and a public relay fails or returns 502/503, prefer switching to local LAN
+    /// directly instead of spending seconds migrating across remote VPS pool nodes.
+    private func tryLanFastFallback(for req: URLRequest) async -> (Data, URLResponse)? {
+        guard !isCellular && isWifi, !Task.isCancelled else { return nil }
+        guard let origHost = req.url?.host, !Self.isLocalOrPrivateHost(origHost) else { return nil }
+        let switched = await ConnectionManager.shared.probeLanFastIfNeeded(force: true, timeout: 0.65)
+        let lanBase: URL? = await MainActor.run {
+            guard let lanStr = AppSettings.shared.lanServerURL?.trimmingCharacters(in: .whitespacesAndNewlines),
+                  !lanStr.isEmpty,
+                  let normalized = AppSettings.normalize(raw: lanStr),
+                  Self.isLanOnlyHost(normalized.host ?? "") else {
+                return nil
+            }
+            if switched { return normalized }
+            // Also use LAN if another concurrent caller just elected LAN a moment ago.
+            if let active = AppSettings.shared.activeServerURL,
+               let activeURL = AppSettings.normalize(raw: active),
+               Self.isLanOnlyHost(activeURL.host ?? "") {
+                return activeURL
+            }
+            return nil
+        }
+        guard let lanBase, let lanReq = Self.rewrittenRequest(req, toBaseURL: lanBase) else {
+            return nil
+        }
+        do {
+            let (data, response, usedCellular) = try await sendRaw(lanReq, preferCellular: false)
+            return (data, decorateResponse(response, url: lanReq.url, forcedCellular: usedCellular))
+        } catch {
+            return nil
+        }
+    }
+
     /// Sends an E2EE request with transparent recovery for relay-layer failures (`503 gateway_offline`,
     /// `502 gateway_unreachable`, `429 tunnel_busy`, or transient pre-response transport drops) so
     /// recoverable glitches heal silently without popping spurious errors in the UI.
@@ -442,6 +475,9 @@ public final class NetworkTransport: Sendable {
                   Self.isRetryableTransportError(error),
                   Self.isIdempotentForTransientRetry(req) else {
                 throw error
+            }
+            if let lanRes = await tryLanFastFallback(for: req) {
+                return lanRes
             }
             if let migratedBase = await RelayPoolResolver.shared.migrateRelayHostIfNeeded(failedURL: originalURL),
                let migratedReq = Self.rewrittenRequest(req, toBaseURL: migratedBase) {
@@ -461,6 +497,11 @@ public final class NetworkTransport: Sendable {
         let canRetry = classification.retryable && (classification.preGateway || Self.isIdempotentForTransientRetry(req))
         guard canRetry, !Task.isCancelled else {
             return (firstResult.data, firstResult.response)
+        }
+
+        // On Wi-Fi, if the cloud relay returned 502/503, immediately prefer local LAN over remote relay retry.
+        if (outerStatus == 503 || outerStatus == 502), let lanRes = await tryLanFastFallback(for: req) {
+            return lanRes
         }
 
         var latest = firstResult
@@ -667,19 +708,23 @@ public final class NetworkTransport: Sendable {
             E2EECrypto.shared.markHostRequiresE2EE(host)
             return try await sendOverE2EE(req, preferCellular: preferCellular)
         }
-        // Auto-migrate if a legacy cloud/tunnel endpoint returns 502/503 while an E2EE relay pool node is live
+        // Auto-migrate if a legacy cloud/tunnel endpoint returns 502/503 while local LAN or an E2EE relay pool node is live
         if let http = response as? HTTPURLResponse,
            (http.statusCode == 503 || (http.statusCode == 502 && Self.isIdempotentForTransientRetry(req))),
-           E2EECrypto.shared.isReady,
            let reqURL = req.url,
            reqURL.path != "/healthz",
            !reqURL.path.hasPrefix("/api/v1/e2ee/"),
            Self.isConfiguredGatewayOrigin(reqURL),
            let host = reqURL.host,
-           !Self.isLocalOrPrivateHost(host),
-           let migratedBase = await RelayPoolResolver.shared.migrateRelayHostIfNeeded(failedURL: reqURL),
-           let migratedReq = Self.rewrittenRequest(req, toBaseURL: migratedBase) {
-            return try await sendOverE2EE(migratedReq, preferCellular: preferCellular)
+           !Self.isLocalOrPrivateHost(host) {
+            if let lanRes = await tryLanFastFallback(for: req) {
+                return lanRes
+            }
+            if E2EECrypto.shared.isReady,
+               let migratedBase = await RelayPoolResolver.shared.migrateRelayHostIfNeeded(failedURL: reqURL),
+               let migratedReq = Self.rewrittenRequest(req, toBaseURL: migratedBase) {
+                return try await sendOverE2EE(migratedReq, preferCellular: preferCellular)
+            }
         }
         return (data, decorateResponse(response, url: req.url, forcedCellular: usedCellular))
     }

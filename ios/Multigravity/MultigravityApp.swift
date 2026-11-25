@@ -22,8 +22,8 @@ struct MultigravityApp: App {
                 .tint(.indigo)
                 .onAppear {
                     settings.applyAppearance()
+                    ConnectionManager.shared.ensureStarted()
                     ActivityManager.shared.startRemoteTokenObservers()
-                    PushNotificationManager.shared.syncAllTokensIfPaired()
                     AppReviewManager.shared.recordActiveDayIfEligible()
                 }
                 .onChange(of: scenePhase) { _, newPhase in

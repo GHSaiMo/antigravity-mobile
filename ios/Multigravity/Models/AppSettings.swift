@@ -229,7 +229,15 @@ public final class AppSettings {
             } else {
                 UserDefaults.standard.removeObject(forKey: activeServerURLKey)
             }
-            if activeServerURL != oldValue {
+            let oldClean = oldValue?
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+                .trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+                .lowercased()
+            let newClean = activeServerURL?
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+                .trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+                .lowercased()
+            if oldClean != newClean {
                 DispatchQueue.main.async {
                     NotificationCenter.default.post(name: .networkRoutingPreferenceChanged, object: nil)
                 }

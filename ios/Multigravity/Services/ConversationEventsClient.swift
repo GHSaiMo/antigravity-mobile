@@ -31,6 +31,9 @@ public final class ConversationEventsClient {
     public private(set) var isStarted = false
     public var onChange: (() -> Void)?
     public var onConnectionStateChange: ((Bool) -> Void)?
+    /// Invoked when the events socket hits relay 502/503 or fails to establish so the owner can
+    /// trigger endpoint probing (e.g. fast-switching back to LAN or a healthy relay node).
+    public var onNeedRouteProbe: (() -> Void)?
 
     private var runTask: Task<Void, Never>?
     private var connectionWatchdogTask: Task<Void, Never>?
@@ -49,8 +52,10 @@ public final class ConversationEventsClient {
 
     public init() {}
 
-    /// Drops the current socket (if any) and reconnects immediately, e.g. from the indicator's "reconnect" button.
-    public func reconnect() {
+    /// Drops the current socket (if any) and reconnects immediately, e.g. from the indicator's "reconnect" button
+    /// or after the active gateway route switches.
+    public func reconnect(onlyIfStarted: Bool = false) {
+        if onlyIfStarted && !isStarted { return }
         guard let provider = baseURLProvider else { return }
         print("[EventsWS] Manual reconnect requested")
         stop()
@@ -104,6 +109,9 @@ public final class ConversationEventsClient {
                 }()
                 let wasHealthy = opened && (self.currentReceivedValidFrame || livedLongEnough)
                 self.attempt = wasHealthy ? 0 : min(self.attempt + 1, 6)
+                if !wasHealthy && (self.attempt == 1 || self.attempt % 2 == 1) {
+                    self.onNeedRouteProbe?()
+                }
                 let baseDelay: Double = wasHealthy ? 1.0 : min(2.5 * pow(2.0, Double(max(self.attempt - 1, 0))), 60.0)
                 let delay = baseDelay * Double.random(in: 0.75...1.25)
                 try? await Task.sleep(nanoseconds: UInt64(delay * 1_000_000_000))
@@ -248,6 +256,11 @@ public final class ConversationEventsClient {
                 onAuthRejected: { [weak self] in
                     Task { @MainActor [weak self] in
                         self?.currentAuthRejected = true
+                    }
+                },
+                onRelayUnavailable: { [weak self] in
+                    Task { @MainActor [weak self] in
+                        self?.onNeedRouteProbe?()
                     }
                 }
             )

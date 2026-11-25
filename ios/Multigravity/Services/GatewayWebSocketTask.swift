@@ -30,6 +30,7 @@ public final class GatewayWebSocketTask: @unchecked Sendable {
     private let onClose: (@Sendable () -> Void)?
     private let onFail: (@Sendable (any Error) -> Void)?
     private let onAuthRejected: (@Sendable () -> Void)?
+    private let onRelayUnavailable: (@Sendable () -> Void)?
     private let originalHost: String?
 
     private struct State {
@@ -46,12 +47,14 @@ public final class GatewayWebSocketTask: @unchecked Sendable {
         onOpen: (@Sendable () -> Void)? = nil,
         onClose: (@Sendable () -> Void)? = nil,
         onFail: (@Sendable (any Error) -> Void)? = nil,
-        onAuthRejected: (@Sendable () -> Void)? = nil
+        onAuthRejected: (@Sendable () -> Void)? = nil,
+        onRelayUnavailable: (@Sendable () -> Void)? = nil
     ) {
         self.onOpen = onOpen
         self.onClose = onClose
         self.onFail = onFail
         self.onAuthRejected = onAuthRejected
+        self.onRelayUnavailable = onRelayUnavailable
         self.originalHost = request.url?.host
 
         var effectiveRequest = request
@@ -463,6 +466,8 @@ public final class GatewayWebSocketTask: @unchecked Sendable {
             onAuthRejected?()
         } else if statusCode == 426, let host = originalHost, !host.isEmpty, E2EECrypto.shared.isReady {
             E2EECrypto.shared.markHostRequiresE2EE(host)
+        } else if statusCode == 502 || statusCode == 503 {
+            onRelayUnavailable?()
         }
     }
 

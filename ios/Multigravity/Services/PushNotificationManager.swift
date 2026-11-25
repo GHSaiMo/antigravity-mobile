@@ -104,6 +104,7 @@ public final class MultigravityAppDelegate: NSObject, UIApplicationDelegate {
         _ application: UIApplication,
         didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]? = nil
     ) -> Bool {
+        ConnectionManager.shared.ensureStarted()
         PushNotificationManager.shared.configureDelegate()
         ActivityManager.shared.startRemoteTokenObservers()
         return true

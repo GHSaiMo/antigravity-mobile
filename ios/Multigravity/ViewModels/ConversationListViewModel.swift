@@ -107,6 +107,14 @@ public final class ConversationListViewModel {
     private var pendingReorderTask: Task<Void, Never>? = nil
     private var lastCompatRefresh: Date = .distantPast
     private var lastResumeTime: Date = .distantPast
+    private var lastNotifiedRouteURL: String? = nil
+
+    private func normalizedCurrentRouteURL() -> String? {
+        settings.serverURL?.absoluteString
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+            .lowercased()
+    }
     
     public init(
         apiClient: APIClient? = nil,
@@ -116,6 +124,10 @@ public final class ConversationListViewModel {
         self.apiClient = apiClient ?? .shared
         self.settings = settings ?? .shared
         self.cacheManager = cacheManager ?? .shared
+        self.lastNotifiedRouteURL = self.settings.serverURL?.absoluteString
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+            .lowercased()
         
         // Immediate local cache restore (filtering out subagents, drafts from cached, and deduplicating)
         let drafts = self.cacheManager.loadLocalDraftConversations()
@@ -137,7 +149,11 @@ public final class ConversationListViewModel {
         ) { [weak self] _ in
             guard let self = self else { return }
             Task { @MainActor in
-                await self.fetchConversations()
+                let newRoute = self.normalizedCurrentRouteURL()
+                guard newRoute != self.lastNotifiedRouteURL else { return }
+                self.lastNotifiedRouteURL = newRoute
+                self.eventsClient.reconnect(onlyIfStarted: true)
+                await self.fetchConversations(isBackgroundPoll: !self.conversations.isEmpty)
             }
         }
         
@@ -494,16 +510,67 @@ public final class ConversationListViewModel {
         let now = Date()
         guard now.timeIntervalSince(lastResumeTime) > 1.0 else { return }
         lastResumeTime = now
-        
-        // Don't trust an old green dot after the app was suspended: reconnect when the heartbeat went stale.
-        eventsClient.reconnectIfStale()
+
+        ConnectionManager.shared.ensureStarted()
+        ConnectionManager.shared.noteForegroundResume()
         reloadFromCache()
+
+        if settings.isPaired && !settings.isDemoMode {
+            let switchedToLan = await ConnectionManager.shared.probeLanFastIfNeeded(timeout: 0.65)
+            if switchedToLan {
+                lastNotifiedRouteURL = normalizedCurrentRouteURL()
+                eventsClient.reconnect(onlyIfStarted: true)
+            } else {
+                // Don't trust an old green dot after the app was suspended: reconnect when the heartbeat went stale.
+                eventsClient.reconnectIfStale()
+                let probeStale = ConnectionManager.shared.lastProbeDate.map { Date().timeIntervalSince($0) > 15 } ?? true
+                if probeStale || !eventsClient.isConnected || quotaResponse == nil {
+                    Task {
+                        await ConnectionManager.shared.probeEndpoints()
+                    }
+                }
+            }
+        } else {
+            eventsClient.reconnectIfStale()
+        }
+
         await fetchConversations(isBackgroundPoll: !conversations.isEmpty)
+    }
+
+    @MainActor
+    public func pullToRefresh() async {
+        guard settings.isPaired else { return }
+        ConnectionManager.shared.ensureStarted()
+        if !settings.isDemoMode {
+            let isLinkUnhealthy = !eventsClient.isConnected || eventsClient.linkState() != .connected
+            let switchedToLan = await ConnectionManager.shared.probeLanFastIfNeeded(
+                force: isLinkUnhealthy,
+                timeout: 0.65
+            )
+            if switchedToLan {
+                lastNotifiedRouteURL = normalizedCurrentRouteURL()
+                eventsClient.reconnect(onlyIfStarted: true)
+            } else if isLinkUnhealthy {
+                let before = normalizedCurrentRouteURL()
+                _ = await ConnectionManager.shared.probeEndpoints()
+                let after = normalizedCurrentRouteURL()
+                if after != before {
+                    lastNotifiedRouteURL = after
+                    eventsClient.reconnect(onlyIfStarted: true)
+                } else {
+                    eventsClient.reconnectIfStale()
+                }
+            } else {
+                eventsClient.reconnectIfStale()
+            }
+        }
+        await fetchConversations(isBackgroundPoll: false)
     }
     
     public func startAutoRefresh() {
         guard settings.isPaired else { return }
         guard pollTask == nil else { return }
+        ConnectionManager.shared.ensureStarted()
         eventsClient.onChange = { [weak self] in
             guard let self else { return }
             Task { await self.fetchConversations(isBackgroundPoll: true) }
@@ -511,6 +578,12 @@ public final class ConversationListViewModel {
         eventsClient.onConnectionStateChange = { [weak self] _ in
             guard let self, self.pollTask != nil else { return }
             self.restartPollLoop()
+        }
+        eventsClient.onNeedRouteProbe = { [weak self] in
+            guard let self, self.settings.isPaired, !self.settings.isDemoMode else { return }
+            Task {
+                await ConnectionManager.shared.probeEndpoints()
+            }
         }
         eventsClient.start(baseURL: { [weak self] in self?.settings.serverURL })
         restartPollLoop()
@@ -538,6 +611,7 @@ public final class ConversationListViewModel {
         pendingReorderTask?.cancel()
         pendingReorderTask = nil
         eventsClient.onConnectionStateChange = nil
+        eventsClient.onNeedRouteProbe = nil
         eventsClient.stop()
         eventsClient.onChange = nil
     }
@@ -661,8 +735,9 @@ public final class ConversationListViewModel {
                     QuotaWidgetStore.shared.publishConversationsFromApp(items: nonDraftEnriched, isDemo: settings.isDemoMode)
                     self.isLoading = false
                     self.errorMessage = nil
-                    await fetchQuotas()
-                    await ModelCatalogStore.shared.refreshIfNeeded(settings: settings, baseURL: retryURL)
+                    self.lastNotifiedRouteURL = self.normalizedCurrentRouteURL()
+                    self.eventsClient.reconnect(onlyIfStarted: true)
+                    self.refreshAuxiliaryHomeData(baseURL: retryURL)
                     return
                 } catch {
                     // Fallthrough to standard error handling
@@ -672,12 +747,22 @@ public final class ConversationListViewModel {
                 self.errorMessage = error.localizedDescription
             }
             self.isLoading = false
+            return
         }
         
-        await fetchQuotas()
-        await fetchGlobalBackgroundTasks()
-        if let url = settings.serverURL {
-            await ModelCatalogStore.shared.refreshIfNeeded(settings: settings, baseURL: url)
+        refreshAuxiliaryHomeData(baseURL: settings.serverURL ?? url)
+    }
+
+    /// Concurrently refreshes secondary home bar data (quota, background tasks, model catalog) without
+    /// blocking pull-to-refresh retraction after the conversation list has already updated.
+    @MainActor
+    private func refreshAuxiliaryHomeData(baseURL: URL) {
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            async let quotas: Void = self.fetchQuotas()
+            async let tasks: Void = self.fetchGlobalBackgroundTasks()
+            async let catalog: Void = ModelCatalogStore.shared.refreshIfNeeded(settings: self.settings, baseURL: baseURL)
+            _ = await (quotas, tasks, catalog)
         }
     }
 

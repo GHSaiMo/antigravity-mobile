@@ -782,15 +782,26 @@ class MainActivity : ComponentActivity() {
             liveActivityManager.cleanUpOrphanedActivities()
         }
         if (::connectionManager.isInitialized && ::prefs.isInitialized && prefs.isPaired()) {
+            connectionManager.noteForegroundResume()
             val lastProbe = connectionManager.lastProbeTime.value ?: 0L
             val probeStale = System.currentTimeMillis() - lastProbe > 15_000L
+            val needsLanCheck = connectionManager.isWifi &&
+                !connectionManager.isCellular &&
+                !prefs.lanServerUrl.isNullOrBlank() &&
+                !ConnectionManager.isSameEndpoint(prefs.gatewayBaseUrl, prefs.lanServerUrl)
             val needsRecovery = ::conversationListViewModel.isInitialized && (
                 conversationListViewModel.quotaData.value == null ||
                     !conversationListViewModel.linkSnapshot.value.connected
                 )
-            if (probeStale || needsRecovery) {
+            if (needsLanCheck || probeStale || needsRecovery) {
                 lifecycleScope.launch(Dispatchers.IO) {
-                    connectionManager.probeEndpoints(prefs)
+                    if (needsLanCheck) {
+                        val switched = connectionManager.probeLanFastIfNeeded(prefs, force = true)
+                        if (switched) return@launch
+                    }
+                    if (probeStale || needsRecovery) {
+                        connectionManager.probeEndpoints(prefs)
+                    }
                 }
             }
         }

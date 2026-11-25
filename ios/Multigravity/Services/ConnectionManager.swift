@@ -66,27 +66,48 @@ public final class ConnectionManager {
     private let pathMonitor = NWPathMonitor()
     private let monitorQueue = DispatchQueue(label: "antigravity.connection_monitor", qos: .utility)
     private var networkLostTask: Task<Void, Never>?
+    private var inFlightProbeTask: Task<String?, Never>?
+    private var inFlightLanProbeTask: Task<Bool, Never>?
+    private var lastFailedLanProbeDate: Date? = nil
+    private var lastGatewaySignature: String? = nil
+    private var hasReceivedInitialPath: Bool = false
+
+    private static let lanFastProbeFailureCooldown: TimeInterval = 30.0
+    private static let lanProbeTimeout: TimeInterval = 1.2
+    private static let publicProbeTimeout: TimeInterval = 5.0
     
     private init() {
         startMonitoring()
-        
-        NotificationCenter.default.addObserver(
-            forName: .networkRoutingPreferenceChanged,
-            object: nil,
-            queue: .main
-        ) { [weak self] _ in
-            Task { @MainActor [weak self] in
-                guard let self = self else { return }
-                await self.probeEndpoints()
-            }
-        }
     }
-    
+
+    /// Explicitly initializes the singleton and ensures `NWPathMonitor` is running from app launch.
+    public func ensureStarted() {
+        // Accessing `ConnectionManager.shared` starts `pathMonitor` in `init()`.
+    }
+
+    /// Clears recent LAN probe failure cooldown when returning to foreground so walking back onto
+    /// home Wi-Fi while suspended immediately re-evaluates LAN reachability.
+    public func noteForegroundResume() {
+        lastFailedLanProbeDate = nil
+    }
+
+    private static func normalizedEndpointKey(_ raw: String?) -> String? {
+        guard let trimmed = raw?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+            .lowercased(),
+              !trimmed.isEmpty else {
+            return nil
+        }
+        return trimmed
+    }
+
     private func startMonitoring() {
         pathMonitor.pathUpdateHandler = { [weak self] path in
             let isSatisfied = (path.status == .satisfied)
             let currentCellular = path.isExpensive || path.usesInterfaceType(.cellular)
             let currentWifi = path.usesInterfaceType(.wifi)
+            let gatewaySig = path.gateways.map(\.debugDescription).sorted().joined(separator: ",")
             
             NetworkStatus.shared.isConnected = isSatisfied
             NetworkStatus.shared.isCellular = currentCellular
@@ -97,25 +118,49 @@ public final class ConnectionManager {
                 let wasCellular = self.isCellular
                 let wasWifi = self.isWifi
                 let wasConnected = self.isConnectedToNetwork
+                let wasInitial = !self.hasReceivedInitialPath
+                let gatewayChanged = (self.lastGatewaySignature != nil && self.lastGatewaySignature != gatewaySig)
                 
+                self.hasReceivedInitialPath = true
                 self.isConnectedToNetwork = isSatisfied
                 self.isCellular = currentCellular
                 self.isWifi = currentWifi
+                if isSatisfied {
+                    self.lastGatewaySignature = gatewaySig
+                }
                 
                 if !isSatisfied {
+                    self.lastFailedLanProbeDate = nil
                     // Interface switching in progress (e.g. Wi-Fi severed, cellular acquiring)
                     self.networkLostTask?.cancel()
                     self.networkLostTask = Task { [weak self] in
                         try? await Task.sleep(nanoseconds: 500_000_000)
                         guard let self, !Task.isCancelled else { return }
+                        guard AppSettings.shared.isPaired, !AppSettings.shared.isDemoMode else { return }
                         await self.probeEndpoints()
                     }
                 } else {
                     self.networkLostTask?.cancel()
                     self.networkLostTask = nil
                     
-                    if !wasConnected || wasCellular != currentCellular || wasWifi != currentWifi {
-                        NotificationCenter.default.post(name: .networkRoutingPreferenceChanged, object: nil)
+                    let routeChanged = wasInitial || !wasConnected || wasCellular != currentCellular || wasWifi != currentWifi || gatewayChanged
+                    if routeChanged {
+                        self.lastFailedLanProbeDate = nil
+                        let settings = AppSettings.shared
+                        guard settings.isPaired, !settings.isDemoMode else { return }
+                        // When leaving Wi-Fi for cellular while pinned to a LAN-only host, immediately
+                        // fail over activeServerURL to a non-LAN route so live streams don't wait on probe.
+                        if (currentCellular || !currentWifi),
+                           let active = settings.activeServerURL,
+                           NetworkTransport.isLanOnlyHost(active) {
+                            let nonLanCustom = settings.customServerURL?.trimmingCharacters(in: .whitespacesAndNewlines)
+                            if let custom = nonLanCustom, !custom.isEmpty, !NetworkTransport.isLanOnlyHost(custom) {
+                                settings.activeServerURL = custom
+                            } else if let cloud = settings.primaryCloudURL?.trimmingCharacters(in: .whitespacesAndNewlines),
+                                      !cloud.isEmpty, !NetworkTransport.isLanOnlyHost(cloud) {
+                                settings.activeServerURL = cloud
+                            }
+                        }
                         Task {
                             await self.probeEndpoints()
                         }
@@ -126,34 +171,105 @@ public final class ConnectionManager {
         pathMonitor.start(queue: monitorQueue)
         
         let initialPath = pathMonitor.currentPath
-        let isSatisfied = (initialPath.status == .satisfied)
-        let currentCellular = initialPath.isExpensive || initialPath.usesInterfaceType(.cellular)
-        let currentWifi = initialPath.usesInterfaceType(.wifi)
-        NetworkStatus.shared.isConnected = isSatisfied
-        NetworkStatus.shared.isCellular = currentCellular
-        if isSatisfied {
+        if initialPath.status == .satisfied {
+            let currentCellular = initialPath.isExpensive || initialPath.usesInterfaceType(.cellular)
+            let currentWifi = initialPath.usesInterfaceType(.wifi)
+            NetworkStatus.shared.isConnected = true
+            NetworkStatus.shared.isCellular = currentCellular
             NetworkStatus.shared.isWifi = currentWifi
+            self.isConnectedToNetwork = true
+            self.isCellular = currentCellular
             self.isWifi = currentWifi
         }
-        self.isConnectedToNetwork = isSatisfied
-        self.isCellular = currentCellular
+    }
+
+    /// Ultra-fast LAN-only pre-probe on Wi-Fi when `activeServerURL` is not yet the LAN endpoint.
+    /// Returns `true` if LAN answered HTTP 200 and `activeServerURL` was switched to LAN.
+    @discardableResult
+    public func probeLanFastIfNeeded(force: Bool = false, timeout: TimeInterval = 0.65) async -> Bool {
+        let settings = AppSettings.shared
+        guard settings.isPaired, !settings.isDemoMode else { return false }
+        let isCellularNow = self.isCellular || !self.isWifi
+        guard !isCellularNow else { return false }
+        guard let lan = settings.lanServerURL?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !lan.isEmpty,
+              let cleanLan = Self.normalizedEndpointKey(lan) else {
+            return false
+        }
+        if Self.normalizedEndpointKey(settings.activeServerURL) == cleanLan {
+            return false
+        }
+        if !force,
+           let lastFail = lastFailedLanProbeDate,
+           Date().timeIntervalSince(lastFail) < Self.lanFastProbeFailureCooldown {
+            return false
+        }
+        if let existing = inFlightLanProbeTask {
+            return await existing.value
+        }
+
+        let task = Task<Bool, Never> { @MainActor [weak self] in
+            guard let self else { return false }
+            let status = await Self.testSingleEndpoint(urlString: lan, timeout: timeout)
+            self.endpointStatuses[status.urlString] = status
+            if status.isReachable {
+                self.lastFailedLanProbeDate = nil
+                self.lastProbeDate = Date()
+                if let plat = status.platform, !plat.isEmpty {
+                    settings.gatewayPlatform = plat
+                }
+                if settings.isPaired && !E2EECrypto.shared.isReady {
+                    Task {
+                        await E2EECrypto.shared.silentUpgradeIfNeeded(reachableBaseURL: lan)
+                    }
+                }
+                let changed = Self.normalizedEndpointKey(settings.activeServerURL) != cleanLan
+                settings.activeServerURL = lan
+                return changed
+            } else {
+                self.lastFailedLanProbeDate = Date()
+                return false
+            }
+        }
+        inFlightLanProbeTask = task
+        let switched = await task.value
+        if inFlightLanProbeTask == task {
+            inFlightLanProbeTask = nil
+        }
+        return switched
     }
     
-    /// Concurrently probes candidate endpoints and switches activeServerURL to the optimal one.
-    /// Routing Order: LAN (skip if cellular) -> Custom (skip if LAN on cellular) -> Primary Cloud Domain (final fallback).
+    /// Concurrently probes candidate endpoints (single-flight) and switches activeServerURL to the optimal one.
+    /// Routing Order: LAN (skip if cellular; short-circuits immediately on HTTP 200) -> Custom -> Primary Cloud Domain.
     @discardableResult
     public func probeEndpoints() async -> String? {
         let settings = AppSettings.shared
         if settings.isDemoMode {
             return DemoGateway.baseURL.absoluteString
         }
-        guard !isProbing else { return settings.activeServerURL }
-        
+        if let existing = inFlightProbeTask {
+            return await existing.value
+        }
+        let task = Task<String?, Never> { @MainActor [weak self] in
+            guard let self else { return AppSettings.shared.activeServerURL }
+            return await self.performProbeEndpoints()
+        }
+        inFlightProbeTask = task
+        let result = await task.value
+        if inFlightProbeTask == task {
+            inFlightProbeTask = nil
+        }
+        return result
+    }
+
+    private func performProbeEndpoints() async -> String? {
+        let settings = AppSettings.shared
         let isCellularNow = self.isCellular || !self.isWifi
         
         var endpointsToTest: [String] = []
         
         let lan = settings.lanServerURL?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let cleanLan = (!isCellularNow ? Self.normalizedEndpointKey(lan) : nil)
         if !isCellularNow, let lan = lan, !lan.isEmpty {
             endpointsToTest.append(lan)
         }
@@ -199,11 +315,24 @@ public final class ConnectionManager {
             
             for await status in group {
                 results.append(status)
+                // LAN short-circuit: LAN always wins on Wi-Fi, so elect immediately instead of
+                // blocking up to 5s waiting for a slow or dead cloud endpoint to finish.
+                if let cleanLan,
+                   status.isReachable,
+                   Self.normalizedEndpointKey(status.urlString) == cleanLan {
+                    group.cancelAll()
+                    break
+                }
             }
         }
         
         for res in results {
             endpointStatuses[res.urlString] = res
+        }
+
+        if let cleanLan,
+           let lanResult = results.first(where: { Self.normalizedEndpointKey($0.urlString) == cleanLan }) {
+            lastFailedLanProbeDate = lanResult.isReachable ? nil : Date()
         }
         
         let reachable = results.filter { $0.isReachable }
@@ -227,11 +356,7 @@ public final class ConnectionManager {
             if let migratedURL = await RelayPoolResolver.shared.resolveReachableCloudURL(currentCloudURL: currentCloud) {
                 settings.primaryCloudURL = migratedURL
                 settings.syncWidgetConfiguration(reloadWidget: false)
-                let oldActive = settings.activeServerURL
                 settings.activeServerURL = migratedURL
-                if oldActive != migratedURL {
-                    NotificationCenter.default.post(name: .networkRoutingPreferenceChanged, object: nil)
-                }
                 return migratedURL
             }
         }
@@ -274,18 +399,16 @@ public final class ConnectionManager {
         var selected: String? = nil
         
         // 1. LAN (only if NOT cellular and reachable)
-        if !isCellularNow, let lan = lan, !lan.isEmpty {
-            let cleanLan = lan.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
-            if reachable.contains(where: { $0.urlString.trimmingCharacters(in: CharacterSet(charactersIn: "/")) == cleanLan }) {
+        if !isCellularNow, let lan = lan, !lan.isEmpty, let cleanLan {
+            if reachable.contains(where: { Self.normalizedEndpointKey($0.urlString) == cleanLan }) {
                 selected = lan
             }
         }
         
         // 2. Custom (if configured and reachable; LAN-only hosts skipped on cellular, Tailscale allowed)
-        if selected == nil, let custom = custom, !custom.isEmpty {
+        if selected == nil, let custom = custom, !custom.isEmpty, let cleanCustom = Self.normalizedEndpointKey(custom) {
             let isLan = NetworkTransport.isLanOnlyHost(custom)
-            let cleanCustom = custom.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
-            if (!isCellularNow || !isLan) && reachable.contains(where: { $0.urlString.trimmingCharacters(in: CharacterSet(charactersIn: "/")) == cleanCustom }) {
+            if (!isCellularNow || !isLan) && reachable.contains(where: { Self.normalizedEndpointKey($0.urlString) == cleanCustom }) {
                 selected = custom
             }
         }
@@ -293,26 +416,23 @@ public final class ConnectionManager {
         // 3. Primary Cloud (Cloudflare tunnel HTTPS - ultimate fallback)
         if selected == nil, let cloud = settings.primaryCloudURL?.trimmingCharacters(in: .whitespacesAndNewlines), !cloud.isEmpty {
             let isLan = NetworkTransport.isLanOnlyHost(cloud)
-            if !isCellularNow || !isLan {
-                let cleanCloud = cloud.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
-                selected = reachable.first(where: { $0.urlString.trimmingCharacters(in: CharacterSet(charactersIn: "/")) == cleanCloud })?.urlString ?? cloud
+            if !isCellularNow || !isLan, let cleanCloud = Self.normalizedEndpointKey(cloud) {
+                selected = reachable.first(where: { Self.normalizedEndpointKey($0.urlString) == cleanCloud })?.urlString ?? cloud
             }
         }
         
         if let best = selected {
-            let oldActive = settings.activeServerURL
             settings.activeServerURL = best
-            if oldActive != best {
-                NotificationCenter.default.post(name: .networkRoutingPreferenceChanged, object: nil)
-            }
             return best
         }
         
         return settings.activeServerURL
     }
     
-    /// Tests a single endpoint's reachability and latency with a 5.0s timeout to allow cellular TLS handshakes.
-    public static func testSingleEndpoint(urlString: String) async -> EndpointHealthStatus {
+    /// Tests a single endpoint's reachability and latency.
+    /// LAN-only endpoints default to a tight 1.2s timeout so off-home Wi-Fi fails fast;
+    /// public/Tailscale endpoints keep a 5.0s timeout to allow cellular TLS handshakes.
+    public static func testSingleEndpoint(urlString: String, timeout: TimeInterval? = nil) async -> EndpointHealthStatus {
         guard let baseURL = AppSettings.normalize(raw: urlString) else {
             return EndpointHealthStatus(
                 id: urlString,
@@ -337,9 +457,11 @@ public final class ConnectionManager {
             )
         }
         
+        let effectiveTimeout = timeout ?? (NetworkTransport.isLanOnlyHost(urlString) ? lanProbeTimeout : publicProbeTimeout)
         var request = URLRequest(url: probeURL)
         request.httpMethod = "GET"
-        request.timeoutInterval = 5.0
+        request.cachePolicy = .reloadIgnoringLocalCacheData
+        request.timeoutInterval = effectiveTimeout
         
         let start = CFAbsoluteTimeGetCurrent()
         do {

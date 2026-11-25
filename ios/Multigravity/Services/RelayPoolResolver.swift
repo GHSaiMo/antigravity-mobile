@@ -161,14 +161,10 @@ public final class RelayPoolResolver: Sendable {
         E2EECrypto.shared.markHostRequiresE2EE(migratedHost)
         await MainActor.run {
             let settings = AppSettings.shared
-            let oldActive = settings.activeServerURL?.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
             let cleanMigrated = migratedStr.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
             settings.primaryCloudURL = cleanMigrated
             settings.activeServerURL = cleanMigrated
             settings.syncWidgetConfiguration(reloadWidget: false)
-            if oldActive != cleanMigrated {
-                NotificationCenter.default.post(name: .networkRoutingPreferenceChanged, object: nil)
-            }
         }
         return migratedURL
     }

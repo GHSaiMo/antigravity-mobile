@@ -65,11 +65,17 @@ class ConnectionManager(private val context: Context) {
     private val httpClient = OkHttpClient.Builder()
         .connectionPool(httpConnectionPool)
         .dns(CloudflareOptimizedDns)
-        .connectTimeout(2500, TimeUnit.MILLISECONDS)
-        .readTimeout(2500, TimeUnit.MILLISECONDS)
-        .writeTimeout(2500, TimeUnit.MILLISECONDS)
+        .connectTimeout(1200, TimeUnit.MILLISECONDS)
+        .readTimeout(1200, TimeUnit.MILLISECONDS)
+        .writeTimeout(1200, TimeUnit.MILLISECONDS)
         .addInterceptor(CloudflareEdgeFallbackInterceptor(httpConnectionPool))
         .addInterceptor(LanCleartextSecurityInterceptor())
+        .build()
+
+    private val fastLanProbeClient = httpClient.newBuilder()
+        .connectTimeout(650, TimeUnit.MILLISECONDS)
+        .readTimeout(650, TimeUnit.MILLISECONDS)
+        .writeTimeout(650, TimeUnit.MILLISECONDS)
         .build()
 
     private val publicProbeClient = httpClient.newBuilder()
@@ -80,6 +86,9 @@ class ConnectionManager(private val context: Context) {
 
     private val probeLock = Any()
     @Volatile private var inFlightProbe: CompletableDeferred<String?>? = null
+    private val lanProbeLock = Any()
+    @Volatile private var inFlightLanProbe: CompletableDeferred<Boolean>? = null
+    @Volatile private var lastFailedLanProbeAtMs: Long = 0L
     private val migrationLock = Any()
     @Volatile private var lastFailedMigrationOrigin: String? = null
     @Volatile private var lastFailedMigrationAtMs: Long = 0L
@@ -120,6 +129,11 @@ class ConnectionManager(private val context: Context) {
         routeChangeListeners.forEach { it.invoke(clean) }
     }
 
+    /** Clears recent LAN probe failure cooldown when returning to foreground so walking back onto home Wi-Fi re-checks LAN immediately. */
+    fun noteForegroundResume() {
+        lastFailedLanProbeAtMs = 0L
+    }
+
     fun startMonitoring(
         prefs: PreferencesManager,
         scope: CoroutineScope = CoroutineScope(Dispatchers.IO + SupervisorJob())
@@ -139,6 +153,9 @@ class ConnectionManager(private val context: Context) {
                 if (hasInternet && (transportChanged || probeStale)) {
                     Log.d("ConnectionManager", "Network capabilities update: cellular=$cellular, transportChanged=$transportChanged, probing...")
                     lastWasCellular = cellular
+                    if (transportChanged) {
+                        lastFailedLanProbeAtMs = 0L
+                    }
                     scope.launch {
                         probeEndpoints(prefs)
                     }
@@ -149,6 +166,7 @@ class ConnectionManager(private val context: Context) {
                 val cellular = isCellular
                 Log.d("ConnectionManager", "Network available: cellular=$cellular, probing...")
                 lastWasCellular = cellular
+                lastFailedLanProbeAtMs = 0L
                 scope.launch {
                     probeEndpoints(prefs)
                 }
@@ -156,6 +174,7 @@ class ConnectionManager(private val context: Context) {
 
             override fun onLost(network: Network) {
                 Log.d("ConnectionManager", "Network lost, waiting for new interface...")
+                lastFailedLanProbeAtMs = 0L
                 scope.launch {
                     delay(300)
                     probeEndpoints(prefs)
@@ -225,7 +244,10 @@ class ConnectionManager(private val context: Context) {
         }
     }
 
-    suspend fun testSingleEndpoint(urlString: String): EndpointHealthStatus = withContext(Dispatchers.IO) {
+    suspend fun testSingleEndpoint(
+        urlString: String,
+        overrideClient: OkHttpClient? = null
+    ): EndpointHealthStatus = withContext(Dispatchers.IO) {
         val clean = urlString.trim().trimEnd('/')
         if (clean.isBlank()) {
             return@withContext EndpointHealthStatus(
@@ -241,7 +263,7 @@ class ConnectionManager(private val context: Context) {
             "$clean/healthz"
         }
 
-        val targetClient = if (isLanHost(extractHost(clean))) httpClient else publicProbeClient
+        val targetClient = overrideClient ?: if (isLanHost(extractHost(clean))) httpClient else publicProbeClient
         val start = System.currentTimeMillis()
         try {
             val req = Request.Builder().url(targetUrl).build()
@@ -348,6 +370,71 @@ class ConnectionManager(private val context: Context) {
         }
     }
 
+    /**
+     * Ultra-fast LAN-only pre-probe on Wi-Fi when the active gateway is not yet LAN.
+     * Returns true if LAN answered HTTP 200 and `gatewayBaseUrl` switched to LAN.
+     */
+    suspend fun probeLanFastIfNeeded(prefs: PreferencesManager, force: Boolean = false): Boolean {
+        if (!prefs.isPaired()) return false
+        val isCellularNow = isCellular || !isWifi
+        if (isCellularNow) return false
+        val lan = prefs.lanServerUrl?.trim()?.trimEnd('/')?.takeIf { it.isNotBlank() } ?: return false
+        if (isSameEndpoint(prefs.gatewayBaseUrl, lan)) return false
+        val now = System.currentTimeMillis()
+        if (!force && lastFailedLanProbeAtMs > 0L && (now - lastFailedLanProbeAtMs) < 30_000L) {
+            return false
+        }
+
+        val existing: CompletableDeferred<Boolean>?
+        val owned: CompletableDeferred<Boolean>?
+        synchronized(lanProbeLock) {
+            val current = inFlightLanProbe
+            if (current != null && !current.isCompleted) {
+                existing = current
+                owned = null
+            } else {
+                val created = CompletableDeferred<Boolean>()
+                inFlightLanProbe = created
+                existing = null
+                owned = created
+            }
+        }
+        if (existing != null) {
+            return existing.await()
+        }
+        val deferred = owned!!
+        return try {
+            val status = testSingleEndpoint(lan, overrideClient = fastLanProbeClient)
+            _endpointStatuses.value = _endpointStatuses.value + (status.urlString to status)
+            val switched = if (status.isReachable) {
+                lastFailedLanProbeAtMs = 0L
+                _lastProbeTime.value = System.currentTimeMillis()
+                status.platform?.takeIf { it.isNotBlank() }?.let { prefs.gatewayPlatform = it }
+                val oldBase = prefs.gatewayBaseUrl
+                prefs.gatewayBaseUrl = lan
+                val changed = !isSameEndpoint(oldBase, lan)
+                if (changed) {
+                    notifyRouteChanged(lan)
+                }
+                changed
+            } else {
+                lastFailedLanProbeAtMs = System.currentTimeMillis()
+                false
+            }
+            deferred.complete(switched)
+            switched
+        } catch (t: Throwable) {
+            deferred.complete(false)
+            false
+        } finally {
+            synchronized(lanProbeLock) {
+                if (inFlightLanProbe === deferred) {
+                    inFlightLanProbe = null
+                }
+            }
+        }
+    }
+
     suspend fun probeEndpoints(prefs: PreferencesManager): String? {
         val existing: CompletableDeferred<String?>?
         val owned: CompletableDeferred<String?>?
@@ -419,14 +506,40 @@ class ConnectionManager(private val context: Context) {
 
         _isProbing.value = true
         try {
-            val results = coroutineScope {
-                endpointsToTest.distinct().map { url ->
-                    async { testSingleEndpoint(url) }
-                }.awaitAll()
+            val distinctEndpoints = endpointsToTest.distinct()
+            val cleanLan = if (!isCellularNow) lan else null
+            val results = mutableListOf<EndpointHealthStatus>()
+            coroutineScope {
+                val channel = kotlinx.coroutines.channels.Channel<EndpointHealthStatus>(distinctEndpoints.size)
+                val jobs = distinctEndpoints.map { url ->
+                    launch {
+                        channel.send(testSingleEndpoint(url))
+                    }
+                }
+                var received = 0
+                while (received < distinctEndpoints.size) {
+                    val status = channel.receive()
+                    results.add(status)
+                    received++
+                    // LAN short-circuit: LAN always wins on Wi-Fi, so elect immediately instead of
+                    // waiting up to 5.5s for a slow or unreachable cloud endpoint.
+                    if (cleanLan != null && status.isReachable && isSameEndpoint(status.urlString, cleanLan)) {
+                        jobs.forEach { it.cancel() }
+                        break
+                    }
+                }
+                channel.close()
+            }
+
+            if (cleanLan != null) {
+                val lanRes = results.firstOrNull { isSameEndpoint(it.urlString, cleanLan) }
+                if (lanRes != null) {
+                    lastFailedLanProbeAtMs = if (lanRes.isReachable) 0L else System.currentTimeMillis()
+                }
             }
 
             val map = results.associateBy { it.urlString }
-            _endpointStatuses.value = map
+            _endpointStatuses.value = _endpointStatuses.value + map
             _lastProbeTime.value = System.currentTimeMillis()
 
             val reachable = results.filter { it.isReachable }

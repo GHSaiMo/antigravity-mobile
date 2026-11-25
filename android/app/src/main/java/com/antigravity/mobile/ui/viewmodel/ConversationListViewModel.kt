@@ -574,9 +574,34 @@ class ConversationListViewModel(
         viewModelScope.launch {
             _isRefreshing.value = true
             try {
+                val cm = connectionManager
+                if (cm != null) {
+                    val isLinkUnhealthy = !eventsClient.snapshot.value.connected
+                    val switchedToLan = cm.probeLanFastIfNeeded(prefs, force = isLinkUnhealthy)
+                    if (switchedToLan) {
+                        lastNotifiedRouteUrl = apiClient.currentBaseUrl
+                        eventsClient.reconnect()
+                    } else if (isLinkUnhealthy) {
+                        val before = apiClient.currentBaseUrl
+                        val elected = cm.probeEndpoints(prefs)
+                        if (elected != null && !ConnectionManager.isSameEndpoint(before, elected)) {
+                            lastNotifiedRouteUrl = elected
+                            eventsClient.reconnect()
+                        } else {
+                            eventsClient.reconnectIfStale()
+                        }
+                    } else {
+                        eventsClient.reconnectIfStale()
+                    }
+                } else {
+                    eventsClient.reconnectIfStale()
+                }
+
                 val attemptedBase = apiClient.currentBaseUrl
                 val firstConvResult = apiClient.fetchConversations()
                 val convResult = if (firstConvResult.isFailure && probeAndDetectRouteChange(attemptedBase)) {
+                    lastNotifiedRouteUrl = apiClient.currentBaseUrl
+                    eventsClient.reconnect()
                     apiClient.fetchConversations()
                 } else {
                     firstConvResult
@@ -591,29 +616,39 @@ class ConversationListViewModel(
                         _uiState.value = ConversationListUiState.Error(err.message ?: "无法获取会话列表".loc)
                     }
                 }
-                val quotaAttemptBase = apiClient.currentBaseUrl
-                val firstQuota = apiClient.fetchCockpitQuotas()
-                val quotaResult = if (firstQuota.isFailure && probeAndDetectRouteChange(quotaAttemptBase)) {
-                    apiClient.fetchCockpitQuotas()
-                } else {
-                    firstQuota
-                }
-                quotaResult.onSuccess {
-                    _quotaData.value = it
-                }
-                apiClient.fetchGlobalBackgroundTasks().onSuccess {
-                    _globalBackgroundTasks.value = it
-                }
-                apiClient.fetchProjects().onSuccess { list ->
-                    _projects.value = list
-                    _projectsError.value = null
-                    if (list.isNotEmpty()) {
-                        try {
-                            prefs.cachedProjectsJson = apiClient.json.encodeToString(list)
-                        } catch (_: Exception) {}
+
+                // Refresh secondary data concurrently in background so pull-to-refresh retracts promptly once the list updates.
+                if (convResult.isSuccess) {
+                    viewModelScope.launch {
+                        val quotaAttemptBase = apiClient.currentBaseUrl
+                        val firstQuota = apiClient.fetchCockpitQuotas()
+                        val quotaResult = if (firstQuota.isFailure && probeAndDetectRouteChange(quotaAttemptBase)) {
+                            apiClient.fetchCockpitQuotas()
+                        } else {
+                            firstQuota
+                        }
+                        quotaResult.onSuccess {
+                            _quotaData.value = it
+                        }
                     }
+                    viewModelScope.launch {
+                        apiClient.fetchGlobalBackgroundTasks().onSuccess {
+                            _globalBackgroundTasks.value = it
+                        }
+                    }
+                    viewModelScope.launch {
+                        apiClient.fetchProjects().onSuccess { list ->
+                            _projects.value = list
+                            _projectsError.value = null
+                            if (list.isNotEmpty()) {
+                                try {
+                                    prefs.cachedProjectsJson = apiClient.json.encodeToString(list)
+                                } catch (_: Exception) {}
+                            }
+                        }
+                    }
+                    loadModelCatalog(force = true)
                 }
-                loadModelCatalog(force = true)
             } finally {
                 _isRefreshing.value = false
                 onComplete?.invoke()

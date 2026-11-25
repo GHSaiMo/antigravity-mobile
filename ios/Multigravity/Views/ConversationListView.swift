@@ -247,41 +247,7 @@ public struct ConversationListView: View {
     private func applyLifecycleAndRoutingModifiers<Content: View>(_ content: Content) -> some View {
         content
         .onAppear {
-            viewModel.reloadFromCache()
-            let openCount = UserDefaults.standard.integer(forKey: "conversation_list_open_count") + 1
-            UserDefaults.standard.set(openCount, forKey: "conversation_list_open_count")
-            let hasSeenSwipe = UserDefaults.standard.bool(forKey: "has_seen_swipe_gesture_hint")
-            if openCount >= 2 && !hasSeenSwipe {
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.7) {
-                    guard !viewModel.filteredConversations.isEmpty else { return }
-                    withAnimation(.spring(response: 0.36, dampingFraction: 0.72)) {
-                        firstCardPeekOffset = -24
-                    }
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.38) {
-                        withAnimation(.spring(response: 0.42, dampingFraction: 0.76)) {
-                            firstCardPeekOffset = 0
-                        }
-                        UserDefaults.standard.set(true, forKey: "has_seen_swipe_gesture_hint")
-                    }
-                }
-            }
-            if settings.isPaired {
-                viewModel.startAutoRefresh()
-                Task {
-                    await viewModel.fetchConversations(isBackgroundPoll: !viewModel.conversations.isEmpty)
-                }
-                Task {
-                    await ProjectCacheManager.shared.fetchAndCacheProjects()
-                }
-                Task {
-                    await CacheManager.shared.fetchAndCacheMcpAndSkills()
-                }
-                PushNotificationManager.shared.syncAllTokensIfPaired()
-            }
-            if let pendingRoute = PushNotificationManager.shared.consumePendingRoute() {
-                handleNotificationRoute(pendingRoute)
-            }
-            PushNotificationManager.shared.hasBlockingModalPresented = hasBlockingModalPresented
+            handleListAppear()
         }
         .onChange(of: navigationPath) { oldPath, newPath in
             let viewingId = newPath.last?.id
@@ -1390,7 +1356,7 @@ public struct ConversationListView: View {
         .animation(.spring(response: 0.42, dampingFraction: 0.72), value: viewModel.globalBackgroundTasks.isEmpty)
         .animation(.spring(response: 0.34, dampingFraction: 0.86), value: viewModel.selectedWorkspaceFilter)
         .refreshable {
-            await viewModel.fetchConversations()
+            await viewModel.pullToRefresh()
         }
     }
 
@@ -1447,9 +1413,46 @@ public struct ConversationListView: View {
         .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
     }
 
+    private func handleListAppear() {
+        viewModel.reloadFromCache()
+        let openCount = UserDefaults.standard.integer(forKey: "conversation_list_open_count") + 1
+        UserDefaults.standard.set(openCount, forKey: "conversation_list_open_count")
+        let hasSeenSwipe = UserDefaults.standard.bool(forKey: "has_seen_swipe_gesture_hint")
+        if openCount >= 2 && !hasSeenSwipe {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.7) {
+                guard !viewModel.filteredConversations.isEmpty else { return }
+                withAnimation(.spring(response: 0.36, dampingFraction: 0.72)) {
+                    firstCardPeekOffset = -24
+                }
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.38) {
+                    withAnimation(.spring(response: 0.42, dampingFraction: 0.76)) {
+                        firstCardPeekOffset = 0
+                    }
+                    UserDefaults.standard.set(true, forKey: "has_seen_swipe_gesture_hint")
+                }
+            }
+        }
+        if settings.isPaired {
+            ConnectionManager.shared.ensureStarted()
+            viewModel.startAutoRefresh()
+            Task {
+                await viewModel.resumeActive()
+                PushNotificationManager.shared.syncAllTokensIfPaired()
+                async let projects = ProjectCacheManager.shared.fetchAndCacheProjects()
+                async let mcp: Void = CacheManager.shared.fetchAndCacheMcpAndSkills()
+                _ = await (projects, mcp)
+            }
+        }
+        if let pendingRoute = PushNotificationManager.shared.consumePendingRoute() {
+            handleNotificationRoute(pendingRoute)
+        }
+        PushNotificationManager.shared.hasBlockingModalPresented = hasBlockingModalPresented
+    }
+
     private func handleScenePhaseChange(_ newPhase: ScenePhase) {
         if newPhase == .active {
             if AppSettings.shared.isPaired {
+                ConnectionManager.shared.ensureStarted()
                 viewModel.startAutoRefresh()
                 Task {
                     await viewModel.resumeActive()
@@ -1464,10 +1467,11 @@ public struct ConversationListView: View {
     private func handleAppDidBecomeActive() {
         ActivityManager.shared.reconcileActiveActivities()
         if AppSettings.shared.isPaired {
+            ConnectionManager.shared.ensureStarted()
             viewModel.startAutoRefresh()
-            PushNotificationManager.shared.syncAllTokensIfPaired()
             Task {
                 await viewModel.resumeActive()
+                PushNotificationManager.shared.syncAllTokensIfPaired()
                 await ProjectCacheManager.shared.fetchAndCacheProjects()
             }
         }
