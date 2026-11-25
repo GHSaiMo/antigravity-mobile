@@ -1511,8 +1511,11 @@ private struct ChatToolbarPrincipalView: View {
     @State private var settings = AppSettings.shared
 
     var body: some View {
+        // Do not pass an oversized idealWidth (e.g. 10_000): after a cancelled interactive swipe-back
+        // on iOS 26/27, UIKit re-measures the principal UIKitBarItemHost at its idealWidth without
+        // clamping, shifting centered content off-screen.
         principalContent
-            .frame(idealWidth: 10_000, maxWidth: .infinity, alignment: .center)
+            .frame(maxWidth: .infinity, alignment: .center)
     }
 
     @ViewBuilder

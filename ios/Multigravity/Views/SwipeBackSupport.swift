@@ -63,8 +63,20 @@ struct SwipeBackEnabler: UIViewRepresentable {
     
     func updateUIView(_ uiView: SwipeBackHookView, context: Context) {
         uiView.coordinator = context.coordinator
-        if context.coordinator.navigationController == nil {
+        if let nav = context.coordinator.navigationController {
+            if nav.topViewController === uiView.nearestViewController,
+               nav.interactivePopGestureRecognizer?.delegate !== context.coordinator {
+                uiView.configure()
+            }
+        } else {
             uiView.configure()
+        }
+    }
+
+    static func dismantleUIView(_ uiView: SwipeBackHookView, coordinator: Coordinator) {
+        if let nav = coordinator.navigationController,
+           nav.interactivePopGestureRecognizer?.delegate === coordinator {
+            nav.interactivePopGestureRecognizer?.delegate = nil
         }
     }
     
@@ -72,12 +84,27 @@ struct SwipeBackEnabler: UIViewRepresentable {
         weak var navigationController: UINavigationController?
         
         func gestureRecognizerShouldBegin(_ gestureRecognizer: UIGestureRecognizer) -> Bool {
-            guard let nav = navigationController else { return false }
-            return nav.viewControllers.count > 1
+            guard let nav = navigationController,
+                  nav.viewControllers.count > 1,
+                  nav.transitionCoordinator == nil else {
+                return false
+            }
+            if let pan = gestureRecognizer as? UIPanGestureRecognizer {
+                let velocity = pan.velocity(in: nav.view)
+                // Avoid triggering interactive pop during vertical chat scrolling near the left edge.
+                if velocity != .zero && (velocity.x <= 0 || abs(velocity.y) > velocity.x * 1.2) {
+                    return false
+                }
+            }
+            return true
         }
         
         func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer, shouldRecognizeSimultaneouslyWith otherGestureRecognizer: UIGestureRecognizer) -> Bool {
-            return true
+            return false
+        }
+
+        func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer, shouldBeRequiredToFailBy otherGestureRecognizer: UIGestureRecognizer) -> Bool {
+            return otherGestureRecognizer is UIPanGestureRecognizer && otherGestureRecognizer.view is UIScrollView
         }
     }
 }
