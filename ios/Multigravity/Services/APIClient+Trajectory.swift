@@ -97,6 +97,7 @@ extension APIClient {
                             errorKind: item.errorKind,
                             isOverflow: item.isOverflow,
                             thinkingDuration: item.thinkingDuration,
+                            thinkingBlocks: item.thinkingBlocks,
                             toolDetails: item.toolDetails
                         )
                     }

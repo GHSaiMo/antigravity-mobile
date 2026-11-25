@@ -247,18 +247,10 @@ func TestAgentMessagesCarryGeneratorModel(t *testing.T) {
 	user := mk("CORTEX_STEP_TYPE_USER_INPUT")
 	user.UserInput = &TrajectoryUserInput{UserResponse: "hi"}
 	a1 := mk("CORTEX_STEP_TYPE_PLANNER_RESPONSE")
-	a1.PlannerResponse = &struct {
-		Response         string `json:"response"`
-		Thinking         string `json:"thinking"`
-		ThinkingDuration string `json:"thinkingDuration,omitempty"`
-	}{Response: "first"}
+	a1.PlannerResponse = &TrajectoryPlannerResponse{Response: "first"}
 	a1.Metadata.GeneratorModel = "MODEL_PLACEHOLDER_M318"
 	a2 := a1
-	a2.PlannerResponse = &struct {
-		Response         string `json:"response"`
-		Thinking         string `json:"thinking"`
-		ThinkingDuration string `json:"thinkingDuration,omitempty"`
-	}{Response: "second"}
+	a2.PlannerResponse = &TrajectoryPlannerResponse{Response: "second"}
 	a2.Metadata.GeneratorModel = "MODEL_PLACEHOLDER_M26"
 
 	msgs, _ := buildTrajectoryMessages([]TrajectoryStep{user, a1, user, a2})

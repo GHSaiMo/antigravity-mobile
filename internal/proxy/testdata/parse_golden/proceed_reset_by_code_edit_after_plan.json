@@ -32,13 +32,24 @@
         "toolDetails": [
           {
             "name": "code_action",
+            "summary": "implementation_plan.md",
             "status": "done",
-            "stepIndex": 1
+            "stepIndex": 1,
+            "kind": "edit",
+            "prefix": "Created",
+            "fileUri": "file:///p/implementation_plan.md",
+            "fileName": "implementation_plan.md",
+            "isArtifact": true
           },
           {
             "name": "code_action",
+            "summary": "main.go",
             "status": "done",
-            "stepIndex": 2
+            "stepIndex": 2,
+            "kind": "edit",
+            "prefix": "Edited",
+            "fileUri": "file:///src/main.go",
+            "fileName": "main.go"
           }
         ]
       }

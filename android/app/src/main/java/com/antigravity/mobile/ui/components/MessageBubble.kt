@@ -130,71 +130,44 @@ fun MessageBubble(
         return
     }
 
-    // Standalone tool or thinking capsule
+    // Standalone tool or thinking section (Desktop-aligned borderless header + timeline)
     if (message.isTools) {
+        val resolvedToolNames = message.toolNames.orEmpty().ifEmpty {
+            val count = message.toolCount ?: 0
+            if (count > 0 && message.toolCalls.isNullOrEmpty() && message.toolDetails.isNullOrEmpty()) {
+                List(count) { "tool_call" }
+            } else {
+                emptyList()
+            }
+        }
         if (isActiveToolBatch) {
             val liveFocus = message.focusText?.trim().orEmpty().ifEmpty { "Working" }
-            val resolvedToolNames = message.toolNames.orEmpty().ifEmpty {
-                val count = message.toolCount ?: 0
-                if (count > 0 && message.toolCalls.isNullOrEmpty() && message.toolDetails.isNullOrEmpty()) {
-                    List(count) { "tool_call" }
-                } else {
-                    emptyList()
-                }
-            }
             ActiveFocusToolRow(
                 focusText = liveFocus,
                 startedAt = message.startedAt,
                 thinkingText = message.thinking,
+                thinkingDuration = message.thinkingDuration,
+                thinkingBlocks = message.thinkingBlocks,
                 toolDetails = message.toolDetails,
                 toolCalls = message.toolCalls.orEmpty(),
                 toolNames = resolvedToolNames,
                 isExpandable = true,
+                onFileClick = onPlanClick,
                 modifier = modifier
             )
             return
         }
-        val hasStructuredThinking = !message.thinking.isNullOrBlank() || !message.toolDetails.isNullOrEmpty()
-        if (hasStructuredThinking) {
-            ToolStepCollapseCard(
-                toolCalls = message.toolCalls.orEmpty(),
-                thinkingText = message.thinking,
-                thinkingDuration = message.thinkingDuration,
-                toolDetails = message.toolDetails,
-                modifier = modifier.fillMaxWidth(0.95f).padding(vertical = 4.dp)
-            )
-            return
-        }
-        val toolText = message.effectiveText.ifBlank { "已思考并执行工具操作".loc }
-        Box(
-            modifier = modifier
-                .fillMaxWidth()
-                .padding(vertical = 4.dp),
-            contentAlignment = Alignment.CenterStart
-        ) {
-            Row(
-                modifier = Modifier
-                    .clip(CircleShape)
-                    .background(colors.surfaceVariant)
-                    .border(0.8.dp, colors.border, CircleShape)
-                    .padding(horizontal = 14.dp, vertical = 7.dp),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(6.dp)
-            ) {
-                Icon(
-                    imageVector = Icons.Default.AutoAwesome,
-                    contentDescription = "Tool",
-                    tint = colors.accentOrange,
-                    modifier = Modifier.size(13.dp)
-                )
-                Text(
-                    text = toolText,
-                    color = colors.textSecondary,
-                    fontSize = 12.sp,
-                    fontWeight = FontWeight.Medium
-                )
-            }
-        }
+        ToolStepCollapseCard(
+            toolCalls = message.toolCalls.orEmpty(),
+            thinkingText = message.thinking,
+            thinkingDuration = message.thinkingDuration,
+            thinkingBlocks = message.thinkingBlocks,
+            toolDetails = message.toolDetails,
+            toolNames = resolvedToolNames,
+            toolCount = message.toolCount ?: 0,
+            onFileClick = onPlanClick,
+            modifier = modifier.fillMaxWidth().padding(vertical = 2.dp)
+        )
         return
     }
 
@@ -381,10 +354,14 @@ fun MessageBubble(
                     toolCalls = message.toolCalls.orEmpty(),
                     thinkingText = message.thinking,
                     thinkingDuration = message.thinkingDuration,
+                    thinkingBlocks = message.thinkingBlocks,
                     toolDetails = message.toolDetails,
+                    toolNames = message.toolNames.orEmpty(),
+                    toolCount = message.toolCount ?: 0,
+                    onFileClick = onPlanClick,
                     modifier = Modifier
-                        .fillMaxWidth(0.95f)
-                        .padding(bottom = 6.dp)
+                        .fillMaxWidth()
+                        .padding(bottom = 4.dp)
                 )
             }
         }

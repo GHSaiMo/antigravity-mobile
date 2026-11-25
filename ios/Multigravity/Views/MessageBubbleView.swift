@@ -91,6 +91,7 @@ public struct MessageBubbleView: View {
                         tools: tools,
                         thinking: message.thinking,
                         thinkingDuration: message.thinkingDuration,
+                        thinkingBlocks: message.thinkingBlocks,
                         toolDetails: message.toolDetails
                     )
                 }

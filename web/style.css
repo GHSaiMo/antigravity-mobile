@@ -10168,8 +10168,284 @@ mark.md-find-mark.active {
   transition: transform 0.2s ease;
 }
 
-.focus-tool-row[open] .focus-tool-chevron {
+.focus-tool-row[open] .focus-tool-chevron,
+.desktop-completed-accordion[open] > .focus-tool-summary .focus-tool-chevron {
   transform: rotate(90deg);
+}
+
+.desktop-completed-accordion > summary::-webkit-details-marker {
+  display: none;
+}
+
+.tool-batch-completed-text {
+  font-size: 13px;
+  color: var(--text-secondary, var(--ios-secondary-label));
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+}
+
+.desktop-tool-expanded {
+  margin-top: 4px;
+  width: 100%;
+}
+
+.desktop-step-timeline {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding-left: 12px;
+  width: 100%;
+}
+
+.desktop-step-row,
+.desktop-step-summary {
+  list-style: none;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  padding: 4px;
+  min-height: 28px;
+  font-size: 12.5px;
+  color: var(--text-secondary, var(--ios-secondary-label));
+  border-radius: 6px;
+  min-width: 0;
+  user-select: none;
+}
+
+.desktop-step-summary {
+  cursor: pointer;
+}
+
+.desktop-thinking-row > summary::-webkit-details-marker,
+.desktop-step-expandable > summary::-webkit-details-marker {
+  display: none;
+}
+
+.desktop-step-row.is-running,
+.desktop-step-summary.is-running {
+  animation: focusTextBreath 2.4s ease-in-out infinite;
+}
+
+.desktop-step-prefix {
+  flex-shrink: 0;
+  color: var(--text-secondary, var(--ios-secondary-label));
+}
+
+.desktop-step-text {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+  color: var(--text-secondary, var(--ios-secondary-label));
+}
+
+.desktop-step-cmd-inline {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 11.5px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+  color: var(--text-secondary, var(--ios-secondary-label));
+}
+
+.desktop-file-link,
+.desktop-file-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 3.5px;
+  min-width: 0;
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: var(--text-secondary, var(--ios-secondary-label));
+  font-size: 12.5px;
+  font-weight: 500;
+  font-family: inherit;
+}
+
+.desktop-file-link {
+  cursor: pointer;
+}
+
+.desktop-file-link:hover {
+  color: var(--text-primary, var(--ios-label));
+}
+
+.desktop-file-link span,
+.desktop-file-pill span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.desktop-file-icon {
+  flex-shrink: 0;
+  opacity: 0.82;
+}
+
+.desktop-diff-stats {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  flex-shrink: 0;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 11.5px;
+  font-weight: 500;
+}
+
+.desktop-diff-add {
+  color: #22c55e;
+}
+
+.desktop-diff-del {
+  color: #ef4444;
+}
+
+.desktop-results-pill {
+  flex-shrink: 0;
+  font-size: 10.5px;
+  padding: 1px 6px;
+  border-radius: 9999px;
+  background: rgba(128, 128, 128, 0.14);
+  color: var(--text-secondary, var(--ios-secondary-label));
+}
+
+.desktop-error-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: #ef4444;
+  flex-shrink: 0;
+}
+
+.desktop-step-chevron {
+  flex-shrink: 0;
+  opacity: 0.65;
+  color: var(--text-secondary, var(--ios-secondary-label));
+  transition: transform 0.2s ease;
+}
+
+.desktop-thinking-row[open] > .desktop-step-summary .desktop-step-chevron,
+.desktop-step-expandable[open] > .desktop-step-summary .desktop-step-chevron {
+  transform: rotate(90deg);
+}
+
+.desktop-thinking-body {
+  margin: 2px 4px 6px 6px;
+  padding-left: 10px;
+  border-left: 1.5px solid rgba(128, 128, 128, 0.26);
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--text-secondary, var(--ios-secondary-label));
+  white-space: pre-wrap;
+  word-break: break-word;
+  user-select: text;
+  -webkit-user-select: text;
+}
+
+.desktop-step-detail-body {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 4px 0 4px 0;
+}
+
+.desktop-terminal-card {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  border-radius: 10px;
+  border: 0.8px solid var(--border-color, rgba(128, 128, 128, 0.22));
+  background: var(--bg-secondary, var(--ios-secondary-bg));
+}
+
+.desktop-terminal-cmd-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  padding: 7px 10px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 11.5px;
+  line-height: 1.4;
+}
+
+.desktop-terminal-prompt {
+  flex-shrink: 0;
+  color: var(--text-secondary, var(--ios-secondary-label));
+}
+
+.desktop-terminal-cmd {
+  flex: 1;
+  min-width: 0;
+  color: var(--text-primary, var(--ios-label));
+  white-space: pre-wrap;
+  word-break: break-all;
+  user-select: text;
+  -webkit-user-select: text;
+}
+
+.desktop-terminal-copy {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  border: none;
+  background: transparent;
+  color: var(--text-secondary, var(--ios-secondary-label));
+  cursor: pointer;
+  border-radius: 5px;
+}
+
+.desktop-terminal-copy.copied {
+  color: #22c55e;
+}
+
+.desktop-terminal-output {
+  margin: 0;
+  padding: 7px 10px;
+  max-height: 200px;
+  overflow-y: auto;
+  border-top: 0.6px solid var(--border-color, rgba(128, 128, 128, 0.2));
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 11px;
+  line-height: 1.42;
+  color: var(--text-primary, var(--ios-label));
+  opacity: 0.88;
+  white-space: pre-wrap;
+  word-break: break-word;
+  user-select: text;
+  -webkit-user-select: text;
+}
+
+.desktop-terminal-hidden {
+  font-size: 10.5px;
+  color: var(--text-secondary, var(--ios-secondary-label));
+  margin-bottom: 4px;
+}
+
+.desktop-step-markdown {
+  padding: 2px 4px 2px 8px;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--text-secondary, var(--ios-secondary-label));
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.desktop-step-error-box {
+  padding: 7px 10px;
+  border-radius: 8px;
+  background: rgba(239, 68, 68, 0.1);
+  color: #ef4444;
+  font-size: 11.5px;
+  line-height: 1.45;
+  white-space: pre-wrap;
+  word-break: break-word;
 }
 
 /* Approval Card Risk Summary & Compact Collapsible Diff */

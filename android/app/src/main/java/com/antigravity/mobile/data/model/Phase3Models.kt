@@ -5,14 +5,46 @@ import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
 
+@androidx.compose.runtime.Immutable
+@Serializable
+data class ThinkingBlockItem(
+    val stepIndex: Int = 0,
+    val text: String = "",
+    val duration: String? = null,
+    val status: String? = null
+)
+
+@androidx.compose.runtime.Immutable
 @Serializable
 data class ToolDetailItem(
     val name: String = "",
+    val summary: String = "",
     val detail: String = "",
     val status: String = "",
     val duration: String? = null,
-    val stepIndex: Int? = null
-)
+    val stepIndex: Int? = null,
+    val kind: String? = null,
+    val prefix: String? = null,
+    val title: String? = null,
+    val fileUri: String? = null,
+    val fileName: String? = null,
+    val startLine: Int? = null,
+    val endLine: Int? = null,
+    val additions: Int? = null,
+    val deletions: Int? = null,
+    val hasDiffStats: Boolean? = null,
+    val numResults: Int? = null,
+    val command: String? = null,
+    val cwd: String? = null,
+    val output: String? = null,
+    val numLinesAbove: Int? = null,
+    val exitCode: Int? = null,
+    val markdown: String? = null,
+    val errorText: String? = null,
+    val isArtifact: Boolean? = null
+) {
+    val effectiveSummary: String get() = summary.ifBlank { detail }
+}
 
 @Serializable
 data class ContextMentionItem(

@@ -321,6 +321,7 @@ extension ChatViewModel {
             errorKind: msg.errorKind,
             isOverflow: msg.isOverflow,
             thinkingDuration: msg.thinkingDuration,
+            thinkingBlocks: msg.thinkingBlocks,
             toolDetails: msg.toolDetails
         )
     }

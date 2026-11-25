@@ -115,15 +115,15 @@ func hashMessageItem(m *CascadeMessageItem) uint64 {
 		h.str(tn)
 	}
 	h.num(len(m.ToolDetails))
-	for _, td := range m.ToolDetails {
-		h.str(td.Name)
-		h.str(td.Summary)
-		h.str(td.Status)
-		h.str(td.Duration)
-		h.num(td.StepIndex)
+	for i := range m.ToolDetails {
+		hashToolDetailItem(&h, &m.ToolDetails[i])
 	}
 	h.str(m.Thinking)
 	h.str(m.ThinkingDuration)
+	h.num(len(m.ThinkingBlocks))
+	for i := range m.ThinkingBlocks {
+		hashThinkingBlockItem(&h, &m.ThinkingBlocks[i])
+	}
 	h.str(m.FocusText)
 	h.str(m.StartedAt)
 	hashStepPlanItem(&h, m.StepPlan)
@@ -228,6 +228,28 @@ func hashStep(s *TrajectoryStep) uint64 {
 		h.str(s.RunCommand.Cwd)
 		h.str(s.RunCommand.WaitMsBeforeAsync)
 		h.flag(s.RunCommand.IsDaemon)
+		h.flag(s.RunCommand.UserRejected)
+		if s.RunCommand.ExitCode != nil {
+			h.u8(1)
+			h.num(*s.RunCommand.ExitCode)
+		} else {
+			h.u8(0)
+		}
+		if s.RunCommand.CombinedOutput != nil {
+			h.str(s.RunCommand.CombinedOutput.Full)
+			h.str(s.RunCommand.CombinedOutput.Truncated)
+			h.num(s.RunCommand.CombinedOutput.NumLinesAbove)
+		}
+		if s.RunCommand.StdoutOutput != nil {
+			h.str(s.RunCommand.StdoutOutput.Full)
+			h.str(s.RunCommand.StdoutOutput.Truncated)
+		}
+		if s.RunCommand.StderrOutput != nil {
+			h.str(s.RunCommand.StderrOutput.Full)
+			h.str(s.RunCommand.StderrOutput.Truncated)
+		}
+		h.str(s.RunCommand.StdoutBuffer)
+		h.str(s.RunCommand.StderrBuffer)
 	} else {
 		h.u8(0)
 	}
@@ -297,6 +319,8 @@ func hashStep(s *TrajectoryStep) uint64 {
 		h.u8(1)
 		h.str(s.PlannerResponse.Response)
 		h.str(s.PlannerResponse.Thinking)
+		h.str(s.PlannerResponse.RawThinking)
+		h.str(s.PlannerResponse.ThinkingDuration)
 	} else {
 		h.u8(0)
 	}
@@ -441,6 +465,39 @@ func hashStep(s *TrajectoryStep) uint64 {
 			h.str(ri.TitlePrefix)
 			h.str(ri.Markdown)
 			h.flag(ri.Hidden)
+			h.str(ri.AggregationKey)
+			h.num(len(ri.TitleParts))
+			for _, tp := range ri.TitleParts {
+				h.str(tp.Text)
+				if tp.File != nil {
+					h.str(tp.File.URI)
+					h.num(tp.File.StartLine)
+					h.num(tp.File.EndLine)
+				}
+				if tp.FileDiff != nil {
+					h.str(tp.FileDiff.URI)
+					if tp.FileDiff.DiffStats != nil {
+						h.num(tp.FileDiff.DiffStats.Additions)
+						h.num(tp.FileDiff.DiffStats.Deletions)
+					}
+				}
+			}
+			h.num(len(ri.ContentBlocks))
+			for _, cb := range ri.ContentBlocks {
+				h.str(cb.Markdown)
+				if cb.Terminal != nil {
+					h.str(cb.Terminal.Command)
+					h.str(cb.Terminal.Cwd)
+					h.str(cb.Terminal.Output)
+					h.num(cb.Terminal.NumLinesAbove)
+					if cb.Terminal.ExitCode != nil {
+						h.u8(1)
+						h.num(*cb.Terminal.ExitCode)
+					} else {
+						h.u8(0)
+					}
+				}
+			}
 		} else {
 			h.u8(0)
 		}

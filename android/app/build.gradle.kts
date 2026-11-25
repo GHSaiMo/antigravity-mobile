@@ -37,7 +37,7 @@ android {
         applicationId = "com.antigravity.mobile"
         minSdk = 26
         targetSdk = 34
-        versionCode = 38
+        versionCode = 39
         versionName = "1.2.7"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"

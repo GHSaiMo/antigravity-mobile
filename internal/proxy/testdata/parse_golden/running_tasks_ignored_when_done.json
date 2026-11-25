@@ -33,7 +33,10 @@
             "name": "done",
             "summary": "done",
             "status": "done",
-            "stepIndex": 1
+            "stepIndex": 1,
+            "kind": "terminal",
+            "prefix": "Ran",
+            "title": "done"
           }
         ]
       }

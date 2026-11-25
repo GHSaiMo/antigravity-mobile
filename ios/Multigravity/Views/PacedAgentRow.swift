@@ -229,6 +229,7 @@ extension ChatMessage {
             errorKind: errorKind,
             isOverflow: isOverflow,
             thinkingDuration: thinkingDuration,
+            thinkingBlocks: thinkingBlocks,
             toolDetails: toolDetails
         )
     }

@@ -40,7 +40,10 @@
             "name": "run_command",
             "summary": "ls",
             "status": "done",
-            "stepIndex": 2
+            "stepIndex": 2,
+            "kind": "terminal",
+            "prefix": "Ran",
+            "command": "ls"
           }
         ]
       }

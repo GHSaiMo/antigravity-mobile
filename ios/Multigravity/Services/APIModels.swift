@@ -134,6 +134,7 @@ public struct PaginatedMessagesResponse: Codable, Sendable {
         public let text: String
         public let thinking: String?
         public let thinkingDuration: String?
+        public let thinkingBlocks: [ThinkingBlockItem]?
         public let focusText: String?
         public let startedAt: String?
         public let toolCount: Int?

@@ -116,6 +116,7 @@ data class GatewayMessageItem(
     val isOverflow: Boolean = false,
     val thinking: String? = null,
     val thinkingDuration: String? = null,
+    val thinkingBlocks: List<ThinkingBlockItem>? = null,
     val toolDetails: List<ToolDetailItem>? = null,
     @kotlinx.serialization.Transient val imageDataList: List<ByteArray> = emptyList()
 ) {
@@ -159,6 +160,7 @@ data class GatewayMessageItem(
             ?: id.takeIf { it.startsWith("step-") }?.removePrefix("step-")?.toIntOrNull()
             ?: stepPlan?.anchorStepIndex
             ?: toolDetails?.mapNotNull { it.stepIndex }?.maxOrNull()
+            ?: thinkingBlocks?.maxOfOrNull { it.stepIndex }
 
     val effectiveImageDataList: List<ByteArray>
         get() {

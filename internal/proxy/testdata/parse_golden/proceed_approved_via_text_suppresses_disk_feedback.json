@@ -31,8 +31,14 @@
         "toolDetails": [
           {
             "name": "code_action",
+            "summary": "approved2.md",
             "status": "done",
-            "stepIndex": 2
+            "stepIndex": 2,
+            "kind": "edit",
+            "prefix": "Created",
+            "fileUri": "file://{{HOME}}/brain/approved2.md",
+            "fileName": "approved2.md",
+            "isArtifact": true
           }
         ]
       }

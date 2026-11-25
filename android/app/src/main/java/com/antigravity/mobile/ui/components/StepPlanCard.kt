@@ -63,6 +63,7 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.antigravity.mobile.data.model.StepPlanItem
+import com.antigravity.mobile.data.model.ThinkingBlockItem
 import com.antigravity.mobile.data.model.ToolCallItem
 import com.antigravity.mobile.data.model.ToolDetailItem
 import com.antigravity.mobile.ui.theme.AntigravityTheme
@@ -471,10 +472,13 @@ fun ActiveFocusToolRow(
     focusText: String,
     startedAt: String? = null,
     thinkingText: String? = null,
+    thinkingDuration: String? = null,
+    thinkingBlocks: List<ThinkingBlockItem>? = null,
     toolDetails: List<ToolDetailItem>? = null,
     toolCalls: List<ToolCallItem> = emptyList(),
     toolNames: List<String> = emptyList(),
     isExpandable: Boolean = true,
+    onFileClick: ((uri: String, title: String) -> Unit)? = null,
     modifier: Modifier = Modifier
 ) {
     val colors = AntigravityTheme.colors
@@ -482,7 +486,7 @@ fun ActiveFocusToolRow(
     var isExpanded by remember { mutableStateOf(false) }
 
     val hasTools = !toolDetails.isNullOrEmpty() || toolCalls.isNotEmpty() || toolNames.isNotEmpty()
-    val hasDetails = isExpandable && (!thinkingText.isNullOrBlank() || hasTools)
+    val hasDetails = isExpandable && (!thinkingText.isNullOrBlank() || !thinkingBlocks.isNullOrEmpty() || hasTools)
 
     val startMs = remember(startedAt) { parseIsoTimestampMs(startedAt) }
     var nowMs by remember(startMs) { mutableLongStateOf(System.currentTimeMillis()) }
@@ -515,7 +519,7 @@ fun ActiveFocusToolRow(
         modifier = modifier
             .fillMaxWidth()
             .padding(vertical = 2.dp),
-        verticalArrangement = Arrangement.spacedBy(6.dp)
+        verticalArrangement = Arrangement.spacedBy(4.dp)
     ) {
         Row(
             modifier = Modifier
@@ -572,102 +576,15 @@ fun ActiveFocusToolRow(
                 animationSpec = spring(dampingRatio = 0.85f, stiffness = Spring.StiffnessMediumLow)
             ) + fadeOut()
         ) {
-            Column(
-                modifier = Modifier.fillMaxWidth(),
-                verticalArrangement = Arrangement.spacedBy(5.dp)
-            ) {
-                if (!thinkingText.isNullOrBlank()) {
-                    CollapsibleThinkingBlock(
-                        thinkingText = thinkingText.trim(),
-                        initiallyExpanded = !hasTools
-                    )
-                }
-
-                if (!toolDetails.isNullOrEmpty()) {
-                    toolDetails.forEach { detail ->
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .clip(RoundedCornerShape(8.dp))
-                                .background(colors.surfaceVariant.copy(alpha = 0.7f))
-                                .border(0.5.dp, colors.border.copy(alpha = 0.5f), RoundedCornerShape(8.dp))
-                                .padding(horizontal = 12.dp, vertical = 7.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(8.dp)
-                        ) {
-                            Icon(
-                                imageVector = Icons.Default.Extension,
-                                contentDescription = "Tool",
-                                tint = colors.accentGreen,
-                                modifier = Modifier.size(13.dp)
-                            )
-                            Column(modifier = Modifier.weight(1f)) {
-                                Row(
-                                    modifier = Modifier.fillMaxWidth(),
-                                    horizontalArrangement = Arrangement.SpaceBetween,
-                                    verticalAlignment = Alignment.CenterVertically
-                                ) {
-                                    Text(
-                                        text = ToolLocalization.localizedName(detail.name.ifBlank { "tool_call" }),
-                                        color = colors.textPrimary,
-                                        fontSize = 12.sp,
-                                        fontWeight = FontWeight.SemiBold,
-                                        maxLines = 1,
-                                        overflow = TextOverflow.Ellipsis,
-                                        modifier = Modifier.weight(1f)
-                                    )
-                                    detail.duration?.takeIf { it.isNotBlank() }?.let { dur ->
-                                        Text(
-                                            text = dur,
-                                            color = colors.textSecondary,
-                                            fontSize = 10.5.sp
-                                        )
-                                    }
-                                }
-                                detail.detail.takeIf { it.isNotBlank() }?.let { line ->
-                                    Text(
-                                        text = line.take(200) + if (line.length > 200) "..." else "",
-                                        color = colors.textSecondary,
-                                        fontSize = 11.sp,
-                                        fontFamily = FontFamily.Monospace,
-                                        maxLines = 2,
-                                        overflow = TextOverflow.Ellipsis
-                                    )
-                                }
-                            }
-                        }
-                    }
-                } else {
-                    val names = if (toolCalls.isNotEmpty()) toolCalls.map { it.name.ifBlank { it.type } } else toolNames
-                    names.forEach { rawName ->
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .clip(RoundedCornerShape(8.dp))
-                                .background(colors.surfaceVariant.copy(alpha = 0.7f))
-                                .border(0.5.dp, colors.border.copy(alpha = 0.5f), RoundedCornerShape(8.dp))
-                                .padding(horizontal = 12.dp, vertical = 7.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(8.dp)
-                        ) {
-                            Icon(
-                                imageVector = Icons.Default.Extension,
-                                contentDescription = "Tool",
-                                tint = colors.accentGreen,
-                                modifier = Modifier.size(13.dp)
-                            )
-                            Text(
-                                text = ToolLocalization.localizedName(rawName.ifBlank { "tool_call" }),
-                                color = colors.textPrimary,
-                                fontSize = 12.sp,
-                                fontWeight = FontWeight.SemiBold,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis
-                            )
-                        }
-                    }
-                }
-            }
+            DesktopToolTimelineList(
+                thinkingText = thinkingText,
+                thinkingDuration = thinkingDuration,
+                thinkingBlocks = thinkingBlocks,
+                toolDetails = toolDetails,
+                toolCalls = toolCalls,
+                toolNames = toolNames,
+                onFileClick = onFileClick
+            )
         }
     }
 }

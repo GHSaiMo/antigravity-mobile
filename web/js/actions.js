@@ -792,6 +792,32 @@ function initMarkdownViewer() {
 
   // Delegated click on document for any markdown file links
   document.addEventListener("click", (e) => {
+    const copyCmdBtn = e.target.closest('[data-action="copy-terminal-cmd"]');
+    if (copyCmdBtn) {
+      e.preventDefault();
+      e.stopPropagation();
+      const cmd = copyCmdBtn.getAttribute("data-cmd") || "";
+      if (cmd && navigator.clipboard?.writeText) {
+        navigator.clipboard.writeText(cmd).then(() => {
+          copyCmdBtn.classList.add("copied");
+          setTimeout(() => copyCmdBtn.classList.remove("copied"), 1500);
+        }).catch(() => {});
+      }
+      return;
+    }
+
+    const desktopFileBtn = e.target.closest('[data-action="open-desktop-file"]');
+    if (desktopFileBtn) {
+      e.preventDefault();
+      e.stopPropagation();
+      const targetUrl = desktopFileBtn.getAttribute("data-uri");
+      const targetTitle = desktopFileBtn.getAttribute("data-title") || "文档详情";
+      if (targetUrl) {
+        openMarkdownViewer(targetUrl, targetTitle);
+      }
+      return;
+    }
+
     const card = e.target.closest(".artifact-preview-card");
     if (card) {
       e.preventDefault();

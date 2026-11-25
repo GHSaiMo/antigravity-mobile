@@ -155,44 +155,6 @@ func stepDurationLabel(s TrajectoryStep) string {
 	return fmt.Sprintf("%dm%ds", int(d.Minutes()), int(d.Seconds())%60)
 }
 
-func stepSummaryLabel(s TrajectoryStep) string {
-	if s.Metadata.ToolSummary != "" {
-		return strings.TrimSpace(s.Metadata.ToolSummary)
-	}
-	if s.Metadata.ToolAction != "" {
-		return strings.TrimSpace(s.Metadata.ToolAction)
-	}
-	if s.RunCommand != nil {
-		if s.RunCommand.CommandLine != "" {
-			return strings.TrimSpace(s.RunCommand.CommandLine)
-		}
-		if s.RunCommand.ProposedCommandLine != "" {
-			return strings.TrimSpace(s.RunCommand.ProposedCommandLine)
-		}
-	}
-	if s.TaskBoundary != nil && s.TaskBoundary.TaskName != "" {
-		return strings.TrimSpace(s.TaskBoundary.TaskName)
-	}
-	if args := strings.TrimSpace(extractStepToolArgsJSON(s)); args != "" {
-		if len(args) > 120 {
-			return args[:120] + "..."
-		}
-		return args
-	}
-	return ""
-}
-
-func stepStatusLabel(status string) string {
-	switch status {
-	case "CORTEX_STEP_STATUS_RUNNING":
-		return "running"
-	case "CORTEX_STEP_STATUS_ERROR":
-		return "error"
-	default:
-		return "done"
-	}
-}
-
 // buildTrajectoryMessages folds raw steps into chat messages: user/agent/error messages, with
 // consecutive tool steps collapsed into a single "tools" capsule. It also returns the tool total.
 func buildTrajectoryMessages(steps []TrajectoryStep) ([]CascadeMessageItem, int) {
@@ -202,6 +164,7 @@ func buildTrajectoryMessages(steps []TrajectoryStep) ([]CascadeMessageItem, int)
 	var toolDetails []ToolDetailItem
 	var pendingThinking string
 	var pendingThinkingDuration string
+	var pendingThinkingBlocks []ThinkingBlockItem
 	var pendingFocus string
 	var pendingToolsStartedAt string
 	preventToolMerge := false
@@ -233,7 +196,7 @@ func buildTrajectoryMessages(steps []TrajectoryStep) ([]CascadeMessageItem, int)
 	}
 
 	flushTools := func() {
-		if pendingTools == 0 && pendingThinking == "" {
+		if pendingTools == 0 && pendingThinking == "" && len(pendingThinkingBlocks) == 0 {
 			return
 		}
 		// Antigravity 2.35 parity: merge adjacent tool/thinking sections when there was no
@@ -243,6 +206,9 @@ func buildTrajectoryMessages(steps []TrajectoryStep) ([]CascadeMessageItem, int)
 			prev.ToolCount += pendingTools
 			prev.ToolNames = append(prev.ToolNames, toolNames...)
 			prev.ToolDetails = append(prev.ToolDetails, toolDetails...)
+			if len(pendingThinkingBlocks) > 0 {
+				prev.ThinkingBlocks = append(prev.ThinkingBlocks, pendingThinkingBlocks...)
+			}
 			if pendingThinking != "" {
 				if prev.Thinking != "" {
 					prev.Thinking += "\n\n" + pendingThinking
@@ -270,6 +236,7 @@ func buildTrajectoryMessages(steps []TrajectoryStep) ([]CascadeMessageItem, int)
 			toolDetails = nil
 			pendingThinking = ""
 			pendingThinkingDuration = ""
+			pendingThinkingBlocks = nil
 			pendingToolsStartedAt = ""
 			return
 		}
@@ -289,6 +256,7 @@ func buildTrajectoryMessages(steps []TrajectoryStep) ([]CascadeMessageItem, int)
 			ToolDetails:      toolDetails,
 			Thinking:         pendingThinking,
 			ThinkingDuration: pendingThinkingDuration,
+			ThinkingBlocks:   pendingThinkingBlocks,
 			FocusText:        pendingFocus,
 			StartedAt:        toolsStartedAt,
 		}
@@ -299,6 +267,7 @@ func buildTrajectoryMessages(steps []TrajectoryStep) ([]CascadeMessageItem, int)
 		toolDetails = nil
 		pendingThinking = ""
 		pendingThinkingDuration = ""
+		pendingThinkingBlocks = nil
 		pendingToolsStartedAt = ""
 	}
 
@@ -458,15 +427,30 @@ func buildTrajectoryMessages(steps []TrajectoryStep) ([]CascadeMessageItem, int)
 			respText := ""
 			if s.PlannerResponse != nil {
 				respText = CleanInternalSystemMessage(s.PlannerResponse.Response)
-				if th := strings.TrimSpace(s.PlannerResponse.Thinking); th != "" {
+				th := strings.TrimSpace(s.PlannerResponse.RawThinking)
+				if th == "" {
+					th = strings.TrimSpace(s.PlannerResponse.Thinking)
+				}
+				if th != "" {
 					if pendingThinking == "" {
 						pendingThinking = th
 					} else {
 						pendingThinking += "\n\n" + th
 					}
-					if td := strings.TrimSpace(s.PlannerResponse.ThinkingDuration); td != "" {
+					td := strings.TrimSpace(s.PlannerResponse.ThinkingDuration)
+					if td != "" {
 						pendingThinkingDuration = td
 					}
+					tbStatus := "done"
+					if isStepActiveStatus(s.Status) && respText == "" && td == "" {
+						tbStatus = "running"
+					}
+					pendingThinkingBlocks = append(pendingThinkingBlocks, ThinkingBlockItem{
+						StepIndex: idx,
+						Text:      th,
+						Duration:  td,
+						Status:    tbStatus,
+					})
 					if pendingToolsStartedAt == "" {
 						pendingToolsStartedAt = stepStartTimestamp(s)
 					}
@@ -624,20 +608,17 @@ func buildTrajectoryMessages(steps []TrajectoryStep) ([]CascadeMessageItem, int)
 			}
 			continue
 		} else if strings.HasPrefix(stepType, "CORTEX_STEP_TYPE_") && stepType != "CORTEX_STEP_TYPE_SYSTEM_MESSAGE" && stepType != "CORTEX_STEP_TYPE_ERROR_MESSAGE" {
+			detail, visible := buildToolDetailItem(s, idx)
+			if !visible {
+				continue
+			}
 			if pendingToolsStartedAt == "" {
 				pendingToolsStartedAt = stepStartTimestamp(s)
 			}
 			pendingTools++
 			totalToolsCount++
-			name := extractToolNameFromStep(s)
-			toolNames = append(toolNames, name)
-			toolDetails = append(toolDetails, ToolDetailItem{
-				Name:      name,
-				Summary:   stepSummaryLabel(s),
-				Status:    stepStatusLabel(s.Status),
-				Duration:  stepDurationLabel(s),
-				StepIndex: idx,
-			})
+			toolNames = append(toolNames, detail.Name)
+			toolDetails = append(toolDetails, detail)
 		}
 	}
 

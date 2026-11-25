@@ -354,11 +354,16 @@ func messageBranchStepIndex(msg CascadeMessageItem) (int, bool) {
 			return n, true
 		}
 	}
-	if len(msg.ToolDetails) > 0 {
+	if len(msg.ToolDetails) > 0 || len(msg.ThinkingBlocks) > 0 {
 		maxStep := -1
 		for _, td := range msg.ToolDetails {
 			if td.StepIndex > maxStep {
 				maxStep = td.StepIndex
+			}
+		}
+		for _, tb := range msg.ThinkingBlocks {
+			if tb.StepIndex > maxStep {
+				maxStep = tb.StepIndex
 			}
 		}
 		if maxStep >= 0 {

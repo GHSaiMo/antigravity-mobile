@@ -1769,6 +1769,652 @@ function syncFocusElapsedTimers() {
   }
 }
 
+function getDesktopUiLangWeb() {
+  if (window.I18n?.isZh?.()) return "zh";
+  if (window.I18n?.isJa?.()) return "ja";
+  return "en";
+}
+
+function shortThinkingDurationWeb(raw) {
+  const trimmed = String(raw || "").trim();
+  if (!trimmed) return "";
+  if (trimmed.endsWith("s") && !trimmed.endsWith("ms") && !trimmed.includes("m")) {
+    const secs = Number(trimmed.slice(0, -1).trim());
+    if (Number.isFinite(secs)) {
+      const total = Math.max(1, Math.floor(secs));
+      if (total >= 60) {
+        const m = Math.floor(total / 60);
+        const s = total % 60;
+        return s > 0 ? `${m}m ${s}s` : `${m}m`;
+      }
+      return `${total}s`;
+    }
+  }
+  return trimmed;
+}
+
+function formatThinkingTitleWeb(duration, isRunning) {
+  const lang = getDesktopUiLangWeb();
+  if (isRunning) {
+    return lang === "en" ? "Thinking..." : "思考中...";
+  }
+  const dur = shortThinkingDurationWeb(duration);
+  if (dur) {
+    if (lang === "zh") return `已思考 ${dur}`;
+    if (lang === "ja") return `${dur} 思考`;
+    return `Thought for ${dur}`;
+  }
+  if (lang === "zh") return "思考过程";
+  if (lang === "ja") return "思考プロセス";
+  return "Thought Process";
+}
+
+function localizeDesktopPrefixWeb(raw) {
+  const p = String(raw || "").trim();
+  const lang = getDesktopUiLangWeb();
+  if (!p || lang === "en") return p;
+  const zh = lang === "zh";
+  switch (p.toLowerCase()) {
+    case "analyzed": return zh ? "已分析" : "分析済み";
+    case "analyzing": return zh ? "正在分析" : "分析中";
+    case "read": return zh ? "已读取" : "読み取り済み";
+    case "reading": return zh ? "正在读取" : "読み取り中";
+    case "edited": return zh ? "已编辑" : "編集済み";
+    case "editing": return zh ? "正在编辑" : "編集中";
+    case "created": return zh ? "已创建" : "作成済み";
+    case "creating": return zh ? "正在创建" : "作成中";
+    case "deleted": return zh ? "已删除" : "削除済み";
+    case "deleting": return zh ? "正在删除" : "削除中";
+    case "ran": return zh ? "已运行" : "実行済み";
+    case "running": return zh ? "正在运行" : "実行中";
+    case "run": return zh ? "运行" : "実行";
+    case "searched": return zh ? "已搜索" : "検索済み";
+    case "searching": return zh ? "正在搜索" : "検索中";
+    case "listed": return zh ? "已浏览" : "一覧取得済み";
+    case "listing": return zh ? "正在浏览" : "一覧取得中";
+    case "rejected": return zh ? "已拒绝" : "拒否済み";
+    case "canceled": return zh ? "已取消" : "キャンセル済み";
+    case "interrupted": return zh ? "已中断" : "中断";
+    case "errored": return zh ? "执行出错" : "エラー";
+    case "canceled edit to": return zh ? "已取消编辑" : "編集キャンセル";
+    case "canceled creation of": return zh ? "已取消创建" : "作成キャンセル";
+    case "canceled deletion of": return zh ? "已取消删除" : "削除キャンセル";
+    default: return p;
+  }
+}
+
+const GENERIC_CMD_NOISE_RE = /^(running|run|execute|executing)?\s*(a\s*)?(shell\s*|bash\s*|terminal\s*)?command(s)?$/i;
+
+function isGenericCmdNoiseWeb(s) {
+  const t = String(s || "").trim();
+  return !t || GENERIC_CMD_NOISE_RE.test(t);
+}
+
+function basenameOfUriWeb(raw) {
+  if (!raw) return "";
+  let s = String(raw).trim().replace(/^"|"$/g, "");
+  s = s.replace(/^file:\/\//i, "").split("#")[0].split("?")[0].replace(/[/\\]+$/, "");
+  try { s = decodeURIComponent(s); } catch {}
+  return s.split(/[/\\]/).pop() || s;
+}
+
+function normalizeFileUriWeb(raw) {
+  if (!raw) return "";
+  const s = String(raw).trim().replace(/^"|"$/g, "");
+  if (!s) return "";
+  if (/^file:\/\//i.test(s)) return s;
+  if (s.startsWith("/")) return `file://${s}`;
+  return s;
+}
+
+function lineRangeSuffixWeb(startLine, endLine) {
+  const s = Number(startLine) || 0;
+  const e = Number(endLine) || 0;
+  if (s > 0 && e > 0 && e !== s) return `#L${s}-${e}`;
+  if (s > 0) return `#L${s}`;
+  if (e > 0) return `#L1-${e}`;
+  return "";
+}
+
+function truncateTailOutputWeb(raw, existingAbove = 0, maxLines = 80, maxChars = 4096) {
+  if (!raw) return { output: "", numLinesAbove: existingAbove };
+  let lines = String(raw).replace(/\r\n/g, "\n").split("\n");
+  let extra = 0;
+  if (lines.length > maxLines) {
+    extra = lines.length - maxLines;
+    lines = lines.slice(extra);
+  }
+  let out = lines.join("\n");
+  if (out.length > maxChars) {
+    const cut = out.length - maxChars;
+    const nl = out.indexOf("\n", cut);
+    if (nl >= 0 && nl + 1 < out.length) {
+      extra += (out.slice(0, nl + 1).match(/\n/g) || []).length;
+      out = out.slice(nl + 1);
+    } else {
+      out = out.slice(cut);
+    }
+  }
+  return { output: out, numLinesAbove: existingAbove + extra };
+}
+
+function parseStepArgsWeb(s) {
+  const args = {};
+  if (s?.generic?.args && typeof s.generic.args === "object") {
+    for (const [k, v] of Object.entries(s.generic.args)) {
+      if (typeof v === "string") {
+        try { args[k] = JSON.parse(v); } catch { args[k] = v; }
+      } else {
+        args[k] = v;
+      }
+    }
+  }
+  const rawJson = s?.metadata?.toolCall?.argumentsJson || s?.toolCall?.argumentsJson || "";
+  if (typeof rawJson === "string" && rawJson.trim().startsWith("{")) {
+    try {
+      const parsed = JSON.parse(rawJson);
+      if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+        for (const [k, v] of Object.entries(parsed)) {
+          if (!(k in args)) args[k] = v;
+        }
+      }
+    } catch {}
+  }
+  return args;
+}
+
+function argStrWeb(args, ...keys) {
+  for (const k of keys) {
+    const v = args?.[k];
+    if (typeof v === "string" && v.trim()) return v.trim();
+  }
+  return "";
+}
+
+function argIntWeb(args, ...keys) {
+  for (const k of keys) {
+    const n = Number(args?.[k]);
+    if (Number.isFinite(n) && n > 0) return Math.floor(n);
+  }
+  return 0;
+}
+
+function parseDesktopToolStepWeb(s, idx) {
+  const type = s?.type || "";
+  if (type === "CORTEX_STEP_TYPE_CHECKPOINT" || type === "CORTEX_STEP_TYPE_EPHEMERAL_MESSAGE") {
+    return null;
+  }
+  const ri = s?.generic?.result?.stepRenderInfo || null;
+  if (ri?.hidden) return null;
+
+  const toolName = extractToolNameFromRawStep(s) || type.replace("CORTEX_STEP_TYPE_", "").toLowerCase();
+  const lower = toolName.toLowerCase();
+  const stRaw = s?.status || "";
+  const isRunning = stRaw === "CORTEX_STEP_STATUS_RUNNING" || stRaw === "CORTEX_STEP_STATUS_PENDING" || stRaw === "CORTEX_STEP_STATUS_GENERATING";
+  const status = s?.runCommand?.userRejected
+    ? "rejected"
+    : isRunning
+      ? "running"
+      : stRaw === "CORTEX_STEP_STATUS_WAITING"
+        ? "waiting"
+        : stRaw === "CORTEX_STEP_STATUS_CANCELED"
+          ? "canceled"
+          : stRaw === "CORTEX_STEP_STATUS_INTERRUPTED"
+            ? "interrupted"
+            : (stRaw === "CORTEX_STEP_STATUS_ERROR" || s?.error?.shortError || s?.errorMessage?.error?.shortError)
+              ? "error"
+              : "done";
+
+  const args = parseStepArgsWeb(s);
+  const metaAction = (s?.metadata?.toolAction || s?.toolCall?.toolAction || argStrWeb(args, "toolAction") || "").trim();
+  const metaSummary = (s?.metadata?.toolSummary || s?.toolCall?.toolSummary || argStrWeb(args, "toolSummary") || "").trim();
+  const metaLabel = isRunning ? (metaAction || metaSummary) : (metaSummary || metaAction);
+  const errorText = (s?.errorMessage?.error?.userErrorMessage || s?.errorMessage?.error?.shortError || s?.error?.userErrorMessage || s?.error?.shortError || "").trim();
+
+  const item = {
+    stepIndex: idx,
+    name: toolName,
+    status,
+    kind: "other",
+    prefix: "",
+    title: "",
+    fileUri: "",
+    fileName: "",
+    startLine: 0,
+    endLine: 0,
+    additions: 0,
+    deletions: 0,
+    hasDiffStats: false,
+    numResults: 0,
+    command: "",
+    cwd: "",
+    output: "",
+    numLinesAbove: 0,
+    exitCode: null,
+    markdown: "",
+    errorText,
+    isArtifact: false,
+    raw: s
+  };
+
+  if (ri) {
+    let prefix = String(ri.titlePrefix || "").trim();
+    if (status === "rejected") prefix = "Rejected";
+    else if (status === "canceled") prefix = "Canceled";
+    else if (status === "interrupted") prefix = "Interrupted";
+    else if (status === "done" && prefix.toLowerCase() === "running") prefix = "Ran";
+    item.prefix = prefix;
+
+    const textParts = [];
+    let hasFileDiff = false;
+    let hasFileRef = false;
+    for (const tp of (ri.titleParts || [])) {
+      if (tp.text && String(tp.text).trim()) textParts.push(String(tp.text).trim());
+      if (tp.file?.uri) {
+        hasFileRef = true;
+        if (!item.fileUri) {
+          item.fileUri = normalizeFileUriWeb(tp.file.uri);
+          item.fileName = basenameOfUriWeb(tp.file.uri);
+          item.startLine = Number(tp.file.startLine) || 0;
+          item.endLine = Number(tp.file.endLine) || 0;
+          item.isArtifact = /\/brain\/|\.gemini\/antigravity\/brain/i.test(item.fileUri);
+        } else {
+          textParts.push(basenameOfUriWeb(tp.file.uri) + lineRangeSuffixWeb(tp.file.startLine, tp.file.endLine));
+        }
+      }
+      if (tp.fileDiff?.uri) {
+        hasFileDiff = true;
+        if (!item.fileUri) {
+          item.fileUri = normalizeFileUriWeb(tp.fileDiff.uri);
+          item.fileName = basenameOfUriWeb(tp.fileDiff.uri);
+          item.isArtifact = /\/brain\/|\.gemini\/antigravity\/brain/i.test(item.fileUri);
+        }
+        if (tp.fileDiff.diffStats) {
+          item.additions = Number(tp.fileDiff.diffStats.additions) || 0;
+          item.deletions = Number(tp.fileDiff.diffStats.deletions) || 0;
+          item.hasDiffStats = true;
+        }
+      }
+      if (tp.badge?.label) textParts.push(String(tp.badge.label).trim());
+    }
+    item.title = textParts.length > 0 ? textParts.join(" ") : String(ri.title || "").trim();
+
+    let hasTerminal = false;
+    const mdParts = [];
+    for (const cb of (ri.contentBlocks || [])) {
+      if (cb.terminal) {
+        hasTerminal = true;
+        if (!item.command && cb.terminal.command) item.command = String(cb.terminal.command).trim();
+        if (!item.cwd && cb.terminal.cwd) item.cwd = basenameOfUriWeb(cb.terminal.cwd);
+        if (cb.terminal.exitCode !== undefined && cb.terminal.exitCode !== null) item.exitCode = Number(cb.terminal.exitCode);
+        if (cb.terminal.output || cb.terminal.numLinesAbove) {
+          const t = truncateTailOutputWeb(cb.terminal.output || "", Number(cb.terminal.numLinesAbove) || 0);
+          item.output = t.output;
+          item.numLinesAbove = t.numLinesAbove;
+        }
+      }
+      if (cb.markdown && String(cb.markdown).trim()) mdParts.push(String(cb.markdown).trim());
+    }
+    if (mdParts.length > 0) item.markdown = mdParts.join("\n\n").slice(0, 4096);
+    else if (ri.markdown && String(ri.markdown).trim()) item.markdown = String(ri.markdown).trim().slice(0, 4096);
+
+    const agg = String(ri.aggregationKey || "").toLowerCase();
+    if (hasFileDiff || agg === "edits" || ["edit_file", "write_file", "write_to_file", "replace_file_content", "multi_replace_file_content", "delete_file"].includes(lower)) {
+      item.kind = "edit";
+    } else if (hasTerminal || agg === "terminal" || lower === "run_command" || lower === "shell_command") {
+      item.kind = "terminal";
+      if (!item.command) item.command = (s?.runCommand?.commandLine || argStrWeb(args, "CommandLine", "commandLine", "command") || "").trim();
+      if (!item.cwd) item.cwd = basenameOfUriWeb(s?.runCommand?.cwd || argStrWeb(args, "Cwd", "cwd"));
+      if (isGenericCmdNoiseWeb(item.title)) item.title = isGenericCmdNoiseWeb(metaLabel) ? "" : metaLabel;
+    } else if (agg === "folders" || lower === "list_dir" || lower === "list_directory") {
+      item.kind = "list";
+    } else if (hasFileRef || agg === "files" || lower === "read_file" || lower === "view_file") {
+      item.kind = "read";
+    } else if (/search|grep|find/i.test(lower)) {
+      item.kind = "search";
+    } else if (lower.startsWith("mcp_") || lower === "call_mcp_tool" || lower === "mcp_tool") {
+      item.kind = "mcp";
+    }
+    if (!item.title && !item.fileName && !item.command && metaLabel) item.title = metaLabel;
+    return item;
+  }
+
+  if (s?.runCommand || type === "CORTEX_STEP_TYPE_RUN_COMMAND" || ["run_command", "shell_command", "command", "command_status"].includes(lower)) {
+    item.kind = "terminal";
+    const rc = s?.runCommand || {};
+    item.command = (rc.commandLine || rc.proposedCommandLine || argStrWeb(args, "CommandLine", "commandLine", "command") || s?.taskDetails?.description || "").trim();
+    item.cwd = basenameOfUriWeb(rc.cwd || argStrWeb(args, "Cwd", "cwd"));
+    if (rc.exitCode !== undefined && rc.exitCode !== null) item.exitCode = Number(rc.exitCode);
+    const outObj = rc.combinedOutput || rc.stdoutOutput || rc.stderrOutput;
+    const rawOut = outObj ? (outObj.full || outObj.truncated || "") : (rc.stdoutBuffer || rc.stderrBuffer || "");
+    const rawAbove = outObj ? (Number(outObj.numLinesAbove) || 0) : (Number(rc.stdoutLinesAbove || rc.stderrLinesAbove) || 0);
+    if (rawOut || rawAbove > 0) {
+      const t = truncateTailOutputWeb(rawOut, rawAbove);
+      item.output = t.output;
+      item.numLinesAbove = t.numLinesAbove;
+    }
+    if (!isGenericCmdNoiseWeb(metaLabel)) item.title = metaLabel;
+    item.prefix = status === "rejected" ? "Rejected"
+      : status === "canceled" ? "Canceled"
+      : status === "interrupted" ? "Interrupted"
+      : status === "error" ? "Errored"
+      : status === "waiting" ? "Run"
+      : status === "running" ? "Running" : "Ran";
+    if (item.title && item.title.toLowerCase().startsWith(item.prefix.toLowerCase() + " ")) {
+      item.prefix = "";
+    }
+    return item;
+  }
+
+  if (s?.viewFile || type === "CORTEX_STEP_TYPE_VIEW_FILE" || lower === "view_file" || lower === "read_file") {
+    item.kind = "read";
+    item.prefix = isRunning ? "Analyzing" : "Analyzed";
+    const rawPath = s?.viewFile?.absolutePathUri || argStrWeb(args, "Path", "AbsolutePath", "path", "absolutePathUri", "TargetFile");
+    if (rawPath) {
+      item.fileUri = normalizeFileUriWeb(rawPath);
+      item.fileName = basenameOfUriWeb(rawPath);
+      item.startLine = Number(s?.viewFile?.startLine) || argIntWeb(args, "StartLine", "start_line", "startLine");
+      item.endLine = Number(s?.viewFile?.endLine) || argIntWeb(args, "EndLine", "end_line", "endLine");
+      item.isArtifact = /\/brain\/|\.gemini\/antigravity\/brain/i.test(item.fileUri);
+    } else if (metaLabel) {
+      item.title = metaLabel;
+    }
+    return item;
+  }
+
+  if (s?.codeAction || type === "CORTEX_STEP_TYPE_CODE_ACTION" || ["edit_file", "write_file", "write_to_file", "replace_file_content", "multi_replace_file_content", "create_file", "delete_file"].includes(lower)) {
+    item.kind = "edit";
+    const ca = s?.codeAction || {};
+    let isCreate = false;
+    let isDelete = lower === "delete_file";
+    let rawPath = ca.actionResult?.edit?.absoluteUri || ca.actionResult?.absoluteUri || "";
+    if (ca.actionResult?.edit?.createFile) isCreate = true;
+    if (ca.actionSpec?.deleteFile) {
+      isDelete = true;
+      rawPath = rawPath || ca.actionSpec.deleteFile.path?.absoluteUri || ca.actionSpec.deleteFile.path?.absoluteURI || "";
+    } else if (ca.actionSpec?.createFile) {
+      if (!ca.actionSpec.createFile.overwrite) isCreate = true;
+      rawPath = rawPath || ca.actionSpec.createFile.path?.absoluteUri || ca.actionSpec.createFile.path?.absoluteURI || "";
+    } else if (ca.actionSpec?.editFile) {
+      rawPath = rawPath || ca.actionSpec.editFile.path?.absoluteUri || ca.actionSpec.editFile.path?.absoluteURI || "";
+    }
+    if (!rawPath) rawPath = argStrWeb(args, "Path", "TargetFile", "targetFile", "AbsolutePath", "path");
+    if ((lower === "write_file" || lower === "write_to_file" || lower === "create_file") && !args.Overwrite && !args.overwrite) {
+      isCreate = true;
+    }
+    item.prefix = isDelete ? (isRunning ? "Deleting" : "Deleted")
+      : isCreate ? (isRunning ? "Creating" : "Created")
+      : (isRunning ? "Editing" : "Edited");
+    if (ca.diffStats) {
+      item.additions = Number(ca.diffStats.additions) || 0;
+      item.deletions = Number(ca.diffStats.deletions) || 0;
+      item.hasDiffStats = true;
+    }
+    if (rawPath) {
+      item.fileUri = normalizeFileUriWeb(rawPath);
+      item.fileName = basenameOfUriWeb(rawPath);
+      item.isArtifact = Boolean(ca.isArtifactFile) || /\/brain\/|\.gemini\/antigravity\/brain/i.test(item.fileUri);
+    } else if (metaLabel) {
+      item.title = metaLabel;
+    }
+    return item;
+  }
+
+  if (s?.listDirectory || type === "CORTEX_STEP_TYPE_LIST_DIRECTORY" || lower === "list_dir" || lower === "list_directory") {
+    item.kind = "list";
+    item.prefix = isRunning ? "Analyzing" : "Analyzed";
+    const rawPath = s?.listDirectory?.directoryPathUri || argStrWeb(args, "DirectoryPath", "Path", "directoryPathUri", "path");
+    if (rawPath) {
+      item.fileUri = normalizeFileUriWeb(rawPath);
+      item.fileName = basenameOfUriWeb(rawPath);
+    } else if (metaLabel) {
+      item.title = metaLabel;
+    }
+    return item;
+  }
+
+  if (s?.grepSearch || s?.codeSearch || s?.find || s?.searchWeb || /search|grep|find/i.test(lower)) {
+    item.kind = "search";
+    item.prefix = isRunning ? "Searching" : "Searched";
+    if (s?.grepSearch) {
+      item.title = (s.grepSearch.query || "").trim();
+      item.numResults = Number(s.grepSearch.totalResults) || 0;
+    } else if (s?.codeSearch) {
+      item.title = (s.codeSearch.query || "").trim();
+    } else if (s?.find) {
+      item.title = (s.find.pattern || "").trim();
+      item.numResults = Number(s.find.totalResults) || 0;
+    } else if (s?.searchWeb) {
+      const q = (s.searchWeb.query || "").trim();
+      const d = (s.searchWeb.domain || "").trim();
+      item.title = d && q ? `${d} for "${q}"` : q ? `web for "${q}"` : "";
+    } else {
+      item.title = argStrWeb(args, "Query", "query", "Pattern", "pattern") || metaLabel;
+    }
+    return item;
+  }
+
+  if (s?.mcpTool || type === "CORTEX_STEP_TYPE_MCP_TOOL" || lower === "call_mcp_tool" || lower === "mcp_tool") {
+    item.kind = "mcp";
+    item.prefix = (s?.mcpTool?.serverName || argStrWeb(args, "ServerName", "serverName") || "MCP").trim();
+    item.title = (s?.mcpTool?.toolName || argStrWeb(args, "ToolName", "toolName") || metaLabel).trim();
+    return item;
+  }
+
+  item.title = metaLabel || (s?.taskBoundary?.taskName || "").trim();
+  return item;
+}
+
+function formatDesktopCompletedSummaryWeb(item) {
+  const lang = getDesktopUiLangWeb();
+  const steps = item?.steps || [];
+  const toolSteps = steps.filter(s => s.kind !== "thinking");
+  if (toolSteps.length === 0) {
+    const thinkSteps = steps.filter(s => s.kind === "thinking");
+    const lastDur = [...thinkSteps].reverse().find(s => s.duration)?.duration || item?.thinkingDuration || "";
+    if (thinkSteps.length > 0 || (item?.thinking || "").trim()) {
+      return formatThinkingTitleWeb(lastDur, false);
+    }
+    return lang === "zh" ? "已完成" : (lang === "ja" ? "完了" : "Done");
+  }
+
+  let exploredCount = 0;
+  const exploredFiles = new Set();
+  let exploredFileCount = 0;
+  let exploredArtifactCount = 0;
+  let terminalCount = 0;
+  let editCount = 0;
+  const editFiles = new Set();
+  let editFileCount = 0;
+  let editArtifactCount = 0;
+
+  for (const s of toolSteps) {
+    if (s.status === "error") continue;
+    if (s.kind === "terminal") {
+      terminalCount++;
+    } else if (s.kind === "edit") {
+      editCount++;
+      const k = (s.fileUri || s.fileName || "").trim();
+      if (k) {
+        if (!editFiles.has(k)) {
+          editFiles.add(k);
+          if (s.isArtifact) editArtifactCount++; else editFileCount++;
+        }
+      } else {
+        editFileCount++;
+      }
+    } else {
+      exploredCount++;
+      if (s.kind === "read" || s.kind === "list") {
+        const k = (s.fileUri || s.fileName || "").trim();
+        if (k && !exploredFiles.has(k)) {
+          exploredFiles.add(k);
+          if (s.isArtifact) exploredArtifactCount++; else exploredFileCount++;
+        }
+      }
+    }
+  }
+
+  const noun = (files, arts) => {
+    if (lang === "zh") return files > 0 ? "文件" : (arts > 0 ? "文档" : "");
+    if (lang === "ja") return files > 0 ? "ファイル" : (arts > 0 ? "ドキュメント" : "");
+    if (files > 0) return (files + arts) === 1 ? "file" : "files";
+    if (arts > 0) return arts === 1 ? "artifact" : "artifacts";
+    return "";
+  };
+
+  const parts = [];
+  if (exploredCount > 0) {
+    const n = noun(exploredFileCount, exploredArtifactCount);
+    if (lang === "zh") parts.push(n ? `已浏览${n}` : "已探索");
+    else if (lang === "ja") parts.push(n ? `${n}を調査` : "調査済み");
+    else parts.push(n ? `Explored ${n}` : "Explored");
+  }
+  if (terminalCount > 0) {
+    if (lang === "zh") parts.push(parts.length === 0 ? "已运行命令" : "运行命令");
+    else if (lang === "ja") parts.push("コマンドを実行");
+    else parts.push(`${parts.length === 0 ? "Ran" : "ran"} ${terminalCount === 1 ? "command" : "commands"}`);
+  }
+  if (editCount > 0) {
+    const n = noun(editFileCount, editArtifactCount);
+    if (lang === "zh") {
+      const v = parts.length === 0 ? "已编辑" : "编辑";
+      parts.push(n ? `${v}${n}` : `${v}文件`);
+    } else if (lang === "ja") {
+      parts.push(n ? `${n}を編集` : "ファイルを編集");
+    } else {
+      const v = parts.length === 0 ? "Edited" : "edited";
+      parts.push(n ? `${v} ${n}` : `${v} files`);
+    }
+  }
+
+  if (parts.length > 0) {
+    return parts.join(lang === "zh" ? "、" : (lang === "ja" ? "・" : ", "));
+  }
+  if (lang === "zh") return `已完成 ${toolSteps.length} 项操作`;
+  if (lang === "ja") return `${toolSteps.length} 件の操作を完了`;
+  return toolSteps.length === 1 ? "Completed 1 action" : `Completed ${toolSteps.length} actions`;
+}
+
+function buildDesktopTimelineHtml(item) {
+  const lang = getDesktopUiLangWeb();
+  const steps = item?.steps || [];
+  const hasTools = steps.some(s => s.kind !== "thinking");
+  const chevronSvg = `<svg class="desktop-step-chevron" width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="9 6 15 12 9 18"></polyline></svg>`;
+  const docSvg = `<svg class="desktop-file-icon" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline></svg>`;
+  const folderSvg = `<svg class="desktop-file-icon" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path></svg>`;
+  const copySvg = `<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>`;
+
+  const rows = steps.map((s, idx) => {
+    if (s.kind === "thinking") {
+      const title = formatThinkingTitleWeb(s.duration, s.isRunning);
+      const stepKey = `think-${s.stepIndex ?? idx}`;
+      const openAttr = !hasTools ? " open" : "";
+      const shimmerCls = s.isRunning ? " is-running" : "";
+      return `
+        <details class="desktop-thinking-row" data-step-key="${escapeHtml(stepKey)}"${openAttr}>
+          <summary class="desktop-step-summary${shimmerCls}">
+            <span class="desktop-step-text">${escapeHtml(title)}</span>
+            ${chevronSvg}
+          </summary>
+          <div class="desktop-thinking-body" data-i18n-skip="1">${escapeHtml(s.text || "")}</div>
+        </details>
+      `;
+    }
+
+    const prefix = localizeDesktopPrefixWeb(s.prefix);
+    const isRunning = s.status === "running";
+    const isError = s.status === "error" || (s.exitCode !== null && s.exitCode !== undefined && s.exitCode !== 0);
+    const hasTerminal = Boolean(s.command || s.output || s.numLinesAbove > 0);
+    const hasMarkdown = Boolean(s.markdown);
+    const hasErrorBody = Boolean(s.errorText);
+    const isExpandable = hasTerminal || hasMarkdown || hasErrorBody;
+
+    let bodyParts = "";
+    if (prefix) {
+      bodyParts += `<span class="desktop-step-prefix">${escapeHtml(prefix)}</span>`;
+    }
+    if (s.fileName) {
+      const refText = s.fileName + lineRangeSuffixWeb(s.startLine, s.endLine);
+      const icon = s.kind === "list" ? folderSvg : docSvg;
+      if (!isExpandable && s.fileUri) {
+        bodyParts += `<button type="button" class="desktop-file-link" data-action="open-desktop-file" data-uri="${escapeHtml(s.fileUri)}" data-title="${escapeHtml(s.fileName)}">${icon}<span>${escapeHtml(refText)}</span></button>`;
+      } else {
+        bodyParts += `<span class="desktop-file-pill">${icon}<span>${escapeHtml(refText)}</span></span>`;
+      }
+      if (s.hasDiffStats || s.additions > 0 || s.deletions > 0) {
+        bodyParts += `<span class="desktop-diff-stats"><span class="desktop-diff-add">+${s.additions || 0}</span><span class="desktop-diff-del">-${s.deletions || 0}</span></span>`;
+      }
+    } else if (s.title) {
+      bodyParts += `<span class="desktop-step-text" data-i18n-skip="1">${escapeHtml(s.title)}</span>`;
+    } else if (s.command) {
+      bodyParts += `<span class="desktop-step-cmd-inline" data-i18n-skip="1">${escapeHtml(s.command)}</span>`;
+    } else if (!prefix) {
+      bodyParts += `<span class="desktop-step-text">${escapeHtml(formatToolName(s.name))}</span>`;
+    }
+
+    if (s.kind === "search" && s.numResults > 0) {
+      const badge = lang === "zh" ? `${s.numResults} 条结果` : (lang === "ja" ? `${s.numResults} 件` : (s.numResults === 1 ? "1 result" : `${s.numResults} results`));
+      bodyParts += `<span class="desktop-results-pill">${escapeHtml(badge)}</span>`;
+    }
+    if (isError) {
+      bodyParts += `<span class="desktop-error-dot" aria-label="Error"></span>`;
+    }
+
+    const shimmerCls = isRunning ? " is-running" : "";
+
+    if (!isExpandable) {
+      return `<div class="desktop-step-row${shimmerCls}">${bodyParts}</div>`;
+    }
+
+    let detailBlocks = "";
+    if (hasTerminal) {
+      const cwdPrefix = s.cwd ? `${escapeHtml(s.cwd)} $` : "$";
+      const hiddenLine = s.numLinesAbove > 0
+        ? `<div class="desktop-terminal-hidden">${escapeHtml(
+            lang === "zh" ? `…（上方已省略 ${s.numLinesAbove} 行）`
+              : lang === "ja" ? `…（上部の ${s.numLinesAbove} 行を省略）`
+              : `… (${s.numLinesAbove} ${s.numLinesAbove === 1 ? "line" : "lines"} above hidden)`
+          )}</div>`
+        : "";
+      const cmdRow = s.command
+        ? `
+          <div class="desktop-terminal-cmd-row">
+            <span class="desktop-terminal-prompt">${cwdPrefix}</span>
+            <code class="desktop-terminal-cmd" data-i18n-skip="1">${escapeHtml(s.command)}</code>
+            <button type="button" class="desktop-terminal-copy" data-action="copy-terminal-cmd" data-cmd="${escapeHtml(s.command)}" aria-label="Copy command">${copySvg}</button>
+          </div>
+        `
+        : "";
+      const outRow = (s.output || s.numLinesAbove > 0)
+        ? `<pre class="desktop-terminal-output" data-i18n-skip="1">${hiddenLine}${escapeHtml(s.output || "")}</pre>`
+        : "";
+      detailBlocks += `<div class="desktop-terminal-card">${cmdRow}${outRow}</div>`;
+    }
+    if (hasMarkdown) {
+      detailBlocks += `<div class="desktop-step-markdown" data-i18n-skip="1">${escapeHtml(s.markdown)}</div>`;
+    }
+    if (hasErrorBody) {
+      detailBlocks += `<div class="desktop-step-error-box" data-i18n-skip="1">${escapeHtml(s.errorText)}</div>`;
+    }
+
+    const stepKey = `step-${s.stepIndex ?? idx}`;
+    return `
+      <details class="desktop-step-expandable" data-step-key="${escapeHtml(stepKey)}">
+        <summary class="desktop-step-summary${shimmerCls}">
+          ${bodyParts}
+          ${chevronSvg}
+        </summary>
+        <div class="desktop-step-detail-body">
+          ${detailBlocks}
+        </div>
+      </details>
+    `;
+  }).join("");
+
+  return `<div class="desktop-step-timeline">${rows}</div>`;
+}
+
 function groupSteps(steps) {
   if (!steps || !steps.length) return [];
 
@@ -1882,7 +2528,41 @@ function groupSteps(steps) {
       const p = s.plannerResponse || {};
       const rawResp = (p.response || "").trim();
       const resp = cleanInternalSystemMessage(rawResp);
-      const thinking = (p.thinking || "").trim();
+      const thinking = (p.rawThinking || p.thinking || "").trim();
+      const stRaw = s.status || "";
+      const isThinkRunning = (stRaw === "CORTEX_STEP_STATUS_RUNNING" || stRaw === "CORTEX_STEP_STATUS_GENERATING") && !resp && !p.thinkingDuration;
+
+      if (thinking) {
+        if (!pendingToolsStartedAt) pendingToolsStartedAt = stepCreatedTimestampWeb(s);
+        if (!currentBatch) {
+          currentBatch = {
+            type: "tools",
+            id: `item-tools-${i}`,
+            index: i,
+            startIndex: i,
+            steps: [],
+            toolNames: [],
+            thinking: "",
+            thinkingDuration: "",
+            focusText: "",
+            startedAt: ""
+          };
+        } else {
+          currentBatch.index = i;
+        }
+        currentBatch.thinking = currentBatch.thinking ? `${currentBatch.thinking}\n\n${thinking}` : thinking;
+        if (p.thinkingDuration) currentBatch.thinkingDuration = p.thinkingDuration;
+        currentBatch.steps.push({
+          kind: "thinking",
+          stepIndex: i,
+          name: "thinking",
+          text: thinking,
+          duration: p.thinkingDuration || "",
+          isRunning: isThinkRunning,
+          status: isThinkRunning ? "running" : "done",
+          raw: s
+        });
+      }
 
       if (resp) {
         flushBatch();
@@ -1894,38 +2574,10 @@ function groupSteps(steps) {
           id: `item-agent-${i}`,
           index: i,
           text: resp,
-          thinking: thinking,
+          thinking: "",
           artifacts: artList,
           step: s
         });
-      } else if (thinking) {
-        if (!pendingToolsStartedAt) pendingToolsStartedAt = stepCreatedTimestampWeb(s);
-        if (!currentBatch) {
-          currentBatch = {
-            type: "tools",
-            id: `item-tools-${i}`,
-            index: i,
-            startIndex: i,
-            steps: [],
-            toolNames: [],
-            thinking: "",
-            thinkingDuration: ""
-          };
-        } else {
-          currentBatch.index = i;
-        }
-        currentBatch.thinking = thinking;
-        if (p.thinkingDuration) currentBatch.thinkingDuration = p.thinkingDuration;
-        currentBatch.steps.push({
-          name: "thinking",
-          detail: thinking.length > 80 ? thinking.slice(0, 77) + "..." : thinking,
-          duration: p.thinkingDuration || "",
-          status: s.status || "DONE",
-          raw: s
-        });
-        if (!currentBatch.toolNames.includes("thinking") && currentBatch.toolNames.length < 3) {
-          currentBatch.toolNames.push("thinking");
-        }
       }
     } else if (type === "CORTEX_STEP_TYPE_INVOKE_SUBAGENT") {
       // 与桌面端一致：在调用位置内联展示子代理卡片；Antigravity 2.35 起连续并行启动折叠为单行可展开项
@@ -2042,33 +2694,8 @@ function groupSteps(steps) {
       }
       continue;
     } else if (type.startsWith("CORTEX_STEP_TYPE_") && type !== "CORTEX_STEP_TYPE_SYSTEM_MESSAGE") {
-      const rawName = type.replace("CORTEX_STEP_TYPE_", "").toLowerCase();
-      let displayName = rawName;
-      let detail = "";
-
-      if (s.codeAction) {
-        const ca = s.codeAction;
-        if (ca.actionSpec?.createFile) {
-          displayName = "create_file";
-          detail = (ca.actionSpec.createFile.path?.absoluteURI || "").split("/").pop();
-        } else if (ca.actionSpec?.editFile) {
-          displayName = "edit_file";
-          detail = (ca.actionSpec.editFile.path?.absoluteURI || "").split("/").pop();
-        } else if (ca.actionSpec?.deleteFile) {
-          displayName = "delete_file";
-          detail = (ca.actionSpec.deleteFile.path?.absoluteURI || "").split("/").pop();
-        }
-      } else if (s.toolCall) {
-        displayName = s.toolCall.name || rawName;
-        if (s.toolCall.toolSummary) {
-          detail = s.toolCall.toolSummary;
-        }
-      } else if (rawName === "shell_command") {
-        displayName = "command";
-        if (s.shellCommand?.commandLine) {
-          detail = s.shellCommand.commandLine.slice(0, 40);
-        }
-      }
+      const parsed = parseDesktopToolStepWeb(s, i);
+      if (!parsed) continue;
 
       if (!currentBatch) {
         if (!pendingToolsStartedAt) pendingToolsStartedAt = stepCreatedTimestampWeb(s);
@@ -2088,26 +2715,10 @@ function groupSteps(steps) {
         currentBatch.index = i;
       }
 
-      let stepDur = "";
-      if (s.startedAt && s.completedAt) {
-        const ms = Date.parse(s.completedAt) - Date.parse(s.startedAt);
-        if (Number.isFinite(ms) && ms >= 0) {
-          stepDur = ms < 1000 ? `${Math.round(ms)}ms` : `${(ms / 1000).toFixed(1)}s`;
-        }
-      } else if (s.thinkingDuration) {
-        stepDur = s.thinkingDuration;
-      }
+      currentBatch.steps.push(parsed);
 
-      currentBatch.steps.push({
-        name: displayName,
-        detail: detail,
-        duration: stepDur,
-        status: s.status || "DONE",
-        raw: s
-      });
-
-      if (!currentBatch.toolNames.includes(displayName) && currentBatch.toolNames.length < 3) {
-        currentBatch.toolNames.push(displayName);
+      if (!currentBatch.toolNames.includes(parsed.name) && currentBatch.toolNames.length < 3) {
+        currentBatch.toolNames.push(parsed.name);
       }
     }
   }
@@ -2142,7 +2753,8 @@ function getItemFingerprint(item, isRunning, isLastItem, isActivePlan = false) {
     const active = (isRunning && isLastItem) ? "1" : "0";
     const thinkLen = (item.thinking || "").length;
     const lastStep = item.steps[item.steps.length - 1];
-    return `t:${item.steps.length}:${item.toolNames.join(",")}:${thinkLen}:${item.focusText || ""}:${item.startedAt || ""}:${lastStep?.duration || ""}:${active}`;
+    const stepSig = item.steps.map(s => `${s.kind}:${s.status}:${(s.output || "").length}:${(s.title || s.fileName || "").length}:${s.additions || 0}:${s.deletions || 0}`).join("|");
+    return `t:${item.steps.length}:${thinkLen}:${item.focusText || ""}:${item.startedAt || ""}:${lastStep?.status || ""}:${active}:${stepSig}`;
   }
   if (item.type === "error") {
     return `e:${item.text.length}:${item.text.slice(-12)}`;
@@ -2410,7 +3022,7 @@ function buildActiveFocusRowHtml(focusText, startedAt, thinkingHtml, stepItemsHt
         ${timerHtml}
         <svg class="focus-tool-chevron" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 6 15 12 9 18"></polyline></svg>
       </summary>
-      <div class="tool-batch-expanded">
+      <div class="desktop-tool-expanded">
         ${thinkingHtml}
         ${stepItemsHtml}
       </div>
@@ -2588,48 +3200,13 @@ function generateItemHtml(item, isRunning, isLastItem, isActivePlan = false) {
 
   if (item.type === "tools") {
     const isActive = isRunning && isLastItem;
-    const toolOnlySteps = item.steps.filter(s => s.name !== "thinking");
+    const toolOnlySteps = item.steps.filter(s => s.kind !== "thinking");
     const toolCount = toolOnlySteps.length;
-    const count = toolCount > 0 ? toolCount : item.steps.length;
-    const localizedNames = [...new Set((item.toolNames || []).filter(n => n !== "thinking").map(formatToolName))];
-    const toolNamesStr = localizedNames.join(", ") + (localizedNames.length > 2 ? "..." : "");
-    const liveThinking = (item.thinking || "").trim();
-    const openThinkingByDefault = toolCount === 0;
-    const thinkingHtml = liveThinking
-      ? `
-        <details class="p3-thinking-accordion"${openThinkingByDefault ? " open" : ""}>
-          <summary class="p3-thinking-summary">
-            <span class="p3-thinking-title">
-              <svg class="p3-thinking-icon" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-                <path d="M9.5 2A2.5 2.5 0 0 1 12 4.5v15a2.5 2.5 0 0 1-4.96.44 2.5 2.5 0 0 1-2.96-3.08 3 3 0 0 1-.34-5.58 2.5 2.5 0 0 1 1.32-4.24 2.5 2.5 0 0 1 1.98-3A2.5 2.5 0 0 1 9.5 2Z"></path>
-                <path d="M14.5 2A2.5 2.5 0 0 0 12 4.5v15a2.5 2.5 0 0 0 4.96.44 2.5 2.5 0 0 0 2.96-3.08 3 3 0 0 0 .34-5.58 2.5 2.5 0 0 0-1.32-4.24 2.5 2.5 0 0 0-1.98-3A2.5 2.5 0 0 0 14.5 2Z"></path>
-              </svg>
-              <span>思考过程</span>
-            </span>
-            <svg class="p3-thinking-chevron" width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-              <polyline points="9 6 15 12 9 18"></polyline>
-            </svg>
-          </summary>
-          <div class="p3-thinking-detail">${escapeHtml(liveThinking)}</div>
-        </details>
-      `
-      : "";
-    const stepItemsHtml = item.steps.filter(s => s.name !== "thinking").map(s => `
-      <div class="tool-step-item">
-        <div class="tool-step-left">
-          <svg class="tool-puzzle-icon" width="13" height="13" viewBox="0 0 24 24" fill="currentColor">
-            <path d="M20.5 11H19V7c0-1.1-.9-2-2-2h-4V3.5a2.5 2.5 0 0 0-5 0V5H4c-1.1 0-1.99.9-1.99 2v3.8H3.5c1.49 0 2.7 1.21 2.7 2.7s-1.21 2.7-2.7 2.7H2V20c0 1.1.9 2 2 2h3.8v-1.5c0-1.49 1.21-2.7 2.7-2.7s2.7 1.21 2.7 2.7V22H17c1.1 0 2-.9 2-2v-4h1.5a2.5 2.5 0 0 0 0-5z"></path>
-          </svg>
-          <span class="tool-step-name">${escapeHtml(formatToolName(s.name))}</span>
-          ${s.detail ? `<span class="tool-names" style="margin-left:6px;">${escapeHtml(s.detail)}</span>` : ""}
-        </div>
-        ${s.duration ? `<span class="p3-step-dur">${escapeHtml(s.duration)}</span>` : ""}
-      </div>
-    `).join("");
+    const timelineHtml = buildDesktopTimelineHtml(item);
 
     if (isActive) {
       const liveFocus = (item.focusText || "").trim() || "Working";
-      return buildActiveFocusRowHtml(liveFocus, item.startedAt, thinkingHtml, stepItemsHtml, true);
+      return buildActiveFocusRowHtml(liveFocus, item.startedAt, "", timelineHtml, true);
     }
 
     if (window.CompactModePrefs?.shouldCollapseTools?.()) {
@@ -2637,30 +3214,17 @@ function generateItemHtml(item, isRunning, isLastItem, isActivePlan = false) {
       return `<div class="tool-batch-compact-line">📄 已完成 ${totalOps} 项检索与命令操作</div>`;
     }
 
-    const foldedTitle = toolCount === 0
-      ? (typeof t === "function"
-          ? t(`💭 已深度思考${item.thinkingDuration ? ` (${item.thinkingDuration})` : ""}`)
-          : `💭 已深度思考${item.thinkingDuration ? ` (${escapeHtml(item.thinkingDuration)})` : ""}`)
-      : (window.I18n?.isZh?.()
-          ? `⚡ 已思考并执行 <strong>${toolCount}</strong> 项操作`
-          : (window.I18n?.isJa?.()
-              ? `⚡ 思考して <strong>${toolCount}</strong> 件の操作を実行`
-              : `⚡ Thought &amp; executed <strong>${toolCount}</strong> ${toolCount === 1 ? "action" : "actions"}`));
-
+    const summaryText = formatDesktopCompletedSummaryWeb(item);
     return `
-      <details class="tool-batch-accordion">
-        <summary class="tool-batch-summary">
-          <div class="tool-batch-banner">
-            <span class="tool-batch-title">${foldedTitle}</span>
-            ${toolNamesStr ? `<span class="tool-names">(${escapeHtml(toolNamesStr)})</span>` : ''}
-            <svg class="chevron-icon" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
-              <polyline points="6 9 12 15 18 9"></polyline>
-            </svg>
-          </div>
+      <details class="tool-batch-accordion desktop-completed-accordion">
+        <summary class="focus-tool-summary">
+          <span class="tool-batch-completed-text">${escapeHtml(summaryText)}</span>
+          <svg class="focus-tool-chevron" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <polyline points="9 6 15 12 9 18"></polyline>
+          </svg>
         </summary>
-        <div class="tool-batch-expanded">
-          ${thinkingHtml}
-          ${stepItemsHtml}
+        <div class="desktop-tool-expanded">
+          ${timelineHtml}
         </div>
       </details>
     `;
@@ -2917,16 +3481,20 @@ function renderMessages(steps, isRunning = false) {
             const bodyHtml = item.text ? getCachedMarkdown(item.text, { streaming: !!(isRunning && isLastItem) }) : '<span style="color:var(--text-muted);">执行中...</span>';
             patchAgentBodyHtml(bodyEl, bodyHtml);
           } else {
-            const wasOpen = existingEl.querySelector("details")?.open;
-            const wasThinkingOpen = existingEl.querySelector("details.p3-thinking-accordion")?.open;
+            const wasOpen = existingEl.querySelector(":scope > details")?.open ?? existingEl.querySelector("details")?.open;
+            const openKeys = new Set();
+            existingEl.querySelectorAll("details[data-step-key]").forEach(d => {
+              if (d.open) openKeys.add(d.getAttribute("data-step-key"));
+            });
             existingEl.innerHTML = generateItemHtml(item, isRunning, isLastItem, isActivePlan);
             if (wasOpen) {
-              const newDetails = existingEl.querySelector("details");
+              const newDetails = existingEl.querySelector(":scope > details") || existingEl.querySelector("details");
               if (newDetails) newDetails.open = true;
             }
-            if (wasThinkingOpen !== undefined) {
-              const newThinkingDetails = existingEl.querySelector("details.p3-thinking-accordion");
-              if (newThinkingDetails) newThinkingDetails.open = wasThinkingOpen;
+            if (openKeys.size > 0) {
+              existingEl.querySelectorAll("details[data-step-key]").forEach(d => {
+                if (openKeys.has(d.getAttribute("data-step-key"))) d.open = true;
+              });
             }
           }
           hasDOMChanges = true;

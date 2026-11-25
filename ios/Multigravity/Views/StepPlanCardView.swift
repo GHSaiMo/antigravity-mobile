@@ -463,6 +463,8 @@ public struct ActiveFocusToolRowView: View {
     public let focusText: String
     public let startedAt: String?
     public let thinking: String?
+    public let thinkingDuration: String?
+    public let thinkingBlocks: [ThinkingBlockItem]?
     public let toolDetails: [ToolDetailItem]?
     public let fallbackTools: [String]
     public let isExpandable: Bool
@@ -474,6 +476,8 @@ public struct ActiveFocusToolRowView: View {
         focusText: String,
         startedAt: String? = nil,
         thinking: String? = nil,
+        thinkingDuration: String? = nil,
+        thinkingBlocks: [ThinkingBlockItem]? = nil,
         toolDetails: [ToolDetailItem]? = nil,
         fallbackTools: [String] = [],
         isExpandable: Bool = true
@@ -481,6 +485,8 @@ public struct ActiveFocusToolRowView: View {
         self.focusText = focusText
         self.startedAt = startedAt
         self.thinking = thinking
+        self.thinkingDuration = thinkingDuration
+        self.thinkingBlocks = thinkingBlocks
         self.toolDetails = toolDetails
         self.fallbackTools = fallbackTools
         self.isExpandable = isExpandable
@@ -492,6 +498,7 @@ public struct ActiveFocusToolRowView: View {
 
     private var hasDetails: Bool {
         let hasThinking = !(thinking?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ?? true)
+            || !(thinkingBlocks?.isEmpty ?? true)
         return isExpandable && (hasThinking || hasTools)
     }
 
@@ -518,69 +525,14 @@ public struct ActiveFocusToolRowView: View {
             }
             .zIndex(2)
 
-            AccordionRevealContainer(isExpanded: isExpanded && hasDetails, topSpacing: 8) {
-                VStack(alignment: .leading, spacing: 5) {
-                    if let thinking = thinking?.trimmingCharacters(in: .whitespacesAndNewlines), !thinking.isEmpty {
-                        CollapsibleThinkingBlockView(
-                            thinking: thinking,
-                            initiallyExpanded: !hasTools
-                        )
-                    }
-
-                    if let details = toolDetails, !details.isEmpty {
-                        ForEach(Array(details.enumerated()), id: \.offset) { _, detail in
-                            HStack(spacing: 8) {
-                                let isErr = detail.status.lowercased().contains("err") || detail.status.lowercased().contains("fail")
-                                Image(systemName: isErr ? "xmark.circle.fill" : "puzzlepiece.extension.fill")
-                                    .font(.system(size: 11, weight: .semibold))
-                                    .foregroundColor(isErr ? .red : Color(red: 0.3, green: 0.85, blue: 0.4))
-                                VStack(alignment: .leading, spacing: 1) {
-                                    Text(ToolLocalization.localizedName(for: detail.name))
-                                        .font(.system(size: 12, weight: .semibold))
-                                        .foregroundColor(.primary)
-                                        .lineLimit(1)
-                                    if !detail.detail.isEmpty {
-                                        Text(detail.detail)
-                                            .font(.system(size: 10.5, design: .monospaced))
-                                            .foregroundColor(.secondary)
-                                            .lineLimit(2)
-                                    }
-                                }
-                                Spacer(minLength: 4)
-                                if let dur = detail.duration, !dur.isEmpty {
-                                    Text(dur)
-                                        .font(.system(size: 10, design: .monospaced))
-                                        .foregroundColor(.secondary)
-                                        .padding(.horizontal, 5)
-                                        .padding(.vertical, 2)
-                                        .background(Color.secondary.opacity(0.12))
-                                        .clipShape(Capsule())
-                                }
-                            }
-                            .padding(.horizontal, 12)
-                            .padding(.vertical, 7)
-                            .background(Color(uiColor: .tertiarySystemFill).opacity(0.8))
-                            .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
-                        }
-                    } else if !fallbackTools.isEmpty {
-                        ForEach(Array(fallbackTools.enumerated()), id: \.offset) { _, toolName in
-                            HStack(spacing: 8) {
-                                Image(systemName: "puzzlepiece.extension.fill")
-                                    .font(.system(size: 11, weight: .semibold))
-                                    .foregroundColor(Color(red: 0.3, green: 0.85, blue: 0.4))
-                                Text(ToolLocalization.localizedName(for: toolName))
-                                    .font(.system(size: 12, weight: .semibold))
-                                    .foregroundColor(.primary)
-                                    .lineLimit(1)
-                                Spacer()
-                            }
-                            .padding(.horizontal, 12)
-                            .padding(.vertical, 7)
-                            .background(Color(uiColor: .tertiarySystemFill).opacity(0.8))
-                            .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
-                        }
-                    }
-                }
+            AccordionRevealContainer(isExpanded: isExpanded && hasDetails, topSpacing: 4) {
+                DesktopToolTimelineListView(
+                    thinking: thinking,
+                    thinkingDuration: thinkingDuration,
+                    thinkingBlocks: thinkingBlocks,
+                    toolDetails: toolDetails,
+                    fallbackTools: fallbackTools
+                )
             }
             .zIndex(1)
         }

@@ -22,13 +22,40 @@ type SlashCommandMention struct {
 	DefinitionPath string `json:"definitionPath,omitempty"`
 }
 
-// ToolDetailItem describes a single tool call or step inside a folded tools/thinking capsule.
-type ToolDetailItem struct {
-	Name      string `json:"name"`
-	Summary   string `json:"summary,omitempty"`
-	Status    string `json:"status,omitempty"` // "running", "done", "error"
+// ThinkingBlockItem represents one chronological thinking step inside a tools/thinking timeline.
+type ThinkingBlockItem struct {
+	StepIndex int    `json:"stepIndex"`
+	Text      string `json:"text"`
 	Duration  string `json:"duration,omitempty"`
-	StepIndex int    `json:"stepIndex,omitempty"`
+	Status    string `json:"status,omitempty"` // "running", "done"
+}
+
+// ToolDetailItem describes a single tool call or step inside a folded tools/thinking section.
+type ToolDetailItem struct {
+	Name          string `json:"name"`
+	Summary       string `json:"summary,omitempty"`
+	Status        string `json:"status,omitempty"` // "running", "done", "error", "canceled", "rejected", "waiting"
+	Duration      string `json:"duration,omitempty"`
+	StepIndex     int    `json:"stepIndex,omitempty"`
+	Kind          string `json:"kind,omitempty"`          // "read" | "edit" | "terminal" | "search" | "list" | "mcp" | "other"
+	Prefix        string `json:"prefix,omitempty"`        // Desktop verb prefix ("Analyzed", "Edited", "Ran", ...)
+	Title         string `json:"title,omitempty"`         // Clean human-readable target text (never raw JSON)
+	FileURI       string `json:"fileUri,omitempty"`       // file://... or abs path
+	FileName      string `json:"fileName,omitempty"`      // basename for display
+	StartLine     int    `json:"startLine,omitempty"`     // 1-based start line
+	EndLine       int    `json:"endLine,omitempty"`       // 1-based end line
+	Additions     int    `json:"additions,omitempty"`     // diff additions (+N)
+	Deletions     int    `json:"deletions,omitempty"`     // diff deletions (-M)
+	HasDiffStats  bool   `json:"hasDiffStats,omitempty"`  // true when diffStats present
+	NumResults    int    `json:"numResults,omitempty"`    // search/list result count
+	Command       string `json:"command,omitempty"`       // terminal command line
+	Cwd           string `json:"cwd,omitempty"`           // short working dir
+	Output        string `json:"output,omitempty"`        // bounded terminal output tail
+	NumLinesAbove int    `json:"numLinesAbove,omitempty"` // omitted lines above Output
+	ExitCode      *int   `json:"exitCode,omitempty"`      // exit code when known
+	Markdown      string `json:"markdown,omitempty"`      // bounded supplementary markdown
+	ErrorText     string `json:"errorText,omitempty"`     // concise error message
+	IsArtifact    bool   `json:"isArtifact,omitempty"`    // target file is in brain/artifacts dir
 }
 
 // TaskProgressItem represents the latest CORTEX_STEP_TYPE_TASK_BOUNDARY task state.
@@ -68,6 +95,7 @@ type CascadeMessageItem struct {
 	ToolDetails      []ToolDetailItem      `json:"toolDetails,omitempty"`
 	Thinking         string                `json:"thinking,omitempty"`
 	ThinkingDuration string                `json:"thinkingDuration,omitempty"`
+	ThinkingBlocks   []ThinkingBlockItem   `json:"thinkingBlocks,omitempty"`
 	// FocusText is the latest live status summary from update_focus for a tools batch.
 	FocusText string `json:"focusText,omitempty"`
 	// StartedAt is the RFC3339 timestamp when a tools batch started (drives live elapsed timer).
@@ -506,6 +534,87 @@ func (ui *TrajectoryUserInput) ExtractTextAndSlashCommands() (string, []SlashCom
 	return text, mentions
 }
 
+type TrajectoryCommandOutput struct {
+	Full          string `json:"full,omitempty"`
+	Truncated     string `json:"truncated,omitempty"`
+	NumLinesAbove int    `json:"numLinesAbove,omitempty"`
+}
+
+type TrajectoryRunCommand struct {
+	CommandLine         string                   `json:"commandLine"`
+	ProposedCommandLine string                   `json:"proposedCommandLine"`
+	Cwd                 string                   `json:"cwd"`
+	WaitMsBeforeAsync   string                   `json:"waitMsBeforeAsync"`
+	IsDaemon            bool                     `json:"isDaemon,omitempty"`
+	ExitCode            *int                     `json:"exitCode,omitempty"`
+	UserRejected        bool                     `json:"userRejected,omitempty"`
+	CombinedOutput      *TrajectoryCommandOutput `json:"combinedOutput,omitempty"`
+	StdoutOutput        *TrajectoryCommandOutput `json:"stdoutOutput,omitempty"`
+	StderrOutput        *TrajectoryCommandOutput `json:"stderrOutput,omitempty"`
+	StdoutBuffer        string                   `json:"stdoutBuffer,omitempty"`
+	StderrBuffer        string                   `json:"stderrBuffer,omitempty"`
+	StdoutLinesAbove    int                      `json:"stdoutLinesAbove,omitempty"`
+	StderrLinesAbove    int                      `json:"stderrLinesAbove,omitempty"`
+}
+
+type TrajectoryDiffStats struct {
+	Additions int `json:"additions,omitempty"`
+	Deletions int `json:"deletions,omitempty"`
+}
+
+type TrajectoryTitlePart struct {
+	Text string `json:"text,omitempty"`
+	File *struct {
+		URI       string `json:"uri,omitempty"`
+		StartLine int    `json:"startLine,omitempty"`
+		EndLine   int    `json:"endLine,omitempty"`
+	} `json:"file,omitempty"`
+	FileDiff *struct {
+		URI       string               `json:"uri,omitempty"`
+		DiffStats *TrajectoryDiffStats `json:"diffStats,omitempty"`
+	} `json:"fileDiff,omitempty"`
+	Badge *struct {
+		Icon    string `json:"icon,omitempty"`
+		Label   string `json:"label,omitempty"`
+		Tooltip string `json:"tooltip,omitempty"`
+	} `json:"badge,omitempty"`
+	Agent *struct {
+		ConversationID string `json:"conversationId,omitempty"`
+		Title          string `json:"title,omitempty"`
+		Subtitle       string `json:"subtitle,omitempty"`
+	} `json:"agent,omitempty"`
+}
+
+type TrajectoryContentBlock struct {
+	Markdown string `json:"markdown,omitempty"`
+	Terminal *struct {
+		Command       string `json:"command,omitempty"`
+		Cwd           string `json:"cwd,omitempty"`
+		ExitCode      *int   `json:"exitCode,omitempty"`
+		Output        string `json:"output,omitempty"`
+		NumLinesAbove int    `json:"numLinesAbove,omitempty"`
+	} `json:"terminal,omitempty"`
+}
+
+type TrajectoryStepRenderInfo struct {
+	Title          string                   `json:"title,omitempty"`
+	TitlePrefix    string                   `json:"titlePrefix,omitempty"`
+	Markdown       string                   `json:"markdown,omitempty"`
+	Hidden         bool                     `json:"hidden,omitempty"`
+	ShowOnError    bool                     `json:"showOnError,omitempty"`
+	Icon           string                   `json:"icon,omitempty"`
+	AggregationKey string                   `json:"aggregationKey,omitempty"`
+	TitleParts     []TrajectoryTitlePart    `json:"titleParts,omitempty"`
+	ContentBlocks  []TrajectoryContentBlock `json:"contentBlocks,omitempty"`
+}
+
+type TrajectoryPlannerResponse struct {
+	Response         string `json:"response"`
+	Thinking         string `json:"thinking"`
+	RawThinking      string `json:"rawThinking,omitempty"`
+	ThinkingDuration string `json:"thinkingDuration,omitempty"`
+}
+
 type TrajectoryStep struct {
 	Type     string `json:"type"`
 	Status   string `json:"status"`
@@ -531,13 +640,37 @@ type TrajectoryStep struct {
 		Description string `json:"description"`
 		IsDaemon    bool   `json:"isDaemon,omitempty"`
 	} `json:"taskDetails,omitempty"`
-	RunCommand *struct {
-		CommandLine         string `json:"commandLine"`
-		ProposedCommandLine string `json:"proposedCommandLine"`
-		Cwd                 string `json:"cwd"`
-		WaitMsBeforeAsync   string `json:"waitMsBeforeAsync"`
-		IsDaemon            bool   `json:"isDaemon,omitempty"`
-	} `json:"runCommand,omitempty"`
+	RunCommand *TrajectoryRunCommand `json:"runCommand,omitempty"`
+	ViewFile   *struct {
+		AbsolutePathURI string `json:"absolutePathUri,omitempty"`
+		StartLine       int    `json:"startLine,omitempty"`
+		EndLine         int    `json:"endLine,omitempty"`
+	} `json:"viewFile,omitempty"`
+	GrepSearch *struct {
+		Query        string `json:"query,omitempty"`
+		TotalResults int    `json:"totalResults,omitempty"`
+	} `json:"grepSearch,omitempty"`
+	CodeSearch *struct {
+		Query string `json:"query,omitempty"`
+	} `json:"codeSearch,omitempty"`
+	Find *struct {
+		Pattern      string `json:"pattern,omitempty"`
+		TotalResults int    `json:"totalResults,omitempty"`
+	} `json:"find,omitempty"`
+	ListDirectory *struct {
+		DirectoryPathURI string `json:"directoryPathUri,omitempty"`
+		Results          []struct {
+			Name  string `json:"name,omitempty"`
+			IsDir bool   `json:"isDir,omitempty"`
+		} `json:"results,omitempty"`
+	} `json:"listDirectory,omitempty"`
+	SearchWeb *struct {
+		Query  string `json:"query,omitempty"`
+		Domain string `json:"domain,omitempty"`
+	} `json:"searchWeb,omitempty"`
+	ReadURLContent *struct {
+		URL string `json:"url,omitempty"`
+	} `json:"readUrlContent,omitempty"`
 	InvokeSubagent *struct {
 		Subagents []struct {
 			TypeName      string `json:"typeName"`
@@ -549,12 +682,8 @@ type TrajectoryStep struct {
 			ConversationID string `json:"conversationId"`
 		} `json:"results"`
 	} `json:"invokeSubagent,omitempty"`
-	UserInput       *TrajectoryUserInput `json:"userInput"`
-	PlannerResponse *struct {
-		Response         string `json:"response"`
-		Thinking         string `json:"thinking"`
-		ThinkingDuration string `json:"thinkingDuration,omitempty"`
-	} `json:"plannerResponse"`
+	UserInput       *TrajectoryUserInput       `json:"userInput"`
+	PlannerResponse *TrajectoryPlannerResponse `json:"plannerResponse"`
 	SuggestedResponses *struct {
 		Suggestions []string `json:"suggestions"`
 	} `json:"suggestedResponses,omitempty"`
@@ -571,7 +700,8 @@ type TrajectoryStep struct {
 		PageTitle     string `json:"pageTitle,omitempty"`
 	} `json:"captureBrowserScreenshot,omitempty"`
 	CodeAction *struct {
-		IsArtifactFile   bool `json:"isArtifactFile"`
+		IsArtifactFile   bool                 `json:"isArtifactFile"`
+		DiffStats        *TrajectoryDiffStats `json:"diffStats,omitempty"`
 		ArtifactMetadata *struct {
 			Summary         string `json:"summary"`
 			RequestFeedback bool   `json:"requestFeedback"`
@@ -589,7 +719,18 @@ type TrajectoryStep struct {
 				Path *struct {
 					AbsoluteURI string `json:"absoluteUri"`
 				} `json:"path"`
+				Overwrite bool `json:"overwrite,omitempty"`
 			} `json:"createFile"`
+			EditFile *struct {
+				Path *struct {
+					AbsoluteURI string `json:"absoluteUri"`
+				} `json:"path"`
+			} `json:"editFile,omitempty"`
+			DeleteFile *struct {
+				Path *struct {
+					AbsoluteURI string `json:"absoluteUri"`
+				} `json:"path"`
+			} `json:"deleteFile,omitempty"`
 		} `json:"actionSpec"`
 	} `json:"codeAction"`
 	RequestedInteraction *struct {
@@ -651,8 +792,9 @@ type TrajectoryStep struct {
 		ShouldShowModel bool `json:"shouldShowModel"`
 	} `json:"errorMessage"`
 	Error *struct {
-		ShortError string `json:"shortError"`
-		FullError  string `json:"fullError"`
+		UserErrorMessage string `json:"userErrorMessage,omitempty"`
+		ShortError       string `json:"shortError"`
+		FullError        string `json:"fullError"`
 	} `json:"error"`
 	SystemMessage *struct {
 		Content string `json:"content"`
@@ -668,12 +810,7 @@ type TrajectoryStep struct {
 	Generic *struct {
 		Args   map[string]json.RawMessage `json:"args,omitempty"`
 		Result *struct {
-			StepRenderInfo *struct {
-				Title       string `json:"title,omitempty"`
-				TitlePrefix string `json:"titlePrefix,omitempty"`
-				Markdown    string `json:"markdown,omitempty"`
-				Hidden      bool   `json:"hidden,omitempty"`
-			} `json:"stepRenderInfo,omitempty"`
+			StepRenderInfo *TrajectoryStepRenderInfo `json:"stepRenderInfo,omitempty"`
 		} `json:"result,omitempty"`
 	} `json:"generic,omitempty"`
 	Content string `json:"content,omitempty"`

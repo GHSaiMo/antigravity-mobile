@@ -34,18 +34,24 @@
           {
             "name": "view_file",
             "status": "done",
-            "stepIndex": 1
+            "stepIndex": 1,
+            "kind": "read",
+            "prefix": "Analyzed"
           },
           {
             "name": "Ran command",
             "summary": "Ran command",
             "status": "done",
-            "stepIndex": 2
+            "stepIndex": 2,
+            "kind": "terminal",
+            "title": "Ran command"
           },
           {
             "name": "grep_search",
             "status": "done",
-            "stepIndex": 3
+            "stepIndex": 3,
+            "kind": "search",
+            "prefix": "Searched"
           }
         ]
       },
@@ -74,7 +80,9 @@
           {
             "name": "list_dir",
             "status": "done",
-            "stepIndex": 7
+            "stepIndex": 7,
+            "kind": "list",
+            "prefix": "Analyzed"
           }
         ]
       },
@@ -100,7 +108,9 @@
           {
             "name": "find",
             "status": "done",
-            "stepIndex": 9
+            "stepIndex": 9,
+            "kind": "search",
+            "prefix": "Searched"
           }
         ]
       }

@@ -119,6 +119,14 @@ func (p *StreamUpdatePayload) Fingerprint() string {
 		mh.str(lastMsg.FocusText)
 		mh.str(lastMsg.StartedAt)
 		mh.num(lastMsg.ToolCount)
+		mh.num(len(lastMsg.ToolDetails))
+		for i := range lastMsg.ToolDetails {
+			hashToolDetailItem(&mh, &lastMsg.ToolDetails[i])
+		}
+		mh.num(len(lastMsg.ThinkingBlocks))
+		for i := range lastMsg.ThinkingBlocks {
+			hashThinkingBlockItem(&mh, &lastMsg.ThinkingBlocks[i])
+		}
 		for i := range p.Messages {
 			if p.Messages[i].StepPlan != nil {
 				mh.str(p.Messages[i].ID)
@@ -214,7 +222,16 @@ func rawTrajectorySignature(raw *upstreamTrajectoryResp) string {
 	last := steps[n-1]
 	lastContentLen := len(last.Content)
 	if last.PlannerResponse != nil {
-		lastContentLen += len(last.PlannerResponse.Response) + len(last.PlannerResponse.Thinking)
+		lastContentLen += len(last.PlannerResponse.Response) + len(last.PlannerResponse.Thinking) + len(last.PlannerResponse.RawThinking)
+	}
+	if last.RunCommand != nil {
+		lastContentLen += len(last.RunCommand.CommandLine) + len(last.RunCommand.StdoutBuffer) + len(last.RunCommand.StderrBuffer)
+		if last.RunCommand.CombinedOutput != nil {
+			lastContentLen += len(last.RunCommand.CombinedOutput.Full) + len(last.RunCommand.CombinedOutput.Truncated)
+		}
+		if last.RunCommand.StdoutOutput != nil {
+			lastContentLen += len(last.RunCommand.StdoutOutput.Full) + len(last.RunCommand.StdoutOutput.Truncated)
+		}
 	}
 	if last.ToolCall != nil {
 		lastContentLen += len(last.ToolCall.Name) + len(last.ToolCall.ArgumentsJson)
@@ -224,7 +241,13 @@ func rawTrajectorySignature(raw *upstreamTrajectoryResp) string {
 	}
 	if last.Generic != nil && last.Generic.Result != nil && last.Generic.Result.StepRenderInfo != nil {
 		ri := last.Generic.Result.StepRenderInfo
-		lastContentLen += len(ri.Title) + len(ri.Markdown)
+		lastContentLen += len(ri.Title) + len(ri.Markdown) + len(ri.TitleParts) + len(ri.ContentBlocks)
+		for _, cb := range ri.ContentBlocks {
+			if cb.Terminal != nil {
+				lastContentLen += len(cb.Terminal.Output) + len(cb.Terminal.Command)
+			}
+			lastContentLen += len(cb.Markdown)
+		}
 	}
 	if last.TaskDetails != nil {
 		lastContentLen += len(last.TaskDetails.Description)

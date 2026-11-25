@@ -28,7 +28,7 @@
   - 引入原子化滚动钉选与 `Equatable` Markdown 块，彻底消除长回复流式输出时的下半屏闪烁；新增桌面图标 **主屏快捷操作（Home Screen Quick Actions）**与统一 Deep Link 路由、原生 App Store 评价提醒、取消归档平滑退出动画与折叠面板严格边界裁剪。
 - 🚀 **全面对齐 Antigravity 2.35.0 协议与核心交互升级（Go / iOS / Android / Web）**：
   - 对齐 **Antigravity 2.35.0** RPC 基线：新增**会话归档与取消归档**、运行中轮次模型切换提示、插件权限撤销、队列阻塞原因标签、限定范围写入审批、Swarm 协作板分页、**运行中 Swarm 蜂群自动置顶 + 像素蜜蜂徽标**、子代理分组及真实运行模型解析、HTML 预览页内查找（Find in Page）与 `/btw` 搜索路由；同步上线历史预加载上限控制、内部会话文件只读保护与 Auto / Turbo 预设解耦；
-  - 用原生可展开 `Working` 进度行取代旧版思考气泡且默认折叠思考过程；重做 **`/btw` 旁问分支**；升级 **`ask_question` 多选交互**与标题徽标并修复第 5 选项问题；重做 **GitHub 仓库克隆**（本地目录选择器、原地新建目录、异步进度条与自动注册项目）；将 Orchestrator 变体收入 Neon / Carbon / Argon 子菜单并在模型选择器内直览池配额；保留 `Leaving Soon` 模型可选，仅过滤已不可用模型。
+  - 用原生可展开 `Working` 进度行取代旧版思考气泡，并将**工具调用下拉列表与已完成态收起栏全面原生对齐 Antigravity 电脑客户端**（极简无边框单行列表、按真实时间线穿插思考过程、解析 `stepRenderInfo` 告别原始 JSON 裸露、文件行点按直达预览、命令行二级展开紧凑终端卡与输出复制）；重做 **`/btw` 旁问分支**；升级 **`ask_question` 多选交互**与标题徽标并修复第 5 选项问题；重做 **GitHub 仓库克隆**（本地目录选择器、原地新建目录、异步进度条与自动注册项目）；将 Orchestrator 编排器按 `Orch + 模型名` 聚合为一级菜单、思考强度收进二级菜单并默认首选 `High`，同时在模型选择器内直览池配额；保留 `Leaving Soon` 模型可选，仅过滤已不可用模型。
 - 🛡️ **高危审批 Diff 预检、收件箱置顶、停滞告警与锁屏快批（Go / iOS / Android / Web）**：
   - 新增 **Agent Inbox 审批置顶**、任务长时间停滞告警与独立可定制**通知偏好子页**（支持精细化开关各类告警，缓存未命中审计默认转入后台静默模式）；
   - 高危命令审批新增摘要头、紧凑可折叠代码 Diff 预览与醒目高危推送标题；新增 iOS 锁屏快捷审批按钮与高危锁屏审批防护，并修复排队消息在竞态下静默丢失的问题。
@@ -37,7 +37,7 @@
   - 新增**双级图片预览**（解决缩略图锁定无法加载高清原图问题），并在 HTML / Generative UI 预览中完整注入主题 Token；
   - 上下文指示器新增**会话 Token 汇总与压缩上限提示**，Token 历史满 1 小时自动刷新，合并 Gemini 池后自动抑制镜像 Argon 重复配额与重复告警，修复满额无 `resetTime` 误判与双端模型用量分布表对齐。
 - 📦 **全端版本号对齐**：
-  - Android `1.2.7`（Version Code `38`）；iOS `1.2.7`（Build `38`）；桌面/服务端网关 `mgy` `1.2.7`。
+  - Android `1.2.7`（Version Code `39`）；iOS `1.2.7`（Build `39`）；桌面/服务端网关 `mgy` `1.2.7`。
 
 ---
 
@@ -58,7 +58,7 @@
   - Eliminated lower-screen streaming flicker via atomic scroll pinning and equatable Markdown blocks; added **Home Screen Quick Actions** & unified deep-link shortcuts, delight-triggered native App Store review prompts, smooth unarchive exit animations, and strict inline accordion clipping.
 - 🚀 **Antigravity 2.35.0 Protocol Alignment & Core Interaction Upgrades (Go / iOS / Android / Web)**:
   - Aligned with the **Antigravity 2.35.0** RPC baseline: **conversation archiving**, running-turn model picker hints, plugin permission grant revocation, queue blocker labels, scoped write approvals, Swarm board paging, **running Swarm session bubbling to top with pixel bee badges**, subagent grouping & actual runtime model resolution, HTML preview Find-in-Page, and `/btw` search routing; plus capped history preload, internal session file protection, and decoupled Auto/Turbo presets;
-  - Replaced legacy thinking bubbles with a native expandable `Working` row and collapsed thinking disclosure by default; redesigned **`/btw` side-question branches**; added **`ask_question` multi-select**, title badges, and option 5 fix; redesigned **GitHub repo cloning** with a local directory picker, in-place mkdir, async progress, and automatic workspace registration; folded Orchestrator variants into Neon/Carbon/Argon submenus with inline pool quota in the model picker; kept `Leaving Soon` models selectable and filtered only unavailable ones.
+  - Replaced legacy thinking bubbles with a native expandable `Working` row and **natively aligned the tool-step dropdown and completed summary row with the Antigravity desktop client** (borderless single-line step rows, chronological inline thinking blocks, structured `stepRenderInfo` file/diff/search parsing with zero raw JSON, tap-to-preview files, and expandable terminal output cards with copy); redesigned **`/btw` side-question branches**; added **`ask_question` multi-select**, title badges, and option 5 fix; redesigned **GitHub repo cloning** with a local directory picker, in-place mkdir, async progress, and automatic workspace registration; grouped Orchestrator variants under `Orch + model` with an effort submenu defaulting to `High` and inline pool quota in the model picker; kept `Leaving Soon` models selectable and filtered only unavailable ones.
 - 🛡️ **High-Risk Approval Diff Preview, Inbox Pinning, Stall Alerts & Lock-Screen Guard (Go / iOS / Android / Web)**:
   - Added **Agent Inbox approval pinning**, task stall alerts, and a dedicated customizable **Notification Preferences** subpage (with prompt cache-miss auditing defaulted silently in the background);
   - Added high-risk approval summaries, compact collapsible diff previews, distinct high-risk push titles, iOS lock-screen quick approval actions with high-risk guards, and protection against silent queued message loss.
@@ -67,7 +67,7 @@
   - Added **dual-tier image previews** (fixing thumbnail lock-in) and full Generative UI theme token injection inside HTML previews and embeds;
   - Added **session token summaries & compaction ceiling hints** to the context meter, 1-hour auto-refresh for token history, mirrored Argon quota/alert deduplication after Gemini pool merge, ready-state handling for full quotas without `resetTime`, and aligned mobile model usage breakdown sheets.
 - 📦 **Version Alignment**:
-  - Android `1.2.7` (Version Code `38`); iOS `1.2.7` (Build `38`); desktop/server gateway `mgy` `1.2.7`.
+  - Android `1.2.7` (Version Code `39`); iOS `1.2.7` (Build `39`); desktop/server gateway `mgy` `1.2.7`.
 
 ---
 
@@ -78,7 +78,7 @@
 
 - 🌍 **全クライアント 3 言語完全磨き込み・デスクトップ Web 自動言語切替＆デバイス別言語プッシュ**：デスクトップワークベンチ（`/`）とペアリング画面がブラウザの `Accept-Language` に応じて **日本語 / English / 简体中文** を自動判別し、サイドバー下部に言語スイッチャーを追加（英語は公式原文を維持し、日本語ローカル層と 3 言語クォータ要約を新設）。PWA Web（`/?view=pwa`）でも設定画面から永続的な言語切替が可能になり（1,930 項目の日英対称辞書＋チャット本文保護）、ゲートウェイの APNs / FCM / Live Activity 通知も各端末のアプリ言語ごとに個別ローカライズされます。iOS・Android 全画面の 3 言語表記漏れ・はみ出し・音声トラブルシュート案内も一括修正しました。
 - 📱 **iPhone Duo 折りたたみネイティブ対応＆iOS ストリーミング刷新**：**iPhone Duo**（iOS 27.1+）のカバー画面縦レール・中央タイトル、展開時 342pt 2 ペイン作業台、**Book 90° 姿勢での物理折り目揃え**（`ReservedRegion(.division)`）、および開閉・回転時のライブセッション継続に対応。さらにアトミックなスクロール固定と `Equatable` Markdown ブロックによりストリーミング時の画面下部ちらつきを解消し、ホーム画面クイックアクションやディープリンク、滑らかなアーカイブ解除アニメーションも追加しました。
-- 🚀 **Antigravity 2.35.0 準拠＆コア操作の全面アップグレード**：**会話アーカイブ**、実行中ターンのモデル案内、プラグイン権限の取り消し、キュー待機理由ラベル、スコープ付き書き込み承認、Swarm ページング＆**稼働中 Swarm セッションの最上位表示＋ドット絵ミツバチバッジ**、サブエージェントの実稼働モデル表示、HTML ページ内検索（Find in Page）に対応。従来の思考バブルをネイティブな展開式 `Working` 行へ刷新し、`/btw` サイド質問ブランチ、`ask_question` 複数選択、ローカルディレクトリ選択＆フォルダ作成付き GitHub リポジトリクローン、モデル選択内のプール残量表示も搭載しました。
+- 🚀 **Antigravity 2.35.0 準拠＆コア操作の全面アップグレード**：**会話アーカイブ**、実行中ターンのモデル案内、プラグイン権限の取り消し、キュー待機理由ラベル、スコープ付き書き込み承認、Swarm ページング＆**稼働中 Swarm セッションの最上位表示＋ドット絵ミツバチバッジ**、サブエージェントの実稼働モデル表示、HTML ページ内検索（Find in Page）に対応。従来の思考バブルをネイティブな展開式 `Working` 行へ刷新し、**ツール実行ドロップダウンと完了サマリー行を Antigravity デスクトップ版ネイティブ表示へ完全統一**（枠線なしのコンパクト行・時系列思考ブロック・構造化ファイル／Diff 表示＆タッププレビュー・展開式ターミナル出力カード）。さらに `/btw` サイド質問ブランチ、`ask_question` 複数選択、ローカルディレクトリ選択＆フォルダ作成付き GitHub リポジトリクローン、Orchestrator の思考強度サブメニュー（既定 `High`）＆プール残量表示も搭載しました。
 - 🛡️ **高リスク承認 Diff プレビュー・受信トレイ固定・停滞アラート＆ロック画面クイック承認**：Agent Inbox の承認ピン留め、タスク停滞アラート、カテゴリ別**通知設定サブページ**を追加。高リスクコマンド承認には要約ヘッダーと折りたたみ式 Diff プレビュー、高リスク専用通知タイトル、iOS ロック画面クイック承認と誤操作ガードを備え、キュー送信メッセージの消失も防止します。
 - ⚡ **E2EE `req-bin2` ストリーミング添付アップロード＆クォータ／コンテキスト改善**：Go / iOS / Android 間で実進捗・冪等リトライ付きの E2EE ストリーミングアップロードへ移行し、2 段階高解像度画像プレビュー、Generative UI フルテーマトークン注入、コンテキストメーターのトークン集計＆圧縮上限ガイド、1 時間ごとのトークン履歴自動更新、Gemini プール統合後の重複 Argon 通知抑制を実装しました。
-- 📦 **バージョン統一**：iOS `1.2.7` (Build `38`) / Android `1.2.7` (Version Code `38`) / ゲートウェイ `mgy` `1.2.7`。
+- 📦 **バージョン統一**：iOS `1.2.7` (Build `39`) / Android `1.2.7` (Version Code `39`) / ゲートウェイ `mgy` `1.2.7`。

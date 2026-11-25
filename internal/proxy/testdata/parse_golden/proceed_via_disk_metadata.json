@@ -31,8 +31,14 @@
         "toolDetails": [
           {
             "name": "code_action",
+            "summary": "doc.md",
             "status": "done",
-            "stepIndex": 1
+            "stepIndex": 1,
+            "kind": "edit",
+            "prefix": "Created",
+            "fileUri": "file://{{HOME}}/brain/doc.md",
+            "fileName": "doc.md",
+            "isArtifact": true
           }
         ]
       }

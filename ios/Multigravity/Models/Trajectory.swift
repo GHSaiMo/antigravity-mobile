@@ -740,6 +740,7 @@ public struct ChatMessage: Identifiable, Hashable, Sendable, Codable {
     public let errorKind: String?
     public let isOverflow: Bool?
     public let thinkingDuration: String?
+    public let thinkingBlocks: [ThinkingBlockItem]?
     public let toolDetails: [ToolDetailItem]?
     
     public enum MessageSender: Hashable, Sendable, Codable {
@@ -827,6 +828,7 @@ public struct ChatMessage: Identifiable, Hashable, Sendable, Codable {
         errorKind: String? = nil,
         isOverflow: Bool? = nil,
         thinkingDuration: String? = nil,
+        thinkingBlocks: [ThinkingBlockItem]? = nil,
         toolDetails: [ToolDetailItem]? = nil
     ) {
         self.model = model
@@ -842,6 +844,7 @@ public struct ChatMessage: Identifiable, Hashable, Sendable, Codable {
         self.errorKind = errorKind
         self.isOverflow = isOverflow
         self.thinkingDuration = thinkingDuration
+        self.thinkingBlocks = thinkingBlocks
         self.toolDetails = toolDetails
         self.id = id
         self.sender = sender

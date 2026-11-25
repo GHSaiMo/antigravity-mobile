@@ -23,12 +23,16 @@
         "toolDetails": [
           {
             "name": "run_command",
-            "status": "done"
+            "status": "waiting",
+            "kind": "terminal",
+            "prefix": "Run"
           },
           {
             "name": "run_command",
-            "status": "done",
-            "stepIndex": 1
+            "status": "waiting",
+            "stepIndex": 1,
+            "kind": "terminal",
+            "prefix": "Run"
           }
         ]
       }

@@ -38,36 +38,52 @@
             "name": "run_command",
             "summary": "dev server",
             "status": "running",
-            "stepIndex": 1
+            "stepIndex": 1,
+            "kind": "terminal",
+            "prefix": "Running",
+            "title": "dev server",
+            "command": "npm run dev"
           },
           {
             "name": "run_command",
             "summary": "go test ./...",
             "status": "running",
-            "stepIndex": 2
+            "stepIndex": 2,
+            "kind": "terminal",
+            "prefix": "Running",
+            "command": "go test ./..."
           },
           {
             "name": "run_command",
             "summary": "make build",
             "status": "running",
-            "stepIndex": 3
+            "stepIndex": 3,
+            "kind": "terminal",
+            "prefix": "Running",
+            "command": "make build"
           },
           {
             "name": "browser_subagent",
-            "summary": "{\"url\":\"x\"}",
             "status": "running",
-            "stepIndex": 4
+            "stepIndex": 4,
+            "kind": "terminal",
+            "prefix": "Running"
           },
           {
             "name": "Waiting on build",
             "summary": "Waiting on build",
             "status": "running",
-            "stepIndex": 5
+            "stepIndex": 5,
+            "kind": "terminal",
+            "prefix": "Running",
+            "title": "Waiting on build"
           },
           {
             "name": "run_command",
             "status": "running",
-            "stepIndex": 6
+            "stepIndex": 6,
+            "kind": "terminal",
+            "prefix": "Running"
           }
         ],
         "startedAt": "2026-01-01T00:00:00Z"

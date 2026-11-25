@@ -270,13 +270,9 @@ func TestRawTrajectorySignature(t *testing.T) {
 
 	// New step added should change signature
 	resp2.Trajectory.Steps = append(resp2.Trajectory.Steps, TrajectoryStep{
-		Type:   "CORTEX_STEP_TYPE_PLANNER_RESPONSE",
-		Status: "CORTEX_STEP_STATUS_RUNNING",
-		PlannerResponse: &struct {
-			Response         string `json:"response"`
-			Thinking         string `json:"thinking"`
-			ThinkingDuration string `json:"thinkingDuration,omitempty"`
-		}{Response: "working..."},
+		Type:            "CORTEX_STEP_TYPE_PLANNER_RESPONSE",
+		Status:          "CORTEX_STEP_STATUS_RUNNING",
+		PlannerResponse: &TrajectoryPlannerResponse{Response: "working..."},
 	})
 	sig3 := rawTrajectorySignature(&resp2)
 	if sig3 == sig1 {

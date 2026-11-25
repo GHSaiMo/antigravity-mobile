@@ -44,12 +44,65 @@ public enum JSONValue: Codable, Hashable, Sendable {
     }
 }
 
+public struct ThinkingBlockItem: Codable, Hashable, Sendable {
+    public let stepIndex: Int
+    public let text: String
+    public let duration: String?
+    public let status: String?
+
+    public init(
+        stepIndex: Int = 0,
+        text: String = "",
+        duration: String? = nil,
+        status: String? = nil
+    ) {
+        self.stepIndex = stepIndex
+        self.text = text
+        self.duration = duration
+        self.status = status
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case stepIndex
+        case text
+        case duration
+        case status
+    }
+
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        self.stepIndex = try c.decodeIfPresent(Int.self, forKey: .stepIndex) ?? 0
+        self.text = try c.decodeIfPresent(String.self, forKey: .text) ?? ""
+        self.duration = try c.decodeIfPresent(String.self, forKey: .duration)
+        self.status = try c.decodeIfPresent(String.self, forKey: .status)
+    }
+}
+
 public struct ToolDetailItem: Codable, Hashable, Sendable {
     public let name: String
     public let summary: String
     public let status: String
     public let duration: String?
     public let stepIndex: Int?
+    public let kind: String?
+    public let prefix: String?
+    public let title: String?
+    public let fileUri: String?
+    public let fileName: String?
+    public let startLine: Int?
+    public let endLine: Int?
+    public let additions: Int?
+    public let deletions: Int?
+    public let hasDiffStats: Bool?
+    public let numResults: Int?
+    public let command: String?
+    public let cwd: String?
+    public let output: String?
+    public let numLinesAbove: Int?
+    public let exitCode: Int?
+    public let markdown: String?
+    public let errorText: String?
+    public let isArtifact: Bool?
 
     /// UI display alias; gateway JSON sends `summary` (and omits empty fields).
     public var detail: String { summary }
@@ -61,6 +114,25 @@ public struct ToolDetailItem: Codable, Hashable, Sendable {
         case status
         case duration
         case stepIndex
+        case kind
+        case prefix
+        case title
+        case fileUri
+        case fileName
+        case startLine
+        case endLine
+        case additions
+        case deletions
+        case hasDiffStats
+        case numResults
+        case command
+        case cwd
+        case output
+        case numLinesAbove
+        case exitCode
+        case markdown
+        case errorText
+        case isArtifact
     }
 
     public init(
@@ -69,13 +141,51 @@ public struct ToolDetailItem: Codable, Hashable, Sendable {
         detail: String = "",
         status: String = "",
         duration: String? = nil,
-        stepIndex: Int? = nil
+        stepIndex: Int? = nil,
+        kind: String? = nil,
+        prefix: String? = nil,
+        title: String? = nil,
+        fileUri: String? = nil,
+        fileName: String? = nil,
+        startLine: Int? = nil,
+        endLine: Int? = nil,
+        additions: Int? = nil,
+        deletions: Int? = nil,
+        hasDiffStats: Bool? = nil,
+        numResults: Int? = nil,
+        command: String? = nil,
+        cwd: String? = nil,
+        output: String? = nil,
+        numLinesAbove: Int? = nil,
+        exitCode: Int? = nil,
+        markdown: String? = nil,
+        errorText: String? = nil,
+        isArtifact: Bool? = nil
     ) {
         self.name = name
         self.summary = !summary.isEmpty ? summary : detail
         self.status = status
         self.duration = duration
         self.stepIndex = stepIndex
+        self.kind = kind
+        self.prefix = prefix
+        self.title = title
+        self.fileUri = fileUri
+        self.fileName = fileName
+        self.startLine = startLine
+        self.endLine = endLine
+        self.additions = additions
+        self.deletions = deletions
+        self.hasDiffStats = hasDiffStats
+        self.numResults = numResults
+        self.command = command
+        self.cwd = cwd
+        self.output = output
+        self.numLinesAbove = numLinesAbove
+        self.exitCode = exitCode
+        self.markdown = markdown
+        self.errorText = errorText
+        self.isArtifact = isArtifact
     }
 
     public init(from decoder: Decoder) throws {
@@ -87,6 +197,25 @@ public struct ToolDetailItem: Codable, Hashable, Sendable {
         self.status = try c.decodeIfPresent(String.self, forKey: .status) ?? ""
         self.duration = try c.decodeIfPresent(String.self, forKey: .duration)
         self.stepIndex = try c.decodeIfPresent(Int.self, forKey: .stepIndex)
+        self.kind = try c.decodeIfPresent(String.self, forKey: .kind)
+        self.prefix = try c.decodeIfPresent(String.self, forKey: .prefix)
+        self.title = try c.decodeIfPresent(String.self, forKey: .title)
+        self.fileUri = try c.decodeIfPresent(String.self, forKey: .fileUri)
+        self.fileName = try c.decodeIfPresent(String.self, forKey: .fileName)
+        self.startLine = try c.decodeIfPresent(Int.self, forKey: .startLine)
+        self.endLine = try c.decodeIfPresent(Int.self, forKey: .endLine)
+        self.additions = try c.decodeIfPresent(Int.self, forKey: .additions)
+        self.deletions = try c.decodeIfPresent(Int.self, forKey: .deletions)
+        self.hasDiffStats = try c.decodeIfPresent(Bool.self, forKey: .hasDiffStats)
+        self.numResults = try c.decodeIfPresent(Int.self, forKey: .numResults)
+        self.command = try c.decodeIfPresent(String.self, forKey: .command)
+        self.cwd = try c.decodeIfPresent(String.self, forKey: .cwd)
+        self.output = try c.decodeIfPresent(String.self, forKey: .output)
+        self.numLinesAbove = try c.decodeIfPresent(Int.self, forKey: .numLinesAbove)
+        self.exitCode = try c.decodeIfPresent(Int.self, forKey: .exitCode)
+        self.markdown = try c.decodeIfPresent(String.self, forKey: .markdown)
+        self.errorText = try c.decodeIfPresent(String.self, forKey: .errorText)
+        self.isArtifact = try c.decodeIfPresent(Bool.self, forKey: .isArtifact)
     }
 
     public func encode(to encoder: Encoder) throws {
@@ -100,6 +229,25 @@ public struct ToolDetailItem: Codable, Hashable, Sendable {
         }
         try c.encodeIfPresent(duration, forKey: .duration)
         try c.encodeIfPresent(stepIndex, forKey: .stepIndex)
+        try c.encodeIfPresent(kind, forKey: .kind)
+        try c.encodeIfPresent(prefix, forKey: .prefix)
+        try c.encodeIfPresent(title, forKey: .title)
+        try c.encodeIfPresent(fileUri, forKey: .fileUri)
+        try c.encodeIfPresent(fileName, forKey: .fileName)
+        try c.encodeIfPresent(startLine, forKey: .startLine)
+        try c.encodeIfPresent(endLine, forKey: .endLine)
+        try c.encodeIfPresent(additions, forKey: .additions)
+        try c.encodeIfPresent(deletions, forKey: .deletions)
+        try c.encodeIfPresent(hasDiffStats, forKey: .hasDiffStats)
+        try c.encodeIfPresent(numResults, forKey: .numResults)
+        try c.encodeIfPresent(command, forKey: .command)
+        try c.encodeIfPresent(cwd, forKey: .cwd)
+        try c.encodeIfPresent(output, forKey: .output)
+        try c.encodeIfPresent(numLinesAbove, forKey: .numLinesAbove)
+        try c.encodeIfPresent(exitCode, forKey: .exitCode)
+        try c.encodeIfPresent(markdown, forKey: .markdown)
+        try c.encodeIfPresent(errorText, forKey: .errorText)
+        try c.encodeIfPresent(isArtifact, forKey: .isArtifact)
     }
 }
 

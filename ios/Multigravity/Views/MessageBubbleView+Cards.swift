@@ -15,6 +15,8 @@ extension MessageBubbleView {
             focusText: resolvedFocus,
             startedAt: message.startedAt,
             thinking: message.thinking,
+            thinkingDuration: message.thinkingDuration,
+            thinkingBlocks: message.thinkingBlocks,
             toolDetails: message.toolDetails,
             fallbackTools: resolvedFallbackTools,
             isExpandable: true

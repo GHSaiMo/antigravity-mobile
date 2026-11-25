@@ -31,8 +31,14 @@
         "toolDetails": [
           {
             "name": "code_action",
+            "summary": "notes.md",
             "status": "done",
-            "stepIndex": 1
+            "stepIndex": 1,
+            "kind": "edit",
+            "prefix": "Created",
+            "fileUri": "file:///p/brain/x/scratch/notes.md",
+            "fileName": "notes.md",
+            "isArtifact": true
           }
         ]
       }
