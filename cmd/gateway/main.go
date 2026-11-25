@@ -949,7 +949,7 @@ func runHelpCmd() {
 
 常用子命令:
   run (默认)        启动网关服务 (局域网直连 + Cloudflare 专属 HTTPS 隧道)
-  pair              向正在运行的网关申请并打印新配对二维码与链接
+  pair              向正在运行的网关申请并打印新配对二维码与链接 (支持 -copy / -uri)
   cockpit           交互式配置 Cockpit 报表服务与安全 Token (支持 status/token/restart)
   cloudflare (cf)   交互式配置 Cloudflare 专属穿透隧道与域名 (支持 status/reset/enable)
   lan               交互式配置局域网安全配对策略 (支持 status/trust/pair)
@@ -978,7 +978,7 @@ Usage:
 
 Common Subcommands:
   run (default)     Start gateway service (Direct LAN + Cloudflare exclusive HTTPS tunnel)
-  pair              Request and print a new pairing QR code and link
+  pair              Request and print a new pairing QR code and link (supports -copy / -uri)
   cockpit           Interactively configure Cockpit report service & token (supports status/token/restart)
   cloudflare (cf)   Interactively configure Cloudflare tunnel & domain (supports status/reset/enable)
   lan               Interactively configure LAN pairing security policy (supports status/trust/pair)
@@ -1006,9 +1006,15 @@ func runPairCmd(args []string) {
 	fs := flag.NewFlagSet("pair", flag.ExitOnError)
 	port := defaultPort()
 	portFlag := fs.Int("port", port, i18n.T("网关端口", "Gateway port"))
+	copyFlag := fs.Bool("copy", false, i18n.T("将生成的配对链接复制到系统剪贴板", "Copy the generated pairing URI to the system clipboard"))
+	copyShortFlag := fs.Bool("c", false, i18n.T("-copy 的简写", "Shorthand for -copy"))
+	uriOnlyFlag := fs.Bool("uri", false, i18n.T("仅输出纯净单行配对 URI（不打印二维码）", "Print only the raw single-line pairing URI without the QR code"))
 	_ = fs.Parse(args)
 
 	targetPort := *portFlag
+	shouldCopy := *copyFlag || *copyShortFlag
+	uriOnly := *uriOnlyFlag
+
 	adminToken := auth.GetAdminToken()
 	if adminToken == "" {
 		if path, _, err := auth.EnsureAdminToken(false); err == nil && path != "" {
@@ -1059,7 +1065,48 @@ func runPairCmd(args []string) {
 		os.Exit(1)
 	}
 
-	auth.PrintRawPairingQRCode(sessionResp.Code, sessionResp.URI)
+	outputPairingSession(os.Stdout, os.Stderr, sessionResp.Code, sessionResp.URI, uriOnly, shouldCopy, copyTextToClipboard)
+}
+
+func outputPairingSession(
+	out io.Writer,
+	errOut io.Writer,
+	code string,
+	uri string,
+	uriOnly bool,
+	copyClip bool,
+	copyFn func(string) error,
+) {
+	if uriOnly {
+		fmt.Fprintln(out, uri)
+	} else if out == os.Stdout {
+		auth.PrintRawPairingQRCode(code, uri)
+	} else {
+		fmt.Fprintf(out, "code=%s\nuri=%s\n", code, uri)
+	}
+
+	if !copyClip {
+		return
+	}
+	if copyFn == nil {
+		copyFn = copyTextToClipboard
+	}
+	statusWriter := out
+	if uriOnly {
+		// Keep stdout strictly pure single-line URI when -uri is requested.
+		statusWriter = errOut
+	}
+	if err := copyFn(uri); err != nil {
+		fmt.Fprintf(errOut, i18n.T(
+			"  ⚠️  未能写入剪贴板: %v（请手动复制上方配对 URI）\n\n",
+			"  ⚠️  Could not copy to clipboard: %v (please copy the Pairing URI manually)\n\n",
+		), err)
+		return
+	}
+	fmt.Fprint(statusWriter, i18n.T(
+		"  ✅ 配对链接已复制到剪贴板（5分钟内有效，一次性使用）\n\n",
+		"  ✅ Pairing URI copied to clipboard (valid for 5 mins, single-use)\n\n",
+	))
 }
 
 func runListCmd(args []string) {

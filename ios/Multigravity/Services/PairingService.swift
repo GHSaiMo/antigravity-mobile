@@ -131,14 +131,117 @@ public final class PairingService: Sendable {
     
     private init() {}
     
+    private static let supportedPairingSchemes: Set<String> = ["agy", "multigravity", "antigravity"]
+
+    private static func isPairingURIChar(_ scalar: UnicodeScalar) -> Bool {
+        switch scalar.value {
+        case 0x30...0x39, // 0-9
+             0x41...0x5A, // A-Z
+             0x61...0x7A: // a-z
+            return true
+        case 0x2D, 0x2E, 0x5F, 0x7E, // - . _ ~
+             0x25, 0x2B, 0x26, 0x3D, // % + & =
+             0x3A, 0x2F, 0x3F,       // : / ?
+             0x5B, 0x5D:             // [ ] (IPv6 literals)
+            return true
+        default:
+            return false
+        }
+    }
+
+    /// Tolerantly extracts the first pairing URI (`agy://pair?...`, `multigravity://pair?...`,
+    /// or `antigravity://pair?...`) from raw clipboard/terminal text, handling prefixes such as
+    /// `🔗 配对 URI:` and hard line wraps emitted by narrow terminals without absorbing trailing prose.
+    public func extractPairingURI(from rawText: String) -> String? {
+        let normalized = rawText
+            .replacingOccurrences(of: "\r\n", with: "\n")
+            .replacingOccurrences(of: "\r", with: "\n")
+        let lines = normalized.components(separatedBy: "\n")
+        let prefixes = ["agy://pair?", "multigravity://pair?", "antigravity://pair?"]
+
+        var matchLineIndex: Int?
+        var matchRange: Range<String.Index>?
+        for (idx, line) in lines.enumerated() {
+            let lower = line.lowercased()
+            for prefix in prefixes {
+                if let range = lower.range(of: prefix) {
+                    if matchRange == nil || range.lowerBound < matchRange!.lowerBound {
+                        matchLineIndex = idx
+                        matchRange = range
+                    }
+                }
+            }
+            if matchLineIndex != nil {
+                break
+            }
+        }
+
+        guard let startIdx = matchLineIndex, let startRange = matchRange else {
+            return nil
+        }
+
+        let firstLine = lines[startIdx]
+        let lowerFirst = firstLine.lowercased()
+        let offset = lowerFirst.distance(from: lowerFirst.startIndex, to: startRange.lowerBound)
+        guard let originalStart = firstLine.index(firstLine.startIndex, offsetBy: offset, limitedBy: firstLine.endIndex) else {
+            return nil
+        }
+
+        let tail = firstLine[originalStart...]
+        var uriEnd = tail.startIndex
+        while uriEnd < tail.endIndex {
+            let ch = tail[uriEnd]
+            if ch.unicodeScalars.allSatisfy(Self.isPairingURIChar) {
+                uriEnd = tail.index(after: uriEnd)
+            } else {
+                break
+            }
+        }
+
+        var result = String(tail[..<uriEnd])
+        let remainderAfterURI = tail[uriEnd...].trimmingCharacters(in: .whitespacesAndNewlines)
+
+        // Only stitch subsequent lines when the URI ran all the way to the end of the line
+        // (typical terminal hard wrap).
+        if remainderAfterURI.isEmpty {
+            var prevLineLength = firstLine.trimmingCharacters(in: .whitespacesAndNewlines).count
+            var nextIdx = startIdx + 1
+            while nextIdx < lines.count {
+                let rawNext = lines[nextIdx].trimmingCharacters(in: .whitespacesAndNewlines)
+                if rawNext.isEmpty {
+                    break
+                }
+                let isPureURILine = rawNext.unicodeScalars.allSatisfy(Self.isPairingURIChar)
+                if !isPureURILine {
+                    break
+                }
+                let lowerAcc = result.lowercased()
+                let missingCoreParam = !lowerAcc.contains("host=") || !lowerAcc.contains("code=")
+                let looksLikeQueryContinuation = rawNext.hasPrefix("&") || rawNext.contains("=")
+                let likelyTerminalWrap = prevLineLength >= 32
+                if missingCoreParam || looksLikeQueryContinuation || likelyTerminalWrap {
+                    result += rawNext
+                    prevLineLength = rawNext.count
+                    nextIdx += 1
+                } else {
+                    break
+                }
+            }
+        }
+
+        return result.isEmpty ? nil : result
+    }
+
     /// Parses an agy://pair?host=...&port=...&code=...&ssl=... URI string into PairingInfo.
     public func parsePairingURI(_ uriString: String) -> Result<PairingInfo, PairingError> {
-        let trimmed = uriString.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard let url = URL(string: trimmed) else {
+        let candidate = extractPairingURI(from: uriString) ?? uriString.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let url = URL(string: candidate) else {
             return .failure(.invalidURI(String(localized: "无法识别的 URL 格式")))
         }
         
-        guard url.scheme?.lowercased() == "agy" && url.host?.lowercased() == "pair" else {
+        guard let scheme = url.scheme?.lowercased(),
+              Self.supportedPairingSchemes.contains(scheme),
+              url.host?.lowercased() == "pair" else {
             return .failure(.invalidURI(String(localized: "无效的配对协议（需要 agy://pair）")))
         }
         

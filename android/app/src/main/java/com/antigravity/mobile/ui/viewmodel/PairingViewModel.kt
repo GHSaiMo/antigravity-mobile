@@ -45,6 +45,10 @@ class PairingViewModel(
         executePairing(info)
     }
 
+    fun pairWithInfo(info: PairingInfo) {
+        executePairing(info)
+    }
+
     fun pairWithHostAndCode(host: String, port: Int, code: String, ssl: Boolean) {
         var cleanHost = host.trim()
         if (!cleanHost.contains(".") && !cleanHost.contains(":") && !cleanHost.equals("localhost", ignoreCase = true)) {

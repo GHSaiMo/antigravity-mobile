@@ -9,6 +9,7 @@ public struct QRScannerView: View {
     @State private var hasCameraPermission = false
     @State private var isCheckingPermission = true
     @State private var permissionDenied = false
+    @State private var cameraRestricted = false
     @State private var showManualInput = false
     @State private var errorMessage: String? = nil
     
@@ -26,31 +27,89 @@ public struct QRScannerView: View {
                         .tint(.white)
                 } else if permissionDenied {
                     VStack(spacing: 16) {
-                        Image(systemName: "camera.fill")
+                        Image(systemName: cameraRestricted ? "video.slash.fill" : "camera.fill")
                             .font(.system(size: 48))
                             .foregroundColor(.gray)
-                        Text("需要相机权限以扫描配对二维码")
+                        Text(cameraRestricted
+                             ? String(localized: "相机已被设备策略限制")
+                             : String(localized: "需要相机权限以扫描配对二维码"))
                             .font(.headline)
                             .foregroundColor(.white)
-                        Text("请在系统设置中允许 Multigravity 访问相机")
+                            .multilineTextAlignment(.center)
+                            .padding(.horizontal, 24)
+                        Text(cameraRestricted
+                             ? String(localized: "无法使用相机扫码，请直接粘贴电脑终端输出的配对链接完成配对")
+                             : String(localized: "请在系统设置中允许 Multigravity 访问相机，或直接使用配对链接配对"))
                             .font(.subheadline)
                             .foregroundColor(.gray)
                             .multilineTextAlignment(.center)
                             .padding(.horizontal, 32)
                         
-                        Button("打开系统设置") {
-                            if let url = URL(string: UIApplication.openSettingsURLString) {
-                                UIApplication.shared.open(url)
+                        // Quick native PasteButton card: zero permission alert, one tap to pair
+                        HStack(spacing: 12) {
+                            Image(systemName: "doc.on.clipboard.fill")
+                                .font(.system(size: 16))
+                                .foregroundColor(.indigo)
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text("粘贴配对链接")
+                                    .font(.system(size: 14, weight: .semibold))
+                                    .foregroundColor(.white)
+                                Text("一键导入终端输出的 agy://pair 链接")
+                                    .font(.system(size: 11.5))
+                                    .foregroundColor(.white.opacity(0.72))
+                                    .lineLimit(2)
+                                    .fixedSize(horizontal: false, vertical: true)
                             }
+                            Spacer(minLength: 4)
+                            PasteButton(payloadType: String.self) { strings in
+                                handlePastedPayloads(strings)
+                            }
+                            .buttonBorderShape(.capsule)
+                            .controlSize(.small)
+                            .tint(.indigo)
                         }
-                        .buttonStyle(.borderedProminent)
+                        .padding(.horizontal, 14)
+                        .padding(.vertical, 12)
+                        .background(
+                            RoundedRectangle(cornerRadius: 14, style: .continuous)
+                                .fill(Color.white.opacity(0.12))
+                        )
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 14, style: .continuous)
+                                .stroke(Color.white.opacity(0.18), lineWidth: 1)
+                        )
+                        .padding(.horizontal, 28)
                         .padding(.top, 8)
                         
-                        Button("手动输入配对链接") {
-                            showManualInput = true
+                        Button(action: { showManualInput = true }) {
+                            HStack(spacing: 6) {
+                                Image(systemName: "keyboard")
+                                Text("手动输入或粘贴配对链接")
+                            }
+                            .font(.system(size: 14.5, weight: .semibold))
+                            .foregroundColor(.white)
+                            .frame(maxWidth: .infinity)
+                            .padding(.vertical, 12)
+                            .background(cameraRestricted ? Color.indigo : Color.white.opacity(0.16))
+                            .cornerRadius(12)
+                            .overlay(
+                                RoundedRectangle(cornerRadius: 12)
+                                    .stroke(Color.white.opacity(cameraRestricted ? 0 : 0.22), lineWidth: 1)
+                            )
                         }
-                        .foregroundColor(.indigo)
-                        .padding(.top, 4)
+                        .buttonStyle(.plain)
+                        .padding(.horizontal, 28)
+                        
+                        if !cameraRestricted {
+                            Button("打开系统设置") {
+                                if let url = URL(string: UIApplication.openSettingsURLString) {
+                                    UIApplication.shared.open(url)
+                                }
+                            }
+                            .font(.system(size: 14, weight: .medium))
+                            .foregroundColor(.white.opacity(0.85))
+                            .padding(.top, 4)
+                        }
                     }
                 } else {
                     // Camera live viewfinder
@@ -150,19 +209,39 @@ public struct QRScannerView: View {
         switch status {
         case .authorized:
             hasCameraPermission = true
+            cameraRestricted = false
+            permissionDenied = false
             isCheckingPermission = false
         case .notDetermined:
             let granted = await AVCaptureDevice.requestAccess(for: .video)
             hasCameraPermission = granted
+            cameraRestricted = false
             permissionDenied = !granted
             isCheckingPermission = false
-        case .denied, .restricted:
+        case .restricted:
+            cameraRestricted = true
+            permissionDenied = true
+            isCheckingPermission = false
+        case .denied:
+            cameraRestricted = false
             permissionDenied = true
             isCheckingPermission = false
         @unknown default:
+            cameraRestricted = false
             permissionDenied = true
             isCheckingPermission = false
         }
+    }
+
+    private func handlePastedPayloads(_ strings: [String]) {
+        let combined = strings.joined(separator: "\n").trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !combined.isEmpty,
+              let extracted = PairingService.shared.extractPairingURI(from: combined) else {
+            errorMessage = String(localized: "剪贴板中未找到有效的配对链接（需包含 agy://pair）")
+            UINotificationFeedbackGenerator().notificationOccurred(.error)
+            return
+        }
+        handleScannedCode(extracted)
     }
     
     private func handleScannedCode(_ rawCode: String) {

@@ -378,9 +378,9 @@ public struct OnboardingGuideView: View {
                         if let onManualInputTapped {
                             Button(action: onManualInputTapped) {
                                 HStack(spacing: 6) {
-                                    Image(systemName: "keyboard")
+                                    Image(systemName: "link")
                                         .font(.system(size: 13.5, weight: .medium))
-                                    Text("手动输入网关地址或配对链接")
+                                    Text("粘贴配对链接或手动输入")
                                         .font(.system(size: 13.5, weight: .medium))
                                 }
                                 .frame(maxWidth: .infinity)

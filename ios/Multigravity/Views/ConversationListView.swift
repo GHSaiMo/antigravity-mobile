@@ -1,3 +1,4 @@
+import AVFoundation
 import SwiftUI
 
 public struct ConversationListView: View {
@@ -128,7 +129,7 @@ public struct ConversationListView: View {
                     )
                 },
                 onAddGateway: {
-                    showQRScanner = true
+                    openAddGatewayFlow()
                 },
                 onRenameProfile: { profile in
                     gatewayToRename = profile
@@ -328,8 +329,13 @@ public struct ConversationListView: View {
             }
         }
         .alert("请先配对电脑网关", isPresented: $showQuickActionUnpairedAlert) {
-            Button("扫码配对") {
-                showQRScanner = true
+            if AVCaptureDevice.authorizationStatus(for: .video) != .restricted {
+                Button("扫码配对") {
+                    showQRScanner = true
+                }
+            }
+            Button("粘贴或手动配对") {
+                showManualInput = true
             }
             Button("取消", role: .cancel) {}
         } message: {
@@ -1029,7 +1035,7 @@ public struct ConversationListView: View {
                                 )
                             },
                             onAddGateway: {
-                                showQRScanner = true
+                                openAddGatewayFlow()
                             }
                         )
                     },
@@ -1695,6 +1701,14 @@ public struct ConversationListView: View {
         }
     }
     
+    private func openAddGatewayFlow() {
+        if AVCaptureDevice.authorizationStatus(for: .video) == .restricted {
+            showManualInput = true
+        } else {
+            showQRScanner = true
+        }
+    }
+
     private var pendingPairingConfirmText: String {
         guard let info = pendingPairing else {
             return String(localized: "请确认这是你自己的电脑网关，不要配对来历不明的链接。")

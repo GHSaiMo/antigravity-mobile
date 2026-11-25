@@ -37,7 +37,9 @@ import com.antigravity.mobile.data.service.StreamWebSocketClient
 import com.antigravity.mobile.ui.viewmodel.resetSession
 import com.antigravity.mobile.ui.screen.ChatScreen
 import com.antigravity.mobile.ui.screen.ConversationListScreen
+import com.antigravity.mobile.ui.screen.ManualPairingBottomSheet
 import com.antigravity.mobile.ui.screen.PairingScreen
+import com.antigravity.mobile.ui.components.isCameraUnavailableOrRestricted
 import com.antigravity.mobile.ui.theme.AntigravityTheme
 import com.antigravity.mobile.ui.util.loc
 import com.antigravity.mobile.ui.viewmodel.ChatViewModel
@@ -82,12 +84,16 @@ class MainActivity : ComponentActivity() {
     private lateinit var gatewayProfileStore: GatewayProfileStore
 
     private lateinit var qrScanLauncher: ActivityResultLauncher<ScanOptions>
+    private lateinit var cameraPermissionLauncher: ActivityResultLauncher<String>
     private lateinit var notificationPermissionLauncher: ActivityResultLauncher<String>
     private var activeNavController: NavHostController? = null
     private var pendingCascadeId: String? = null
     private var pendingOpenQuota: Boolean = false
     private val dismissModalsTriggerFlow = MutableStateFlow(0)
     private val openQuotaRequestedFlow = MutableStateFlow(false)
+    private val showAddGatewayManualSheetFlow = MutableStateFlow(false)
+    private val openUnpairedManualSignalFlow = MutableStateFlow(0)
+    private val pendingDeepLinkPairFlow = MutableStateFlow<PairingInfo?>(null)
 
     override fun onCreate(savedInstanceState: Bundle?) {
         enableEdgeToEdge()
@@ -209,23 +215,24 @@ class MainActivity : ComponentActivity() {
                     if (info == null) {
                         Toast.makeText(this, "无法识别配对链接，请扫描正确的 agy://pair 二维码".loc, Toast.LENGTH_LONG).show()
                     } else {
-                        Toast.makeText(this, "正在连接并配对新主机...".loc, Toast.LENGTH_SHORT).show()
-                        lifecycleScope.launch {
-                            val pairRes = apiClient.pair(info)
-                            pairRes.onFailure { err ->
-                                Toast.makeText(
-                                    this@MainActivity,
-                                    "配对失败: %s".loc(err.message ?: "请检查网络和网关".loc),
-                                    Toast.LENGTH_LONG
-                                ).show()
-                            }
-                        }
+                        pairAdditionalGateway(info)
                     }
                 } else {
                     pairingViewModel.pairWithUri(scannedContent)
                 }
             } else {
                 Toast.makeText(this, "已取消扫码".loc, Toast.LENGTH_SHORT).show()
+            }
+        }
+
+        // Camera permission gate: fall back directly to manual/paste pairing when denied or restricted.
+        cameraPermissionLauncher = registerForActivityResult(
+            ActivityResultContracts.RequestPermission()
+        ) { isGranted ->
+            if (isGranted) {
+                launchScanner()
+            } else {
+                openManualPairingFallback()
             }
         }
 
@@ -282,6 +289,9 @@ class MainActivity : ComponentActivity() {
                 activeNavController = navController
                 val dismissModalsTrigger by dismissModalsTriggerFlow.collectAsState()
                 val openQuotaRequested by openQuotaRequestedFlow.collectAsState()
+                val showAddGatewayManualSheet by showAddGatewayManualSheetFlow.collectAsState()
+                val openUnpairedManualSignal by openUnpairedManualSignalFlow.collectAsState()
+                val pendingDeepLinkPair by pendingDeepLinkPairFlow.collectAsState()
 
                 LaunchedEffect(navController) {
                     pendingCascadeId?.let { cid ->
@@ -340,7 +350,8 @@ class MainActivity : ComponentActivity() {
                     composable("pair") {
                         PairingScreen(
                             viewModel = pairingViewModel,
-                            onLaunchScanner = { launchScanner() },
+                            onLaunchScanner = { launchScannerOrFallback() },
+                            openManualInputSignal = openUnpairedManualSignal,
                             onPairedSuccess = {
                                 conversationListViewModel.startAutoRefresh()
                                 navController.navigate("conversations") {
@@ -380,7 +391,7 @@ class MainActivity : ComponentActivity() {
                                     }
                                 }
                             },
-                            onAddGateway = { launchScanner() },
+                            onAddGateway = { launchScannerOrFallback() },
                             dismissModalsTrigger = dismissModalsTrigger,
                             openQuotaRequested = openQuotaRequested,
                             onConsumeOpenQuota = { openQuotaRequestedFlow.value = false },
@@ -511,6 +522,84 @@ class MainActivity : ComponentActivity() {
                     }
                 }
                 ShareOverlay(navController)
+
+                if (showAddGatewayManualSheet) {
+                    ManualPairingBottomSheet(
+                        onDismiss = { showAddGatewayManualSheetFlow.value = false },
+                        onPairInfo = { info ->
+                            showAddGatewayManualSheetFlow.value = false
+                            pairAdditionalGateway(info)
+                        },
+                        onPairHostAndCode = { rawHost, port, rawCode, ssl ->
+                            showAddGatewayManualSheetFlow.value = false
+                            var cleanHost = rawHost.trim()
+                            if (!cleanHost.contains(".") && !cleanHost.contains(":") && !cleanHost.equals("localhost", ignoreCase = true)) {
+                                cleanHost = "$cleanHost.jiuge.space"
+                            }
+                            pairAdditionalGateway(
+                                PairingInfo(
+                                    host = cleanHost,
+                                    port = port,
+                                    code = rawCode.trim(),
+                                    ssl = ssl
+                                )
+                            )
+                        }
+                    )
+                }
+
+                pendingDeepLinkPair?.let { info ->
+                    val schemeLabel = if (info.ssl) "HTTPS" else "HTTP"
+                    val gatewayName = info.gatewayDisplayName
+                    val dialogColors = AntigravityTheme.colors
+                    androidx.compose.material3.AlertDialog(
+                        onDismissRequest = { pendingDeepLinkPairFlow.value = null },
+                        title = {
+                            androidx.compose.material3.Text(
+                                text = "确认配对网关".loc,
+                                fontWeight = androidx.compose.ui.text.font.FontWeight.Bold,
+                                color = dialogColors.textPrimary
+                            )
+                        },
+                        text = {
+                            androidx.compose.material3.Text(
+                                text = "目标 %1\$s:%2\$d（%3\$s）。请确认这是你自己的 %4\$s，不要配对来历不明的链接。".loc(
+                                    info.host,
+                                    info.port,
+                                    schemeLabel,
+                                    gatewayName
+                                ),
+                                color = dialogColors.textSecondary
+                            )
+                        },
+                        confirmButton = {
+                            androidx.compose.material3.TextButton(
+                                onClick = {
+                                    pendingDeepLinkPairFlow.value = null
+                                    pairAdditionalGateway(info)
+                                }
+                            ) {
+                                androidx.compose.material3.Text(
+                                    text = "配对".loc,
+                                    color = dialogColors.accentIndigo,
+                                    fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold
+                                )
+                            }
+                        },
+                        dismissButton = {
+                            androidx.compose.material3.TextButton(
+                                onClick = { pendingDeepLinkPairFlow.value = null }
+                            ) {
+                                androidx.compose.material3.Text(
+                                    text = "取消".loc,
+                                    color = dialogColors.textSecondary
+                                )
+                            }
+                        },
+                        containerColor = dialogColors.surface,
+                        shape = androidx.compose.foundation.shape.RoundedCornerShape(14.dp)
+                    )
+                }
                 }
             }
             }
@@ -690,6 +779,40 @@ class MainActivity : ComponentActivity() {
         ShareInbox.release()
     }
 
+    private fun openManualPairingFallback() {
+        if (prefs.isPaired()) {
+            showAddGatewayManualSheetFlow.value = true
+        } else {
+            openUnpairedManualSignalFlow.value = openUnpairedManualSignalFlow.value + 1
+        }
+    }
+
+    private fun launchScannerOrFallback() {
+        if (isCameraUnavailableOrRestricted(this)) {
+            openManualPairingFallback()
+            return
+        }
+        if (ContextCompat.checkSelfPermission(this, Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED) {
+            launchScanner()
+        } else {
+            cameraPermissionLauncher.launch(Manifest.permission.CAMERA)
+        }
+    }
+
+    private fun pairAdditionalGateway(info: PairingInfo) {
+        Toast.makeText(this, "正在连接并配对新主机...".loc, Toast.LENGTH_SHORT).show()
+        lifecycleScope.launch {
+            val pairRes = apiClient.pair(info)
+            pairRes.onFailure { err ->
+                Toast.makeText(
+                    this@MainActivity,
+                    "配对失败: %s".loc(err.message ?: "请检查网络和网关".loc),
+                    Toast.LENGTH_LONG
+                ).show()
+            }
+        }
+    }
+
     private fun launchScanner() {
         val options = ScanOptions().apply {
             setDesiredBarcodeFormats(ScanOptions.QR_CODE)
@@ -743,8 +866,14 @@ class MainActivity : ComponentActivity() {
             ?: intent.getStringExtra(NotificationActionReceiver.EXTRA_GATEWAY_ID)?.trim()?.takeIf { it.isNotEmpty() }
 
         if ((scheme == "agy" || scheme == "multigravity" || scheme == "antigravity") && host == "pair") {
-            // Prevent zero-confirmation silent re-pairing from external BROWSABLE links when already paired.
+            val info = PairingInfo.parseFromUri(uri.toString())
             if (prefs.isPaired()) {
+                // Require explicit confirmation before adding/re-pairing via external BROWSABLE links.
+                if (info != null) {
+                    pendingDeepLinkPairFlow.value = info
+                } else {
+                    Toast.makeText(this, "无法识别配对链接，请扫描正确的 agy://pair 二维码".loc, Toast.LENGTH_LONG).show()
+                }
                 return
             }
             pairingViewModel.pairWithUri(uri.toString())
@@ -789,6 +918,8 @@ class MainActivity : ComponentActivity() {
 
     private fun dismissAllModals() {
         ShareInbox.hideSheet()
+        showAddGatewayManualSheetFlow.value = false
+        pendingDeepLinkPairFlow.value = null
         dismissModalsTriggerFlow.value = dismissModalsTriggerFlow.value + 1
     }
 

@@ -57,8 +57,81 @@ data class PairingInfo(
             return "$scheme$formattedHost:$port"
         }
 
+        private fun isPairingUriChar(ch: Char): Boolean {
+            return ch in '0'..'9' ||
+                ch in 'A'..'Z' ||
+                ch in 'a'..'z' ||
+                ch == '-' || ch == '.' || ch == '_' || ch == '~' ||
+                ch == '%' || ch == '+' || ch == '&' || ch == '=' ||
+                ch == ':' || ch == '/' || ch == '?' ||
+                ch == '[' || ch == ']'
+        }
+
+        /**
+         * Tolerantly extracts the first pairing URI (`agy://pair?...`, `multigravity://pair?...`,
+         * or `antigravity://pair?...`) from raw clipboard/terminal text, handling prefixes such as
+         * `🔗 配对 URI:` and terminal hard line wraps without absorbing trailing prose.
+         */
+        fun extractPairingUri(rawText: String): String? {
+            val normalized = rawText.replace("\r\n", "\n").replace('\r', '\n')
+            val lines = normalized.split('\n')
+            val prefixes = listOf("agy://pair?", "multigravity://pair?", "antigravity://pair?")
+
+            var startLineIdx = -1
+            var startCol = -1
+            for (i in lines.indices) {
+                val lower = lines[i].lowercase()
+                var earliest = -1
+                for (prefix in prefixes) {
+                    val idx = lower.indexOf(prefix)
+                    if (idx >= 0 && (earliest < 0 || idx < earliest)) {
+                        earliest = idx
+                    }
+                }
+                if (earliest >= 0) {
+                    startLineIdx = i
+                    startCol = earliest
+                    break
+                }
+            }
+            if (startLineIdx < 0 || startCol < 0) return null
+
+            val firstLine = lines[startLineIdx]
+            var endCol = startCol
+            while (endCol < firstLine.length && isPairingUriChar(firstLine[endCol])) {
+                endCol++
+            }
+            val sb = StringBuilder(firstLine.substring(startCol, endCol))
+            val remainderAfterUri = firstLine.substring(endCol).trim()
+
+            // Stitch wrapped continuation lines only when the URI reached the end of the line.
+            if (remainderAfterUri.isEmpty()) {
+                var prevLineLength = firstLine.trim().length
+                var nextIdx = startLineIdx + 1
+                while (nextIdx < lines.size) {
+                    val rawNext = lines[nextIdx].trim()
+                    if (rawNext.isEmpty()) break
+                    if (!rawNext.all { isPairingUriChar(it) }) break
+
+                    val accLower = sb.toString().lowercase()
+                    val missingCoreParam = !accLower.contains("host=") || !accLower.contains("code=")
+                    val looksLikeQueryContinuation = rawNext.startsWith("&") || rawNext.contains("=")
+                    val likelyTerminalWrap = prevLineLength >= 32
+                    if (missingCoreParam || looksLikeQueryContinuation || likelyTerminalWrap) {
+                        sb.append(rawNext)
+                        prevLineLength = rawNext.length
+                        nextIdx++
+                    } else {
+                        break
+                    }
+                }
+            }
+
+            return sb.toString().takeIf { it.isNotEmpty() }
+        }
+
         fun parseFromUri(uriString: String): PairingInfo? {
-            val trimmed = uriString.trim()
+            val trimmed = extractPairingUri(uriString) ?: uriString.trim()
             val lower = trimmed.lowercase()
             if (!lower.startsWith("agy://pair") &&
                 !lower.startsWith("multigravity://pair") &&

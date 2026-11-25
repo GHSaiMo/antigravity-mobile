@@ -11,7 +11,8 @@ public struct ManualPairingSheet: View {
     @State private var port: String = "58900"
     @State private var code: String = ""
     @State private var ssl: Bool = false
-    @State private var clipboardURI: String? = nil
+    @State private var parsedPairingInfo: PairingInfo? = nil
+    @State private var parsedSnapshot: (host: String, port: String, code: String, ssl: Bool)? = nil
     @State private var errorMessage: String? = nil
     
     public init(onPair: @escaping (PairingInfo) -> Void) {
@@ -22,44 +23,42 @@ public struct ManualPairingSheet: View {
         NavigationStack {
             ScrollView {
                 VStack(spacing: 18) {
-                    // Quick clipboard paste banner if available
-                    if let clip = clipboardURI {
-                        Button(action: {
-                            handleQuickPair(from: clip)
-                        }) {
-                            HStack(spacing: 10) {
-                                Image(systemName: "doc.on.clipboard.fill")
-                                    .font(.system(size: 16))
-                                    .foregroundColor(.indigo)
-                                
-                                VStack(alignment: .leading, spacing: 2) {
-                                    Text("检测到剪贴板配对链接")
-                                        .font(.system(size: 13.5, weight: .semibold))
-                                        .foregroundColor(.primary)
-                                    Text("点击直接导入参数并立即连接")
-                                        .font(.system(size: 11.5))
-                                        .foregroundColor(.secondary)
-                                }
-                                
-                                Spacer()
-                                
-                                Image(systemName: "arrow.right.circle.fill")
-                                    .font(.system(size: 18))
-                                    .foregroundColor(.indigo)
-                            }
-                            .padding(.horizontal, 14)
-                            .padding(.vertical, 12)
-                            .background(
-                                RoundedRectangle(cornerRadius: 14, style: .continuous)
-                                    .fill(.ultraThinMaterial)
-                            )
-                            .overlay(
-                                RoundedRectangle(cornerRadius: 14, style: .continuous)
-                                    .stroke(Color.indigo.opacity(0.35), lineWidth: 1)
-                            )
+                    // Always-available quick paste row using native PasteButton (zero iOS clipboard permission prompt)
+                    HStack(spacing: 12) {
+                        Image(systemName: "doc.on.clipboard.fill")
+                            .font(.system(size: 16))
+                            .foregroundColor(.indigo)
+                        
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text("粘贴配对链接")
+                                .font(.system(size: 13.5, weight: .semibold))
+                                .foregroundColor(.primary)
+                            Text("一键导入终端输出的 agy://pair 链接")
+                                .font(.system(size: 11.5))
+                                .foregroundColor(.secondary)
+                                .lineLimit(2)
+                                .fixedSize(horizontal: false, vertical: true)
                         }
-                        .buttonStyle(.plain)
+                        
+                        Spacer(minLength: 4)
+                        
+                        PasteButton(payloadType: String.self) { strings in
+                            handlePastedPayloads(strings)
+                        }
+                        .buttonBorderShape(.capsule)
+                        .controlSize(.small)
+                        .tint(.indigo)
                     }
+                    .padding(.horizontal, 14)
+                    .padding(.vertical, 12)
+                    .background(
+                        RoundedRectangle(cornerRadius: 14, style: .continuous)
+                            .fill(.ultraThinMaterial)
+                    )
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 14, style: .continuous)
+                            .stroke(Color.indigo.opacity(0.35), lineWidth: 1)
+                    )
                     
                     // Host input
                     VStack(alignment: .leading, spacing: 6) {
@@ -78,8 +77,8 @@ public struct ManualPairingSheet: View {
                                 .textInputAutocapitalization(.never)
                                 .autocorrectionDisabled()
                                 .onChange(of: host) { _, newVal in
-                                    // If user accidentally pastes an agy:// link directly into host field
-                                    if newVal.lowercased().hasPrefix("agy://pair") {
+                                    // If user pastes an agy:// link (even with prefix/line breaks) into host field
+                                    if PairingService.shared.extractPairingURI(from: newVal) != nil {
                                         parseAndPopulate(from: newVal)
                                     }
                                 }
@@ -157,6 +156,11 @@ public struct ManualPairingSheet: View {
                                 .font(.system(size: 14.5, design: .monospaced))
                                 .textInputAutocapitalization(.never)
                                 .autocorrectionDisabled()
+                                .onChange(of: code) { _, newVal in
+                                    if PairingService.shared.extractPairingURI(from: newVal) != nil {
+                                        parseAndPopulate(from: newVal)
+                                    }
+                                }
                             
                             if !code.isEmpty {
                                 Button(action: { code = "" }) {
@@ -248,10 +252,7 @@ public struct ManualPairingSheet: View {
                 Text(errorMessage ?? "")
             }
         }
-        .onAppear {
-            checkClipboard()
-        }
-        .presentationDetents([.fraction(0.7), .large])
+        .presentationDetents([.fraction(0.72), .large])
         .presentationDragIndicator(.visible)
         .presentationCornerRadius(24)
         .presentationBackground(.ultraThinMaterial)
@@ -261,13 +262,16 @@ public struct ManualPairingSheet: View {
         !host.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty &&
         !code.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
-    
-    private func checkClipboard() {
-        guard let clip = UIPasteboard.general.string?.trimmingCharacters(in: .whitespacesAndNewlines),
-              clip.lowercased().hasPrefix("agy://pair") else {
+
+    private func handlePastedPayloads(_ strings: [String]) {
+        let combined = strings.joined(separator: "\n").trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !combined.isEmpty,
+              let extracted = PairingService.shared.extractPairingURI(from: combined) else {
+            UINotificationFeedbackGenerator().notificationOccurred(.error)
+            errorMessage = String(localized: "剪贴板中未找到有效的配对链接（需包含 agy://pair）")
             return
         }
-        clipboardURI = clip
+        handleQuickPair(from: extracted)
     }
     
     private func handleQuickPair(from uri: String) {
@@ -285,8 +289,11 @@ public struct ManualPairingSheet: View {
         switch PairingService.shared.parsePairingURI(uri) {
         case .success(let info):
             UIImpactFeedbackGenerator(style: .light).impactOccurred()
+            let portStr = String(info.port)
+            self.parsedPairingInfo = info
+            self.parsedSnapshot = (host: info.host, port: portStr, code: info.code, ssl: info.ssl)
             self.host = info.host
-            self.port = String(info.port)
+            self.port = portStr
             self.code = info.code
             self.ssl = info.ssl
         case .failure:
@@ -309,6 +316,19 @@ public struct ManualPairingSheet: View {
         }
         
         UIImpactFeedbackGenerator(style: .medium).impactOccurred()
+
+        // Preserve full parsed PairingInfo (including E2EE public key `pk` and LAN/relay endpoints)
+        // when the form fields were populated from a pasted pairing URI and not manually altered.
+        if let parsed = parsedPairingInfo,
+           let snap = parsedSnapshot,
+           trimmedHost == snap.host,
+           String(parsedPort) == snap.port,
+           trimmedCode == snap.code,
+           ssl == snap.ssl {
+            dismiss()
+            onPair(parsed)
+            return
+        }
         
         var effectiveHost = trimmedHost
         if !effectiveHost.contains(".") && !effectiveHost.contains(":") && effectiveHost.lowercased() != "localhost" {

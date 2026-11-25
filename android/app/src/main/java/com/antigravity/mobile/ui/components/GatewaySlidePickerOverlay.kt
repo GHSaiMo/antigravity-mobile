@@ -656,12 +656,26 @@ private fun CompactStatusPill(text: String, tint: Color) {
     )
 }
 
+internal fun isCameraUnavailableOrRestricted(context: android.content.Context): Boolean {
+    val hasCamera = runCatching {
+        context.packageManager.hasSystemFeature(android.content.pm.PackageManager.FEATURE_CAMERA_ANY)
+    }.getOrDefault(true)
+    if (!hasCamera) return true
+    val disabledByPolicy = runCatching {
+        val dpm = context.getSystemService(android.content.Context.DEVICE_POLICY_SERVICE) as? android.app.admin.DevicePolicyManager
+        dpm?.getCameraDisabled(null) == true
+    }.getOrDefault(false)
+    return disabledByPolicy
+}
+
 @Composable
 private fun AddGatewayPickerRow(
     isHovered: Boolean,
     onClick: () -> Unit
 ) {
     val colors = AntigravityTheme.colors
+    val context = androidx.compose.ui.platform.LocalContext.current
+    val cameraUnavailable = remember(context) { isCameraUnavailableOrRestricted(context) }
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -692,7 +706,7 @@ private fun AddGatewayPickerRow(
             modifier = Modifier.weight(1f)
         )
         Text(
-            text = "扫码配对".loc,
+            text = if (cameraUnavailable) "链接配对".loc else "扫码配对".loc,
             fontSize = 11.sp,
             fontWeight = FontWeight.Medium,
             color = colors.textSecondary

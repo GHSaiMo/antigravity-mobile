@@ -1,3 +1,4 @@
+import AVFoundation
 import SwiftUI
 import UIKit
 
@@ -394,6 +395,7 @@ public struct GatewaySlidePickerOverlay: View {
     @ViewBuilder
     private func addGatewayRow(index: Int) -> some View {
         let isHovered = state.hoveredRowIndex == index
+        let cameraRestricted = AVCaptureDevice.authorizationStatus(for: .video) == .restricted
         Button {
             UIImpactFeedbackGenerator(style: .light).impactOccurred()
             state.dismiss()
@@ -408,7 +410,7 @@ public struct GatewaySlidePickerOverlay: View {
                     .font(.system(size: 13.5, weight: isHovered ? .semibold : .medium))
                     .foregroundColor(.indigo)
                 Spacer(minLength: 4)
-                Text(String(localized: "扫码配对"))
+                Text(cameraRestricted ? String(localized: "链接配对") : String(localized: "扫码配对"))
                     .font(.system(size: 11, weight: .medium))
                     .foregroundColor(.secondary)
             }

@@ -546,7 +546,7 @@ fun OnboardingGuideView(
             }
         }
 
-        // Secondary Action: Manual Input
+        // Secondary Action: Manual Input / Paste Link
         Row(
             modifier = Modifier
                 .clip(RoundedCornerShape(8.dp))
@@ -559,13 +559,13 @@ fun OnboardingGuideView(
             horizontalArrangement = Arrangement.spacedBy(5.dp)
         ) {
             Icon(
-                imageVector = Icons.Default.Keyboard,
+                imageVector = Icons.Default.Link,
                 contentDescription = null,
                 tint = colors.textMuted,
                 modifier = Modifier.size(15.dp)
             )
             Text(
-                text = "高级选项：手动输入网址或配对码".loc,
+                text = "粘贴配对链接或手动输入".loc,
                 color = colors.textSecondary,
                 fontSize = 12.5.sp,
                 fontWeight = FontWeight.Medium

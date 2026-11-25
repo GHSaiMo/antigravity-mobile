@@ -38088,6 +38088,204 @@
           }
         }
       }
+    },
+    "粘贴配对链接": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Paste Pairing Link"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ペアリングリンクを貼り付け"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "粘贴配对链接"
+          }
+        }
+      }
+    },
+    "一键导入终端输出的 agy://pair 链接": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Import the agy://pair link from your computer terminal"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "端末に出力された agy://pair リンクを一括取り込み"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "一键导入终端输出的 agy://pair 链接"
+          }
+        }
+      }
+    },
+    "剪贴板中未找到有效的配对链接（需包含 agy://pair）": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No valid pairing link found in clipboard (must contain agy://pair)"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "クリップボードに有効なペアリングリンク（agy://pair）が見つかりませんでした"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "剪贴板中未找到有效的配对链接（需包含 agy://pair）"
+          }
+        }
+      }
+    },
+    "相机已被设备策略限制": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Camera Restricted by Device Policy"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "デバイスポリシーによりカメラが制限されています"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "相机已被设备策略限制"
+          }
+        }
+      }
+    },
+    "无法使用相机扫码，请直接粘贴电脑终端输出的配对链接完成配对": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Camera scanning is unavailable. Paste the pairing link printed in your computer terminal to pair."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "カメラでのスキャンは利用できません。PC 端末に出力されたペアリングリンクを貼り付けてペアリングしてください。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "无法使用相机扫码，请直接粘贴电脑终端输出的配对链接完成配对"
+          }
+        }
+      }
+    },
+    "请在系统设置中允许 Multigravity 访问相机，或直接使用配对链接配对": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Allow Multigravity to access the camera in Settings, or pair directly with a pairing link."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "設定で Multigravity のカメラアクセスを許可するか、ペアリングリンクを直接貼り付けてください。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "请在系统设置中允许 Multigravity 访问相机，或直接使用配对链接配对"
+          }
+        }
+      }
+    },
+    "粘贴配对链接或手动输入": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Paste Pairing Link or Enter Manually"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ペアリングリンクを貼り付け・手動入力"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "粘贴配对链接或手动输入"
+          }
+        }
+      }
+    },
+    "链接配对": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pair via Link"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "リンクで接続"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "链接配对"
+          }
+        }
+      }
+    },
+    "粘贴或手动配对": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Paste Link or Enter Manually"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "リンク貼り付け・手動入力"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "粘贴或手动配对"
+          }
+        }
+      }
     }
   },
   "version": "1.0"
