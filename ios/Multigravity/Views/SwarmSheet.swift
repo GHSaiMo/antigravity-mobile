@@ -3,6 +3,7 @@ import SwiftUI
 public struct SwarmSheet: View {
     @Environment(\.dismiss) private var dismiss
     @Environment(\.scenePhase) private var scenePhase
+    @Namespace private var tabIndicatorNamespace
     @State private var settings = AppSettings.shared
 
     public let cascadeId: String
@@ -161,53 +162,57 @@ public struct SwarmSheet: View {
         let boardCount = snapshot?.messages.filter { !$0.text.hasPrefix("[channel]") }.count ?? 0
         let memberCount = snapshot?.members.filter { !$0.roleWorker && !SwarmHelpers.isRoleWorker(name: $0.name, role: $0.role) }.count ?? 0
 
-        return ScrollView(.horizontal, showsIndicators: false) {
-            HStack(spacing: 20) {
-                ForEach(Tab.allCases) { tab in
-                    let isSelected = (selectedTab == tab)
-                    let countText: String? = {
-                        switch tab {
-                        case .board where boardCount > 0: return "\(boardCount)"
-                        case .members where memberCount > 0: return "\(memberCount)"
-                        default: return nil
-                        }
-                    }()
-
-                    Button(action: {
-                        UIImpactFeedbackGenerator(style: .light).impactOccurred()
-                        withAnimation(.easeInOut(duration: 0.16)) {
-                            selectedTab = tab
-                        }
-                    }) {
-                        VStack(spacing: 10) {
-                            HStack(spacing: 4) {
-                                Text(tab.localizedTitle)
-                                    .font(.system(size: 14, weight: isSelected ? .semibold : .medium))
-                                    .foregroundColor(isSelected ? SwarmTheme.ink : SwarmTheme.muted)
-                                    .lineLimit(1)
-
-                                if let countText {
-                                    Text(countText)
-                                        .font(.system(size: 12.5, weight: .regular, design: .monospaced))
-                                        .foregroundColor(isSelected ? SwarmTheme.muted : SwarmTheme.faint)
-                                        .lineLimit(1)
-                                }
-                            }
-                            .fixedSize(horizontal: true, vertical: false)
-
-                            Rectangle()
-                                .fill(isSelected ? SwarmTheme.accent : Color.clear)
-                                .frame(height: 2)
-                                .clipShape(Capsule())
-                        }
-                        .padding(.horizontal, 2)
+        return HStack(spacing: 0) {
+            ForEach(Tab.allCases) { tab in
+                let isSelected = (selectedTab == tab)
+                let countText: String? = {
+                    switch tab {
+                    case .board where boardCount > 0: return "\(boardCount)"
+                    case .members where memberCount > 0: return "\(memberCount)"
+                    default: return nil
                     }
-                    .buttonStyle(.plain)
+                }()
+
+                Button(action: {
+                    UIImpactFeedbackGenerator(style: .light).impactOccurred()
+                    withAnimation(.easeInOut(duration: 0.18)) {
+                        selectedTab = tab
+                    }
+                }) {
+                    HStack(spacing: 4) {
+                        Text(tab.localizedTitle)
+                            .font(.system(size: 14, weight: isSelected ? .semibold : .medium))
+                            .foregroundColor(isSelected ? SwarmTheme.ink : SwarmTheme.muted)
+                            .lineLimit(1)
+                            .minimumScaleFactor(0.8)
+
+                        if let countText {
+                            Text(countText)
+                                .font(.system(size: 12.5, weight: .regular, design: .monospaced))
+                                .foregroundColor(isSelected ? SwarmTheme.muted : SwarmTheme.faint)
+                                .lineLimit(1)
+                                .minimumScaleFactor(0.8)
+                                .layoutPriority(1)
+                        }
+                    }
+                    .padding(.horizontal, 4)
+                    .padding(.top, 4)
+                    .padding(.bottom, 12)
+                    .overlay(alignment: .bottom) {
+                        if isSelected {
+                            Capsule()
+                                .fill(SwarmTheme.accent)
+                                .frame(height: 2)
+                                .matchedGeometryEffect(id: "swarmActiveTabIndicator", in: tabIndicatorNamespace)
+                        }
+                    }
+                    .frame(minWidth: 0, maxWidth: .infinity)
+                    .contentShape(Rectangle())
                 }
+                .buttonStyle(.plain)
             }
-            .padding(.horizontal, 16)
-            .padding(.top, 4)
         }
+        .padding(.horizontal, 4)
     }
 
     // MARK: - Overview Tab (Goal, Running, Progress Ring, Threads, The Team + Feedback)
