@@ -503,7 +503,7 @@ public struct ChatView: View {
             }
             .onChange(of: viewModel.activeModel) { _, _ in
                 if voiceCall.isInCall {
-                    voiceCall.updatePlanModel(viewModel.activeModelEnum)
+                    voiceCall.updatePlanModel(viewModel.activeModel)
                 }
             }
             .environment(\.openURL, OpenURLAction { url in

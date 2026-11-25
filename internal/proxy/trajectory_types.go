@@ -890,6 +890,7 @@ type upstreamTrajectoryResp struct {
 		Annotations      *struct {
 			Title                  string            `json:"title"`
 			LastUserViewTime       string            `json:"lastUserViewTime"`
+			PlanExecute            bool              `json:"planExecute,omitempty"`
 			SideQuestionCascadeIDs []string          `json:"sideQuestionCascadeIds,omitempty"`
 			SideQuestionTitles     map[string]string `json:"sideQuestionTitles,omitempty"`
 		} `json:"annotations"`

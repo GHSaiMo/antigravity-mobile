@@ -277,6 +277,62 @@ public enum ModelDefaultsLogic {
         return map
     }()
 
+    /// 将合成或裸锚点 Orchestrator 模型 ID 推导为其底层 planner 模型 ID（例如
+    /// `gemini-pro-orchestrator-neon-xhigh` -> `gemini-4-neon-xhigh`，
+    /// `gemini-pro-orchestrator-opus-5-5-high` -> `claude-opus-5-5-high`）。
+    public static func resolvedPlannerModelID(forOrchestratorID id: String) -> String? {
+        let lower = id.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        guard !lower.isEmpty else { return nil }
+        switch lower {
+        case "gemini-pro-orchestrator-neon", "orchestrator-neon":
+            return "gemini-4-neon-high"
+        case "gemini-pro-orchestrator", "gemini-pro-coordinator", "orchestrator-carbon":
+            return "gemini-4-carbon-high"
+        case "gemini-pro-orchestrator-argon", "orchestrator-argon":
+            return "gemini-4-argon-high"
+        default:
+            break
+        }
+        let prefix = "gemini-pro-orchestrator-"
+        guard lower.hasPrefix(prefix) else { return nil }
+        let rest = String(lower.dropFirst(prefix.count))
+        let effortSuffixes: [(suffix: String, normalized: String)] = [
+            ("-extra-high", "xhigh"),
+            ("-xhigh", "xhigh"),
+            ("-high", "high"),
+            ("-medium", "medium"),
+            ("-low", "low"),
+        ]
+        var basePart = ""
+        var normEffort = ""
+        for item in effortSuffixes where rest.hasSuffix(item.suffix) {
+            basePart = String(rest.dropLast(item.suffix.count))
+            normEffort = item.normalized
+            break
+        }
+        guard !basePart.isEmpty, !normEffort.isEmpty else { return nil }
+        switch basePart {
+        case "neon", "carbon", "argon", "hydrogen":
+            return "gemini-4-\(basePart)-\(normEffort)"
+        case "opus-5-5", "sonnet-5-5":
+            return "claude-\(basePart)-\(normEffort)"
+        default:
+            return nil
+        }
+    }
+
+    /// 根据模型 ID 解析其对应的上游规划模型枚举；对合成 Orchestrator ID 自动回溯到对应 planner 枚举，
+    /// 避免坍缩为裸锚点 `MODEL_PLACEHOLDER_M537`。
+    public static func resolvedPlannerEnum(forID id: String) -> String? {
+        let lower = id.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        guard !lower.isEmpty else { return nil }
+        if let plannerID = resolvedPlannerModelID(forOrchestratorID: lower),
+           let plannerEnum = staticEnumByID[plannerID] {
+            return plannerEnum
+        }
+        return staticEnumByID[lower]
+    }
+
     /// 内置/预设模型 ID → 统一展示名映射，避免离线、未拉取目录或切号过渡期露出小写裸 ID。
     public static let staticDisplayNameByID: [String: String] = [
         "gemini-4-neon-xhigh": "Gemini 4 Neon (Extra)",

@@ -729,7 +729,7 @@ public final class VoiceCallManager: ObservableObject {
             return 1000 + num
         }
         let lower = raw.lowercased()
-        if let mappedEnum = ModelDefaultsLogic.staticEnumByID[lower],
+        if let mappedEnum = ModelDefaultsLogic.resolvedPlannerEnum(forID: lower),
            mappedEnum.hasPrefix("MODEL_PLACEHOLDER_M"),
            let num = Int(mappedEnum.dropFirst("MODEL_PLACEHOLDER_M".count)), num > 0 {
             return 1000 + num

@@ -524,6 +524,13 @@ public final class AppSettings {
 
     public var activeModelEnum: String {
         if let known = ModelCatalogStore.shared.modelEnum(forID: activeModel) { return known }
+        if let plannerID = ModelDefaultsLogic.resolvedPlannerModelID(forOrchestratorID: activeModel),
+           let knownPlanner = ModelCatalogStore.shared.modelEnum(forID: plannerID) {
+            return knownPlanner
+        }
+        if let staticPlanner = ModelDefaultsLogic.resolvedPlannerEnum(forID: activeModel) {
+            return staticPlanner
+        }
         switch activeModelProviderKind {
         case .claude: return "MODEL_PLACEHOLDER_M26"
         case .orchestrator: return "MODEL_PLACEHOLDER_M537"

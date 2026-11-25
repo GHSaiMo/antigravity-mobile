@@ -287,6 +287,7 @@ func (p *Proxy) HandleCreateCascade(w http.ResponseWriter, r *http.Request) {
 	}
 	if _, isOrchSpec := resolveOrchestratorSpec(req.Model); isOrchSpec || isBareOrchestratorAnchor(req.Model) {
 		annotations["planExecute"] = true
+		SetCascadePlanExecute(cascadeID, true)
 	}
 	annPayload := map[string]interface{}{
 		"cascadeId":   cascadeID,
@@ -328,8 +329,9 @@ func (p *Proxy) HandleCreateCascade(w http.ResponseWriter, r *http.Request) {
 				canonicalName = req.Model
 			}
 			cfgObj = applyModelToCascadeConfig(cfgObj, modelEnum, canonicalName)
+			recordedName := effectiveCascadeModelName(cfgObj, canonicalName)
 			if cfgBytes, err := json.Marshal(cfgObj); err == nil {
-				SetCascadeModel(cascadeID, canonicalName, cfgBytes)
+				SetCascadeModel(cascadeID, recordedName, cfgBytes)
 			}
 		}
 		if cfgObj != nil {
@@ -357,6 +359,23 @@ func (p *Proxy) HandleCreateCascade(w http.ResponseWriter, r *http.Request) {
 				slog.Warn("⚠️  [Proxy] Warning: failed to dispatch initial prompt", "err", err)
 			}
 		}
+	} else if modelEnum != "" {
+		// Record the requested model & config even when creating an empty cascade (e.g. before
+		// uploading media/attachments or starting a voice call) so subsequent requests inherit
+		// the exact Orchestrator spec rather than falling back to bare anchors.
+		var cfgObj interface{}
+		if cfg := p.GetCascadeConfig(cascadeID, port, token); len(cfg) > 0 {
+			_ = json.Unmarshal(cfg, &cfgObj)
+		}
+		canonicalName := canonicalModelName(req.Model)
+		if canonicalName == "" {
+			canonicalName = req.Model
+		}
+		cfgObj = applyModelToCascadeConfig(cfgObj, modelEnum, canonicalName)
+		recordedName := effectiveCascadeModelName(cfgObj, canonicalName)
+		if cfgBytes, err := json.Marshal(cfgObj); err == nil {
+			SetCascadeModel(cascadeID, recordedName, cfgBytes)
+		}
 	}
 
 	w.Header().Set("Content-Type", "application/json")
@@ -366,20 +385,53 @@ func (p *Proxy) HandleCreateCascade(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+// bareOrchestratorAnchorFamily maps a legacy/anchor single-variant Orchestrator ID or enum
+// to its planner family slug ("neon", "carbon", "argon"). Returns "" if not a bare anchor.
+func bareOrchestratorAnchorFamily(model string) string {
+	s := strings.TrimSpace(model)
+	switch strings.ToUpper(s) {
+	case "MODEL_PLACEHOLDER_M537":
+		return "neon"
+	case "MODEL_PLACEHOLDER_M667":
+		return "carbon"
+	case "MODEL_PLACEHOLDER_M681":
+		return "argon"
+	}
+	switch strings.ToLower(s) {
+	case "gemini-pro-orchestrator-neon", "orchestrator-neon":
+		return "neon"
+	case "gemini-pro-orchestrator", "gemini-pro-coordinator", "orchestrator-carbon":
+		return "carbon"
+	case "gemini-pro-orchestrator-argon", "orchestrator-argon":
+		return "argon"
+	}
+	return ""
+}
+
 // isBareOrchestratorAnchor reports legacy/anchor single-variant Orchestrator IDs or enums
 // that do not encode a thinking-effort tier.
 func isBareOrchestratorAnchor(model string) bool {
-	s := strings.TrimSpace(model)
-	switch strings.ToUpper(s) {
-	case "MODEL_PLACEHOLDER_M537", "MODEL_PLACEHOLDER_M667", "MODEL_PLACEHOLDER_M681":
-		return true
+	return bareOrchestratorAnchorFamily(model) != ""
+}
+
+// resolveBareOrchestratorAnchorSpec resolves a bare Orchestrator anchor ID or enum (such as
+// "MODEL_PLACEHOLDER_M537" or "gemini-pro-orchestrator-neon") to a default effort variant
+// with a valid PlannerEnum and ExecutionEnum so Plan & Execute cascades never lose
+// planExecuteConfig.executionModel.
+func resolveBareOrchestratorAnchorSpec(model string) (orchestratorSpec, bool) {
+	family := bareOrchestratorAnchorFamily(model)
+	if family == "" {
+		return orchestratorSpec{}, false
 	}
-	switch strings.ToLower(s) {
-	case "gemini-pro-orchestrator-neon", "gemini-pro-orchestrator", "gemini-pro-orchestrator-argon",
-		"gemini-pro-coordinator", "orchestrator-neon", "orchestrator-carbon", "orchestrator-argon":
-		return true
+	if spec, ok := liveModels.defaultOrchestratorSpec(family); ok {
+		return spec, true
 	}
-	return false
+	for _, eff := range []string{"high", "medium", "xhigh", "low"} {
+		if spec, ok := resolveStaticOrchestratorSpec("gemini-pro-orchestrator-" + family + "-" + eff); ok {
+			return spec, true
+		}
+	}
+	return liveModels.defaultOrchestratorSpec("")
 }
 
 // resolveStaticOrchestratorSpec resolves a synthetic Orchestrator+effort ID before liveModels
@@ -437,16 +489,97 @@ func resolveStaticOrchestratorSpec(id string) (orchestratorSpec, bool) {
 	}, true
 }
 
-func resolveOrchestratorSpec(id string) (orchestratorSpec, bool) {
+// resolveSyntheticOrchestratorSpec resolves only explicit synthetic Orchestrator+effort IDs
+// (not bare single-variant anchors like MODEL_PLACEHOLDER_M537).
+func resolveSyntheticOrchestratorSpec(id string) (orchestratorSpec, bool) {
 	if spec, ok := liveModels.orchestratorSpecForID(id); ok {
 		return spec, true
 	}
 	return resolveStaticOrchestratorSpec(id)
 }
 
+// resolveOrchestratorSpec resolves either a synthetic Orchestrator+effort ID or a bare
+// Orchestrator anchor to a complete orchestratorSpec with valid PlannerEnum and ExecutionEnum.
+func resolveOrchestratorSpec(id string) (orchestratorSpec, bool) {
+	if spec, ok := resolveSyntheticOrchestratorSpec(id); ok {
+		return spec, true
+	}
+	return resolveBareOrchestratorAnchorSpec(id)
+}
+
+// staticOrchestratorIDForPlannerEnum reverse-maps a planner model enum to its synthetic
+// Orchestrator+effort ID when liveModels has not yet populated orchByPlannerEnum (cold start).
+// Excludes executor-only families such as hydrogen so alternating planner/executor metadata
+// entries do not misclassify an executor sub-step as the planner.
+func staticOrchestratorIDForPlannerEnum(enum string) string {
+	trimmed := strings.TrimSpace(enum)
+	if trimmed == "" {
+		return ""
+	}
+	if orchID := liveModels.orchestratorIDForPlannerEnum(trimmed); orchID != "" {
+		return orchID
+	}
+	if isBareOrchestratorAnchor(trimmed) {
+		if spec, ok := resolveBareOrchestratorAnchorSpec(trimmed); ok {
+			return spec.ID
+		}
+		return ""
+	}
+	canon := liveModels.idForEnum(trimmed)
+	if canon == "" {
+		canon = enumToCanonicalMap[trimmed]
+	}
+	if canon == "" {
+		return ""
+	}
+	base, effort := splitModelBaseAndEffort(canon)
+	if base == "" || effort == "" {
+		return ""
+	}
+	shortSlug := orchestratorShortSlug(base)
+	switch shortSlug {
+	case "neon", "carbon", "argon", "opus-5-5", "sonnet-5-5":
+	default:
+		return ""
+	}
+	if effort == "extra-high" {
+		effort = "xhigh"
+	}
+	candidate := fmt.Sprintf("gemini-pro-orchestrator-%s-%s", shortSlug, effort)
+	if spec, ok := resolveSyntheticOrchestratorSpec(candidate); ok {
+		return spec.ID
+	}
+	return ""
+}
+
+// defaultOrchestratorModelID returns a valid synthetic Orchestrator+effort ID fallback for
+// Plan & Execute cascades whose exact planner enum cannot be mapped.
+func defaultOrchestratorModelID() string {
+	if spec, ok := liveModels.defaultOrchestratorSpec(""); ok && spec.ID != "" {
+		return spec.ID
+	}
+	if spec, ok := resolveStaticOrchestratorSpec("gemini-pro-orchestrator-neon-high"); ok {
+		return spec.ID
+	}
+	return "gemini-pro-orchestrator-neon-high"
+}
+
 func isSyntheticOrchestratorID(id string) bool {
-	_, ok := resolveOrchestratorSpec(id)
+	_, ok := resolveSyntheticOrchestratorSpec(id)
 	return ok
+}
+
+// effectiveCascadeModelName extracts plannerConfig.modelName from cfgObj if present,
+// falling back to fallback when unavailable.
+func effectiveCascadeModelName(cfgObj interface{}, fallback string) string {
+	if cfgMap, ok := cfgObj.(map[string]interface{}); ok && cfgMap != nil {
+		if pCfg, ok := cfgMap["plannerConfig"].(map[string]interface{}); ok && pCfg != nil {
+			if mn, ok := pCfg["modelName"].(string); ok && strings.TrimSpace(mn) != "" {
+				return strings.TrimSpace(mn)
+			}
+		}
+	}
+	return fallback
 }
 
 // resolveModelEnum resolves a user or client provided model name to its protobuf enum string.
@@ -491,7 +624,7 @@ func canonicalModelName(model string) string {
 	// Preserve synthetic Orchestrator+effort IDs verbatim; their underlying PlannerEnum
 	// intentionally shares the regular model's enum (e.g. MODEL_PLACEHOLDER_M532) and must
 	// not collapse back to the non-orchestrator ID.
-	if spec, ok := resolveOrchestratorSpec(model); ok {
+	if spec, ok := resolveSyntheticOrchestratorSpec(model); ok {
 		return spec.ID
 	}
 	if name, ok := enumToCanonicalMap[model]; ok {
@@ -511,10 +644,41 @@ func canonicalModelName(model string) string {
 	return model
 }
 
+// extractOrchestratorIDFromConfig infers a synthetic Orchestrator+effort ID from an existing
+// cascadeConfig that already carries planExecuteConfig.executionModel.
+func extractOrchestratorIDFromConfig(cfgObj interface{}) string {
+	if !cascadeConfigHasPlanExecute(cfgObj) {
+		return ""
+	}
+	cfgMap, ok := cfgObj.(map[string]interface{})
+	if !ok || cfgMap == nil {
+		return ""
+	}
+	pCfg, ok := cfgMap["plannerConfig"].(map[string]interface{})
+	if !ok || pCfg == nil {
+		return ""
+	}
+	if mn, _ := pCfg["modelName"].(string); mn != "" && isSyntheticOrchestratorID(mn) {
+		return canonicalModelName(mn)
+	}
+	pm, _ := pCfg["planModel"].(string)
+	if pm == "" {
+		if rm, ok := pCfg["requestedModel"].(map[string]interface{}); ok {
+			pm, _ = rm["model"].(string)
+		}
+	}
+	if pm != "" {
+		if orchID := staticOrchestratorIDForPlannerEnum(pm); orchID != "" {
+			return orchID
+		}
+	}
+	return ""
+}
+
 // applyModelToCascadeConfig patches or injects the given modelEnum and modelName into cfgObj,
 // and ensures checkpointConfig limits comply with model context window constraints.
 func applyModelToCascadeConfig(cfgObj interface{}, modelEnum string, modelName string) interface{} {
-	if modelEnum == "" {
+	if modelEnum == "" && strings.TrimSpace(modelName) == "" {
 		return cfgObj
 	}
 	if modelName == "" {
@@ -533,7 +697,11 @@ func applyModelToCascadeConfig(cfgObj interface{}, modelEnum string, modelName s
 		plannerConfig = make(map[string]interface{})
 	}
 
-	if spec, isOrchSpec := resolveOrchestratorSpec(modelName); isOrchSpec && spec.PlannerEnum != "" && spec.ExecutionEnum != "" {
+	spec, isOrchSpec := resolveOrchestratorSpec(modelName)
+	if !isOrchSpec && modelEnum != "" {
+		spec, isOrchSpec = resolveOrchestratorSpec(modelEnum)
+	}
+	if isOrchSpec && spec.PlannerEnum != "" && spec.ExecutionEnum != "" {
 		modelEnum = spec.PlannerEnum
 		modelName = spec.ID
 		plannerConfig["planModel"] = spec.PlannerEnum
@@ -544,7 +712,7 @@ func applyModelToCascadeConfig(cfgObj interface{}, modelEnum string, modelName s
 		plannerConfig["planExecuteConfig"] = map[string]interface{}{
 			"executionModel": spec.ExecutionEnum,
 		}
-	} else {
+	} else if modelEnum != "" {
 		plannerConfig["planModel"] = modelEnum
 		plannerConfig["requestedModel"] = map[string]interface{}{
 			"model": modelEnum,
@@ -553,6 +721,8 @@ func applyModelToCascadeConfig(cfgObj interface{}, modelEnum string, modelName s
 		// Switching away from a dynamic Orchestrator turn must clear planExecuteConfig
 		// (matching Antigravity Desktop's jKc).
 		delete(plannerConfig, "planExecuteConfig")
+	} else {
+		return cfgObj
 	}
 	cfgMap["plannerConfig"] = plannerConfig
 
@@ -611,9 +781,20 @@ func cascadeConfigHasPlanExecute(cfgObj interface{}) bool {
 
 // applyOrchestratorAgentSpec mirrors Antigravity Desktop's mob()+nob(): whenever
 // cascadeConfig carries plannerConfig.planExecuteConfig.executionModel, ensure
-// customAgentSpec.builtinAgent.defaultAgent.planExecute is true on SendUserCascadeMessage.
+// customAgentSpec.builtinAgent.defaultAgent.planExecute is true on SendUserCascadeMessage;
+// otherwise clear any stale planExecute=true already present in msgPayload.customAgentSpec.
 func applyOrchestratorAgentSpec(msgPayload map[string]interface{}, cfgObj interface{}) {
-	if msgPayload == nil || !cascadeConfigHasPlanExecute(cfgObj) {
+	if msgPayload == nil {
+		return
+	}
+	if !cascadeConfigHasPlanExecute(cfgObj) {
+		if specMap, ok := msgPayload["customAgentSpec"].(map[string]interface{}); ok && specMap != nil {
+			if builtin, ok := specMap["builtinAgent"].(map[string]interface{}); ok && builtin != nil {
+				if defaultAgent, ok := builtin["defaultAgent"].(map[string]interface{}); ok && defaultAgent != nil {
+					defaultAgent["planExecute"] = false
+				}
+			}
+		}
 		return
 	}
 	specMap, ok := msgPayload["customAgentSpec"].(map[string]interface{})
@@ -638,6 +819,49 @@ func applyOrchestratorAgentSpec(msgPayload map[string]interface{}, cfgObj interf
 		return
 	}
 	defaultAgent["planExecute"] = true
+}
+
+// clearOrchestratorAgentSpec explicitly sets customAgentSpec.builtinAgent.defaultAgent.planExecute = false
+// when switching an existing Plan & Execute cascade back to a regular non-Orchestrator model so upstream
+// does not keep constructing Plan & Execute tools/hooks without planExecuteConfig.executionModel.
+func clearOrchestratorAgentSpec(msgPayload map[string]interface{}) {
+	if msgPayload == nil {
+		return
+	}
+	specMap, ok := msgPayload["customAgentSpec"].(map[string]interface{})
+	if !ok || specMap == nil {
+		msgPayload["customAgentSpec"] = map[string]interface{}{
+			"builtinAgent": map[string]interface{}{
+				"defaultAgent": map[string]interface{}{
+					"isInteractive": true,
+					"surface":       "AGENT_SURFACE_HUB",
+					"planExecute":   false,
+				},
+			},
+		}
+		return
+	}
+	builtin, ok := specMap["builtinAgent"].(map[string]interface{})
+	if !ok || builtin == nil {
+		specMap["builtinAgent"] = map[string]interface{}{
+			"defaultAgent": map[string]interface{}{
+				"isInteractive": true,
+				"surface":       "AGENT_SURFACE_HUB",
+				"planExecute":   false,
+			},
+		}
+		return
+	}
+	defaultAgent, ok := builtin["defaultAgent"].(map[string]interface{})
+	if !ok || defaultAgent == nil {
+		builtin["defaultAgent"] = map[string]interface{}{
+			"isInteractive": true,
+			"surface":       "AGENT_SURFACE_HUB",
+			"planExecute":   false,
+		}
+		return
+	}
+	defaultAgent["planExecute"] = false
 }
 
 func isClaudeModelOrEnum(s string) bool {

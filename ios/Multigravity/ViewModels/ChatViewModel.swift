@@ -524,9 +524,17 @@ public final class ChatViewModel {
         ModelDefaultsLogic.isClaude(activeModel)
     }
     
-    /// 发给网关/LS 的模型枚举：优先用模型目录里的，目录还没取到时回退到内置枚举。
+    /// 发给需要底层枚举的场景（网关 API 优先直接传 `activeModel` 规范/合成 ID）：
+    /// 优先用模型目录里的枚举，合成 Orchestrator 回溯到对应 planner 枚举，最后再回退到内置枚举。
     public var activeModelEnum: String {
         if let known = ModelCatalogStore.shared.modelEnum(forID: activeModel) { return known }
+        if let plannerID = ModelDefaultsLogic.resolvedPlannerModelID(forOrchestratorID: activeModel),
+           let knownPlanner = ModelCatalogStore.shared.modelEnum(forID: plannerID) {
+            return knownPlanner
+        }
+        if let staticPlanner = ModelDefaultsLogic.resolvedPlannerEnum(forID: activeModel) {
+            return staticPlanner
+        }
         switch activeModelProviderKind {
         case .claude: return "MODEL_PLACEHOLDER_M26"
         case .orchestrator: return "MODEL_PLACEHOLDER_M537"

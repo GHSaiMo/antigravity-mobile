@@ -305,13 +305,33 @@ func (p *Proxy) handleSendUserCascadeMessage(w http.ResponseWriter, r *http.Requ
 			}
 
 			p.ensureLiveModels(r.Context())
+			prevRecordedModel, _ := GetCascadeModel(cascadeID)
+			wasPlanExecute := IsCascadePlanExecute(cascadeID) || isSyntheticOrchestratorID(prevRecordedModel) || isBareOrchestratorAnchor(prevRecordedModel)
+			var preExistingCfgObj interface{}
+			if len(configToUse) > 0 {
+				if err := json.Unmarshal(configToUse, &preExistingCfgObj); err == nil {
+					if cascadeConfigHasPlanExecute(preExistingCfgObj) {
+						wasPlanExecute = true
+					}
+				}
+			}
+
 			if targetModel == "" {
-				if recordedModel, _ := GetCascadeModel(cascadeID); recordedModel != "" {
-					targetModel = recordedModel
+				if prevRecordedModel != "" {
+					targetModel = prevRecordedModel
 				} else if len(configToUse) == 0 {
 					targetModel = "gemini-3.8-flash-high"
 				}
+			} else if isBareOrchestratorAnchor(targetModel) {
+				// Preserve exact synthetic Orchestrator+effort when an older client falls back
+				// to sending a bare anchor (e.g. MODEL_PLACEHOLDER_M537) on an Orchestrator cascade.
+				if isSyntheticOrchestratorID(prevRecordedModel) {
+					targetModel = prevRecordedModel
+				} else if inferred := extractOrchestratorIDFromConfig(preExistingCfgObj); inferred != "" {
+					targetModel = inferred
+				}
 			}
+
 			modelEnum := resolveModelEnum(targetModel)
 			canonicalName := canonicalModelName(targetModel)
 			if canonicalName == "" {
@@ -323,6 +343,7 @@ func (p *Proxy) handleSendUserCascadeMessage(w http.ResponseWriter, r *http.Requ
 				if err := json.Unmarshal(configToUse, &cfgObj); err == nil {
 					if modelEnum != "" {
 						cfgObj = applyModelToCascadeConfig(cfgObj, modelEnum, canonicalName)
+						canonicalName = effectiveCascadeModelName(cfgObj, canonicalName)
 						if updatedBytes, err := json.Marshal(cfgObj); err == nil {
 							configToUse = updatedBytes
 						}
@@ -339,6 +360,7 @@ func (p *Proxy) handleSendUserCascadeMessage(w http.ResponseWriter, r *http.Requ
 				}
 			} else if modelEnum != "" {
 				cfgObj := applyModelToCascadeConfig(nil, modelEnum, canonicalName)
+				canonicalName = effectiveCascadeModelName(cfgObj, canonicalName)
 				rawMap["cascadeConfig"] = cfgObj
 				applyOrchestratorAgentSpec(rawMap, cfgObj)
 				if updatedBytes, err := json.Marshal(cfgObj); err == nil {
@@ -350,8 +372,20 @@ func (p *Proxy) handleSendUserCascadeMessage(w http.ResponseWriter, r *http.Requ
 				}
 			}
 
-			if cascadeID != "" && port > 0 && cascadeConfigHasPlanExecute(rawMap["cascadeConfig"]) {
-				go p.markCascadePlanExecuteAnnotation(cascadeID, port, token)
+			nowPlanExecute := cascadeConfigHasPlanExecute(rawMap["cascadeConfig"])
+			if nowPlanExecute {
+				SetCascadePlanExecute(cascadeID, true)
+				if !wasPlanExecute && cascadeID != "" && port > 0 {
+					p.setCascadePlanExecuteAnnotation(cascadeID, port, token, true)
+				}
+			} else if wasPlanExecute {
+				// Explicitly disable Plan & Execute when transitioning a Plan & Execute cascade
+				// back to a non-Orchestrator model so upstream stops constructing plan_mode_* tools/hooks.
+				clearOrchestratorAgentSpec(rawMap)
+				SetCascadePlanExecute(cascadeID, false)
+				if cascadeID != "" && port > 0 {
+					p.setCascadePlanExecuteAnnotation(cascadeID, port, token, false)
+				}
 			}
 
 			delete(rawMap, "cascadeConfigRaw")
@@ -421,14 +455,15 @@ func (p *Proxy) handleSendUserCascadeMessage(w http.ResponseWriter, r *http.Requ
 	}
 }
 
-func (p *Proxy) markCascadePlanExecuteAnnotation(cascadeID string, port int, token string) {
+func (p *Proxy) setCascadePlanExecuteAnnotation(cascadeID string, port int, token string, enabled bool) {
 	if cascadeID == "" || port == 0 || p.shortClient == nil {
 		return
 	}
 	payload, err := json.Marshal(map[string]interface{}{
-		"cascadeId": cascadeID,
+		"cascadeId":        cascadeID,
+		"mergeAnnotations": true,
 		"annotations": map[string]interface{}{
-			"planExecute": true,
+			"planExecute": enabled,
 		},
 	})
 	if err != nil {
@@ -461,13 +496,14 @@ func (p *Proxy) handleJetboxWriteState(w http.ResponseWriter, r *http.Request, r
 	defer cleanup()
 	r.Body = io.NopCloser(bytes.NewReader(bodyBytes))
 
+	forwardBody := bodyBytes
 	var stateReq struct {
 		AppState struct {
 			LastSelectedAgentModel string `json:"lastSelectedAgentModel"`
 		} `json:"appState"`
 	}
 	if err := json.Unmarshal(bodyBytes, &stateReq); err == nil {
-		model := stateReq.AppState.LastSelectedAgentModel
+		model := strings.TrimSpace(stateReq.AppState.LastSelectedAgentModel)
 		if model != "" {
 			p.ensureLiveModels(r.Context())
 			cascadeID := r.Header.Get("X-Cascade-Id")
@@ -475,7 +511,7 @@ func (p *Proxy) handleJetboxWriteState(w http.ResponseWriter, r *http.Request, r
 				cascadeID = r.URL.Query().Get("cascade_id")
 			}
 			// Guard against async client switchModel(activeModelEnum) races: synthetic
-			// Orchestrator+effort options omit Enum so clients fall back to the bare
+			// Orchestrator+effort options omit Enum so older clients fall back to the bare
 			// anchor enum (e.g. MODEL_PLACEHOLDER_M537) in JetboxWriteState. Do not let
 			// that overwrite an already-recorded specific Orchestrator+effort model.
 			preserveOrchEffort := false
@@ -484,23 +520,40 @@ func (p *Proxy) handleJetboxWriteState(w http.ResponseWriter, r *http.Request, r
 					preserveOrchEffort = true
 				}
 			}
+			resolvedEnum := resolveModelEnum(model)
 			if !preserveOrchEffort {
-				modelEnum := resolveModelEnum(model)
 				canonicalName := canonicalModelName(model)
 				if canonicalName == "" {
 					canonicalName = model
 				}
-				lastCfg := p.GetCascadeConfig(cascadeID, 0, "")
-				patched := applyModelToCascadeConfig(lastCfg, modelEnum, canonicalName)
+				var lastCfgObj interface{}
+				if lastCfg := p.GetCascadeConfig(cascadeID, 0, ""); len(lastCfg) > 0 {
+					_ = json.Unmarshal(lastCfg, &lastCfgObj)
+				}
+				patched := applyModelToCascadeConfig(lastCfgObj, resolvedEnum, canonicalName)
+				recordedName := effectiveCascadeModelName(patched, canonicalName)
 				if patchedBytes, err := json.Marshal(patched); err == nil {
 					SetLastKnownCascadeConfig(patchedBytes)
 					if cascadeID != "" {
-						SetCascadeModel(cascadeID, canonicalName, patchedBytes)
+						SetCascadeModel(cascadeID, recordedName, patchedBytes)
 						ClearTrajectoryCache(cascadeID)
 					}
 				}
 				if verboseRPC {
-					slog.Info(fmt.Sprintf("[Proxy] JetboxWriteState: cached active model %s (%s)", canonicalName, modelEnum), "cascadeId", shortCascadeID(cascadeID))
+					slog.Info(fmt.Sprintf("[Proxy] JetboxWriteState: cached active model %s (%s)", recordedName, resolvedEnum), "cascadeId", shortCascadeID(cascadeID))
+				}
+			}
+			// Normalize non-enum model IDs (e.g. synthetic Orchestrator IDs sent by iOS/Android/Web)
+			// to a valid upstream MODEL_* protobuf enum before forwarding JetboxWriteState upstream.
+			if !strings.HasPrefix(model, "MODEL_") && resolvedEnum != "" {
+				var rawState map[string]interface{}
+				if err := json.Unmarshal(bodyBytes, &rawState); err == nil {
+					if appState, ok := rawState["appState"].(map[string]interface{}); ok && appState != nil {
+						appState["lastSelectedAgentModel"] = resolvedEnum
+						if rewritten, err := json.Marshal(rawState); err == nil {
+							forwardBody = rewritten
+						}
+					}
 				}
 			}
 		}
@@ -508,7 +561,9 @@ func (p *Proxy) handleJetboxWriteState(w http.ResponseWriter, r *http.Request, r
 
 	fwdReq := r.Clone(r.Context())
 	fwdReq.URL.Path = reqPath
-	fwdReq.Body = io.NopCloser(bytes.NewReader(bodyBytes))
+	fwdReq.Body = io.NopCloser(bytes.NewReader(forwardBody))
+	fwdReq.ContentLength = int64(len(forwardBody))
+	fwdReq.Header.Set("Content-Length", strconv.Itoa(len(forwardBody)))
 	rp.ServeHTTP(w, fwdReq)
 }
 

@@ -62,8 +62,9 @@ type TrajectoryCache struct {
 	cascadeConfigs   map[string]json.RawMessage
 	cascadeConfigsMu sync.RWMutex
 
-	cascadeModels   map[string]string
-	cascadeModelsMu sync.RWMutex
+	cascadeModels      map[string]string
+	cascadePlanExecute map[string]bool
+	cascadeModelsMu    sync.RWMutex
 
 	loadedCascades   map[string]bool
 	loadedCascadesMu sync.RWMutex
@@ -203,6 +204,9 @@ func RecordDeletedCascade(cascadeID string) {
 	defaultTrajCache.cascadeModelsMu.Lock()
 	if defaultTrajCache.cascadeModels != nil {
 		delete(defaultTrajCache.cascadeModels, cascadeID)
+	}
+	if defaultTrajCache.cascadePlanExecute != nil {
+		delete(defaultTrajCache.cascadePlanExecute, cascadeID)
 	}
 	defaultTrajCache.cascadeModelsMu.Unlock()
 

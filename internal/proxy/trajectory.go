@@ -529,6 +529,50 @@ func GetCascadeModel(cascadeID string) (string, json.RawMessage) {
 	return model, cfg
 }
 
+// SetCascadePlanExecute records whether a cascade is known to be running in Plan & Execute
+// (Orchestrator) mode so switching back to a regular model reliably clears planExecute even
+// if the client's cascadeConfigRaw omitted planExecuteConfig.
+func SetCascadePlanExecute(cascadeID string, enabled bool) {
+	if cascadeID == "" {
+		return
+	}
+	defaultTrajCache.cascadeModelsMu.Lock()
+	defer defaultTrajCache.cascadeModelsMu.Unlock()
+	if !enabled {
+		if defaultTrajCache.cascadePlanExecute != nil {
+			delete(defaultTrajCache.cascadePlanExecute, cascadeID)
+		}
+		return
+	}
+	if defaultTrajCache.cascadePlanExecute == nil {
+		defaultTrajCache.cascadePlanExecute = make(map[string]bool)
+	}
+	if len(defaultTrajCache.cascadePlanExecute) > maxMetadataMapSize {
+		count := 0
+		for k := range defaultTrajCache.cascadePlanExecute {
+			delete(defaultTrajCache.cascadePlanExecute, k)
+			count++
+			if count >= maxMetadataMapSize/2 {
+				break
+			}
+		}
+	}
+	defaultTrajCache.cascadePlanExecute[cascadeID] = true
+}
+
+// IsCascadePlanExecute reports whether cascadeID was observed in Plan & Execute mode.
+func IsCascadePlanExecute(cascadeID string) bool {
+	if cascadeID == "" {
+		return false
+	}
+	defaultTrajCache.cascadeModelsMu.RLock()
+	defer defaultTrajCache.cascadeModelsMu.RUnlock()
+	if defaultTrajCache.cascadePlanExecute == nil {
+		return false
+	}
+	return defaultTrajCache.cascadePlanExecute[cascadeID]
+}
+
 // GetCascadeConfig retrieves the cascade config for the given conversation or falls back to last known.
 func (p *Proxy) GetCascadeConfig(cascadeID string, port int, token string) json.RawMessage {
 	if cascadeID != "" {

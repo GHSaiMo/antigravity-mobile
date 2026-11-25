@@ -1045,9 +1045,15 @@ final class DemoGateway: @unchecked Sendable {
     func switchModel(cascadeId: String?, modelEnum: String) {
         lock.lock()
         defer { lock.unlock() }
-        let resolvedId = ModelCatalogStore.shared.id(forEnum: modelEnum)
-            ?? ModelDefaultsLogic.staticIDByEnum[modelEnum]
-            ?? activeGlobalModelId
+        let trimmed = modelEnum.trimmingCharacters(in: .whitespacesAndNewlines)
+        let resolvedId: String
+        if !trimmed.isEmpty && !trimmed.uppercased().hasPrefix("MODEL_") {
+            resolvedId = trimmed
+        } else {
+            resolvedId = ModelCatalogStore.shared.id(forEnum: trimmed)
+                ?? ModelDefaultsLogic.staticIDByEnum[trimmed]
+                ?? activeGlobalModelId
+        }
         activeGlobalModelId = resolvedId
         if let cid = cascadeId, !cid.isEmpty,
            let idx = conversations.firstIndex(where: { $0.id == cid }) {

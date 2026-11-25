@@ -201,7 +201,7 @@ extension ChatViewModel {
         defer { isStartingBtw = false }
 
         do {
-            let requestedModel = activeModelEnum.isEmpty ? activeModel : activeModelEnum
+            let requestedModel = activeModel.isEmpty ? activeModelEnum : activeModel
             let res = try await apiClient.startBtwSideQuestion(
                 parentCascadeId: cascadeId,
                 question: trimmedQ,

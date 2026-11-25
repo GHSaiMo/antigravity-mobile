@@ -229,13 +229,33 @@ extension ChatViewModel {
         guard let raw = cascadeConfigRaw, let data = raw.data(using: .utf8) else { return }
         guard var json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { return }
         var plannerConfig = json["plannerConfig"] as? [String: Any] ?? [:]
-        plannerConfig["planModel"] = modelEnum
-        plannerConfig["requestedModel"] = ["model": modelEnum]
-        plannerConfig["modelName"] = modelName
+
+        let isOrchestrator = ModelDefaultsLogic.providerKind(forID: modelName) == .orchestrator
+        var effectiveEnum = modelEnum
+        if isOrchestrator {
+            // Do not overwrite planModel/requestedModel with a bare Orchestrator anchor enum
+            // (e.g. MODEL_PLACEHOLDER_M537); resolve the real planner enum when known or let
+            // the gateway populate planModel + planExecuteConfig from the synthetic model ID.
+            let bareAnchors: Set<String> = ["MODEL_PLACEHOLDER_M537", "MODEL_PLACEHOLDER_M667", "MODEL_PLACEHOLDER_M681"]
+            if let plannerID = ModelDefaultsLogic.resolvedPlannerModelID(forOrchestratorID: modelName),
+               let knownPlanner = ModelCatalogStore.shared.modelEnum(forID: plannerID) ?? ModelDefaultsLogic.staticEnumByID[plannerID] {
+                effectiveEnum = knownPlanner
+                plannerConfig["planModel"] = knownPlanner
+                plannerConfig["requestedModel"] = ["model": knownPlanner]
+            } else if !modelEnum.isEmpty && !bareAnchors.contains(modelEnum.uppercased()) {
+                plannerConfig["planModel"] = modelEnum
+                plannerConfig["requestedModel"] = ["model": modelEnum]
+            }
+            plannerConfig["modelName"] = modelName
+        } else {
+            plannerConfig["planModel"] = modelEnum
+            plannerConfig["requestedModel"] = ["model": modelEnum]
+            plannerConfig["modelName"] = modelName
+        }
         json["plannerConfig"] = plannerConfig
         
         var checkpointConfig = json["checkpointConfig"] as? [String: Any] ?? [:]
-        let isClaude = ModelDefaultsLogic.isClaude(modelEnum) || ModelDefaultsLogic.isClaude(modelName)
+        let isClaude = ModelDefaultsLogic.isClaude(effectiveEnum) || ModelDefaultsLogic.isClaude(modelName)
         
         if isClaude {
             checkpointConfig["maxTokenLimit"] = 160000
@@ -411,13 +431,13 @@ extension ChatViewModel {
         
         // 发送时将当前选定的模型同步提交到网关（上游 Language Server）；排队分支会在发送成功后再同步，避免与排包竞态
         let cid = self.cascadeId
-        let currentEnum = self.activeModelEnum
+        let currentModel = self.activeModel
         let capturedConfigRaw = self.cascadeConfigRaw
         let syncUpstreamModelSelection: () -> Void = { [weak self] in
             Task { [weak self] in
                 guard let self else { return }
                 do {
-                    try await self.apiClient.switchModel(to: currentEnum, cascadeId: cid.isEmpty ? nil : cid, baseURL: url)
+                    try await self.apiClient.switchModel(to: currentModel, cascadeId: cid.isEmpty ? nil : cid, baseURL: url)
                 } catch {
                     print("⚠️ Failed to switch model upstream on send: \(error)")
                 }
@@ -501,7 +521,7 @@ extension ChatViewModel {
                     try await self.apiClient.sendMessage(
                         cascadeId: targetCascadeId,
                         text: text,
-                        model: currentEnum,
+                        model: currentModel,
                         images: hasImages ? sendImages : nil,
                         deliveryStrategy: 2,
                         cascadeConfigRaw: capturedConfigRaw,
@@ -630,7 +650,7 @@ extension ChatViewModel {
                 let newCascadeId = try await apiClient.createCascade(
                     workspaceUri: wsUri,
                     prompt: initialPrompt,
-                    model: activeModelEnum,
+                    model: activeModel,
                     projectId: pid,
                     clientMessageId: clientMessageId,
                     baseURL: url
@@ -688,7 +708,7 @@ extension ChatViewModel {
                     try await apiClient.sendMessage(
                         cascadeId: newCascadeId,
                         text: text,
-                        model: activeModelEnum,
+                        model: activeModel,
                         images: hasImages ? sendImages : nil,
                         cascadeConfigRaw: cascadeConfigRaw,
                         clientMessageId: UUID().uuidString,
@@ -707,7 +727,7 @@ extension ChatViewModel {
                 try await apiClient.sendMessage(
                     cascadeId: cascadeId,
                     text: text,
-                    model: activeModelEnum,
+                    model: activeModel,
                     images: hasImages ? sendImages : nil,
                     cascadeConfigRaw: cascadeConfigRaw,
                     clientMessageId: clientMessageId,
@@ -787,7 +807,7 @@ extension ChatViewModel {
         let newCascadeId = try await apiClient.createCascade(
             workspaceUri: wsUri,
             prompt: "",
-            model: activeModelEnum,
+            model: activeModel,
             projectId: pid,
             clientMessageId: UUID().uuidString,
             baseURL: url

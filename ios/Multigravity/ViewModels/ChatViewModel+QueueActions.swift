@@ -87,7 +87,7 @@ extension ChatViewModel {
             try await apiClient.sendMessage(
                 cascadeId: cascadeId,
                 text: split.rest,
-                model: activeModelEnum,
+                model: activeModel,
                 images: imgDataList.isEmpty ? nil : imgDataList,
                 deliveryStrategy: 1,
                 cascadeConfigRaw: cascadeConfigRaw,
@@ -343,7 +343,7 @@ extension ChatViewModel {
             try await apiClient.proceedArtifact(
                 cascadeId: cascadeId,
                 artifactUri: artifactUri,
-                model: activeModelEnum,
+                model: activeModel,
                 cascadeConfigRaw: cascadeConfigRaw,
                 baseURL: url
             )

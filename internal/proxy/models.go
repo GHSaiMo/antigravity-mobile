@@ -433,6 +433,51 @@ func (r *modelRegistry) orchestratorSpecForID(id string) (orchestratorSpec, bool
 	return spec, ok
 }
 
+// defaultOrchestratorSpec returns a deterministic live orchestratorSpec, preferring
+// preferredFamily (e.g. "neon", "carbon", "argon") with effort order high -> medium -> xhigh -> low,
+// then falling back to the catalog's default orchestrator option when preferredFamily is empty.
+func (r *modelRegistry) defaultOrchestratorSpec(preferredFamily string) (orchestratorSpec, bool) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	if len(r.orchSpecs) == 0 {
+		return orchestratorSpec{}, false
+	}
+	if fam := strings.ToLower(strings.TrimSpace(preferredFamily)); fam != "" {
+		for _, eff := range []string{"high", "medium", "xhigh", "low"} {
+			if spec, ok := r.orchSpecs["gemini-pro-orchestrator-"+fam+"-"+eff]; ok {
+				return spec, true
+			}
+		}
+		return orchestratorSpec{}, false
+	}
+	for _, want := range preferredDefaults["orchestrator"] {
+		if spec, ok := r.orchSpecs[strings.ToLower(want)]; ok {
+			return spec, true
+		}
+	}
+	for _, opt := range r.options {
+		if opt.Provider == "orchestrator" && isHighEffortOption(opt) {
+			if spec, ok := r.orchSpecs[strings.ToLower(opt.ID)]; ok {
+				return spec, true
+			}
+		}
+	}
+	for _, opt := range r.options {
+		if opt.Provider == "orchestrator" {
+			if spec, ok := r.orchSpecs[strings.ToLower(opt.ID)]; ok {
+				return spec, true
+			}
+		}
+	}
+	// Deterministic fallback if options were invalidated while orchSpecs stayed populated.
+	keys := make([]string, 0, len(r.orchSpecs))
+	for k := range r.orchSpecs {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	return r.orchSpecs[keys[0]], true
+}
+
 func (r *modelRegistry) orchestratorIDForPlannerEnum(enum string) string {
 	r.mu.RLock()
 	defer r.mu.RUnlock()

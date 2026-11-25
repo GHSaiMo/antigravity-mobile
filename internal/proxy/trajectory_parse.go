@@ -1021,56 +1021,116 @@ func resolveActiveModel(rawResp *upstreamTrajectoryResp) (string, json.RawMessag
 	var activeModel string
 	if cid := rawResp.Trajectory.CascadeID; cid != "" {
 		if recModel, recCfg := GetCascadeModel(cid); recModel != "" {
-			activeModel = canonicalModelName(recModel)
+			if isBareOrchestratorAnchor(recModel) {
+				if spec, ok := resolveBareOrchestratorAnchorSpec(recModel); ok {
+					activeModel = spec.ID
+				} else {
+					activeModel = canonicalModelName(recModel)
+				}
+			} else {
+				activeModel = canonicalModelName(recModel)
+			}
 			if len(recCfg) > 0 {
 				activeConfig = recCfg
 			}
 		}
 	}
+
+	annPlanExec := rawResp.Trajectory.Annotations != nil && rawResp.Trajectory.Annotations.PlanExecute
+	sawPlanExec := annPlanExec
+	var fallbackRegularModel string
+	var fallbackPlanExecConfig json.RawMessage
+	var latestAnyConfig json.RawMessage
+
 	for i := len(rawResp.Trajectory.ExecutorMetadatas) - 1; i >= 0; i-- {
 		cfg := rawResp.Trajectory.ExecutorMetadatas[i].CascadeConfig
-		if len(cfg) > 0 && string(cfg) != "null" && string(cfg) != "{}" {
-			if activeModel == "" {
-				var cfgMap map[string]interface{}
-				if err := json.Unmarshal(cfg, &cfgMap); err == nil {
-					if p, ok := cfgMap["plannerConfig"].(map[string]interface{}); ok {
-						hasPlanExec := cascadeConfigHasPlanExecute(cfgMap)
-						mn, _ := p["modelName"].(string)
-						pm, _ := p["planModel"].(string)
-						if pm == "" {
-							if rm, ok := p["requestedModel"].(map[string]interface{}); ok {
-								pm, _ = rm["model"].(string)
-							}
-						}
-						if hasPlanExec {
-							if mn != "" && (isSyntheticOrchestratorID(mn) || strings.Contains(strings.ToLower(mn), "orch")) {
-								activeModel = canonicalModelName(mn)
-							} else if pm != "" {
-								if orchID := liveModels.orchestratorIDForPlannerEnum(pm); orchID != "" {
-									activeModel = orchID
-								} else if mn != "" {
-									activeModel = canonicalModelName(mn)
-								} else {
-									activeModel = canonicalModelName(pm)
-								}
-							} else if mn != "" {
-								activeModel = canonicalModelName(mn)
-							}
-						} else if mn != "" {
-							activeModel = canonicalModelName(mn)
-						} else if pm != "" {
-							activeModel = canonicalModelName(pm)
-						}
+		if len(cfg) == 0 || string(cfg) == "null" || string(cfg) == "{}" {
+			continue
+		}
+		if len(latestAnyConfig) == 0 {
+			latestAnyConfig = cfg
+		}
+		if activeModel != "" && len(activeConfig) > 0 {
+			break
+		}
+		var cfgMap map[string]interface{}
+		if err := json.Unmarshal(cfg, &cfgMap); err != nil {
+			continue
+		}
+		hasPlanExec := cascadeConfigHasPlanExecute(cfgMap)
+		if hasPlanExec {
+			sawPlanExec = true
+			if len(fallbackPlanExecConfig) == 0 {
+				fallbackPlanExecConfig = cfg
+			}
+		}
+		if activeModel != "" {
+			continue
+		}
+		p, ok := cfgMap["plannerConfig"].(map[string]interface{})
+		if !ok {
+			continue
+		}
+		mn, _ := p["modelName"].(string)
+		pm, _ := p["planModel"].(string)
+		if pm == "" {
+			if rm, ok := p["requestedModel"].(map[string]interface{}); ok {
+				pm, _ = rm["model"].(string)
+			}
+		}
+		if hasPlanExec || sawPlanExec {
+			if mn != "" && isSyntheticOrchestratorID(mn) {
+				activeModel = canonicalModelName(mn)
+			} else if pm != "" {
+				if orchID := staticOrchestratorIDForPlannerEnum(pm); orchID != "" {
+					activeModel = orchID
+				} else if mn != "" {
+					if spec, ok := resolveOrchestratorSpec(mn); ok {
+						activeModel = spec.ID
 					}
 				}
+			} else if mn != "" {
+				if spec, ok := resolveOrchestratorSpec(mn); ok {
+					activeModel = spec.ID
+				}
 			}
-			if len(activeConfig) == 0 {
-				activeConfig = cfg
-				SetLastKnownCascadeConfig(cfg)
+			// If this entry belongs to a Plan & Execute cascade (e.g. an executor sub-step
+			// carrying the hydrogen worker enum) and did not yield a synthetic Orchestrator
+			// ID, keep scanning earlier ExecutorMetadatas rather than collapsing to a
+			// non-Orchestrator model.
+			if activeModel != "" && len(activeConfig) == 0 && len(fallbackPlanExecConfig) > 0 {
+				activeConfig = fallbackPlanExecConfig
 			}
-			if activeModel != "" && len(activeConfig) > 0 {
-				break
+		} else {
+			if fallbackRegularModel == "" {
+				if mn != "" {
+					fallbackRegularModel = canonicalModelName(mn)
+				} else if pm != "" {
+					fallbackRegularModel = canonicalModelName(pm)
+				}
 			}
+			activeModel = fallbackRegularModel
+		}
+	}
+
+	if sawPlanExec && rawResp.Trajectory.CascadeID != "" {
+		SetCascadePlanExecute(rawResp.Trajectory.CascadeID, true)
+	}
+	if activeModel == "" {
+		if sawPlanExec {
+			activeModel = defaultOrchestratorModelID()
+		} else {
+			activeModel = fallbackRegularModel
+		}
+	}
+	if len(activeConfig) == 0 {
+		if sawPlanExec && len(fallbackPlanExecConfig) > 0 {
+			activeConfig = fallbackPlanExecConfig
+		} else if len(latestAnyConfig) > 0 {
+			activeConfig = latestAnyConfig
+		}
+		if len(activeConfig) > 0 {
+			SetLastKnownCascadeConfig(activeConfig)
 		}
 	}
 	return activeModel, activeConfig

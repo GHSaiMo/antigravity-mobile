@@ -258,7 +258,7 @@ extension ChatView {
                 }
                 voiceCall.startCall(
                     cascadeId: cid,
-                    modelIdOrEnum: viewModel.activeModelEnum,
+                    modelIdOrEnum: viewModel.activeModel,
                     baseURL: AppSettings.shared.serverURL
                 )
             } catch {

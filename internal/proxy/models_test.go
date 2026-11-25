@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 )
@@ -1157,5 +1158,301 @@ func TestHandleJetboxWriteState_PreservesOrchestratorEffortOnAnchorEnum(t *testi
 
 	if got, _ := GetCascadeModel(cid); got != "gemini-4-neon-high" {
 		t.Fatalf("JetboxWriteState switch to regular model failed: got %q, want gemini-4-neon-high", got)
+	}
+}
+
+func TestOrchestratorBareAnchorResolution_NeverDropsPlanExecuteConfig(t *testing.T) {
+	resetLiveModels(t)
+
+	cases := []struct {
+		inputModel     string
+		inputEnum      string
+		wantID         string
+		wantPlanner    string
+		wantExecNonNil bool
+	}{
+		{"MODEL_PLACEHOLDER_M537", "MODEL_PLACEHOLDER_M537", "gemini-pro-orchestrator-neon-high", "MODEL_PLACEHOLDER_M532", true},
+		{"gemini-pro-orchestrator-neon", "MODEL_PLACEHOLDER_M537", "gemini-pro-orchestrator-neon-high", "MODEL_PLACEHOLDER_M532", true},
+		{"MODEL_PLACEHOLDER_M667", "MODEL_PLACEHOLDER_M667", "gemini-pro-orchestrator-carbon-high", "MODEL_PLACEHOLDER_M420", true},
+		{"gemini-pro-orchestrator", "MODEL_PLACEHOLDER_M667", "gemini-pro-orchestrator-carbon-high", "MODEL_PLACEHOLDER_M420", true},
+		{"MODEL_PLACEHOLDER_M681", "MODEL_PLACEHOLDER_M681", "gemini-pro-orchestrator-argon-high", "MODEL_PLACEHOLDER_M417", true},
+		{"gemini-pro-orchestrator-argon", "MODEL_PLACEHOLDER_M681", "gemini-pro-orchestrator-argon-high", "MODEL_PLACEHOLDER_M417", true},
+	}
+
+	for _, tc := range cases {
+		cfg := applyModelToCascadeConfig(nil, tc.inputEnum, tc.inputModel)
+		cfgMap, ok := cfg.(map[string]interface{})
+		if !ok {
+			t.Fatalf("%s: expected map cascadeConfig, got %T", tc.inputModel, cfg)
+		}
+		pCfg, _ := cfgMap["plannerConfig"].(map[string]interface{})
+		if pCfg["modelName"] != tc.wantID {
+			t.Errorf("%s: modelName = %v, want %q", tc.inputModel, pCfg["modelName"], tc.wantID)
+		}
+		if pCfg["planModel"] != tc.wantPlanner {
+			t.Errorf("%s: planModel = %v, want %q", tc.inputModel, pCfg["planModel"], tc.wantPlanner)
+		}
+		if !cascadeConfigHasPlanExecute(cfgMap) {
+			t.Errorf("%s: expected non-empty planExecuteConfig.executionModel, got %v", tc.inputModel, pCfg["planExecuteConfig"])
+		}
+	}
+}
+
+func TestResolveActiveModel_PlanExecuteColdStartAndExecutorMetadata(t *testing.T) {
+	resetLiveModels(t)
+
+	// 1. Cold start (liveModels empty): planner M535 + planExecuteConfig must NOT collapse to regular gemini-4-neon-xhigh
+	coldStartResp := &upstreamTrajectoryResp{}
+	coldStartResp.Trajectory.ExecutorMetadatas = []struct {
+		CascadeConfig json.RawMessage `json:"cascadeConfig"`
+	}{
+		{CascadeConfig: json.RawMessage(`{"plannerConfig":{"planModel":"MODEL_PLACEHOLDER_M535","planExecuteConfig":{"executionModel":"MODEL_PLACEHOLDER_M525"}}}`)},
+	}
+	if got, _ := resolveActiveModel(coldStartResp); got != "gemini-pro-orchestrator-neon-xhigh" {
+		t.Fatalf("cold-start planExecute resolveActiveModel = %q, want gemini-pro-orchestrator-neon-xhigh", got)
+	}
+
+	// 2. Alternating planner + executor metadata where the newest entry is the executor worker (M525)
+	alternatingResp := &upstreamTrajectoryResp{}
+	alternatingResp.Trajectory.Annotations = &struct {
+		Title                  string            `json:"title"`
+		LastUserViewTime       string            `json:"lastUserViewTime"`
+		PlanExecute            bool              `json:"planExecute,omitempty"`
+		SideQuestionCascadeIDs []string          `json:"sideQuestionCascadeIds,omitempty"`
+		SideQuestionTitles     map[string]string `json:"sideQuestionTitles,omitempty"`
+	}{PlanExecute: true}
+	alternatingResp.Trajectory.ExecutorMetadatas = []struct {
+		CascadeConfig json.RawMessage `json:"cascadeConfig"`
+	}{
+		{CascadeConfig: json.RawMessage(`{"plannerConfig":{"planModel":"MODEL_PLACEHOLDER_M402","planExecuteConfig":{"executionModel":"MODEL_PLACEHOLDER_M525"}}}`)},
+		{CascadeConfig: json.RawMessage(`{"plannerConfig":{"planModel":"MODEL_PLACEHOLDER_M525"}}`)},
+	}
+	if got, _ := resolveActiveModel(alternatingResp); got != "gemini-pro-orchestrator-opus-5-5-high" {
+		t.Fatalf("alternating planner/executor resolveActiveModel = %q, want gemini-pro-orchestrator-opus-5-5-high", got)
+	}
+
+	// 3. PlanExecute annotation true with unmappable enum must still stay on a synthetic Orchestrator ID
+	unknownPlanExecResp := &upstreamTrajectoryResp{}
+	unknownPlanExecResp.Trajectory.Annotations = &struct {
+		Title                  string            `json:"title"`
+		LastUserViewTime       string            `json:"lastUserViewTime"`
+		PlanExecute            bool              `json:"planExecute,omitempty"`
+		SideQuestionCascadeIDs []string          `json:"sideQuestionCascadeIds,omitempty"`
+		SideQuestionTitles     map[string]string `json:"sideQuestionTitles,omitempty"`
+	}{PlanExecute: true}
+	unknownPlanExecResp.Trajectory.ExecutorMetadatas = []struct {
+		CascadeConfig json.RawMessage `json:"cascadeConfig"`
+	}{
+		{CascadeConfig: json.RawMessage(`{"plannerConfig":{"planModel":"MODEL_PLACEHOLDER_M999","planExecuteConfig":{"executionModel":"MODEL_PLACEHOLDER_M525"}}}`)},
+	}
+	if got, _ := resolveActiveModel(unknownPlanExecResp); !isSyntheticOrchestratorID(got) {
+		t.Fatalf("unknown planExecute resolveActiveModel = %q, expected synthetic orchestrator ID", got)
+	}
+}
+
+func TestHandleSendUserCascadeMessage_PlanExecuteConsistency(t *testing.T) {
+	resetLiveModels(t)
+	cid := "test-send-plan-exec-consistency"
+	SetCascadeModel(cid, "gemini-pro-orchestrator-opus-5-5-high", []byte(`{"plannerConfig":{"planModel":"MODEL_PLACEHOLDER_M402","modelName":"gemini-pro-orchestrator-opus-5-5-high","planExecuteConfig":{"executionModel":"MODEL_PLACEHOLDER_M525"}}}`))
+	SetCascadePlanExecute(cid, true)
+	t.Cleanup(func() {
+		defaultTrajCache.cascadeModelsMu.Lock()
+		delete(defaultTrajCache.cascadeModels, cid)
+		delete(defaultTrajCache.cascadePlanExecute, cid)
+		defaultTrajCache.cascadeModelsMu.Unlock()
+		defaultTrajCache.cascadeConfigsMu.Lock()
+		delete(defaultTrajCache.cascadeConfigs, cid)
+		defaultTrajCache.cascadeConfigsMu.Unlock()
+	})
+
+	var eventsMu sync.Mutex
+	var annotationEvents []map[string]interface{}
+	var eventOrder []string
+	p := newFakeLSProxy(t, func(w http.ResponseWriter, r *http.Request) {
+		if strings.HasSuffix(r.URL.Path, "/UpdateConversationAnnotations") {
+			var body map[string]interface{}
+			_ = json.NewDecoder(r.Body).Decode(&body)
+			eventsMu.Lock()
+			annotationEvents = append(annotationEvents, body)
+			eventOrder = append(eventOrder, "annotations")
+			eventsMu.Unlock()
+		}
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{}`))
+	})
+	port, token := p.ActiveUpstream()
+
+	var forwardedSend map[string]interface{}
+	captureRP := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		eventsMu.Lock()
+		eventOrder = append(eventOrder, "send")
+		eventsMu.Unlock()
+		forwardedSend = nil
+		_ = json.NewDecoder(r.Body).Decode(&forwardedSend)
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{}`))
+	})
+
+	// 1. Bare anchor M537 from an older client on an existing Opus 5.5 Orchestrator cascade
+	//    must preserve Opus 5.5 + planExecuteConfig + planExecute:true.
+	req1 := httptest.NewRequest(http.MethodPost, "/api/exa.language_server_pb.LanguageServerService/SendUserCascadeMessage",
+		strings.NewReader(`{"cascadeId":"`+cid+`","text":"continue"}`))
+	req1.Header.Set("X-Antigravity-Model", "MODEL_PLACEHOLDER_M537")
+	rec1 := httptest.NewRecorder()
+	p.handleSendUserCascadeMessage(rec1, req1, captureRP, "/exa.language_server_pb.LanguageServerService/SendUserCascadeMessage", port, token)
+
+	if !cascadeConfigHasPlanExecute(forwardedSend["cascadeConfig"]) {
+		t.Fatalf("bare anchor stripped planExecuteConfig: %+v", forwardedSend["cascadeConfig"])
+	}
+	pCfg1 := forwardedSend["cascadeConfig"].(map[string]interface{})["plannerConfig"].(map[string]interface{})
+	if pCfg1["modelName"] != "gemini-pro-orchestrator-opus-5-5-high" || pCfg1["planModel"] != "MODEL_PLACEHOLDER_M402" {
+		t.Fatalf("bare anchor failed to preserve cached orchestrator variant: %+v", pCfg1)
+	}
+	defAgent1 := forwardedSend["customAgentSpec"].(map[string]interface{})["builtinAgent"].(map[string]interface{})["defaultAgent"].(map[string]interface{})
+	if defAgent1["planExecute"] != true {
+		t.Fatalf("expected customAgentSpec...planExecute=true, got %+v", defAgent1)
+	}
+
+	// 2. Switching away to a regular Gemini model must remove planExecuteConfig, explicitly set
+	//    customAgentSpec...planExecute=false, and synchronously clear annotations.planExecute=false
+	//    before forwarding SendUserCascadeMessage.
+	annotationEvents = nil
+	eventOrder = nil
+	req2 := httptest.NewRequest(http.MethodPost, "/api/exa.language_server_pb.LanguageServerService/SendUserCascadeMessage",
+		strings.NewReader(`{"cascadeId":"`+cid+`","text":"switch to regular","customAgentSpec":{"builtinAgent":{"defaultAgent":{"isInteractive":true,"surface":"AGENT_SURFACE_HUB","planExecute":true}}}}`))
+	req2.Header.Set("X-Antigravity-Model", "gemini-4-neon-high")
+	rec2 := httptest.NewRecorder()
+	p.handleSendUserCascadeMessage(rec2, req2, captureRP, "/exa.language_server_pb.LanguageServerService/SendUserCascadeMessage", port, token)
+
+	if cascadeConfigHasPlanExecute(forwardedSend["cascadeConfig"]) {
+		t.Fatalf("switching away did not remove planExecuteConfig: %+v", forwardedSend["cascadeConfig"])
+	}
+	defAgent2 := forwardedSend["customAgentSpec"].(map[string]interface{})["builtinAgent"].(map[string]interface{})["defaultAgent"].(map[string]interface{})
+	if defAgent2["planExecute"] != false {
+		t.Fatalf("switching away did not clear customAgentSpec...planExecute=false: %+v", defAgent2)
+	}
+	if len(annotationEvents) == 0 {
+		t.Fatal("expected UpdateConversationAnnotations to clear planExecute=false on switch away")
+	}
+	annMap, _ := annotationEvents[0]["annotations"].(map[string]interface{})
+	if annMap["planExecute"] != false || annotationEvents[0]["mergeAnnotations"] != true {
+		t.Fatalf("unexpected UpdateConversationAnnotations payload: %+v", annotationEvents[0])
+	}
+	if len(eventOrder) < 2 || eventOrder[0] != "annotations" || eventOrder[1] != "send" {
+		t.Fatalf("expected annotations clear before send, got order %v", eventOrder)
+	}
+	if IsCascadePlanExecute(cid) {
+		t.Fatal("expected IsCascadePlanExecute to be cleared after switching away")
+	}
+
+	// 3. Switching back from a regular model to an Orchestrator model must synchronously set
+	//    annotations.planExecute=true before sending and restore planExecuteConfig + customAgentSpec.
+	eventsMu.Lock()
+	annotationEvents = nil
+	eventOrder = nil
+	eventsMu.Unlock()
+	req3 := httptest.NewRequest(http.MethodPost, "/api/exa.language_server_pb.LanguageServerService/SendUserCascadeMessage",
+		strings.NewReader(`{"cascadeId":"`+cid+`","text":"switch back to orch"}`))
+	req3.Header.Set("X-Antigravity-Model", "gemini-pro-orchestrator-neon-xhigh")
+	rec3 := httptest.NewRecorder()
+	p.handleSendUserCascadeMessage(rec3, req3, captureRP, "/exa.language_server_pb.LanguageServerService/SendUserCascadeMessage", port, token)
+
+	if !cascadeConfigHasPlanExecute(forwardedSend["cascadeConfig"]) {
+		t.Fatalf("switching back to orchestrator missing planExecuteConfig: %+v", forwardedSend["cascadeConfig"])
+	}
+	defAgent3 := forwardedSend["customAgentSpec"].(map[string]interface{})["builtinAgent"].(map[string]interface{})["defaultAgent"].(map[string]interface{})
+	if defAgent3["planExecute"] != true {
+		t.Fatalf("switching back to orchestrator did not restore customAgentSpec...planExecute=true: %+v", defAgent3)
+	}
+	eventsMu.Lock()
+	ann3Count := len(annotationEvents)
+	var ann3 map[string]interface{}
+	if ann3Count > 0 {
+		ann3 = annotationEvents[0]
+	}
+	order3 := append([]string(nil), eventOrder...)
+	eventsMu.Unlock()
+	if ann3Count == 0 {
+		t.Fatal("expected UpdateConversationAnnotations to set planExecute=true when re-entering Orchestrator mode")
+	}
+	if ann3["annotations"].(map[string]interface{})["planExecute"] != true || ann3["mergeAnnotations"] != true {
+		t.Fatalf("unexpected re-enter UpdateConversationAnnotations payload: %+v", ann3)
+	}
+	if len(order3) < 2 || order3[0] != "annotations" || order3[1] != "send" {
+		t.Fatalf("expected annotations enable before send, got order %v", order3)
+	}
+	if !IsCascadePlanExecute(cid) {
+		t.Fatal("expected IsCascadePlanExecute to be true after re-entering Orchestrator mode")
+	}
+}
+
+func TestHandleJetboxWriteState_SyntheticIDAndColdStartAnchor(t *testing.T) {
+	resetLiveModels(t)
+	cid1 := "test-jetbox-synth-id"
+	cid2 := "test-jetbox-cold-anchor"
+	t.Cleanup(func() {
+		defaultTrajCache.cascadeModelsMu.Lock()
+		delete(defaultTrajCache.cascadeModels, cid1)
+		delete(defaultTrajCache.cascadeModels, cid2)
+		defaultTrajCache.cascadeModelsMu.Unlock()
+		defaultTrajCache.cascadeConfigsMu.Lock()
+		delete(defaultTrajCache.cascadeConfigs, cid1)
+		delete(defaultTrajCache.cascadeConfigs, cid2)
+		defaultTrajCache.cascadeConfigsMu.Unlock()
+	})
+
+	p := newFakeLSProxy(t, func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{}`))
+	})
+
+	var upstreamModel string
+	captureRP := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var body struct {
+			AppState struct {
+				LastSelectedAgentModel string `json:"lastSelectedAgentModel"`
+			} `json:"appState"`
+		}
+		_ = json.NewDecoder(r.Body).Decode(&body)
+		upstreamModel = body.AppState.LastSelectedAgentModel
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{}`))
+	})
+
+	// 1. Synthetic Orchestrator ID sent by iOS/Android/Web:
+	//    local cache preserves exact synthetic ID + planExecuteConfig, while upstream receives valid enum M402.
+	req1 := httptest.NewRequest(http.MethodPost, "/api/exa.language_server_pb.LanguageServerService/JetboxWriteState",
+		strings.NewReader(`{"appState":{"lastSelectedAgentModel":"gemini-pro-orchestrator-opus-5-5-high"}}`))
+	req1.Header.Set("X-Cascade-Id", cid1)
+	p.handleJetboxWriteState(httptest.NewRecorder(), req1, captureRP, "/exa.language_server_pb.LanguageServerService/JetboxWriteState")
+
+	gotModel1, gotCfg1 := GetCascadeModel(cid1)
+	if gotModel1 != "gemini-pro-orchestrator-opus-5-5-high" {
+		t.Fatalf("cached model = %q, want gemini-pro-orchestrator-opus-5-5-high", gotModel1)
+	}
+	var cfg1Obj interface{}
+	_ = json.Unmarshal(gotCfg1, &cfg1Obj)
+	if !cascadeConfigHasPlanExecute(cfg1Obj) {
+		t.Fatalf("cached config missing planExecuteConfig: %s", string(gotCfg1))
+	}
+	if upstreamModel != "MODEL_PLACEHOLDER_M402" {
+		t.Fatalf("upstream JetboxWriteState lastSelectedAgentModel = %q, want MODEL_PLACEHOLDER_M402", upstreamModel)
+	}
+
+	// 2. Cold-start cascade receiving bare anchor MODEL_PLACEHOLDER_M537 must cache a valid
+	//    synthetic Orchestrator spec with planExecuteConfig instead of stripping it.
+	req2 := httptest.NewRequest(http.MethodPost, "/api/exa.language_server_pb.LanguageServerService/JetboxWriteState",
+		strings.NewReader(`{"appState":{"lastSelectedAgentModel":"MODEL_PLACEHOLDER_M537"}}`))
+	req2.Header.Set("X-Cascade-Id", cid2)
+	p.handleJetboxWriteState(httptest.NewRecorder(), req2, captureRP, "/exa.language_server_pb.LanguageServerService/JetboxWriteState")
+
+	gotModel2, gotCfg2 := GetCascadeModel(cid2)
+	if gotModel2 != "gemini-pro-orchestrator-neon-high" {
+		t.Fatalf("cold-start anchor cached model = %q, want gemini-pro-orchestrator-neon-high", gotModel2)
+	}
+	var cfg2Obj interface{}
+	_ = json.Unmarshal(gotCfg2, &cfg2Obj)
+	if !cascadeConfigHasPlanExecute(cfg2Obj) {
+		t.Fatalf("cold-start anchor cached config missing planExecuteConfig: %s", string(gotCfg2))
 	}
 }

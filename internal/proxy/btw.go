@@ -830,8 +830,9 @@ func (p *Proxy) handleBtwStart(w http.ResponseWriter, r *http.Request) {
 			canonicalName = targetModel
 		}
 		cfgObj = applyModelToCascadeConfig(cfgObj, modelEnum, canonicalName)
+		recordedName := effectiveCascadeModelName(cfgObj, canonicalName)
 		if cfgBytes, err := json.Marshal(cfgObj); err == nil {
-			SetCascadeModel(sideID, canonicalName, cfgBytes)
+			SetCascadeModel(sideID, recordedName, cfgBytes)
 		}
 	}
 	if cfgObj != nil {
@@ -995,8 +996,9 @@ func (p *Proxy) handleBtwReply(w http.ResponseWriter, r *http.Request) {
 			canonicalName = targetModel
 		}
 		cfgObj = applyModelToCascadeConfig(cfgObj, modelEnum, canonicalName)
+		recordedName := effectiveCascadeModelName(cfgObj, canonicalName)
 		if cfgBytes, err := json.Marshal(cfgObj); err == nil {
-			SetCascadeModel(sideID, canonicalName, cfgBytes)
+			SetCascadeModel(sideID, recordedName, cfgBytes)
 		}
 	}
 	if cfgObj != nil {
