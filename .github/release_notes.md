@@ -35,7 +35,7 @@
 - ⚡ **E2EE `req-bin2` 流式附件上传、双级高清图与配额精细化（Go / iOS / Android / Web）**：
   - 全端升级 **E2EE `req-bin2` 流式附件上传**，提供真实上传进度反馈与幂等重试，修复 Inbox 附件在上游移动后丢失及 iOS 排队发送后草稿附件未清空的问题；
   - 新增**双级图片预览**（解决缩略图锁定无法加载高清原图问题），并在 HTML / Generative UI 预览中完整注入主题 Token；
-  - 上下文指示器新增**会话 Token 汇总与压缩上限提示**，Token 历史满 1 小时自动刷新，合并 Gemini 池后自动抑制镜像 Argon 重复配额与重复告警，修复满额无 `resetTime` 误判与双端模型用量分布表对齐。
+  - 上下文指示器新增**会话 Token 汇总与压缩上限提示**，Token 历史满 1 小时自动刷新，合并 Gemini 池后自动抑制镜像 Argon 重复配额与重复告警，修复满额无 `resetTime` 误判与双端模型用量分布表对齐；修复双端（Android / iOS）字号缩放（紧凑 / 标准 / 舒适）在用户消息气泡、语音气泡、Markdown 表格、队列卡片与选字页未生效的问题。
 - 📦 **全端版本号对齐**：
   - Android `1.2.7`（Version Code `39`）；iOS `1.2.7`（Build `39`）；桌面/服务端网关 `mgy` `1.2.7`。
 
@@ -65,7 +65,7 @@
 - ⚡ **Streaming E2EE `req-bin2` Uploads, Dual-Tier Image Previews & Quota Refinements (Go / iOS / Android / Web)**:
   - Upgraded attachment uploads across Go, iOS, and Android to **streaming E2EE `req-bin2`** with real upload progress and idempotent retry, preserving Inbox attachments on upstream moves and clearing iOS draft files on queued sends;
   - Added **dual-tier image previews** (fixing thumbnail lock-in) and full Generative UI theme token injection inside HTML previews and embeds;
-  - Added **session token summaries & compaction ceiling hints** to the context meter, 1-hour auto-refresh for token history, mirrored Argon quota/alert deduplication after Gemini pool merge, ready-state handling for full quotas without `resetTime`, and aligned mobile model usage breakdown sheets.
+  - Added **session token summaries & compaction ceiling hints** to the context meter, 1-hour auto-refresh for token history, mirrored Argon quota/alert deduplication after Gemini pool merge, ready-state handling for full quotas without `resetTime`, and aligned mobile model usage breakdown sheets; fixed text-size scaling (Compact / Standard / Comfortable) across Android and iOS so user bubbles, voice bubbles, Markdown tables, queued messages, and text-selection sheets scale consistently.
 - 📦 **Version Alignment**:
   - Android `1.2.7` (Version Code `39`); iOS `1.2.7` (Build `39`); desktop/server gateway `mgy` `1.2.7`.
 
@@ -80,5 +80,5 @@
 - 📱 **iPhone Duo 折りたたみネイティブ対応＆iOS ストリーミング刷新**：**iPhone Duo**（iOS 27.1+）のカバー画面縦レール・中央タイトル、展開時 342pt 2 ペイン作業台、**Book 90° 姿勢での物理折り目揃え**（`ReservedRegion(.division)`）、および開閉・回転時のライブセッション継続に対応。さらにアトミックなスクロール固定と `Equatable` Markdown ブロックによりストリーミング時の画面下部ちらつきを解消し、ホーム画面クイックアクションやディープリンク、滑らかなアーカイブ解除アニメーションも追加しました。
 - 🚀 **Antigravity 2.35.0 準拠＆コア操作の全面アップグレード**：**会話アーカイブ**、実行中ターンのモデル案内、プラグイン権限の取り消し、キュー待機理由ラベル、スコープ付き書き込み承認、Swarm ページング＆**稼働中 Swarm セッションの最上位表示＋ドット絵ミツバチバッジ**、サブエージェントの実稼働モデル表示、HTML ページ内検索（Find in Page）に対応。従来の思考バブルをネイティブな展開式 `Working` 行へ刷新し、**ツール実行ドロップダウンと完了サマリー行を Antigravity デスクトップ版ネイティブ表示へ完全統一**（枠線なしのコンパクト行・時系列思考ブロック・構造化ファイル／Diff 表示＆タッププレビュー・展開式ターミナル出力カード）。さらに `/btw` サイド質問ブランチ、`ask_question` 複数選択、ローカルディレクトリ選択＆フォルダ作成付き GitHub リポジトリクローン、Orchestrator の思考強度サブメニュー（既定 `High`）＆プール残量表示も搭載しました。
 - 🛡️ **高リスク承認 Diff プレビュー・受信トレイ固定・停滞アラート＆ロック画面クイック承認**：Agent Inbox の承認ピン留め、タスク停滞アラート、カテゴリ別**通知設定サブページ**を追加。高リスクコマンド承認には要約ヘッダーと折りたたみ式 Diff プレビュー、高リスク専用通知タイトル、iOS ロック画面クイック承認と誤操作ガードを備え、キュー送信メッセージの消失も防止します。
-- ⚡ **E2EE `req-bin2` ストリーミング添付アップロード＆クォータ／コンテキスト改善**：Go / iOS / Android 間で実進捗・冪等リトライ付きの E2EE ストリーミングアップロードへ移行し、2 段階高解像度画像プレビュー、Generative UI フルテーマトークン注入、コンテキストメーターのトークン集計＆圧縮上限ガイド、1 時間ごとのトークン履歴自動更新、Gemini プール統合後の重複 Argon 通知抑制を実装しました。
+- ⚡ **E2EE `req-bin2` ストリーミング添付アップロード＆クォータ／コンテキスト改善**：Go / iOS / Android 間で実進捗・冪等リトライ付きの E2EE ストリーミングアップロードへ移行し、2 段階高解像度画像プレビュー、Generative UI フルテーマトークン注入、コンテキストメーターのトークン集計＆圧縮上限ガイド、1 時間ごとのトークン履歴自動更新、Gemini プール統合後の重複 Argon 通知抑制を実装しました。また Android / iOS で文字サイズ拡大縮小（コンパクト / 標準 / 快適）がユーザー吹き出し・音声吹き出し・Markdown テーブル・キューカード・テキスト選択シートにも一貫して適用されるよう修正しました。
 - 📦 **バージョン統一**：iOS `1.2.7` (Build `39`) / Android `1.2.7` (Version Code `39`) / ゲートウェイ `mgy` `1.2.7`。

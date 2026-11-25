@@ -55,6 +55,7 @@ fun QueuedMessagesCard(
         mutableStateOf(if (cascadeId.isNotEmpty()) queueExpandStateByCascade[cascadeId] ?: true else true)
     }
     val colors = AntigravityTheme.colors
+    val bodyScale = LocalMarkdownBodyScale.current
     val currentLang = com.antigravity.mobile.ui.util.L10n.currentLang
     val statusSubtitle = remember(hasActiveBackgroundWork, blockingWorkNames, currentLang) {
         if (!hasActiveBackgroundWork) {
@@ -209,7 +210,7 @@ fun QueuedMessagesCard(
                             Text(
                                 text = "${index + 1}. ${item.text}",
                                 color = colors.textPrimary,
-                                fontSize = 13.sp,
+                                fontSize = (13f * bodyScale).sp,
                                 maxLines = 2,
                                 overflow = TextOverflow.Ellipsis,
                                 modifier = Modifier.weight(1f).padding(end = 8.dp)

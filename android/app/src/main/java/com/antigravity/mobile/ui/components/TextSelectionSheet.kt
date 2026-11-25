@@ -132,6 +132,7 @@ fun TextSelectionSheet(
             )
 
             // Scrollable Selectable Plain Text Body
+            val bodyScale = LocalMarkdownBodyScale.current
             Box(
                 modifier = Modifier
                     .weight(1f)
@@ -145,8 +146,8 @@ fun TextSelectionSheet(
                     Text(
                         text = content,
                         color = colors.textPrimary,
-                        fontSize = 15.5.sp,
-                        lineHeight = 23.sp,
+                        fontSize = (15.5f * bodyScale).sp,
+                        lineHeight = (23f * bodyScale).sp,
                         modifier = Modifier.fillMaxWidth()
                     )
                 }

@@ -105,7 +105,8 @@ object SlashCommandTextRenderer {
         text: String,
         mentions: List<SlashCommandMention> = emptyList(),
         availableCommands: List<SlashCommandOption> = emptyList(),
-        iconColor: Color = Color.Unspecified
+        iconColor: Color = Color.Unspecified,
+        scale: Float = 1.0f
     ): Pair<AnnotatedString, Map<String, InlineTextContent>> {
         val segments = SlashCommandTextTokenizer.tokenize(text, mentions, availableCommands)
         if (segments.isEmpty()) {
@@ -137,8 +138,8 @@ object SlashCommandTextRenderer {
                         }
                         inlineMap[inlineId] = InlineTextContent(
                             placeholder = Placeholder(
-                                width = if (isBee) 20.sp else 16.sp,
-                                height = 16.sp,
+                                width = ((if (isBee) 20f else 16f) * scale).sp,
+                                height = (16f * scale).sp,
                                 placeholderVerticalAlign = PlaceholderVerticalAlign.Center
                             )
                         ) {
@@ -147,7 +148,7 @@ object SlashCommandTextRenderer {
                                 icon = seg.mention.icon,
                                 kind = seg.mention.kind,
                                 tint = iconColor,
-                                size = if (isBee) 16.dp else 15.dp
+                                size = ((if (isBee) 16f else 15f) * scale).dp
                             )
                         }
                     }

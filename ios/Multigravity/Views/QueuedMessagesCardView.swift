@@ -215,10 +215,11 @@ private struct QueuedMessageRowView: View {
                 QueuedAttachmentThumbnailsView(item: item, onPreviewImage: onPreviewImage)
             }
             
+            let bodyScale = AppSettings.shared.fontSizeScale.bodyScale
             let displayText = item.text.trimmingCharacters(in: .whitespacesAndNewlines)
             Text(displayText.isEmpty ? (item.hasAttachments ? String(localized: "图片") : "") : item.text)
-                .font(.system(size: 14))
-                .lineSpacing(2)
+                .font(.system(size: 14 * bodyScale))
+                .lineSpacing(2 * bodyScale)
                 .foregroundColor(.primary)
                 .lineLimit(3)
                 .frame(maxWidth: .infinity, alignment: .leading)

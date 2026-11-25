@@ -210,6 +210,7 @@ internal fun TableBlockView(
     val columnCount = maxOf(headers.size, rows.maxOfOrNull { it.size } ?: 0)
     if (columnCount == 0) return
     val isExport = LocalShareExport.current
+    val bodyScale = if (isExport) 1.0f else LocalMarkdownBodyScale.current
     val hasHeader = headers.isNotEmpty()
     val lastRow = rows.size - 1
 
@@ -246,7 +247,7 @@ internal fun TableBlockView(
             RichTextRenderer(
                 text = text,
                 colors = colors,
-                baseFontSize = 13.sp,
+                baseFontSize = (13f * bodyScale).sp,
                 baseFontWeight = if (isHeader) FontWeight.Bold else FontWeight.Normal,
                 onPlanClick = onPlanClick
             )

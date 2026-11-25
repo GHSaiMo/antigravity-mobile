@@ -3,6 +3,7 @@ import Photos
 
 public struct MessageBubbleView: View {
     @Environment(\.openURL) var openURL
+    @Environment(\.isShareExport) var isShareExport
     public let message: ChatMessage
     public let isActiveToolBatch: Bool
     public let isActivePlan: Bool
@@ -152,6 +153,10 @@ public struct MessageBubbleView: View {
 }
 
 extension MessageBubbleView {
+    var bodyScale: CGFloat {
+        isShareExport ? 1.0 : AppSettings.shared.fontSizeScale.bodyScale
+    }
+
     var shareCardImages: [IdentifiableImage] {
         if case .user = message.sender { return userAttachmentItems }
         return fallbackAgentImageURLs.compactMap { URL(string: $0) }.map { IdentifiableImage(url: $0) }

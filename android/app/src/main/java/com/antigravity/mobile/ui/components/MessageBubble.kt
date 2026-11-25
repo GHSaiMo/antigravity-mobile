@@ -289,6 +289,7 @@ fun MessageBubble(
     }
 
     val isUser = message.isUser
+    val bodyScale = if (LocalShareExport.current) 1.0f else LocalMarkdownBodyScale.current
     val clipboard = LocalClipboardManager.current
     val haptic = LocalHapticFeedback.current
     var copiedHintVisible by remember { mutableStateOf(false) }
@@ -579,13 +580,13 @@ fun MessageBubble(
                             horizontalArrangement = Arrangement.spacedBy(6.dp)
                         ) {
                             AntigravityVoiceIcon(
-                                modifier = Modifier.size(18.dp),
+                                modifier = Modifier.size((18f * bodyScale).dp),
                                 tint = colors.userBubbleText
                             )
                             Text(
                                 text = "语音交互".loc,
                                 color = colors.userBubbleText,
-                                fontSize = 14.sp,
+                                fontSize = (14f * bodyScale).sp,
                                 fontWeight = FontWeight.Medium
                             )
                         }
@@ -599,21 +600,21 @@ fun MessageBubble(
                                 horizontalArrangement = Arrangement.spacedBy(6.dp)
                             ) {
                                 AntigravityVoiceIcon(
-                                    modifier = Modifier.size(16.dp),
+                                    modifier = Modifier.size((16f * bodyScale).dp),
                                     tint = colors.userBubbleText.copy(alpha = 0.85f)
                                 )
                                 Text(
                                     text = "语音交互".loc,
                                     color = colors.userBubbleText.copy(alpha = 0.85f),
-                                    fontSize = 12.sp,
+                                    fontSize = (12f * bodyScale).sp,
                                     fontWeight = FontWeight.SemiBold
                                 )
                             }
                             Text(
                                 text = cleanedVoiceText,
                                 color = colors.userBubbleText,
-                                fontSize = 14.5.sp,
-                                lineHeight = 20.sp
+                                fontSize = (14.5f * bodyScale).sp,
+                                lineHeight = (20f * bodyScale).sp
                             )
                         }
                     }
@@ -679,11 +680,17 @@ fun MessageBubble(
                         )
                         .padding(horizontal = 14.dp, vertical = 10.dp)
                 ) {
-                    val (userAnnotatedText, inlineContentMap) = remember(userBodyText, message.slashCommands) {
+                    val (userAnnotatedText, inlineContentMap) = remember(
+                        userBodyText,
+                        message.slashCommands,
+                        colors.userBubbleText,
+                        bodyScale
+                    ) {
                         SlashCommandTextRenderer.buildInlineText(
                             text = userBodyText,
                             mentions = message.slashCommands.orEmpty(),
-                            iconColor = colors.userBubbleText.copy(alpha = 0.85f)
+                            iconColor = colors.userBubbleText.copy(alpha = 0.85f),
+                            scale = bodyScale
                         )
                     }
                     val hasSkillDefLinks = remember(userAnnotatedText) {
@@ -698,8 +705,8 @@ fun MessageBubble(
                         text = userAnnotatedText,
                         inlineContent = inlineContentMap,
                         color = colors.userBubbleText,
-                        fontSize = 15.5.sp,
-                        lineHeight = 21.sp,
+                        fontSize = (15.5f * bodyScale).sp,
+                        lineHeight = (21f * bodyScale).sp,
                         onTextLayout = { userTextLayoutResult = it },
                         modifier = if (hasSkillDefLinks && onPlanClick != null) {
                             Modifier.pointerInput(userAnnotatedText, onPlanClick) {

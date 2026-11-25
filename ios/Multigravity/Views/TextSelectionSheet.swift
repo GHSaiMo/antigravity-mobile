@@ -31,7 +31,10 @@ public struct TextSelectionSheet: View {
                 
                 Divider()
                 
-                SelectableTextViewRepresentable(text: content)
+                SelectableTextViewRepresentable(
+                    text: content,
+                    fontSize: 15.5 * AppSettings.shared.fontSizeScale.bodyScale
+                )
                     .background(Color(uiColor: .systemBackground))
             }
             .navigationTitle(title)
@@ -85,6 +88,9 @@ struct SelectableTextViewRepresentable: UIViewRepresentable {
     func updateUIView(_ uiView: CustomSelectableTextView, context: Context) {
         if uiView.text != text {
             uiView.text = text
+        }
+        if uiView.font?.pointSize != fontSize {
+            uiView.font = .systemFont(ofSize: fontSize)
         }
     }
 }

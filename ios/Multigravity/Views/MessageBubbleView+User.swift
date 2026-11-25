@@ -38,13 +38,15 @@ extension MessageBubbleView {
             if isVoiceMessage {
                 VoiceInteractionUserBubble(bodyText: parsed.body, onCopy: { copyWholeText(parsed.body) })
             } else if !parsed.body.isEmpty {
+                let scale = bodyScale
                 SlashCommandTextRenderer.render(
                     text: parsed.body,
                     mentions: message.slashCommands ?? [],
                     iconColor: .white.withAlphaComponent(0.85),
+                    iconSize: 15 * scale,
                     enableSkillLinks: true
                 )
-                .font(.system(size: 15.5))
+                .font(.system(size: 15.5 * scale))
                 .foregroundColor(.white)
                 .tint(.white)
                 .padding(.horizontal, 14)
@@ -603,13 +605,19 @@ enum VoiceTranscriptCleaner {
 struct VoiceInteractionUserBubble: View {
     let bodyText: String
     let onCopy: () -> Void
+    @Environment(\.isShareExport) private var isShareExport
     @State private var isExpanded: Bool = false
+
+    private var bodyScale: CGFloat {
+        isShareExport ? 1.0 : AppSettings.shared.fontSizeScale.bodyScale
+    }
 
     private var cleanedText: String {
         VoiceTranscriptCleaner.clean(bodyText)
     }
 
     var body: some View {
+        let scale = bodyScale
         Button {
             if !cleanedText.isEmpty {
                 withAnimation(.easeInOut(duration: 0.2)) {
@@ -622,9 +630,9 @@ struct VoiceInteractionUserBubble: View {
                     HStack(spacing: 6) {
                         AntigravityVoiceShape()
                             .fill(Color.white)
-                            .frame(width: 18, height: 18)
+                            .frame(width: 18 * scale, height: 18 * scale)
                         Text("语音交互")
-                            .font(.system(size: 14, weight: .medium))
+                            .font(.system(size: 14 * scale, weight: .medium))
                             .foregroundColor(.white)
                     }
                 } else {
@@ -632,15 +640,15 @@ struct VoiceInteractionUserBubble: View {
                         HStack(spacing: 6) {
                             AntigravityVoiceShape()
                                 .fill(Color.white.opacity(0.85))
-                                .frame(width: 16, height: 16)
+                                .frame(width: 16 * scale, height: 16 * scale)
                             Text("语音交互")
-                                .font(.system(size: 12, weight: .semibold))
+                                .font(.system(size: 12 * scale, weight: .semibold))
                                 .foregroundColor(.white.opacity(0.85))
                         }
                         Text(cleanedText)
-                            .font(.system(size: 14.5))
+                            .font(.system(size: 14.5 * scale))
                             .foregroundColor(.white)
-                            .lineSpacing(3)
+                            .lineSpacing(3 * scale)
                             .multilineTextAlignment(.leading)
                     }
                     .frame(maxWidth: 320, alignment: .leading)

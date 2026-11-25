@@ -111,6 +111,8 @@ extension MarkdownContentView {
     @ViewBuilder
     func tableView(headers: [String], rows: [[String]], alignments: [TableColumnAlignment] = []) -> some View {
         let columnCount = max(headers.count, rows.map(\.count).max() ?? 0)
+        let bodyScale = isShareExport ? 1.0 : AppSettings.shared.fontSizeScale.bodyScale
+        let cellFontSize = 13 * bodyScale
         
         if columnCount > 0 {
             MarkdownAutoTable(columnCount: columnCount, hasHeader: !headers.isEmpty) {
@@ -118,8 +120,8 @@ extension MarkdownContentView {
                 if !headers.isEmpty {
                     ForEach(0..<columnCount, id: \.self) { colIdx in
                         let colAlignment = colIdx < alignments.count ? alignments[colIdx] : .leading
-                        Self.renderRichText(colIdx < headers.count ? headers[colIdx] : "", size: 13, weight: .bold)
-                            .font(.system(size: 13, weight: .bold))
+                        Self.renderRichText(colIdx < headers.count ? headers[colIdx] : "", size: cellFontSize, weight: .bold)
+                            .font(.system(size: cellFontSize, weight: .bold))
                             .foregroundColor(.primary)
                             .multilineTextAlignment(colAlignment.textAlignment)
                             .padding(.horizontal, 12)
@@ -141,11 +143,11 @@ extension MarkdownContentView {
                 ForEach(Array(rows.enumerated()), id: \.offset) { rowIdx, row in
                     ForEach(0..<columnCount, id: \.self) { colIdx in
                         let colAlignment = colIdx < alignments.count ? alignments[colIdx] : .leading
-                        Self.renderRichText(colIdx < row.count ? row[colIdx] : "", size: 13)
-                            .font(.system(size: 13))
+                        Self.renderRichText(colIdx < row.count ? row[colIdx] : "", size: cellFontSize)
+                            .font(.system(size: cellFontSize))
                             .foregroundColor(.primary.opacity(0.9))
                             .multilineTextAlignment(colAlignment.textAlignment)
-                            .lineSpacing(2.5)
+                            .lineSpacing(2.5 * bodyScale)
                             .padding(.horizontal, 12)
                             .padding(.vertical, 8)
                             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: colAlignment.swiftUIAlignment)

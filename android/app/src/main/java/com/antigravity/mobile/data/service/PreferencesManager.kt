@@ -1022,13 +1022,13 @@ class PreferencesManager(context: Context) {
         }
 
         fun bodyScaleFactor(scale: String): Float = when (scale) {
-            "compact" -> 0.88f
+            "compact" -> 0.90f
             "comfortable" -> 1.15f
             else -> 1.0f
         }
 
         fun codeScaleFactor(scale: String): Float = when (scale) {
-            "compact" -> 0.90f
+            "compact" -> 0.88f
             "comfortable" -> 1.12f
             else -> 1.0f
         }
