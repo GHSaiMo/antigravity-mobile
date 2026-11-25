@@ -2316,7 +2316,10 @@ object L10n {
         map["蜂群会话"] = "Swarm Session"
         map["已置顶"] = "Pinned"
         map["归档"] = "Archive"
+        map["归档会话"] = "Archive Chat"
         map["取消归档"] = "Unarchive"
+        map["确定取消归档此会话吗？"] = "Unarchive this conversation?"
+        map["确定归档此会话吗？\n归档后该会话将移入「已归档」，随时可查看或恢复。"] = "Archive this conversation?\nArchived conversations are moved to Archived and can be restored anytime."
     }
 
 private fun populateJaChunk0(map: HashMap<String, String>) {
@@ -4359,7 +4362,10 @@ private fun populateJaChunk0(map: HashMap<String, String>) {
         map["蜂群会话"] = "スウォームセッション"
         map["已置顶"] = "ピン留め済み"
         map["归档"] = "アーカイブ"
+        map["归档会话"] = "会話をアーカイブ"
         map["取消归档"] = "アーカイブ解除"
+        map["确定取消归档此会话吗？"] = "この会話のアーカイブを解除しますか？"
+        map["确定归档此会话吗？\n归档后该会话将移入「已归档」，随时可查看或恢复。"] = "この会話をアーカイブしますか？\nアーカイブした会話は「アーカイブ済み」に移動し、いつでも復元できます。"
     }
 }
 
