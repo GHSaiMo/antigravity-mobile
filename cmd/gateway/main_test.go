@@ -449,5 +449,28 @@ func TestPushTokenCrossDeviceProtection(t *testing.T) {
 	}
 }
 
+func TestNormalizeTopLevelCommand(t *testing.T) {
+	tests := []struct {
+		arg  string
+		want string
+	}{
+		{"help", "help"},
+		{"-h", "help"},
+		{"-help", "help"},
+		{"--help", "help"},
+		{"version", "version"},
+		{"-v", "version"},
+		{"-version", "version"},
+		{"--version", "version"},
+		{"pair", "pair"},
+		{"-port", "-port"},
+	}
+	for _, tc := range tests {
+		if got := normalizeTopLevelCommand(tc.arg); got != tc.want {
+			t.Errorf("normalizeTopLevelCommand(%q) = %q, want %q", tc.arg, got, tc.want)
+		}
+	}
+}
+
 
 

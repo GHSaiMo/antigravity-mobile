@@ -76,6 +76,17 @@ func extractLangFlag(args *[]string) string {
 	return lang
 }
 
+func normalizeTopLevelCommand(arg string) string {
+	switch arg {
+	case "version", "-v", "-version", "--version":
+		return "version"
+	case "help", "-h", "-help", "--help":
+		return "help"
+	default:
+		return arg
+	}
+}
+
 func main() {
 	// 0. Initialize console output synchronization so concurrent logs don't tear terminal output
 	auth.InitConsoleSync()
@@ -89,7 +100,7 @@ func main() {
 	i18n.Init(langOverride)
 
 	if len(args) > 0 {
-		switch args[0] {
+		switch normalizeTopLevelCommand(args[0]) {
 		case "pair":
 			runPairCmd(args[1:])
 			return
@@ -111,10 +122,10 @@ func main() {
 		case "update", "upgrade":
 			runUpdateCmd(args[1:])
 			return
-		case "version", "-v", "--version":
+		case "version":
 			runVersionCmd()
 			return
-		case "help", "-h", "--help":
+		case "help":
 			runHelpCmd()
 			return
 		case "run":
