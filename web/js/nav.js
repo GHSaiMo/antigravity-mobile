@@ -941,7 +941,7 @@ function initConversationCardDelegation() {
 
   listEl.addEventListener("touchstart", (e) => {
     if (e.touches.length > 1) return;
-    if (e.target.closest(".conv-card-delete-btn")) return;
+    if (e.target.closest(".conv-card-delete-btn") || e.target.closest(".conv-card-archive-btn")) return;
     const card = e.target.closest(".conv-card");
     if (!card) return;
     const wrapper = card.closest(".conv-card-wrapper");
@@ -1114,7 +1114,7 @@ function initConversationCardDelegation() {
       triggerHaptic("medium");
       const id = archiveBtn.getAttribute("data-id") || archiveBtn.closest(".conv-card-wrapper")?.getAttribute("data-id");
       const isCurrentlyArchived = archiveBtn.getAttribute("data-archived") === "1";
-      if (id) toggleArchiveConversation(id, !isCurrentlyArchived);
+      if (id) openArchiveActionSheet(id, !isCurrentlyArchived);
       return;
     }
     const deleteBtn = e.target.closest(".conv-card-delete-btn");
@@ -1160,6 +1160,58 @@ function openDeleteActionSheet(id) {
   pendingDeleteCascadeId = id;
   const sheet = document.getElementById("actionsheet-delete");
   if (sheet) sheet.classList.remove("hidden");
+}
+
+// --- Archive / Unarchive Conversation ActionSheet ---
+
+let pendingArchiveCascadeId = null;
+let pendingArchiveTargetState = true;
+
+function openArchiveActionSheet(id, willArchive) {
+  closeOtherCards();
+  pendingArchiveCascadeId = id;
+  pendingArchiveTargetState = !!willArchive;
+  const sheet = document.getElementById("actionsheet-archive");
+  const titleEl = document.getElementById("actionsheet-archive-title");
+  const subtitleEl = document.getElementById("actionsheet-archive-subtitle");
+  const confirmBtn = document.getElementById("btn-actionsheet-archive-confirm");
+  if (titleEl) {
+    titleEl.textContent = pendingArchiveTargetState
+      ? "确定归档此会话吗？"
+      : "确定取消归档此会话吗？";
+  }
+  if (subtitleEl) {
+    if (pendingArchiveTargetState) {
+      subtitleEl.textContent = "归档后该会话将移入「已归档」，随时可查看或恢复。";
+      subtitleEl.classList.remove("hidden");
+    } else {
+      subtitleEl.textContent = "";
+      subtitleEl.classList.add("hidden");
+    }
+  }
+  if (confirmBtn) {
+    confirmBtn.textContent = pendingArchiveTargetState ? "归档会话" : "取消归档";
+  }
+  if (sheet) {
+    if (window.I18n && typeof window.I18n.translateDOM === "function") {
+      window.I18n.translateDOM(sheet, true);
+    }
+    sheet.classList.remove("hidden");
+  }
+}
+
+function closeArchiveActionSheet() {
+  pendingArchiveCascadeId = null;
+  const sheet = document.getElementById("actionsheet-archive");
+  if (sheet) sheet.classList.add("hidden");
+}
+
+async function confirmArchiveConversation() {
+  const id = pendingArchiveCascadeId;
+  const willArchive = pendingArchiveTargetState;
+  closeArchiveActionSheet();
+  if (!id) return;
+  await toggleArchiveConversation(id, willArchive);
 }
 
 async function toggleArchiveConversation(id, archived) {

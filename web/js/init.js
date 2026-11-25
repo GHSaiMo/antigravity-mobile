@@ -183,6 +183,11 @@ function initApp() {
   document.getElementById("actionsheet-delete-backdrop")?.addEventListener("click", closeDeleteActionSheet);
   document.getElementById("btn-actionsheet-delete-confirm")?.addEventListener("click", confirmDeleteConversation);
 
+  // iOS ActionSheet: Archive / Unarchive Conversation Confirmation
+  document.getElementById("btn-actionsheet-archive-cancel")?.addEventListener("click", closeArchiveActionSheet);
+  document.getElementById("actionsheet-archive-backdrop")?.addEventListener("click", closeArchiveActionSheet);
+  document.getElementById("btn-actionsheet-archive-confirm")?.addEventListener("click", confirmArchiveConversation);
+
   // Initialize iOS Gestures & Viewport Handling
   initPullToRefresh();
   initEdgeSwipeBack();

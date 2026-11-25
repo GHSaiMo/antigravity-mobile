@@ -26,6 +26,8 @@ public struct ConversationListView: View {
     @State private var showDeleteConfirm = false
     @State private var conversationToPin: ConversationItem?
     @State private var showPinConfirm = false
+    @State private var conversationToArchive: ConversationItem?
+    @State private var showArchiveConfirm = false
     @State private var conversationToRename: ConversationItem?
     @State private var renameText = ""
     @State private var showRenameAlert = false
@@ -507,6 +509,8 @@ public struct ConversationListView: View {
         showRenameAlert = false
         showDeleteConfirm = false
         showPinConfirm = false
+        showArchiveConfirm = false
+        conversationToArchive = nil
         showPairingConfirm = false
         showQuickActionUnpairedAlert = false
         pendingPairing = nil
@@ -1195,8 +1199,8 @@ public struct ConversationListView: View {
                             showRenameAlert = true
                         },
                         onArchive: {
-                            UIImpactFeedbackGenerator(style: .medium).impactOccurred()
-                            viewModel.toggleArchive(item: item)
+                            conversationToArchive = item
+                            showArchiveConfirm = true
                         },
                         onDelete: {
                             conversationToDelete = item
@@ -1238,8 +1242,10 @@ public struct ConversationListView: View {
                         if !item.isDraft {
                             Button {
                                 UserDefaults.standard.set(true, forKey: "has_seen_swipe_gesture_hint")
-                                UIImpactFeedbackGenerator(style: .medium).impactOccurred()
-                                viewModel.toggleArchive(item: item)
+                                conversationToArchive = item
+                                DispatchQueue.main.asyncAfter(deadline: .now() + 0.12) {
+                                    showArchiveConfirm = true
+                                }
                             } label: {
                                 Image(uiImage: Self.archiveActionImage(isArchived: item.isArchived))
                             }
@@ -1271,6 +1277,33 @@ public struct ConversationListView: View {
                         Button("取消", role: .cancel) {
                             showPinConfirm = false
                             conversationToPin = nil
+                        }
+                    }
+
+                    .confirmationDialog(
+                        (conversationToArchive?.isArchived == true)
+                            ? String(localized: "确定取消归档此会话吗？")
+                            : String(localized: "确定归档此会话吗？\n归档后该会话将移入「已归档」，随时可查看或恢复。"),
+                        isPresented: Binding(
+                            get: { showArchiveConfirm && conversationToArchive?.id == item.id },
+                            set: { if !$0 {
+                                showArchiveConfirm = false
+                                conversationToArchive = nil
+                            } }
+                        ),
+                        titleVisibility: .visible
+                    ) {
+                        Button((conversationToArchive?.isArchived == true) ? String(localized: "取消归档") : String(localized: "归档会话")) {
+                            showArchiveConfirm = false
+                            if let target = conversationToArchive {
+                                UIImpactFeedbackGenerator(style: .medium).impactOccurred()
+                                viewModel.toggleArchive(item: target)
+                            }
+                            conversationToArchive = nil
+                        }
+                        Button("取消", role: .cancel) {
+                            showArchiveConfirm = false
+                            conversationToArchive = nil
                         }
                     }
 

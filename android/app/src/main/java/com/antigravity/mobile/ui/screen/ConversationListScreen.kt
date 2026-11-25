@@ -158,6 +158,7 @@ fun ConversationListScreen(
     var renameText by remember { mutableStateOf("") }
     var deletingItem by remember { mutableStateOf<ConversationItem?>(null) }
     var pinningItem by remember { mutableStateOf<ConversationItem?>(null) }
+    var archivingItem by remember { mutableStateOf<ConversationItem?>(null) }
     var swipedConversationId by remember { mutableStateOf<String?>(null) }
     var editingAliasProject by remember { mutableStateOf<ProjectItem?>(null) }
     var aliasInputText by remember { mutableStateOf("") }
@@ -174,6 +175,7 @@ fun ConversationListScreen(
             renamingItem = null
             deletingItem = null
             pinningItem = null
+            archivingItem = null
             editingAliasProject = null
         }
     }
@@ -187,6 +189,7 @@ fun ConversationListScreen(
             renamingItem = null
             deletingItem = null
             pinningItem = null
+            archivingItem = null
             editingAliasProject = null
             showQuotaSheet = true
             viewModel.refreshQuotas()
@@ -472,8 +475,7 @@ fun ConversationListScreen(
                             },
                             onArchive = { item ->
                                 swipedConversationId = null
-                                haptic.medium()
-                                viewModel.toggleArchiveConversation(item.id)
+                                archivingItem = item
                             },
                             swipedConversationId = swipedConversationId,
                             showWeeklyPaceCursor = showWeeklyPaceCursor,
@@ -934,6 +936,43 @@ fun ConversationListScreen(
             },
             dismissButton = {
                 TextButton(onClick = { pinningItem = null }) {
+                    Text("取消".loc, color = colors.textSecondary)
+                }
+            },
+            containerColor = colors.surface
+        )
+    }
+
+    // Archive / Unarchive Confirmation Dialog
+    archivingItem?.let { item ->
+        val isCurrentlyArchived = item.isArchived
+        val archiveTitle = if (isCurrentlyArchived) "取消归档".loc else "归档会话".loc
+        val archiveMessage = if (isCurrentlyArchived) {
+            "确定取消归档此会话吗？".loc
+        } else {
+            "确定归档此会话吗？\n归档后该会话将移入「已归档」，随时可查看或恢复。".loc
+        }
+        AlertDialog(
+            onDismissRequest = { archivingItem = null },
+            title = { Text(archiveTitle, color = colors.textPrimary, fontWeight = FontWeight.Bold) },
+            text = { Text(archiveMessage, color = colors.textSecondary) },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        haptic.medium()
+                        viewModel.toggleArchiveConversation(item.id)
+                        archivingItem = null
+                    },
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = if (isCurrentlyArchived) colors.accentIndigo else Color(0xFF64748B),
+                        contentColor = Color.White
+                    )
+                ) {
+                    Text(if (isCurrentlyArchived) "取消归档".loc else "归档".loc)
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { archivingItem = null }) {
                     Text("取消".loc, color = colors.textSecondary)
                 }
             },

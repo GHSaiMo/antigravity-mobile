@@ -22147,6 +22147,72 @@
         }
       }
     },
+    "确定取消归档此会话吗？": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Unarchive this conversation?"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "この会話のアーカイブを解除しますか？"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "确定取消归档此会话吗？"
+          }
+        }
+      }
+    },
+    "确定归档此会话吗？\n归档后该会话将移入「已归档」，随时可查看或恢复。": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Archive this conversation?\nArchived conversations are moved to Archived and can be restored anytime."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "この会話をアーカイブしますか？\nアーカイブした会話は「アーカイブ済み」に移動し、いつでも復元できます。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "确定归档此会话吗？\n归档后该会话将移入「已归档」，随时可查看或恢复。"
+          }
+        }
+      }
+    },
+    "归档会话": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Archive"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "アーカイブ"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "归档会话"
+          }
+        }
+      }
+    },
     "确定清空本地缓存？": {
       "localizations": {
         "en": {
