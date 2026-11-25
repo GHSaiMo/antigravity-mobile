@@ -24,14 +24,18 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.layout.Layout
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Constraints
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -1237,7 +1241,7 @@ private fun BoardMessageRowNative(
         if (targets.isEmpty()) msg.text else stripLeadingMentions(msg.text)
     }
 
-    val needsClamp = cleanBody.length > 160 || cleanBody.count { it == '\n' } >= 4
+    val needsClamp = remember(cleanBody) { needsSwarmBoardClamp(cleanBody) }
 
     Row(
         modifier = Modifier
@@ -1290,13 +1294,13 @@ private fun BoardMessageRowNative(
                 )
             }
 
-            Text(
-                text = cleanBody,
-                fontSize = 13.sp,
-                lineHeight = 18.sp,
-                color = SwarmColors.ink(isDark),
-                maxLines = if (needsClamp && !isExpanded) 4 else Int.MAX_VALUE,
-                overflow = TextOverflow.Ellipsis
+            SwarmMarkdownBody(
+                markdown = cleanBody,
+                collapsed = needsClamp && !isExpanded,
+                maxCollapsedHeight = 112.dp,
+                fadeColor = SwarmColors.bg(isDark),
+                scaleMultiplier = 0.88f,
+                blockSpacing = 6.dp
             )
 
             if (needsClamp) {
@@ -1557,7 +1561,7 @@ private fun MemberCardRow(
     val bodyPreview = when {
         isWorking && !member.lastActivity.isNullOrBlank() -> member.lastActivity
         isError && !member.lastActivity.isNullOrBlank() -> member.lastActivity
-        lastPost != null -> stripLeadingMentions(lastPost.text).replace('\n', ' ')
+        lastPost != null -> stripLeadingMentions(lastPost.text)
         else -> member.lastActivity ?: ""
     }
 
@@ -1657,8 +1661,12 @@ private fun MemberCardRow(
                 }
 
                 if (!bodyPreview.isNullOrBlank()) {
+                    val appColors = AntigravityTheme.colors
+                    val previewAnnotated = remember(bodyPreview, appColors) {
+                        buildCompactMarkdownPreview(bodyPreview, appColors, 12.5.sp)
+                    }
                     Text(
-                        text = bodyPreview,
+                        text = previewAnnotated,
                         fontSize = 12.5.sp,
                         color = if (isWorking || isCoord) SwarmColors.ink(isDark).copy(alpha = 0.88f) else SwarmColors.muted(isDark),
                         maxLines = 2,
@@ -1716,6 +1724,135 @@ private fun MemberCardRow(
                     Text("未读 %d".loc(member.unreadCount), fontSize = 11.sp, color = SwarmColors.faint(isDark))
                 }
             }
+        }
+    }
+}
+
+internal fun needsSwarmBoardClamp(text: String): Boolean {
+    val trimmed = text.trim()
+    if (trimmed.isEmpty()) return false
+    if (trimmed.length > 160) return true
+    var newlines = 0
+    for (ch in trimmed) {
+        if (ch == '\n') {
+            newlines++
+            if (newlines >= 4) return true
+        }
+    }
+    return trimmed.contains("```") || trimmed.contains("~~~")
+}
+
+internal fun buildSwarmCollapsedMarkdownPreview(
+    markdown: String,
+    maxLines: Int = 10,
+    maxChars: Int = 520
+): String {
+    val unified = markdown.replace("\r\n", "\n").replace('\r', '\n')
+    val lines = unified.split('\n')
+    val picked = ArrayList<String>(minOf(lines.size, maxLines))
+    var charTotal = 0
+    var openFence: String? = null
+
+    for (rawLine in lines) {
+        if (picked.size >= maxLines || charTotal >= maxChars) break
+        val trimmed = rawLine.trim()
+        if (openFence != null) {
+            if (trimmed.startsWith(openFence)) {
+                openFence = null
+            }
+        } else if (trimmed.startsWith("```") || trimmed.startsWith("~~~")) {
+            val fc = trimmed[0]
+            var count = 0
+            while (count < trimmed.length && trimmed[count] == fc) count++
+            if (count >= 3) {
+                openFence = fc.toString().repeat(count)
+            }
+        }
+        val remaining = maxChars - charTotal
+        if (rawLine.length > remaining && picked.isEmpty()) {
+            picked.add(rawLine.take(remaining))
+            charTotal = maxChars
+            break
+        }
+        picked.add(rawLine)
+        charTotal += rawLine.length + 1
+    }
+
+    if (openFence != null) {
+        picked.add(openFence)
+    }
+    return picked.joinToString("\n")
+}
+
+@Composable
+internal fun SwarmMarkdownBody(
+    markdown: String,
+    collapsed: Boolean = false,
+    maxCollapsedHeight: Dp = 112.dp,
+    fadeColor: Color = SwarmColors.bg(AntigravityTheme.colors.isDark),
+    scaleMultiplier: Float = 0.88f,
+    blockSpacing: Dp = 6.dp,
+    modifier: Modifier = Modifier
+) {
+    val baseBodyScale = LocalMarkdownBodyScale.current
+    val baseCodeScale = LocalMarkdownCodeScale.current
+    val scaledBody = (baseBodyScale * scaleMultiplier).coerceAtLeast(0.75f)
+    val scaledCode = (baseCodeScale * (scaleMultiplier + 0.02f).coerceAtMost(1.0f)).coerceAtLeast(0.75f)
+
+    CompositionLocalProvider(
+        LocalMarkdownBodyScale provides scaledBody,
+        LocalMarkdownCodeScale provides scaledCode
+    ) {
+        if (collapsed) {
+            val preview = remember(markdown) { buildSwarmCollapsedMarkdownPreview(markdown) }
+            Layout(
+                modifier = modifier
+                    .fillMaxWidth()
+                    .clipToBounds(),
+                content = {
+                    MarkdownContentView(
+                        content = preview,
+                        selectable = false,
+                        blockSpacing = blockSpacing
+                    )
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(28.dp)
+                            .background(
+                                Brush.verticalGradient(
+                                    colors = listOf(fadeColor.copy(alpha = 0f), fadeColor)
+                                )
+                            )
+                    )
+                }
+            ) { measurables, constraints ->
+                val contentMeasurable = measurables[0]
+                val fadeMeasurable = measurables[1]
+                val contentPlaceable = contentMeasurable.measure(
+                    constraints.copy(minHeight = 0, maxHeight = Constraints.Infinity)
+                )
+                val maxHeightPx = maxCollapsedHeight.roundToPx()
+                val overflows = contentPlaceable.height > maxHeightPx + 1
+                val layoutHeight = if (overflows) maxHeightPx else contentPlaceable.height
+                val fadePlaceable = if (overflows) {
+                    val fadeH = minOf(28.dp.roundToPx(), layoutHeight)
+                    fadeMeasurable.measure(Constraints.fixed(contentPlaceable.width, fadeH))
+                } else {
+                    null
+                }
+                layout(contentPlaceable.width, layoutHeight) {
+                    contentPlaceable.placeRelative(0, 0)
+                    fadePlaceable?.placeRelative(0, layoutHeight - fadePlaceable.height)
+                }
+            }
+        } else {
+            MarkdownContentView(
+                content = markdown,
+                selectable = false,
+                blockSpacing = blockSpacing,
+                modifier = modifier.fillMaxWidth()
+            )
         }
     }
 }

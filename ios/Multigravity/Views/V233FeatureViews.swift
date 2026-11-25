@@ -384,7 +384,7 @@ public struct WorkspaceTrustBanner: View {
 
 // MARK: - /btw Side Question Branch UI Components
 
-private enum CompactMarkdownPreviewRenderer {
+enum CompactMarkdownPreviewRenderer {
     private static let hrRegex = try! NSRegularExpression(pattern: #"^([-*_]\s*){3,}$"#)
     private static let tableSepRegex = try! NSRegularExpression(pattern: #"^\|?[\s:]*-{3,}[\s:]*(?:\|[\s:]*-{3,}[\s:]*)+\|?$"#)
     private static let quoteRegex = try! NSRegularExpression(pattern: #"^(?:>\s*)+"#)

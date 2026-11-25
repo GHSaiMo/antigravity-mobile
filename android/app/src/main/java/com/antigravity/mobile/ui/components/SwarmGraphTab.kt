@@ -1634,11 +1634,12 @@ private fun DetailMessageCard(
             )
         }
 
-        Text(
-            text = cleanBody,
-            fontSize = 12.5.sp,
-            lineHeight = 17.sp,
-            color = SwarmColors.ink(isDark)
+        SwarmMarkdownBody(
+            markdown = cleanBody,
+            collapsed = false,
+            fadeColor = SwarmColors.cardBg(isDark),
+            scaleMultiplier = 0.85f,
+            blockSpacing = 6.dp
         )
     }
 }

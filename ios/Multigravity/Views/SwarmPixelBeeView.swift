@@ -752,7 +752,7 @@ enum SwarmHelpers {
                     break
                 }
             }
-            body = body.trimmingCharacters(in: .whitespacesAndNewlines)
+            body = CompactMarkdownPreviewRenderer.normalize(body)
             if body.hasSuffix(".") || body.hasSuffix(":") {
                 body = String(body.dropLast())
             }
@@ -761,6 +761,62 @@ enum SwarmHelpers {
             }
         }
         return role.isEmpty ? "worker" : role
+    }
+
+    static func needsBoardClamp(_ text: String) -> Bool {
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return false }
+        if trimmed.count > 160 { return true }
+        var newlineCount = 0
+        for ch in trimmed where ch == "\n" {
+            newlineCount += 1
+            if newlineCount >= 4 { return true }
+        }
+        return trimmed.contains("```") || trimmed.contains("~~~")
+    }
+
+    static func collapsedMarkdownPreview(_ text: String, maxLines: Int = 10, maxChars: Int = 520) -> String {
+        let unified = text
+            .replacingOccurrences(of: "\r\n", with: "\n")
+            .replacingOccurrences(of: "\r", with: "\n")
+        let allLines = unified.components(separatedBy: "\n")
+        var picked: [String] = []
+        var charTotal = 0
+        var openFence: String? = nil
+
+        for rawLine in allLines {
+            if picked.count >= maxLines || charTotal >= maxChars {
+                break
+            }
+            let trimmed = rawLine.trimmingCharacters(in: .whitespaces)
+            if let fence = openFence {
+                if trimmed.hasPrefix(fence) {
+                    openFence = nil
+                }
+            } else if trimmed.hasPrefix("```") || trimmed.hasPrefix("~~~") {
+                let fc = trimmed.first!
+                var count = 0
+                for c in trimmed {
+                    if c == fc { count += 1 } else { break }
+                }
+                if count >= 3 {
+                    openFence = String(repeating: fc, count: count)
+                }
+            }
+            let remaining = maxChars - charTotal
+            if rawLine.count > remaining && picked.isEmpty {
+                picked.append(String(rawLine.prefix(remaining)))
+                charTotal = maxChars
+                break
+            }
+            picked.append(rawLine)
+            charTotal += rawLine.count + 1
+        }
+
+        if let fence = openFence {
+            picked.append(fence)
+        }
+        return picked.joined(separator: "\n")
     }
 
     static func inlineAttributed(_ text: String, baseSize: CGFloat = 13) -> AttributedString {
@@ -798,6 +854,82 @@ enum SwarmHelpers {
         let hrs = mins / 60
         let remMins = mins % 60
         return remMins > 0 ? String(localized: "\(hrs)小时\(remMins)分") : String(localized: "\(hrs)小时")
+    }
+}
+
+// MARK: - Swarm Board Markdown Renderer
+
+struct SwarmMarkdownBodyView: View {
+    let markdown: String
+    var collapsed: Bool = false
+    var maxCollapsedHeight: CGFloat = 112
+    var fadeColor: Color = SwarmTheme.bg
+    var scaleMultiplier: CGFloat = 0.88
+    var blockSpacing: CGFloat = 6
+
+    var body: some View {
+        if collapsed {
+            let preview = SwarmHelpers.collapsedMarkdownPreview(markdown)
+            SwarmClampedMarkdownLayout(maxHeight: maxCollapsedHeight) {
+                MarkdownContentView(content: preview)
+                    .environment(\.markdownFontScaleMultiplier, scaleMultiplier)
+                    .environment(\.markdownBlockSpacing, blockSpacing)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+
+                LinearGradient(
+                    colors: [fadeColor.opacity(0), fadeColor],
+                    startPoint: .top,
+                    endPoint: .bottom
+                )
+                .frame(height: 28)
+                .allowsHitTesting(false)
+            }
+            .clipped()
+        } else {
+            MarkdownContentView(content: markdown)
+                .environment(\.markdownFontScaleMultiplier, scaleMultiplier)
+                .environment(\.markdownBlockSpacing, blockSpacing)
+                .textSelection(.enabled)
+                .frame(maxWidth: .infinity, alignment: .leading)
+        }
+    }
+}
+
+private struct SwarmClampedMarkdownLayout: Layout {
+    let maxHeight: CGFloat
+
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
+        guard let content = subviews.first else { return .zero }
+        let measured = content.sizeThatFits(ProposedViewSize(width: proposal.width, height: nil))
+        let width = proposal.width ?? measured.width
+        return CGSize(width: width, height: min(measured.height, maxHeight))
+    }
+
+    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
+        guard let content = subviews.first else { return }
+        let measured = content.sizeThatFits(ProposedViewSize(width: bounds.width, height: nil))
+        content.place(
+            at: CGPoint(x: bounds.minX, y: bounds.minY),
+            anchor: .topLeading,
+            proposal: ProposedViewSize(width: bounds.width, height: measured.height)
+        )
+        if subviews.count > 1 {
+            let fade = subviews[1]
+            if measured.height > maxHeight + 1 {
+                let fadeH = min(28, bounds.height)
+                fade.place(
+                    at: CGPoint(x: bounds.minX, y: bounds.maxY - fadeH),
+                    anchor: .topLeading,
+                    proposal: ProposedViewSize(width: bounds.width, height: fadeH)
+                )
+            } else {
+                fade.place(
+                    at: CGPoint(x: bounds.minX, y: bounds.maxY),
+                    anchor: .topLeading,
+                    proposal: ProposedViewSize(width: 0, height: 0)
+                )
+            }
+        }
     }
 }
 

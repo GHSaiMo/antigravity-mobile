@@ -1275,8 +1275,13 @@ function renderInlineMarkdown(text) {
     return `<a href="${href}" class="text-link${extraClass}"${mdAttrs}${extAttrs}><span>${displayLinkText}</span>${arrowSvg}</a>`;
   });
 
-  // Inline code (e.g. `foo`)
-  html = html.replace(/`([^`]+)`/g, (_, code) => `<code class="inline-code">${cleanWxText(code)}</code>`);
+  // Inline code (e.g. `foo`) — protect rendered <code> tags so emphasis/strike/highlight regexes never mutate code contents (e.g. `src/**/*`)
+  const renderedCodeTags = [];
+  html = html.replace(/`([^`]+)`/g, (_, code) => {
+    const idx = renderedCodeTags.length;
+    renderedCodeTags.push(`<code class="inline-code">${cleanWxText(code)}</code>`);
+    return `\uE012ICODE${idx}\uE013`;
+  });
 
   // Strip gateway hash prefix in plain text nodes without touching HTML tag attributes (href, src, data-*)
   if (html.includes("聊天记录") && html.includes("-")) {
@@ -1294,6 +1299,10 @@ function renderInlineMarkdown(text) {
   // Strikethrough & Highlight
   html = html.replace(/~~((?:[^~]|~(?!~))+?)~~/g, '<del>$1</del>');
   html = html.replace(/==((?:[^=]|=(?!=))+?)==/g, '<mark class="md-highlight" style="background: rgba(255, 214, 10, 0.28); color: inherit; padding: 0 3px; border-radius: 3px;">$1</mark>');
+
+  if (renderedCodeTags.length > 0) {
+    html = html.replace(/\uE012ICODE(\d+)\uE013/g, (_, idx) => renderedCodeTags[Number(idx)]);
+  }
 
   // 5. Agent embed tag: <agent-embed src="..."></agent-embed>
   html = html.replace(/&lt;agent-embed\b[^&>]*?\bsrc=[&quot;']([^&quot;']+)&quot;[^&>]*&gt;(?:\s*&lt;\/agent-embed&gt;)?/gi, (_, src) => {
@@ -2294,7 +2303,7 @@ function renderMarkdown(md, options = {}) {
       continue;
     }
 
-    // 6. Lists (Unordered & Ordered, with Task List checkbox support)
+    // 6. Lists (Unordered & Ordered, with Task List checkbox & nested indent support)
     const isUnordered = trimmed.startsWith("- ") || trimmed.startsWith("* ") || trimmed.startsWith("+ ") || trimmed.startsWith("• ");
     const orderedMatch = trimmed.match(/^(\d+)[.)]\s+/);
     const isOrdered = Boolean(orderedMatch);
@@ -2303,12 +2312,15 @@ function renderMarkdown(md, options = {}) {
       const tag = isOrdered ? "ol" : "ul";
       const startNum = orderedMatch ? parseInt(orderedMatch[1], 10) : 1;
       while (i < lines.length) {
-        const lLine = lines[i].trim();
+        const rawLine = lines[i];
+        const lLine = rawLine.trim();
         if (isOrdered && /^\d+[.)]\s+/.test(lLine)) {
-          listItems.push(lLine.replace(/^\d+[.)]\s+/, ""));
+          listItems.push({ text: lLine.replace(/^\d+[.)]\s+/, ""), indent: 0 });
           i++;
         } else if (!isOrdered && (lLine.startsWith("- ") || lLine.startsWith("* ") || lLine.startsWith("+ ") || lLine.startsWith("• "))) {
-          listItems.push(lLine.replace(/^[-*+•]\s+/, ""));
+          const leading = (rawLine.match(/^[ \t]*/) || [""])[0].replace(/\t/g, "  ").length;
+          const indent = Math.min(4, Math.floor(leading / 2));
+          listItems.push({ text: lLine.replace(/^[-*+•]\s+/, ""), indent });
           i++;
         } else {
           break;
@@ -2316,7 +2328,7 @@ function renderMarkdown(md, options = {}) {
       }
       const renderListItem = (it) => {
         let prefix = "";
-        let rest = it;
+        let rest = it.text;
         if (/^\[ \]\s+/.test(rest)) {
           prefix = `<span class="md-task-checkbox" style="margin-right: 6px; user-select: none;">☐</span>`;
           rest = rest.replace(/^\[ \]\s+/, "");
@@ -2327,7 +2339,8 @@ function renderMarkdown(md, options = {}) {
           prefix = `<span class="md-task-checkbox partial" style="margin-right: 6px; user-select: none;">◐</span>`;
           rest = rest.replace(/^\[[\/\-]\]\s+/, "");
         }
-        return `<li>${prefix}${renderInlineMarkdown(rest)}</li>`;
+        const clsAttr = it.indent > 0 ? ` class="ios-list-sub level-${it.indent}"` : "";
+        return `<li${clsAttr}>${prefix}${renderInlineMarkdown(rest)}</li>`;
       };
       const itemsHtml = listItems.map(renderListItem).join("");
       const startAttr = (isOrdered && startNum > 1) ? ` start="${startNum}"` : "";

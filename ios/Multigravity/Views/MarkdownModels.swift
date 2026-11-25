@@ -66,7 +66,7 @@ public enum MarkdownBlock: Identifiable, Equatable {
     case divider(id: String)
     case codeBlock(id: String, lang: String, code: String)
     case table(id: String, headers: [String], rows: [[String]], alignments: [TableColumnAlignment] = [])
-    case list(id: String, items: [String])
+    case list(id: String, items: [String], indents: [Int] = [])
     case orderedList(id: String, startIndex: Int, items: [String])
     case alert(id: String, type: MarkdownAlertType, content: String)
     case blockquote(id: String, content: String)
@@ -83,7 +83,7 @@ public enum MarkdownBlock: Identifiable, Equatable {
         case .divider(let id): return id
         case .codeBlock(let id, _, _): return id
         case .table(let id, _, _, _): return id
-        case .list(let id, _): return id
+        case .list(let id, _, _): return id
         case .orderedList(let id, _, _): return id
         case .alert(let id, _, _): return id
         case .blockquote(let id, _): return id

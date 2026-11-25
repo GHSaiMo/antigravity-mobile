@@ -308,16 +308,19 @@ object MarkdownParser {
             // 5. Bullet List (- , * , + , • )
             if (isBulletListItem(trimmed)) {
                 val items = mutableListOf<String>()
+                val indents = mutableListOf<Int>()
                 while (i < lines.size) {
-                    val lLine = lines[i].trim()
+                    val rawLine = lines[i]
+                    val lLine = rawLine.trim()
                     if (isBulletListItem(lLine)) {
                         items.add(lLine.drop(2).trim())
+                        indents.add(bulletIndentLevel(rawLine))
                         i++
                     } else {
                         break
                     }
                 }
-                blocks.add(MarkdownBlock.BulletList("block-${blockIdx++}", items))
+                blocks.add(MarkdownBlock.BulletList("block-${blockIdx++}", items, indents))
                 continue
             }
 
@@ -483,6 +486,18 @@ object MarkdownParser {
         }
 
         return blocks
+    }
+
+    private fun bulletIndentLevel(rawLine: String): Int {
+        var spaces = 0
+        for (ch in rawLine) {
+            when (ch) {
+                ' ' -> spaces++
+                '\t' -> spaces += 2
+                else -> break
+            }
+        }
+        return (spaces / 2).coerceIn(0, 4)
     }
 
     private fun isBulletListItem(trimmed: String): Boolean {

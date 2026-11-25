@@ -1108,6 +1108,22 @@ html, body {
   font-size: 15px;
   line-height: 1.45;
 }
+.ios-list li.ios-list-sub.level-1 {
+  margin-left: 16px;
+  list-style-type: circle;
+}
+.ios-list li.ios-list-sub.level-2 {
+  margin-left: 32px;
+  list-style-type: square;
+}
+.ios-list li.ios-list-sub.level-3 {
+  margin-left: 48px;
+  list-style-type: square;
+}
+.ios-list li.ios-list-sub.level-4 {
+  margin-left: 64px;
+  list-style-type: square;
+}
 
 /* Inline Code: Antigravity Adaptive Code Color */
 code.inline-code, .markdown-body code:not(.code-block-pre code) {
@@ -6857,6 +6873,16 @@ html[data-clipped] #view-conversations::after {
   font-weight: 700;
   color: #c084fc;
 }
+.swarm-msg-arrow {
+  color: var(--text-secondary, #71717a);
+}
+.swarm-msg-targets {
+  color: var(--text-secondary, #a1a1aa);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 55%;
+}
 .swarm-msg-seq {
   color: var(--text-secondary, #71717a);
   font-family: monospace;
@@ -6866,7 +6892,54 @@ html[data-clipped] #view-conversations::after {
 }
 .swarm-msg-text {
   font-size: 13px;
-  line-height: 1.45;
+  line-height: 1.5;
+  word-break: break-word;
+}
+.swarm-msg-text.swarm-markdown p {
+  margin: 0 0 6px 0;
+  font-size: 13px;
+  line-height: 1.5;
+}
+.swarm-msg-text.swarm-markdown p:last-child,
+.swarm-msg-text.swarm-markdown .ios-list:last-child,
+.swarm-msg-text.swarm-markdown .code-block-card:last-child,
+.swarm-msg-text.swarm-markdown .ios-blockquote:last-child {
+  margin-bottom: 0;
+}
+.swarm-msg-text.swarm-markdown h1,
+.swarm-msg-text.swarm-markdown h2,
+.swarm-msg-text.swarm-markdown h3,
+.swarm-msg-text.swarm-markdown h4,
+.swarm-msg-text.swarm-markdown h5,
+.swarm-msg-text.swarm-markdown h6 {
+  margin: 8px 0 4px 0;
+  line-height: 1.35;
+}
+.swarm-msg-text.swarm-markdown h1 { font-size: 16px; }
+.swarm-msg-text.swarm-markdown h2 { font-size: 15px; }
+.swarm-msg-text.swarm-markdown h3 { font-size: 14px; }
+.swarm-msg-text.swarm-markdown h4,
+.swarm-msg-text.swarm-markdown h5,
+.swarm-msg-text.swarm-markdown h6 { font-size: 13px; }
+.swarm-msg-text.swarm-markdown .ios-list {
+  margin: 4px 0 6px 0;
+  padding-left: 18px;
+}
+.swarm-msg-text.swarm-markdown .ios-list li {
+  font-size: 13px;
+  line-height: 1.48;
+  margin-bottom: 3px;
+}
+.swarm-msg-text.swarm-markdown code.inline-code {
+  font-size: 12px;
+  white-space: pre-wrap;
+}
+.swarm-msg-text.swarm-markdown .code-block-card {
+  margin: 6px 0;
+}
+.swarm-msg-text.swarm-markdown .ios-blockquote {
+  margin: 6px 0;
+  font-size: 12.5px;
 }
 .swarm-mention-pill {
   background: rgba(139, 92, 246, 0.22);

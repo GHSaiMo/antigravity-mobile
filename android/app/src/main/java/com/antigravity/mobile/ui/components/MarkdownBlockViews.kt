@@ -403,24 +403,33 @@ private fun parseTaskListItem(raw: String): ParsedTaskListItem {
 internal fun BulletListBlockView(
     items: List<String>,
     colors: AppColors,
-    onPlanClick: ((String, String) -> Unit)?
+    onPlanClick: ((String, String) -> Unit)?,
+    indents: List<Int> = emptyList()
 ) {
     val bodyScale = if (LocalShareExport.current) 1.0f else LocalMarkdownBodyScale.current
     Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-        items.forEach { item ->
+        items.forEachIndexed { idx, item ->
+            val level = indents.getOrElse(idx) { 0 }.coerceIn(0, 4)
             val parsed = parseTaskListItem(item)
+            val bulletGlyph = parsed.marker ?: when (level) {
+                0 -> "•"
+                1 -> "◦"
+                else -> "▪"
+            }
             Row(
-                modifier = Modifier.fillMaxWidth(),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(start = (level * 14f * bodyScale).dp),
                 verticalAlignment = Alignment.Top,
                 horizontalArrangement = Arrangement.spacedBy(6.dp)
             ) {
                 DisableSelection {
                     Text(
-                        text = parsed.marker ?: "•",
+                        text = bulletGlyph,
                         color = if (parsed.isChecked) colors.accentBlue else colors.textSecondary,
-                        fontSize = ((if (parsed.marker != null) 14.5f else 14f) * bodyScale).sp,
+                        fontSize = ((if (parsed.marker != null) 14.5f else if (level >= 2) 11.5f else 14f) * bodyScale).sp,
                         fontWeight = FontWeight.Bold,
-                        modifier = Modifier.padding(top = 2.dp)
+                        modifier = Modifier.padding(top = if (level >= 2 && parsed.marker == null) 3.5.dp else 2.dp)
                     )
                 }
                 Box(modifier = Modifier.weight(1f)) {

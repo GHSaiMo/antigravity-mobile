@@ -4,7 +4,7 @@ extension MarkdownContentView {
     // MARK: - Subviews
     
     @ViewBuilder
-    func headingView(level: Int, text: String) -> some View {
+    func headingView(level: Int, text: String, bodyScale: CGFloat? = nil) -> some View {
         let baseSize: CGFloat = {
             switch level {
             case 1: return 20
@@ -14,7 +14,8 @@ extension MarkdownContentView {
             default: return 14
             }
         }()
-        let size = baseSize * (isShareExport ? 1.0 : AppSettings.shared.fontSizeScale.bodyScale)
+        let resolvedScale = bodyScale ?? ((isShareExport ? 1.0 : AppSettings.shared.fontSizeScale.bodyScale) * markdownFontScaleMultiplier)
+        let size = baseSize * resolvedScale
         
         Self.renderRichText(text, size: size, weight: .bold)
             .font(.system(size: size, weight: .bold))
@@ -24,7 +25,7 @@ extension MarkdownContentView {
     }
     
     @ViewBuilder
-    func codeBlockView(lang: String, code: String) -> some View {
+    func codeBlockView(lang: String, code: String, codeScale: CGFloat? = nil) -> some View {
         let info = FileIconResolver.resolve(for: lang)
         let sharePreset: ThemePreset? = {
             if let themeID = shareCardThemeID, !themeID.isEmpty {
@@ -84,7 +85,7 @@ extension MarkdownContentView {
             Divider()
             
             // Code text
-            let codeScale = isShareExport ? 1.0 : AppSettings.shared.fontSizeScale.codeScale
+            let resolvedCodeScale = codeScale ?? ((isShareExport ? 1.0 : AppSettings.shared.fontSizeScale.codeScale) * markdownFontScaleMultiplier)
             let highlighted = CodeSyntaxHighlighter.highlight(
                 code: code,
                 language: lang,
@@ -94,7 +95,7 @@ extension MarkdownContentView {
             )
             ExportAwareHorizontalScroll {
                 Text(highlighted)
-                    .font(.system(size: 12.5 * codeScale, design: .monospaced))
+                    .font(.system(size: 12.5 * resolvedCodeScale, design: .monospaced))
                     .foregroundColor(sharePreset.flatMap { $0.isDefaultStyle ? nil : $0.fg } ?? .primary)
                     .padding(10)
             }
@@ -109,9 +110,9 @@ extension MarkdownContentView {
     }
     
     @ViewBuilder
-    func tableView(headers: [String], rows: [[String]], alignments: [TableColumnAlignment] = []) -> some View {
+    func tableView(headers: [String], rows: [[String]], alignments: [TableColumnAlignment] = [], bodyScale: CGFloat? = nil) -> some View {
         let columnCount = max(headers.count, rows.map(\.count).max() ?? 0)
-        let bodyScale = isShareExport ? 1.0 : AppSettings.shared.fontSizeScale.bodyScale
+        let bodyScale = bodyScale ?? ((isShareExport ? 1.0 : AppSettings.shared.fontSizeScale.bodyScale) * markdownFontScaleMultiplier)
         let cellFontSize = 13 * bodyScale
         
         if columnCount > 0 {
@@ -181,27 +182,37 @@ extension MarkdownContentView {
     }
     
     @ViewBuilder
-    func listView(items: [String]) -> some View {
-        let bodyScale = isShareExport ? 1.0 : AppSettings.shared.fontSizeScale.bodyScale
+    func listView(items: [String], indents: [Int] = [], bodyScale: CGFloat? = nil) -> some View {
+        let bodyScale = bodyScale ?? ((isShareExport ? 1.0 : AppSettings.shared.fontSizeScale.bodyScale) * markdownFontScaleMultiplier)
         VStack(alignment: .leading, spacing: 4) {
-            ForEach(Array(items.enumerated()), id: \.offset) { _, item in
+            ForEach(Array(items.enumerated()), id: \.offset) { idx, item in
+                let level = idx < indents.count ? max(0, min(indents[idx], 4)) : 0
                 let parsed = Self.parseTaskListItem(item)
+                let bulletGlyph: String = {
+                    if let marker = parsed.marker { return marker }
+                    switch level {
+                    case 0: return "•"
+                    case 1: return "◦"
+                    default: return "▪"
+                    }
+                }()
                 HStack(alignment: .top, spacing: 6) {
-                    Text(parsed.marker ?? "•")
-                        .font(.system(size: (parsed.marker != nil ? 14.5 : 14) * bodyScale, weight: .bold))
+                    Text(bulletGlyph)
+                        .font(.system(size: (parsed.marker != nil ? 14.5 : (level >= 2 ? 11.5 : 14)) * bodyScale, weight: .bold))
                         .foregroundColor(parsed.isChecked ? .blue : .secondary)
-                        .padding(.top, 2)
+                        .padding(.top, level >= 2 && parsed.marker == nil ? 3.5 : 2)
                     EquatableMarkdownParagraphView(text: parsed.content, size: 15 * bodyScale)
                         .equatable()
                         .frame(maxWidth: .infinity, alignment: .leading)
                 }
+                .padding(.leading, CGFloat(level) * 14 * bodyScale)
             }
         }
     }
     
     @ViewBuilder
-    func orderedListView(startIndex: Int, items: [String]) -> some View {
-        let bodyScale = isShareExport ? 1.0 : AppSettings.shared.fontSizeScale.bodyScale
+    func orderedListView(startIndex: Int, items: [String], bodyScale: CGFloat? = nil) -> some View {
+        let bodyScale = bodyScale ?? ((isShareExport ? 1.0 : AppSettings.shared.fontSizeScale.bodyScale) * markdownFontScaleMultiplier)
         VStack(alignment: .leading, spacing: 4) {
             ForEach(Array(items.enumerated()), id: \.offset) { idx, item in
                 let parsed = Self.parseTaskListItem(item)

@@ -8,6 +8,14 @@ private struct MarkdownAvailableWidthKey: EnvironmentKey {
     static let defaultValue: CGFloat? = nil
 }
 
+private struct MarkdownFontScaleMultiplierKey: EnvironmentKey {
+    static let defaultValue: CGFloat = 1.0
+}
+
+private struct MarkdownBlockSpacingKey: EnvironmentKey {
+    static let defaultValue: CGFloat = 10
+}
+
 extension EnvironmentValues {
     public var currentCascadeId: String? {
         get { self[CurrentCascadeIdKey.self] }
@@ -17,6 +25,16 @@ extension EnvironmentValues {
     public var markdownAvailableWidth: CGFloat? {
         get { self[MarkdownAvailableWidthKey.self] }
         set { self[MarkdownAvailableWidthKey.self] = newValue }
+    }
+
+    public var markdownFontScaleMultiplier: CGFloat {
+        get { self[MarkdownFontScaleMultiplierKey.self] }
+        set { self[MarkdownFontScaleMultiplierKey.self] = newValue }
+    }
+
+    public var markdownBlockSpacing: CGFloat {
+        get { self[MarkdownBlockSpacingKey.self] }
+        set { self[MarkdownBlockSpacingKey.self] = newValue }
     }
 }
 
@@ -33,6 +51,8 @@ public struct MarkdownContentView: View {
     @Environment(\.shareCardThemeID) var shareCardThemeID
     @Environment(\.currentCascadeId) private var currentCascadeId
     @Environment(\.markdownAvailableWidth) var markdownAvailableWidth
+    @Environment(\.markdownFontScaleMultiplier) var markdownFontScaleMultiplier
+    @Environment(\.markdownBlockSpacing) var markdownBlockSpacing
 
     private var fontScale: AppSettings.FontSizeScale {
         isShareExport ? .standard : AppSettings.shared.fontSizeScale
@@ -48,9 +68,9 @@ public struct MarkdownContentView: View {
     
     public var body: some View {
         let activeFontScale = fontScale
-        let bodyScale = activeFontScale.bodyScale
-        let codeScale = activeFontScale.codeScale
-        VStack(alignment: .leading, spacing: 10) {
+        let bodyScale = activeFontScale.bodyScale * markdownFontScaleMultiplier
+        let codeScale = activeFontScale.codeScale * markdownFontScaleMultiplier
+        VStack(alignment: .leading, spacing: markdownBlockSpacing) {
             ForEach(blocks) { block in
                 EquatableMarkdownBlock(
                     block: block,
@@ -63,7 +83,7 @@ public struct MarkdownContentView: View {
                     currentCascadeId: currentCascadeId,
                     markdownAvailableWidth: markdownAvailableWidth
                 ) {
-                    renderBlock(block, bodyScale: bodyScale)
+                    renderBlock(block, bodyScale: bodyScale, codeScale: codeScale)
                 }
                 .equatable()
             }
@@ -76,13 +96,13 @@ public struct MarkdownContentView: View {
     }
 
     @ViewBuilder
-    private func renderBlock(_ block: MarkdownBlock, bodyScale: CGFloat) -> some View {
+    private func renderBlock(_ block: MarkdownBlock, bodyScale: CGFloat, codeScale: CGFloat) -> some View {
         switch block {
         case .frontmatter(_, let rawContent, let lineCount):
             FrontmatterCollapseView(content: rawContent, lineCount: lineCount)
             
         case .heading(_, let level, let text):
-            headingView(level: level, text: text)
+            headingView(level: level, text: text, bodyScale: bodyScale)
             
         case .divider:
             Divider()
@@ -100,7 +120,7 @@ public struct MarkdownContentView: View {
                 let lines = code.split(separator: "\n", omittingEmptySubsequences: false).count
                 shareExportPlaceholder(String(localized: "代码块（\(lines) 行），请在 App 中查看"))
             } else {
-                codeBlockView(lang: lang, code: code)
+                codeBlockView(lang: lang, code: code, codeScale: codeScale)
             }
             
         case .table(_, let headers, let rows, let alignments):
@@ -108,14 +128,14 @@ public struct MarkdownContentView: View {
             if isShareExport && (columns >= 4 || rows.count > 12) {
                 shareExportPlaceholder(String(localized: "表格（\(rows.count) 行 × \(columns) 列），请在 App 中查看"))
             } else {
-                tableView(headers: headers, rows: rows, alignments: alignments)
+                tableView(headers: headers, rows: rows, alignments: alignments, bodyScale: bodyScale)
             }
             
-        case .list(_, let items):
-            listView(items: items)
+        case .list(_, let items, let indents):
+            listView(items: items, indents: indents, bodyScale: bodyScale)
             
         case .orderedList(_, let startIndex, let items):
-            orderedListView(startIndex: startIndex, items: items)
+            orderedListView(startIndex: startIndex, items: items, bodyScale: bodyScale)
             
         case .alert(_, let type, let alertContent):
             alertView(type: type, content: alertContent)

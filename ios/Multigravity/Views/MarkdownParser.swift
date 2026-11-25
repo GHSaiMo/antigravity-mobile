@@ -243,11 +243,15 @@ public enum MarkdownParser {
             
             // Bullet or list (- , * , + , • )
             if isBulletListItem(trimmed) {
-                var listItems: [String] = []
+                var listItems: [(text: String, indent: Int)] = []
                 while i < lines.count {
-                    let lLine = lines[i].trimmingCharacters(in: .whitespaces)
+                    let rawLine = lines[i]
+                    let lLine = rawLine.trimmingCharacters(in: .whitespaces)
                     if isBulletListItem(lLine) {
-                        listItems.append(String(lLine.dropFirst(2)).trimmingCharacters(in: .whitespaces))
+                        listItems.append((
+                            text: String(lLine.dropFirst(2)).trimmingCharacters(in: .whitespaces),
+                            indent: bulletIndentLevel(of: rawLine)
+                        ))
                         i += 1
                     } else {
                         break
@@ -669,26 +673,43 @@ public enum MarkdownParser {
         return blocks
     }
     
-    private static func appendListOrSplitImages(_ listItems: [String], into blocks: inout [MarkdownBlock], blockIdx: inout Int) {
+    private static func appendListOrSplitImages(_ listItems: [(text: String, indent: Int)], into blocks: inout [MarkdownBlock], blockIdx: inout Int) {
         var currentPlain: [String] = []
+        var currentIndents: [Int] = []
         
         func flushPlainList() {
             guard !currentPlain.isEmpty else { return }
-            blocks.append(.list(id: "block-\(blockIdx)", items: currentPlain))
+            blocks.append(.list(id: "block-\(blockIdx)", items: currentPlain, indents: currentIndents))
             blockIdx += 1
             currentPlain.removeAll(keepingCapacity: true)
+            currentIndents.removeAll(keepingCapacity: true)
         }
         
         for item in listItems {
-            if findImages(in: item).isEmpty {
-                currentPlain.append(item)
+            if findImages(in: item.text).isEmpty {
+                currentPlain.append(item.text)
+                currentIndents.append(item.indent)
             } else {
                 flushPlainList()
-                let split = splitParagraphIntoBlocks(text: item, blockIdx: &blockIdx)
+                let split = splitParagraphIntoBlocks(text: item.text, blockIdx: &blockIdx)
                 blocks.append(contentsOf: split)
             }
         }
         flushPlainList()
+    }
+    
+    private static func bulletIndentLevel(of rawLine: String) -> Int {
+        var spaces = 0
+        for ch in rawLine {
+            if ch == " " {
+                spaces += 1
+            } else if ch == "\t" {
+                spaces += 2
+            } else {
+                break
+            }
+        }
+        return min(4, spaces / 2)
     }
     
     private static func isBulletListItem(_ trimmed: String) -> Bool {

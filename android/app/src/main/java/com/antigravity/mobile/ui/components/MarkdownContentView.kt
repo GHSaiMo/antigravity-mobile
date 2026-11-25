@@ -12,6 +12,7 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.*
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import com.antigravity.mobile.ui.theme.AntigravityTheme
 
@@ -26,7 +27,8 @@ fun MarkdownContentView(
     urlResolver: ((String) -> String)? = null,
     onImageClick: ((url: String) -> Unit)? = null,
     selectable: Boolean = LocalMarkdownSelectable.current,
-    onLongPress: (() -> Unit)? = LocalMarkdownLongPress.current
+    onLongPress: (() -> Unit)? = LocalMarkdownLongPress.current,
+    blockSpacing: Dp = 10.dp
 ) {
     val blocks = remember(content) { MarkdownParser.parse(content) }
     val colors = AntigravityTheme.colors
@@ -35,7 +37,7 @@ fun MarkdownContentView(
     val body: @Composable () -> Unit = {
     Column(
         modifier = modifier.fillMaxWidth(),
-        verticalArrangement = Arrangement.spacedBy(10.dp)
+        verticalArrangement = Arrangement.spacedBy(blockSpacing)
     ) {
         blocks.forEach { block ->
             key(block.id) {
@@ -103,6 +105,7 @@ fun MarkdownContentView(
                 is MarkdownBlock.BulletList -> {
                     BulletListBlockView(
                         items = block.items,
+                        indents = block.indents,
                         colors = colors,
                         onPlanClick = onPlanClick
                     )

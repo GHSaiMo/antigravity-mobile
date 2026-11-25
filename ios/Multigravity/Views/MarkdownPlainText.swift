@@ -25,8 +25,12 @@ public enum MarkdownPlainText {
                 var lines = [headers.map(inline).joined(separator: "\t")]
                 lines += rows.map { $0.map(inline).joined(separator: "\t") }
                 parts.append(lines.joined(separator: "\n"))
-            case .list(_, let items):
-                parts.append(items.map { "• " + inline($0) }.joined(separator: "\n"))
+            case .list(_, let items, let indents):
+                parts.append(items.enumerated().map { idx, item in
+                    let level = idx < indents.count ? max(0, min(indents[idx], 4)) : 0
+                    let prefix = level > 0 ? String(repeating: "  ", count: level) : ""
+                    return prefix + "• " + inline(item)
+                }.joined(separator: "\n"))
             case .orderedList(_, let start, let items):
                 parts.append(items.enumerated().map { "\(start + $0.offset). " + inline($0.element) }.joined(separator: "\n"))
             case .alert(_, let type, let content):

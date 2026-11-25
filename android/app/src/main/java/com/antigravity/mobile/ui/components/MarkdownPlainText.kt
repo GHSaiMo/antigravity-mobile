@@ -44,7 +44,11 @@ object MarkdownPlainText {
                 is MarkdownBlock.CodeBlock -> block.code.trim('\n')
                 is MarkdownBlock.Table -> (listOf(block.headers) + block.rows)
                     .joinToString("\n") { row -> row.joinToString("\t") { inline(it) } }
-                is MarkdownBlock.BulletList -> block.items.joinToString("\n") { "• " + inline(it) }
+                is MarkdownBlock.BulletList -> block.items.mapIndexed { idx, it ->
+                    val level = block.indents.getOrElse(idx) { 0 }.coerceIn(0, 4)
+                    val prefix = if (level > 0) "  ".repeat(level) else ""
+                    "$prefix• ${inline(it)}"
+                }.joinToString("\n")
                 is MarkdownBlock.OrderedList -> block.items.withIndex()
                     .joinToString("\n") { (i, s) -> "${block.startIndex + i}. " + inline(s) }
                 is MarkdownBlock.Alert -> {

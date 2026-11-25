@@ -1,8 +1,8 @@
-const CACHE_NAME = "antigravity-mobile-v75";
+const CACHE_NAME = "antigravity-mobile-v76";
 const ASSETS = [
   "/",
   "/index.html",
-  "/style.css?v=63",
+  "/style.css?v=64",
   "/js/i18n.js?v=9",
   "/js/e2ee.js?v=1",
   "/js/core.js?v=43",
@@ -10,7 +10,7 @@ const ASSETS = [
   "/js/wechat_archive.js?v=1",
   "/js/chat.js?v=47",
   "/js/actions.js?v=40",
-  "/js/media.js?v=38",
+  "/js/media.js?v=39",
   "/js/cockpit.js?v=37",
   "/js/scan.js?v=2",
   "/js/msgmenu.js?v=6",
@@ -20,7 +20,7 @@ const ASSETS = [
   "/js/git.js?v=6",
   "/js/models.js?v=3",
   "/js/subagents.js?v=6",
-  "/js/swarm.js?v=5",
+  "/js/swarm.js?v=6",
   "/js/egg.js?v=1",
   "/js/phase3.js?v=7",
   "/js/v233.js?v=7",

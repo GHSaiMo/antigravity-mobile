@@ -1500,9 +1500,13 @@ struct SwarmGraphTabView: View {
                     .foregroundColor(SwarmTheme.faint)
             }
 
-            Text(SwarmHelpers.inlineAttributed(cleanBody, baseSize: 12.5))
-                .lineSpacing(3)
-                .fixedSize(horizontal: false, vertical: true)
+            SwarmMarkdownBodyView(
+                markdown: cleanBody,
+                collapsed: false,
+                fadeColor: SwarmTheme.cardBg,
+                scaleMultiplier: 0.85,
+                blockSpacing: 6
+            )
         }
         .padding(12)
         .frame(maxWidth: .infinity, alignment: .leading)

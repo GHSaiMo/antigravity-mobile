@@ -36,7 +36,7 @@ sealed class MarkdownBlock {
         val rows: List<List<String>>,
         val alignments: List<TableColumnAlignment>
     ) : MarkdownBlock()
-    data class BulletList(override val id: String, val items: List<String>) : MarkdownBlock()
+    data class BulletList(override val id: String, val items: List<String>, val indents: List<Int> = emptyList()) : MarkdownBlock()
     data class OrderedList(override val id: String, val startIndex: Int, val items: List<String>) : MarkdownBlock()
     data class Alert(
         override val id: String,

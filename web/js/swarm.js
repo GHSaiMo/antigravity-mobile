@@ -354,6 +354,56 @@ const SwarmManager = (() => {
     }
   }
 
+  function extractBoardTargets(m) {
+    const sender = String(m.agent || "").toLowerCase();
+    const seen = new Set();
+    const out = [];
+    for (const target of (m.mentions || [])) {
+      const key = String(target || "").toLowerCase();
+      if (!key || key === sender || seen.has(key)) continue;
+      seen.add(key);
+      out.push(target);
+    }
+    return out;
+  }
+
+  function stripLeadingMentions(text) {
+    const raw = String(text || "");
+    const trimmed = raw.trim();
+    if (!trimmed.startsWith("@")) return raw;
+    const stripped = trimmed.replace(/^(?:\s*@[A-Za-z0-9_\-\.]+[,:]?)+\s*/, "");
+    return stripped.trim() ? stripped : raw;
+  }
+
+  function highlightSwarmMentionsInHtml(html) {
+    if (!html || !html.includes("@")) return html;
+    const parts = html.split(/(<[^>]+>)/g);
+    let skipDepth = 0;
+    for (let i = 0; i < parts.length; i++) {
+      const part = parts[i];
+      if (i % 2 === 1) {
+        const lower = part.toLowerCase();
+        if (/^<(?:code|pre|a|script|style)\b/i.test(lower) && !/\/>$/.test(lower)) {
+          skipDepth++;
+        } else if (/^<\/(?:code|pre|a|script|style)\b/i.test(lower)) {
+          skipDepth = Math.max(0, skipDepth - 1);
+        }
+        continue;
+      }
+      if (skipDepth > 0 || !part.includes("@")) continue;
+      parts[i] = part.replace(/(^|[\s（(\[【>])@([a-zA-Z0-9_\-]+)/g, '$1<span class="swarm-mention-pill">@$2</span>');
+    }
+    return parts.join("");
+  }
+
+  function renderBoardMessageHtml(rawText) {
+    const text = String(rawText || "");
+    if (typeof renderMarkdown === "function") {
+      return highlightSwarmMentionsInHtml(renderMarkdown(text));
+    }
+    return highlightSwarmMentionsInHtml(escapeHtml(text).replace(/\n/g, "<br/>"));
+  }
+
   function renderBoardTab(container) {
     const msgs = swarmSnapshot.messages || [];
     if (msgs.length === 0) {
@@ -369,17 +419,21 @@ const SwarmManager = (() => {
       <div class="swarm-board-container">
         ${loadMoreHtml}
         ${msgs.map(m => {
-          let text = escapeHtml(m.text || "");
-          // Highlight @mentions
-          text = text.replace(/@([a-zA-Z0-9_\-]+)/g, '<span class="swarm-mention-pill">@$1</span>');
+          const targets = extractBoardTargets(m);
+          const bodyText = targets.length > 0 ? stripLeadingMentions(m.text || "") : (m.text || "");
+          const bodyHtml = renderBoardMessageHtml(bodyText);
+          const targetsHtml = targets.length > 0
+            ? `<span class="swarm-msg-arrow">→</span><span class="swarm-msg-targets">${escapeHtml(targets.map(t => "@" + t).join(" "))}</span>`
+            : "";
           return `
             <div class="swarm-board-msg">
               <div class="swarm-msg-meta">
-                <span class="swarm-msg-agent">${escapeHtml(m.agent)}</span>
+                <span class="swarm-msg-agent">@${escapeHtml(m.agent)}</span>
+                ${targetsHtml}
                 <span class="swarm-msg-seq">#${m.seq}</span>
                 <span class="swarm-msg-time">${m.time ? formatTime(m.time) : ""}</span>
               </div>
-              <div class="swarm-msg-text">${text}</div>
+              <div class="swarm-msg-text swarm-markdown markdown-body">${bodyHtml}</div>
             </div>
           `;
         }).join("")}

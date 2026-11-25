@@ -95,6 +95,7 @@ public struct SwarmSheet: View {
             }
         }
         .background(SwarmTheme.bg.ignoresSafeArea())
+        .environment(\.currentCascadeId, cascadeId)
         .overlay(alignment: .bottom) {
             if let toast = toastMessage {
                 Text(toast)
@@ -1142,7 +1143,7 @@ public struct SwarmSheet: View {
         let targets = SwarmHelpers.targets(of: msg)
         let bodyText = targets.isEmpty ? msg.text : SwarmHelpers.stripLeadingMentions(msg.text)
         let isExpanded = expandedSeqs.contains(msg.seq)
-        let needsClamp = bodyText.count > 160 || bodyText.filter({ $0 == "\n" }).count >= 4
+        let needsClamp = SwarmHelpers.needsBoardClamp(bodyText)
 
         return HStack(alignment: .top, spacing: 11) {
             SwarmPixelBeeView(
@@ -1176,10 +1177,14 @@ public struct SwarmSheet: View {
                         .lineLimit(1)
                 }
 
-                Text(SwarmHelpers.inlineAttributed(bodyText, baseSize: 13))
-                    .lineSpacing(2.5)
-                    .lineLimit((needsClamp && !isExpanded) ? 4 : nil)
-                    .fixedSize(horizontal: false, vertical: true)
+                SwarmMarkdownBodyView(
+                    markdown: bodyText,
+                    collapsed: needsClamp && !isExpanded,
+                    maxCollapsedHeight: 112,
+                    fadeColor: SwarmTheme.bg,
+                    scaleMultiplier: 0.88,
+                    blockSpacing: 6
+                )
 
                 if needsClamp {
                     Button(action: {
@@ -1383,7 +1388,6 @@ public struct SwarmSheet: View {
             }
             if let post = lastPost {
                 return SwarmHelpers.stripLeadingMentions(post.text)
-                    .replacingOccurrences(of: "\n", with: " ")
             }
             return member.lastActivity ?? ""
         }()
@@ -1477,7 +1481,7 @@ public struct SwarmSheet: View {
                     }
 
                     if !bodyPreview.isEmpty {
-                        Text(bodyPreview)
+                        Text(CompactMarkdownPreviewRenderer.attributed(bodyPreview, fontSize: 12.5))
                             .font(.system(size: 12.5))
                             .foregroundColor((isWorking || isCoord) ? SwarmTheme.ink.opacity(0.88) : SwarmTheme.muted)
                             .lineLimit(2)
