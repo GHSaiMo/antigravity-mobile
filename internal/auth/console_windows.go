@@ -3,9 +3,16 @@
 package auth
 
 import (
+	"sync/atomic"
 	"syscall"
 	"unsafe"
 )
+
+var consoleVTPUnsupported atomic.Bool
+
+func consoleSupportsANSI() bool {
+	return !consoleVTPUnsupported.Load()
+}
 
 func initConsoleOS() {
 	kernel32 := syscall.NewLazyDLL("kernel32.dll")
@@ -34,7 +41,10 @@ func initConsoleOS() {
 			var mode uint32
 			r, _, _ := getConsoleMode.Call(h, uintptr(unsafe.Pointer(&mode)))
 			if r != 0 {
-				_, _, _ = setConsoleMode.Call(h, uintptr(mode|enableVTP))
+				ok, _, _ := setConsoleMode.Call(h, uintptr(mode|enableVTP))
+				if handleID == stdOutputHandle {
+					consoleVTPUnsupported.Store(ok == 0)
+				}
 			}
 		}
 	}

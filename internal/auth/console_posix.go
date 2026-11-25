@@ -5,3 +5,7 @@ package auth
 func initConsoleOS() {
 	// No-op on POSIX systems (UTF-8 is standard)
 }
+
+func consoleSupportsANSI() bool {
+	return true
+}

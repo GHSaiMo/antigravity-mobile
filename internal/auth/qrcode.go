@@ -240,6 +240,87 @@ func BuildMultiHostPairingParams(primaryHost string, port int, code string, ssl 
 	}
 }
 
+func qrSupportsANSI() bool {
+	if strings.EqualFold(strings.TrimSpace(os.Getenv("TERM")), "dumb") {
+		return false
+	}
+	return consoleSupportsANSI()
+}
+
+// renderTerminalQRCode renders qr as compact half-height terminal output using only
+// ASCII space (' ') and LOWER HALF BLOCK ('▄', U+2584) with explicit ANSI black/bright-white
+// foreground and background colors.
+//
+// go-qrcode's ToSmallString emits UPPER HALF BLOCK ('▀', U+2580), which is absent from the
+// GBK charset and therefore missing from Simplified Chinese Windows' legacy conhost.exe
+// default font (NSimSun / 新宋体), turning ~25% of modules and the entire bottom border into
+// hollow missing-glyph boxes ('▯') and making the QR code unscannable. Using '▄' (present
+// in GBK / NSimSun) with inverted ANSI colors eliminates '▀' completely while also ensuring
+// high-contrast black-on-white rendering on both dark and light terminal themes.
+func renderTerminalQRCode(qr *qrcode.QRCode) string {
+	if qr == nil {
+		return ""
+	}
+	if !qrSupportsANSI() {
+		return qr.ToSmallString(false)
+	}
+	return renderANSIHalfBlockQR(qr.Bitmap())
+}
+
+func renderANSIHalfBlockQR(bits [][]bool) string {
+	if len(bits) == 0 {
+		return ""
+	}
+	const (
+		sgrReset = "\x1b[0m"
+		sgrWW    = "\x1b[107m"    // white top + white bottom (bright white bg + space)
+		sgrBB    = "\x1b[40m"     // black top + black bottom (black bg + space)
+		sgrBW    = "\x1b[40;97m"  // black top + white bottom (black bg + bright white '▄')
+		sgrWB    = "\x1b[107;30m" // white top + black bottom (bright white bg + black '▄')
+	)
+
+	var b strings.Builder
+	for y := 0; y < len(bits); y += 2 {
+		topRow := bits[y]
+		var botRow []bool
+		if y+1 < len(bits) {
+			botRow = bits[y+1]
+		}
+
+		lastSGR := ""
+		for x := range topRow {
+			topBlack := topRow[x]
+			botBlack := false // odd final row pairs with white quiet-zone padding
+			if x < len(botRow) {
+				botBlack = botRow[x]
+			}
+
+			var sgr, ch string
+			switch {
+			case !topBlack && !botBlack:
+				sgr, ch = sgrWW, " "
+			case topBlack && botBlack:
+				sgr, ch = sgrBB, " "
+			case topBlack && !botBlack:
+				sgr, ch = sgrBW, "▄"
+			default: // !topBlack && botBlack
+				sgr, ch = sgrWB, "▄"
+			}
+
+			if sgr != lastSGR {
+				b.WriteString(sgr)
+				lastSGR = sgr
+			}
+			b.WriteString(ch)
+		}
+		if lastSGR != "" {
+			b.WriteString(sgrReset)
+		}
+		b.WriteByte('\n')
+	}
+	return b.String()
+}
+
 // FormatPairingQRCode renders the complete pairing banner, ANSI QR code, and URI instructions
 // into a single formatted string.
 func FormatPairingQRCode(primaryHost string, port int, code string, ssl bool, extraHosts ...string) string {
@@ -259,7 +340,7 @@ func FormatPairingQRCode(primaryHost string, port int, code string, ssl bool, ex
 		"\n  📱 Multigravity 客户端扫码一键配对 (5分钟内有效)\n",
 		"\n  📱 Multigravity Mobile One-Tap Pairing (Valid for 5 mins)\n",
 	))
-	qrStr := qr.ToSmallString(false)
+	qrStr := renderTerminalQRCode(qr)
 	b.WriteString(qrStr)
 	if !strings.HasSuffix(qrStr, "\n") {
 		b.WriteString("\n")
@@ -327,8 +408,7 @@ func GenerateQRCodePNG(host string, port int, code string, ssl bool, size int, e
 	return GenerateMultiHostQRCodePNG(params, size)
 }
 
-// PrintRawPairingQRCode prints the pairing banner, QR code, and instructions for a given URI and code.
-func PrintRawPairingQRCode(code string, uri string) {
+func formatRawPairingQRCode(code string, uri string) string {
 	var b strings.Builder
 	qr, err := qrcode.New(uri, qrcode.Medium)
 	if err != nil {
@@ -342,7 +422,7 @@ func PrintRawPairingQRCode(code string, uri string) {
 		if code != "" {
 			fmt.Fprintf(&b, i18n.T("  🔑 配对码: %s\n", "  🔑 Pairing Code: %s\n"), code)
 		}
-		qrStr := qr.ToSmallString(false)
+		qrStr := renderTerminalQRCode(qr)
 		b.WriteString(qrStr)
 		if !strings.HasSuffix(qrStr, "\n") {
 			b.WriteString("\n")
@@ -385,10 +465,16 @@ func PrintRawPairingQRCode(code string, uri string) {
 		}
 		fmt.Fprintf(&b, i18n.T("  🔗 配对 URI: %s\n\n", "  🔗 Pairing URI: %s\n\n"), uri)
 	}
+	return b.String()
+}
+
+// PrintRawPairingQRCode prints the pairing banner, QR code, and instructions for a given URI and code.
+func PrintRawPairingQRCode(code string, uri string) {
+	output := formatRawPairingQRCode(code, uri)
 
 	consoleMu.Lock()
 	defer consoleMu.Unlock()
-	_, _ = os.Stdout.WriteString(b.String())
+	_, _ = os.Stdout.WriteString(output)
 }
 
 // isRelayDomainLabel reports whether host (full FQDN or compressed subdomain)
