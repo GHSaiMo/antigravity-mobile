@@ -7493,6 +7493,28 @@
         }
       }
     },
+    "分享此应用": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Share App"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このアプリを共有"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "分享此应用"
+          }
+        }
+      }
+    },
     "分享为长图": {
       "localizations": {
         "en": {
@@ -15377,6 +15399,28 @@
           "stringUnit": {
             "state": "translated",
             "value": "授权访问相册以选择最近照片"
+          }
+        }
+      }
+    },
+    "推荐 Multigravity —— Google Antigravity 原生移动客户端，支持实时审批、任务进度与额度监控": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Check out Multigravity — a native mobile companion for Google Antigravity with live approvals, task progress & quota monitoring"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Google Antigravity 向けネイティブモバイルアプリ「Multigravity」をチェック（リアルタイム承認・進捗・クォータ監視対応）"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "推荐 Multigravity —— Google Antigravity 原生移动客户端，支持实时审批、任务进度与额度监控"
           }
         }
       }

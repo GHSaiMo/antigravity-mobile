@@ -1,6 +1,10 @@
 package com.antigravity.mobile.ui.components
 
 import android.Manifest
+import android.app.Activity
+import android.content.ActivityNotFoundException
+import android.content.ClipData
+import android.content.ClipboardManager
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
@@ -90,6 +94,38 @@ private enum class SettingsSubpage {
             }
             TIPS -> "手势与使用技巧".loc
         }
+}
+
+private fun resolveAppShareUrl(): String {
+    // 统一按当前语言指向官网三语 OG 落地页（direct / play 均合规；待 play 变体正式上架 Google Play 后可在此按渠道覆写）
+    return when (L10n.currentLang) {
+        L10n.AppLang.ZH -> "https://mgy.jiuge.space/zh.html"
+        L10n.AppLang.JA -> "https://mgy.jiuge.space/ja.html"
+        L10n.AppLang.EN -> "https://mgy.jiuge.space/"
+    }
+}
+
+private fun shareMultigravityApp(context: Context) {
+    val shareUrl = resolveAppShareUrl()
+    val shareMessage = "推荐 Multigravity —— Google Antigravity 原生移动客户端，支持实时审批、任务进度与额度监控".loc
+    val shareBody = "$shareMessage\n$shareUrl"
+    val sendIntent = Intent(Intent.ACTION_SEND).apply {
+        type = "text/plain"
+        putExtra(Intent.EXTRA_SUBJECT, "Multigravity")
+        putExtra(Intent.EXTRA_TEXT, shareBody)
+    }
+    try {
+        val chooser = Intent.createChooser(sendIntent, "分享此应用".loc).apply {
+            if (context !is Activity) {
+                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            }
+        }
+        context.startActivity(chooser)
+    } catch (_: ActivityNotFoundException) {
+        val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as? ClipboardManager
+        clipboard?.setPrimaryClip(ClipData.newPlainText("Multigravity", shareUrl))
+        Toast.makeText(context, "已复制分享链接".loc, Toast.LENGTH_SHORT).show()
+    }
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -1576,6 +1612,26 @@ private fun MainSettingsContent(
                             )
                         }
                     }
+                }
+                HorizontalDivider(color = colors.separator.copy(alpha = 0.4f), thickness = 0.5.dp)
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clickable {
+                            updateHaptic.light()
+                            shareMultigravityApp(localContext)
+                        }
+                        .padding(horizontal = 16.dp, vertical = 14.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    Text(text = "分享此应用".loc, color = colors.textPrimary, fontSize = 15.sp)
+                    Icon(
+                        imageVector = Icons.Default.Share,
+                        contentDescription = null,
+                        tint = colors.textMuted,
+                        modifier = Modifier.size(16.dp)
+                    )
                 }
             }
         }

@@ -463,6 +463,23 @@ public struct SettingsSheet: View {
                             }
                         }
                     }
+                    if let shareURL = appShareURL {
+                        ShareLink(
+                            item: shareURL,
+                            subject: Text("Multigravity"),
+                            message: Text(appShareMessage),
+                            preview: SharePreview("Multigravity")
+                        ) {
+                            HStack {
+                                Text("分享此应用")
+                                    .foregroundColor(.primary)
+                                Spacer()
+                                Image(systemName: "square.and.arrow.up")
+                                    .font(.caption)
+                                    .foregroundColor(.secondary)
+                            }
+                        }
+                    }
                     Button {
                         showPrivacyPolicySheet = true
                     } label: {
@@ -737,6 +754,21 @@ public struct SettingsSheet: View {
             in: NotificationSoundOption.actionOptions
         )
         return "\(completeName) · \(actionName)"
+    }
+
+    private var appShareURL: URL? {
+        let lang = (Bundle.main.preferredLocalizations.first ?? Locale.preferredLanguages.first ?? "en").lowercased()
+        if lang.hasPrefix("zh") {
+            return URL(string: "https://mgy.jiuge.space/zh.html")
+        } else if lang.hasPrefix("ja") {
+            return URL(string: "https://mgy.jiuge.space/ja.html")
+        } else {
+            return URL(string: "https://mgy.jiuge.space/")
+        }
+    }
+
+    private var appShareMessage: String {
+        String(localized: "推荐 Multigravity —— Google Antigravity 原生移动客户端，支持实时审批、任务进度与额度监控")
     }
 }
 

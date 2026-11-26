@@ -2408,6 +2408,9 @@ object L10n {
         map["市场搜索结果 (%d)"] = "Marketplace Results (%d)"
         map["正则 .*"] = "Regex .*"
         map["区分大小写 Aa"] = "Case Aa"
+        map["分享此应用"] = "Share App"
+        map["推荐 Multigravity —— Google Antigravity 原生移动客户端，支持实时审批、任务进度与额度监控"] = "Check out Multigravity — a native mobile companion for Google Antigravity with live approvals, task progress & quota monitoring"
+        map["已复制分享链接"] = "Share link copied"
     }
 
 private fun populateJaChunk0(map: HashMap<String, String>) {
@@ -4542,6 +4545,9 @@ private fun populateJaChunk0(map: HashMap<String, String>) {
         map["市场搜索结果 (%d)"] = "マーケット検索結果 (%d)"
         map["正则 .*"] = "正規表現 .*"
         map["区分大小写 Aa"] = "大小区別 Aa"
+        map["分享此应用"] = "このアプリを共有"
+        map["推荐 Multigravity —— Google Antigravity 原生移动客户端，支持实时审批、任务进度与额度监控"] = "Google Antigravity 向けネイティブモバイルアプリ「Multigravity」をチェック（リアルタイム承認・進捗・クォータ監視対応）"
+        map["已复制分享链接"] = "共有リンクをコピーしました"
     }
 }
 
