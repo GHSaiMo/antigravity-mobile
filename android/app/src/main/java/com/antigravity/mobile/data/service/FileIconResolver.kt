@@ -16,6 +16,80 @@ object FileIconResolver {
 
     private val lineSuffixRegex = Regex(""":(?:L?\d+(?:-[a-zA-Z]?\d+)?|\d+(?::\d+)?)$""")
     private val urlSchemeRegex = Regex("""^[a-zA-Z][a-zA-Z0-9+-.]*://""")
+    private val safeExtensionRegex = Regex("""^[a-zA-Z0-9]{1,16}$""")
+
+    private fun decodePercentPreservingPlus(raw: String): String {
+        if (!raw.contains('%')) return raw
+        return try {
+            java.net.URLDecoder.decode(raw.replace("+", "%2B"), "UTF-8")
+        } catch (_: Exception) {
+            raw
+        }
+    }
+
+    /**
+     * Extracts the underlying file path from a local path, `file://` URI, or gateway
+     * `/api/v1/files/raw?uri=...` URL, stripping fragments, query parameters, and `:L10` line suffixes.
+     */
+    fun extractCleanFilePath(rawUri: String): String {
+        val trimmed = rawUri.trim().trim('`', '\'', '"')
+        if (trimmed.isEmpty()) return ""
+
+        val queryPart = trimmed.substringAfter('?', "").substringBefore('#')
+        val effective = if (queryPart.isNotEmpty()) {
+            val uriParam = queryPart.split('&')
+                .firstOrNull { it.startsWith("uri=") }
+                ?.substringAfter("uri=")
+                ?.takeIf { it.isNotBlank() }
+            if (uriParam != null) decodePercentPreservingPlus(uriParam) else trimmed
+        } else {
+            trimmed
+        }
+
+        var path = effective.substringBefore('#').substringBefore('?')
+        path = path.replace(lineSuffixRegex, "").trim().trimEnd('/')
+        return path
+    }
+
+    /**
+     * Extracts the actual filename segment from a file path or URI (unwrapping `/api/v1/files/raw?uri=...`).
+     * Returns empty string if no usable filename is present (e.g. bare `/api/v1/files/raw` or root URL).
+     */
+    fun extractFileNameFromUri(rawUri: String): String {
+        val cleanPath = extractCleanFilePath(rawUri)
+        if (cleanPath.isEmpty()) return ""
+        val withoutScheme = when {
+            cleanPath.startsWith("file://", ignoreCase = true) -> cleanPath.substring(7)
+            urlSchemeRegex.containsMatchIn(cleanPath) -> {
+                val afterScheme = cleanPath.substringAfter("://")
+                if (!afterScheme.contains('/')) return ""
+                afterScheme.substringAfter('/')
+            }
+            else -> cleanPath
+        }.trimEnd('/')
+        if (withoutScheme.isEmpty()) return ""
+        val segment = decodePercentPreservingPlus(withoutScheme.substringAfterLast('/')).trim()
+        if (segment.isEmpty() || segment == "raw" || segment == "." || segment == "..") return ""
+        return segment
+    }
+
+    /**
+     * Extracts a clean alphanumeric file extension (`[a-zA-Z0-9]{1,16}`) from a filename or URI.
+     * Rejects malformed suffixes caused by descriptive link titles (e.g. `html)`, `7 报告`, `pdf (新)`).
+     */
+    fun extractSafeExtension(pathOrName: String): String {
+        val trimmed = pathOrName.trim().trim('`', '\'', '"')
+        if (trimmed.isEmpty()) return ""
+        val candidateName = if (trimmed.contains('/') || trimmed.contains('?') || trimmed.contains('#') || urlSchemeRegex.containsMatchIn(trimmed)) {
+            extractFileNameFromUri(trimmed)
+        } else {
+            trimmed.replace(lineSuffixRegex, "").trim()
+        }
+        val dotIdx = candidateName.lastIndexOf('.')
+        if (dotIdx <= 0 || dotIdx >= candidateName.lastIndex) return ""
+        val ext = candidateName.substring(dotIdx + 1)
+        return if (safeExtensionRegex.matches(ext)) ext.lowercase() else ""
+    }
 
     private val scriptExtensions = setOf(
         "go", "py", "pyw", "js", "mjs", "cjs", "ts", "mts", "cts", "jsx", "tsx",
@@ -98,9 +172,17 @@ object FileIconResolver {
         if (str.isEmpty()) return false
         val lower = str.lowercase()
         val pathLower = lower.substringBefore('#').substringBefore('?').replace(lineSuffixRegex, "")
-        return allPreviewExtensions.any { ext ->
-            pathLower.endsWith(ext) || lower.endsWith(ext) || lower.contains("$ext?") || lower.contains("$ext#")
+        if (allPreviewExtensions.any { ext ->
+                pathLower.endsWith(ext) || lower.endsWith(ext) || lower.contains("$ext?") || lower.contains("$ext#")
+            }
+        ) {
+            return true
         }
+        val cleanPathLower = extractCleanFilePath(str).lowercase()
+        if (cleanPathLower.isNotEmpty() && cleanPathLower != pathLower) {
+            return allPreviewExtensions.any { ext -> cleanPathLower.endsWith(ext) }
+        }
+        return false
     }
 
     /**
@@ -243,18 +325,19 @@ object FileIconResolver {
         if (str.isEmpty()) return false
         val lower = str.lowercase()
         val pathLower = lower.substringBefore('#').substringBefore('?').replace(lineSuffixRegex, "")
+        val cleanPathLower = extractCleanFilePath(str).lowercase()
 
         // Markdown and plan artifacts
         if (pathLower.endsWith(".md") || pathLower.endsWith(".markdown") ||
+            cleanPathLower.endsWith(".md") || cleanPathLower.endsWith(".markdown") ||
             lower.contains("/brain/") || lower.contains("/static/artifacts/") ||
+            cleanPathLower.contains("/brain/") || cleanPathLower.contains("/static/artifacts/") ||
             lower.contains("implementation_plan") || lower.contains("walkthrough")
         ) {
             return true
         }
 
-        return allPreviewExtensions.any { ext ->
-            pathLower.endsWith(ext) || lower.endsWith(ext) || lower.contains("$ext?") || lower.contains("$ext#")
-        }
+        return isPreviewableDocument(str)
     }
 
     // --- Legacy resolver for CodeBlockView backward compatibility ---

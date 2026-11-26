@@ -136,13 +136,21 @@ internal fun ChatViewModel.openAttachmentImageViewer(attachment: AttachmentImage
     }
 }
 
-internal fun ChatViewModel.downloadAndPreviewDocument(uri: String, fileName: String) {
+internal fun ChatViewModel.downloadAndPreviewDocument(
+    uri: String,
+    fileName: String,
+    displayTitle: String = fileName
+) {
     val sessionId = ++documentDownloadSessionId
     documentDownloadJob?.cancel()
     _documentDownloadProgress.value = 0f
 
     val targetUri = stripLocalUriFragment(uri)
-    val decodedFileName = try { URLDecoder.decode(fileName, "UTF-8") } catch (_: Exception) { fileName }
+    val decodedFileName = try { URLDecoder.decode(fileName.replace("+", "%2B"), "UTF-8") } catch (_: Exception) { fileName }.trim()
+    val decodedDisplayTitle = try { URLDecoder.decode(displayTitle.replace("+", "%2B"), "UTF-8") } catch (_: Exception) { displayTitle }.trim()
+    val cacheFileName = com.antigravity.mobile.data.service.FileIconResolver.extractFileNameFromUri(targetUri)
+        .ifBlank { decodedFileName }
+    val resolvedTitle = decodedDisplayTitle.ifBlank { cacheFileName }
     val cascadeId = _uiState.value.cascadeId
 
     // 0. If uri is already a local file, preview immediately without network request
@@ -155,29 +163,31 @@ internal fun ChatViewModel.downloadAndPreviewDocument(uri: String, fileName: Str
         _uiState.value = _uiState.value.copy(
             isDownloadingDocument = false,
             previewDocumentFile = localCandidate,
-            previewDocumentTitle = decodedFileName.ifEmpty { localCandidate.name }
+            previewDocumentTitle = resolvedTitle.ifEmpty { localCandidate.name }
         )
         return
     }
 
     // 1. Check local cache first
-    val cached = documentCacheManager?.getCachedFile(targetUri, decodedFileName, cascadeId)
+    val cached = documentCacheManager?.getCachedFile(targetUri, cacheFileName, cascadeId)
     if (cached != null && cached.exists() && cached.length() > 0) {
         _uiState.value = _uiState.value.copy(
             isDownloadingDocument = false,
             previewDocumentFile = cached,
-            previewDocumentTitle = decodedFileName
+            previewDocumentTitle = resolvedTitle
         )
         return
     }
 
     // 2. Prepare target file in cache
-    val target = documentCacheManager?.cacheFile(targetUri, decodedFileName, cascadeId)
-        ?: java.io.File.createTempFile("doc_", "_$decodedFileName")
+    val safeTempExt = com.antigravity.mobile.data.service.FileIconResolver.extractSafeExtension(targetUri)
+        .ifEmpty { com.antigravity.mobile.data.service.FileIconResolver.extractSafeExtension(cacheFileName) }
+    val target = documentCacheManager?.cacheFile(targetUri, cacheFileName, cascadeId)
+        ?: java.io.File.createTempFile("doc_", if (safeTempExt.isNotEmpty()) ".$safeTempExt" else ".tmp")
 
     _uiState.value = _uiState.value.copy(
         isDownloadingDocument = true,
-        downloadingDocumentName = decodedFileName,
+        downloadingDocumentName = resolvedTitle,
         downloadProgress = 0f
     )
 
@@ -206,7 +216,7 @@ internal fun ChatViewModel.downloadAndPreviewDocument(uri: String, fileName: Str
         res.onSuccess { downloadedFile ->
             _uiState.value = _uiState.value.copy(
                 previewDocumentFile = downloadedFile,
-                previewDocumentTitle = decodedFileName
+                previewDocumentTitle = resolvedTitle
             )
         }.onFailure { err ->
             _uiState.value = _uiState.value.copy(

@@ -52,6 +52,30 @@ public final class DocumentCacheManager: @unchecked Sendable {
         self.baseDirectory = docsDir
     }
     
+    private static func cleanFilePath(from raw: String) -> String {
+        var candidate = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        if let comps = URLComponents(string: candidate),
+           let paramUri = comps.queryItems?.first(where: { $0.name == "uri" })?.value,
+           !paramUri.isEmpty {
+            candidate = paramUri
+        }
+        candidate = candidate.split(separator: "#", maxSplits: 1).first.map(String.init) ?? candidate
+        candidate = candidate.split(separator: "?", maxSplits: 1).first.map(String.init) ?? candidate
+        return candidate
+    }
+
+    /// Extracts a clean alphanumeric file extension (`[A-Za-z0-9]{1,16}`), ignoring trailing punctuation
+    /// or query/fragment noise (e.g. `面板 (dashboard.html)` or `file.html?v=1#top`).
+    private static func safeExtension(from raw: String) -> String {
+        let candidate = cleanFilePath(from: raw)
+        let ext = (candidate as NSString).pathExtension.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !ext.isEmpty, ext.count <= 16,
+              ext.unicodeScalars.allSatisfy({ CharacterSet.alphanumerics.contains($0) }) else {
+            return ""
+        }
+        return ext.lowercased()
+    }
+
     /// Computes deterministic target URL in the cache directory based on uri and file name
     public func cacheFileURL(for uri: String, fileName: String, cascadeId: String? = nil) -> URL {
         let cleanUri = uri.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -64,9 +88,20 @@ public final class DocumentCacheManager: @unchecked Sendable {
         let hash = SHA256.hash(data: Data(scopeKey.utf8))
         let hashPrefix = hash.compactMap { String(format: "%02x", $0) }.prefix(8).joined()
         
-        let rawExt = (fileName as NSString).pathExtension
-        let ext = rawExt.isEmpty ? (cleanUri as NSString).pathExtension : rawExt
-        let rawBase = (fileName as NSString).deletingPathExtension
+        let uriExt = Self.safeExtension(from: cleanUri)
+        let fileExt = Self.safeExtension(from: fileName)
+        let ext = uriExt.isEmpty ? fileExt : uriExt
+        let trimmedName = fileName.trimmingCharacters(in: .whitespacesAndNewlines)
+        let rawBase: String
+        if !ext.isEmpty && trimmedName.lowercased().hasSuffix(".\(ext)") {
+            rawBase = String(trimmedName.dropLast(ext.count + 1))
+        } else if !uriExt.isEmpty {
+            let uriLast = Self.cleanFilePath(from: cleanUri) as NSString
+            let uriName = uriLast.lastPathComponent.removingPercentEncoding ?? uriLast.lastPathComponent
+            rawBase = uriName.lowercased().hasSuffix(".\(uriExt)") ? String(uriName.dropLast(uriExt.count + 1)) : trimmedName
+        } else {
+            rawBase = (trimmedName as NSString).deletingPathExtension
+        }
         let base = (rawBase.isEmpty ? "document" : rawBase)
             .replacingOccurrences(of: "/", with: "_")
             .replacingOccurrences(of: ":", with: "_")

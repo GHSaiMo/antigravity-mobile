@@ -161,7 +161,7 @@ fun DocumentPreviewSheet(
                     onClick = {
                         haptic.light()
                         coroutineScope.launch {
-                            saveFileToDownloads(context, file, decodedTitle)
+                            saveFileToDownloads(context, file, resolveExportFileName(decodedTitle, file))
                         }
                     }
                 )
@@ -977,6 +977,22 @@ private fun HtmlDocumentViewer(file: File, colors: AppColors = AntigravityTheme.
                 factory = { ctx ->
                     WebView(ctx).apply {
                         webViewRef = this
+                        // Prevent ModalBottomSheet swipe-to-dismiss from hijacking vertical/horizontal
+                        // scrolling and interactive controls inside HTML dashboards.
+                        @Suppress("ClickableViewAccessibility")
+                        setOnTouchListener { v, event ->
+                            when (event.actionMasked) {
+                                android.view.MotionEvent.ACTION_DOWN,
+                                android.view.MotionEvent.ACTION_MOVE -> {
+                                    v.parent?.requestDisallowInterceptTouchEvent(true)
+                                }
+                                android.view.MotionEvent.ACTION_UP,
+                                android.view.MotionEvent.ACTION_CANCEL -> {
+                                    v.parent?.requestDisallowInterceptTouchEvent(false)
+                                }
+                            }
+                            false
+                        }
                         setBackgroundColor(
                             when {
                                 currentPrepared.isMarp -> android.graphics.Color.parseColor("#F4F5F7")
@@ -2019,6 +2035,19 @@ suspend fun saveFileToDownloads(context: Context, file: File, displayName: Strin
             }
         }
     }
+}
+
+internal fun resolveExportFileName(displayTitle: String, file: File): String {
+    val sanitized = displayTitle
+        .replace(Regex("""[/\\:?*"<>|\u0000-\u001f]"""), "_")
+        .trim(' ', '.')
+        .take(120)
+    val safeExt = file.extension.lowercase().takeIf { it.matches(Regex("^[a-z0-9]{1,16}$")) }
+    if (sanitized.isEmpty()) return file.name
+    if (safeExt != null && !sanitized.endsWith(".$safeExt", ignoreCase = true)) {
+        return "$sanitized.$safeExt"
+    }
+    return sanitized
 }
 
 private fun getMimeType(file: File): String {

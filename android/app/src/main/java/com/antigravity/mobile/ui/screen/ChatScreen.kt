@@ -1203,18 +1203,14 @@ fun ChatScreen(
         val clean = uri.trim()
         val lower = clean.lowercase()
         val pathLower = lower.substringBefore('#').substringBefore('?').replace(Regex(""":l?\d+(?:[:-]l?\d+)?$"""), "")
-        val rawName = title.ifEmpty {
-            val uriParam = runCatching {
-                Uri.parse(clean).getQueryParameter("uri")
-            }.getOrNull()?.takeIf { it.isNotBlank() }
-            val pathForName = (uriParam ?: clean).substringBefore('#').substringBefore('?').trimEnd('/')
-            pathForName.substringAfterLast('/')
-        }
-        val decodedFileName = try {
-            URLDecoder.decode(rawName, "UTF-8")
+        val uriFileName = com.antigravity.mobile.data.service.FileIconResolver.extractFileNameFromUri(clean)
+        val decodedTitle = try {
+            URLDecoder.decode(title.replace("+", "%2B"), "UTF-8")
         } catch (_: Exception) {
-            rawName
-        }
+            title
+        }.trim()
+        val displayTitle = decodedTitle.ifBlank { uriFileName }
+        val effectiveFileName = uriFileName.ifBlank { displayTitle }
 
         // 0. Native Sidecar UI links (sidecar://<id>/...)
         if (lower.startsWith("sidecar://")) {
@@ -1242,24 +1238,24 @@ fun ChatScreen(
                 }
             }
         } else if (!com.antigravity.mobile.data.service.FileIconResolver.isScriptFile(clean) &&
-            !com.antigravity.mobile.data.service.FileIconResolver.isScriptFile(decodedFileName)
+            (uriFileName.isNotEmpty() || !com.antigravity.mobile.data.service.FileIconResolver.isScriptFile(displayTitle))
         ) {
-            val isZipFile = lower.endsWith(".zip") || decodedFileName.lowercase().endsWith(".zip") ||
+            val isZipFile = lower.endsWith(".zip") || effectiveFileName.lowercase().endsWith(".zip") ||
                 lower.contains(".zip?") || lower.contains(".zip#")
             if (isZipFile) {
                 haptic.medium()
-                if (com.antigravity.mobile.data.service.FileIconResolver.isWeChatChatArchive(decodedFileName) ||
+                if (com.antigravity.mobile.data.service.FileIconResolver.isWeChatChatArchive(effectiveFileName) ||
                     com.antigravity.mobile.data.service.FileIconResolver.isWeChatChatArchive(clean)
                 ) {
-                    viewModel.openWeChatArchive(clean, decodedFileName)
+                    viewModel.openWeChatArchive(clean, effectiveFileName)
                 } else {
-                    viewModel.downloadAndPreviewDocument(clean, decodedFileName)
+                    viewModel.downloadAndPreviewDocument(clean, effectiveFileName, displayTitle)
                 }
             } else if (com.antigravity.mobile.data.service.FileIconResolver.isPreviewableDocument(clean) ||
-                com.antigravity.mobile.data.service.FileIconResolver.isPreviewableDocument(decodedFileName)
+                com.antigravity.mobile.data.service.FileIconResolver.isPreviewableDocument(effectiveFileName)
             ) {
                 haptic.medium()
-                viewModel.downloadAndPreviewDocument(clean, decodedFileName)
+                viewModel.downloadAndPreviewDocument(clean, effectiveFileName, displayTitle)
             } else if (pathLower.endsWith(".md") || pathLower.endsWith(".markdown") ||
                 lower.contains("/brain/") || lower.contains("/static/artifacts/") ||
                 lower.contains("implementation_plan") || lower.contains("walkthrough")
@@ -1270,7 +1266,7 @@ fun ChatScreen(
                     lower.contains("walkthrough") -> "Walkthrough"
                     lower.contains("implementation_plan") -> "Implementation Plan"
                     title.isNotBlank() -> title
-                    else -> decodedFileName
+                    else -> effectiveFileName
                 }
                 viewModel.openMarkdownViewer(clean, docTitle)
             } else if ((clean.startsWith("http://") || clean.startsWith("https://")) &&

@@ -173,8 +173,11 @@ internal fun RichTextRenderer(
                                     rawTitle
                                 }
 
-                                // Script and code files do not need to be accessible (safety filter)
-                                if (FileIconResolver.isScriptFile(url) || FileIconResolver.isScriptFile(decodedTitle)) {
+                                // Script and code files do not need to be accessible (safety filter).
+                                // Only inspect decodedTitle when the URL itself has no filename segment, so descriptive
+                                // link labels mentioning a source filename don't block opening .html / .md / .pdf targets.
+                                val urlHasFileName = FileIconResolver.extractFileNameFromUri(url).isNotEmpty()
+                                if (FileIconResolver.isScriptFile(url) || (!urlHasFileName && FileIconResolver.isScriptFile(decodedTitle))) {
                                     return@let
                                 }
 

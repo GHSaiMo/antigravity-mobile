@@ -302,6 +302,7 @@ extension ChatView {
         let isHTML = lower.hasSuffix(".html") || lower.hasSuffix(".htm") ||
             pathLower.hasSuffix(".html") || pathLower.hasSuffix(".htm") ||
             uriLower.hasSuffix(".html") || uriLower.hasSuffix(".htm") ||
+            uriPathLower.hasSuffix(".html") || uriPathLower.hasSuffix(".htm") ||
             lower.contains(".html?") || lower.contains(".htm?") ||
             lower.contains(".html#") || lower.contains(".htm#")
         let documentExtensions = [".pptx", ".ppt", ".key", ".pdf", ".docx", ".doc", ".xlsx", ".xls", ".numbers", ".pages", ".ipynb", ".html", ".htm", ".txt", ".csv", ".json", ".log", ".r", ".rmd", ".rmarkdown"]
