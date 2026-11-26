@@ -2211,72 +2211,78 @@ public struct ConversationListView: View {
 
                     Spacer(minLength: 4)
 
-                    if !isExpanded {
-                        switch aggregateStatus {
-                        case .action:
-                            Text("Action")
-                                .font(.system(size: 10, weight: .bold))
-                                .lineLimit(1)
-                                .fixedSize(horizontal: true, vertical: false)
-                                .foregroundColor(.blue)
-                                .padding(.horizontal, 5.5)
-                                .padding(.vertical, 1.5)
-                                .background(Color.blue.opacity(0.15))
-                                .cornerRadius(5)
-                        case .error:
-                            Text("Error")
-                                .font(.system(size: 10, weight: .bold))
-                                .lineLimit(1)
-                                .fixedSize(horizontal: true, vertical: false)
-                                .foregroundColor(.red)
-                                .padding(.horizontal, 5.5)
-                                .padding(.vertical, 1.5)
-                                .background(Color.red.opacity(0.15))
-                                .cornerRadius(5)
-                        case .working:
-                            HStack(spacing: 3.5) {
-                                ProgressView()
-                                    .controlSize(.mini)
-                                    .tint(.green)
-                                Text("Working")
+                    ZStack(alignment: .trailing) {
+                        Group {
+                            switch aggregateStatus {
+                            case .action:
+                                Text("Action")
+                                    .font(.system(size: 10, weight: .bold))
                                     .lineLimit(1)
-                            }
-                            .fixedSize(horizontal: true, vertical: false)
-                            .font(.system(size: 10, weight: .bold))
-                            .foregroundColor(.green)
-                            .padding(.horizontal, 5.5)
-                            .padding(.vertical, 1.5)
-                            .background(Color.green.opacity(0.15))
-                            .cornerRadius(5)
-                        case .draft:
-                            Text("DRAFT")
-                                .font(.system(size: 9.5, weight: .bold))
-                                .lineLimit(1)
+                                    .fixedSize(horizontal: true, vertical: false)
+                                    .foregroundColor(.blue)
+                                    .padding(.horizontal, 5.5)
+                                    .padding(.vertical, 1.5)
+                                    .background(Color.blue.opacity(0.15))
+                                    .cornerRadius(5)
+                            case .error:
+                                Text("Error")
+                                    .font(.system(size: 10, weight: .bold))
+                                    .lineLimit(1)
+                                    .fixedSize(horizontal: true, vertical: false)
+                                    .foregroundColor(.red)
+                                    .padding(.horizontal, 5.5)
+                                    .padding(.vertical, 1.5)
+                                    .background(Color.red.opacity(0.15))
+                                    .cornerRadius(5)
+                            case .working:
+                                HStack(spacing: 3.5) {
+                                    ProgressView()
+                                        .controlSize(.mini)
+                                        .tint(.green)
+                                    Text("Working")
+                                        .lineLimit(1)
+                                }
                                 .fixedSize(horizontal: true, vertical: false)
-                                .foregroundColor(.yellow)
-                                .padding(.horizontal, 5)
+                                .font(.system(size: 10, weight: .bold))
+                                .foregroundColor(.green)
+                                .padding(.horizontal, 5.5)
                                 .padding(.vertical, 1.5)
-                                .background(Color.yellow.opacity(0.15))
+                                .background(Color.green.opacity(0.15))
                                 .cornerRadius(5)
-                        case .unread:
-                            ZStack {
-                                Circle()
-                                    .fill(Color.blue.opacity(0.16))
-                                    .frame(width: 12, height: 12)
-                                Circle()
-                                    .fill(Color.blue)
-                                    .frame(width: 5.5, height: 5.5)
+                            case .draft:
+                                Text("DRAFT")
+                                    .font(.system(size: 9.5, weight: .bold))
+                                    .lineLimit(1)
+                                    .fixedSize(horizontal: true, vertical: false)
+                                    .foregroundColor(.yellow)
+                                    .padding(.horizontal, 5)
+                                    .padding(.vertical, 1.5)
+                                    .background(Color.yellow.opacity(0.15))
+                                    .cornerRadius(5)
+                            case .unread:
+                                ZStack {
+                                    Circle()
+                                        .fill(Color.blue.opacity(0.16))
+                                        .frame(width: 12, height: 12)
+                                    Circle()
+                                        .fill(Color.blue)
+                                        .frame(width: 5.5, height: 5.5)
+                                }
+                                .frame(width: 14, height: 14)
+                            case .none:
+                                EmptyView()
                             }
-                            .frame(width: 14, height: 14)
-                        case .none:
-                            EmptyView()
                         }
-                    } else {
+                        .opacity(isExpanded ? 0 : 1)
+                        .animation(.easeOut(duration: 0.12), value: isExpanded)
+
                         Text("收起")
                             .font(.system(size: 11, weight: .medium))
                             .foregroundColor(.secondary)
                             .lineLimit(1)
                             .fixedSize(horizontal: true, vertical: false)
+                            .opacity(isExpanded ? 1 : 0)
+                            .animation(.easeIn(duration: 0.14), value: isExpanded)
                     }
 
                     Image(systemName: "chevron.down")
@@ -2289,18 +2295,17 @@ public struct ConversationListView: View {
                 .frame(maxWidth: .infinity)
                 .frame(height: 34)
                 .overlay(alignment: .bottomLeading) {
-                    if isExpanded {
-                        Rectangle()
-                            .fill(connectorColor)
-                            .frame(width: 1.5, height: 6.5)
-                            .offset(x: 15.25, y: 0)
-                    }
+                    Rectangle()
+                        .fill(connectorColor)
+                        .frame(width: 1.5, height: 6.5)
+                        .offset(x: 15.25, y: 0)
+                        .opacity(isExpanded ? 1 : 0)
                 }
                 .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
 
-            if isExpanded {
+            VerticalRevealLayout(progress: isExpanded ? 1 : 0) {
                 VStack(spacing: 0) {
                     ForEach(Array(branches.enumerated()), id: \.element.id) { idx, child in
                         let isLast = idx == branches.count - 1
@@ -2386,9 +2391,12 @@ public struct ConversationListView: View {
                         }
                     }
                 }
-                .transition(.opacity.combined(with: .scale(scale: 0.98, anchor: .top)))
+                .opacity(isExpanded ? 1 : 0)
             }
+            .allowsHitTesting(isExpanded)
+            .accessibilityHidden(!isExpanded)
         }
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         .background(trayBackground)
         .overlay(alignment: .top) {
             VStack(spacing: 0) {
@@ -3957,6 +3965,35 @@ struct TerminalRunningIndicator: View {
             }
             .frame(width: size, height: size)
         }
+    }
+}
+
+/// Animatable top-anchored vertical reveal layout: expands strictly downward and collapses strictly upward
+/// while keeping its top edge welded to the header above with zero vertical centering drift.
+private struct VerticalRevealLayout: Layout, Animatable {
+    var progress: CGFloat
+
+    var animatableData: CGFloat {
+        get { progress }
+        set { progress = newValue }
+    }
+
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
+        guard let child = subviews.first else {
+            return CGSize(width: proposal.width ?? 0, height: 0)
+        }
+        let childSize = child.sizeThatFits(ProposedViewSize(width: proposal.width, height: nil))
+        let clamped = max(0, min(1, progress))
+        return CGSize(width: proposal.width ?? childSize.width, height: childSize.height * clamped)
+    }
+
+    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
+        guard let child = subviews.first else { return }
+        child.place(
+            at: CGPoint(x: bounds.minX, y: bounds.minY),
+            anchor: .topLeading,
+            proposal: ProposedViewSize(width: bounds.width, height: nil)
+        )
     }
 }
 

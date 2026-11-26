@@ -2365,6 +2365,11 @@ private fun BranchGroupDrawer(
         animationSpec = tween(durationMillis = 240, easing = FastOutSlowInEasing),
         label = "BranchDrawerChevron"
     )
+    val stemAlpha by animateFloatAsState(
+        targetValue = if (isExpanded) 1f else 0f,
+        animationSpec = tween(durationMillis = 200, easing = FastOutSlowInEasing),
+        label = "BranchDrawerStemAlpha"
+    )
     val drawerShape = RoundedCornerShape(
         topStart = 0.dp,
         topEnd = 0.dp,
@@ -2420,11 +2425,11 @@ private fun BranchGroupDrawer(
                     .height(36.dp)
                     .clickable(onClick = onToggle)
                     .drawBehind {
-                        if (isExpanded) {
+                        if (stemAlpha > 0.01f) {
                             val spineX = 16.dp.toPx()
                             val stemH = 7.dp.toPx()
                             drawLine(
-                                color = connectorColor,
+                                color = connectorColor.copy(alpha = stemAlpha),
                                 start = androidx.compose.ui.geometry.Offset(spineX, size.height - stemH),
                                 end = androidx.compose.ui.geometry.Offset(spineX, size.height + 1f),
                                 strokeWidth = 1.5.dp.toPx(),
