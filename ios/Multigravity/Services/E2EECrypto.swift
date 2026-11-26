@@ -1,6 +1,7 @@
 import CryptoKit
 import Foundation
 import os
+import Security
 
 public enum E2EEError: Error, LocalizedError, Sendable {
     case missingCredentials
@@ -31,11 +32,15 @@ public final class E2EECrypto: Sendable {
     public static let acceptEncHeader = "X-Mgy-E2EE-Enc"
     public static let capsHeader = "X-Mgy-E2EE-Caps"
     public static let binaryRequestCap = "req-bin2"
+    public static let replayV1Cap = "replay-v1"
+    public static let wsSeq1Cap = "ws-seq1"
     public static let supportedEncValue = "bin2,flate"
     private static let pairSalt = Data("mgy-e2ee-pair-v1".utf8)
 
     private let e2eeRequiredHostsLock = OSAllocatedUnfairLock(initialState: Set<String>())
     private let binaryRequestHostsLock = OSAllocatedUnfairLock(initialState: Set<String>())
+    private let wsSeqHostsLock = OSAllocatedUnfairLock(initialState: Set<String>())
+    private let clockOffsetsLock = OSAllocatedUnfairLock(initialState: [String: Int64]())
     private let upgradeInFlightLock = OSAllocatedUnfairLock(initialState: false)
     private let lastUpgradeAttemptLock = OSAllocatedUnfairLock(initialState: Date.distantPast)
 
@@ -88,6 +93,8 @@ public final class E2EECrypto: Sendable {
         let cleaned = Set(requiredHosts.map { NetworkTransport.extractHost(from: $0) }.filter { !$0.isEmpty })
         e2eeRequiredHostsLock.withLock { $0 = cleaned }
         binaryRequestHostsLock.withLock { $0.removeAll() }
+        wsSeqHostsLock.withLock { $0.removeAll() }
+        clockOffsetsLock.withLock { $0.removeAll() }
         lastUpgradeAttemptLock.withLock { $0 = .distantPast }
     }
 
@@ -109,7 +116,25 @@ public final class E2EECrypto: Sendable {
         return binaryRequestHostsLock.withLock { $0.contains(clean) }
     }
 
-    /// Passively discovers optional gateway E2EE capabilities (e.g. `req-bin2`) from outer HTTP responses.
+    public func markHostSupportsWSSeq(_ host: String) {
+        let clean = NetworkTransport.extractHost(from: host)
+        guard !clean.isEmpty else { return }
+        wsSeqHostsLock.withLock { _ = $0.insert(clean) }
+    }
+
+    public func clearHostWSSeqSupport(_ host: String) {
+        let clean = NetworkTransport.extractHost(from: host)
+        guard !clean.isEmpty else { return }
+        wsSeqHostsLock.withLock { _ = $0.remove(clean) }
+    }
+
+    public func supportsWSSeq(host: String) -> Bool {
+        let clean = NetworkTransport.extractHost(from: host)
+        guard !clean.isEmpty else { return false }
+        return wsSeqHostsLock.withLock { $0.contains(clean) }
+    }
+
+    /// Passively discovers optional gateway E2EE capabilities (e.g. `req-bin2`, `ws-seq1`) from outer HTTP responses.
     public func observeServerCapabilities(from response: HTTPURLResponse, url: URL?) {
         guard let rawCaps = response.value(forHTTPHeaderField: Self.capsHeader), !rawCaps.isEmpty else {
             return
@@ -121,6 +146,55 @@ public final class E2EECrypto: Sendable {
         if tokens.contains(Self.binaryRequestCap) {
             markHostSupportsBinaryRequest(host)
         }
+        if tokens.contains(Self.wsSeq1Cap) {
+            markHostSupportsWSSeq(host)
+        }
+    }
+
+    public func adjustedTimestampMs(forHost host: String) -> Int64 {
+        let nowMs = Int64((Date().timeIntervalSince1970 * 1000.0).rounded())
+        let clean = NetworkTransport.extractHost(from: host)
+        guard !clean.isEmpty else { return nowMs }
+        let offset = clockOffsetsLock.withLock { $0[clean] ?? 0 }
+        return nowMs + offset
+    }
+
+    public func recordClockSkew(host: String, serverTsMs: Int64) {
+        let clean = NetworkTransport.extractHost(from: host)
+        guard !clean.isEmpty, serverTsMs > 0 else { return }
+        let localMs = Int64((Date().timeIntervalSince1970 * 1000.0).rounded())
+        clockOffsetsLock.withLock { $0[clean] = serverTsMs - localMs }
+    }
+
+    public static func generateRequestID() -> String {
+        var bytes = [UInt8](repeating: 0, count: 16)
+        let status = SecRandomCopyBytes(kSecRandomDefault, bytes.count, &bytes)
+        if status == errSecSuccess {
+            return bytes.map { String(format: "%02x", $0) }.joined()
+        }
+        return UUID().uuidString.replacingOccurrences(of: "-", with: "").lowercased()
+    }
+
+    public static func parseClockSkewServerTimestamp(statusCode: Int, data: Data) -> Int64? {
+        guard statusCode == 401,
+              let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let errCode = obj["error"] as? String,
+              errCode == "e2ee_replay_clock_skew" else {
+            return nil
+        }
+        if let ts = obj["server_ts_ms"] as? Int64 { return ts }
+        if let ts = obj["server_ts_ms"] as? Int { return Int64(ts) }
+        if let ts = obj["server_ts_ms"] as? Double { return Int64(ts) }
+        return nil
+    }
+
+    public static func isReplayDetectedError(statusCode: Int, data: Data) -> Bool {
+        guard statusCode == 409,
+              let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let errCode = obj["error"] as? String else {
+            return false
+        }
+        return errCode == "e2ee_replay_detected"
     }
 
     public func isRelayHost(_ host: String) -> Bool {
@@ -211,6 +285,10 @@ public final class E2EECrypto: Sendable {
         Data("mgy-e2ee-v1:\(deviceID.trimmingCharacters(in: .whitespacesAndNewlines)):\(direction)".utf8)
     }
 
+    public static func frameSeqAAD(deviceID: String, direction: String, seq: UInt64) -> Data {
+        Data("mgy-e2ee-v1:\(deviceID.trimmingCharacters(in: .whitespacesAndNewlines)):\(direction):\(seq)".utf8)
+    }
+
     public static func pairFrameAAD(clientPubB64: String, direction: String) -> Data {
         Data("mgy-e2ee-pair-v1:\(clientPubB64.trimmingCharacters(in: .whitespacesAndNewlines)):\(direction)".utf8)
     }
@@ -239,12 +317,16 @@ public final class E2EECrypto: Sendable {
         let p: String
         let h: [String: String]?
         let b: String?
+        let ts: Int64
+        let id: String
     }
 
     private struct InnerHTTPReqMeta: Encodable {
         let m: String
         let p: String
         let h: [String: String]?
+        let ts: Int64
+        let id: String
     }
 
     private struct InnerHTTPResponse: Decodable {
@@ -295,13 +377,17 @@ public final class E2EECrypto: Sendable {
         let method = (request.httpMethod ?? "GET").uppercased()
         let nonEmptyBody = (bodyData?.isEmpty == false) ? bodyData : nil
         let useBinary = !forceLegacyJSON && nonEmptyBody != nil && supportsBinaryRequest(host: host)
+        let tsMs = adjustedTimestampMs(forHost: host)
+        let reqID = Self.generateRequestID()
 
         let plainBytes: Data
         if useBinary, let rawBody = nonEmptyBody {
             let meta = InnerHTTPReqMeta(
                 m: method,
                 p: pathWithQuery,
-                h: headers.isEmpty ? nil : headers
+                h: headers.isEmpty ? nil : headers,
+                ts: tsMs,
+                id: reqID
             )
             let metaData = try JSONEncoder().encode(meta)
             var frame = Data(capacity: 1 + 4 + metaData.count + rawBody.count)
@@ -317,7 +403,9 @@ public final class E2EECrypto: Sendable {
                 m: method,
                 p: pathWithQuery,
                 h: headers.isEmpty ? nil : headers,
-                b: bodyB64
+                b: bodyB64,
+                ts: tsMs,
+                id: reqID
             )
             plainBytes = try JSONEncoder().encode(inner)
         }

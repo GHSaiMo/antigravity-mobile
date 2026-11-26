@@ -2,6 +2,7 @@ package e2ee
 
 import (
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"strings"
 	"sync"
@@ -15,6 +16,9 @@ type WSOpenFrame struct {
 	Path    string            `json:"path"`
 	Headers map[string]string `json:"headers,omitempty"`
 	Enc     string            `json:"enc,omitempty"` // optional "flate" capability for compressed s2c WS frames
+	Seq     string            `json:"seq,omitempty"` // optional "v1" for monotonic per-frame sequence AAD binding
+	TSMs    int64             `json:"ts,omitempty"`  // optional Unix epoch ms for Frame 0 replay protection
+	ReqID   string            `json:"id,omitempty"`  // optional unique request nonce for Frame 0 replay protection
 }
 
 var e2eeWSUpgrader = websocket.Upgrader{
@@ -45,7 +49,10 @@ func (h *Handler) HandleWS(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	outerWS, err := e2eeWSUpgrader.Upgrade(w, r, nil)
+	upgradeHdr := http.Header{
+		HeaderE2EECaps: []string{SupportedCaps},
+	}
+	outerWS, err := e2eeWSUpgrader.Upgrade(w, r, upgradeHdr)
 	if err != nil {
 		return
 	}
@@ -71,6 +78,31 @@ func (h *Handler) HandleWS(w http.ResponseWriter, r *http.Request) {
 		!strings.HasPrefix(openReq.Path, "/") || strings.HasPrefix(openReq.Path, "//") {
 		_ = outerWS.WriteMessage(websocket.CloseMessage, websocket.FormatCloseMessage(websocket.ClosePolicyViolation, "invalid_open_path"))
 		return
+	}
+
+	// Validate Frame 0 replay protection when supplied (or always under StrictReplay).
+	if openReq.TSMs != 0 || strings.TrimSpace(openReq.ReqID) != "" || h.StrictReplay {
+		if openReq.TSMs == 0 || strings.TrimSpace(openReq.ReqID) == "" {
+			_ = outerWS.WriteMessage(websocket.CloseMessage, websocket.FormatCloseMessage(websocket.ClosePolicyViolation, ErrReplayRequired))
+			return
+		}
+		if rCode, serverTS := h.replayGuard().Check(deviceID, openReq.ReqID, openReq.TSMs); rCode != "" {
+			closeReason := rCode
+			if rCode == ErrReplayClockSkew && serverTS > 0 {
+				closeReason = fmt.Sprintf("%s:%d", rCode, serverTS)
+			}
+			_ = outerWS.WriteMessage(websocket.CloseMessage, websocket.FormatCloseMessage(websocket.ClosePolicyViolation, closeReason))
+			return
+		}
+	}
+
+	useSeq := false
+	if seqMode := strings.TrimSpace(openReq.Seq); seqMode != "" {
+		if !strings.EqualFold(seqMode, "v1") {
+			_ = outerWS.WriteMessage(websocket.CloseMessage, websocket.FormatCloseMessage(websocket.ClosePolicyViolation, "unsupported_ws_seq"))
+			return
+		}
+		useSeq = true
 	}
 
 	// 2. Explicitly verify Bearer token inside decrypted Frame 0 BEFORE dialing loopback
@@ -167,6 +199,7 @@ func (h *Handler) HandleWS(w http.ResponseWriter, r *http.Request) {
 
 	// Client -> Local Gateway (decrypt)
 	go func() {
+		var c2sSeq uint64
 		for {
 			msgType, encData, rErr := outerWS.ReadMessage()
 			if rErr != nil {
@@ -176,7 +209,12 @@ func (h *Handler) HandleWS(w http.ResponseWriter, r *http.Request) {
 			if msgType != websocket.BinaryMessage {
 				continue
 			}
-			plain, dErr := Decrypt(key, encData, FrameAAD(deviceID, "ws-c2s"))
+			aad := FrameAAD(deviceID, "ws-c2s")
+			if useSeq {
+				aad = FrameSeqAAD(deviceID, "ws-c2s", c2sSeq)
+				c2sSeq++
+			}
+			plain, dErr := Decrypt(key, encData, aad)
 			if dErr != nil || len(plain) < 1 {
 				errCh <- dErr
 				return
@@ -198,6 +236,7 @@ func (h *Handler) HandleWS(w http.ResponseWriter, r *http.Request) {
 	// Local Gateway -> Client (encrypt, with optional RFC 1951 raw deflate when negotiated in Frame 0)
 	wsAllowFlate := headerContainsToken(openReq.Enc, "flate")
 	go func() {
+		var s2cSeq uint64
 		for {
 			msgType, rawData, rErr := innerWS.ReadMessage()
 			if rErr != nil {
@@ -217,7 +256,12 @@ func (h *Handler) HandleWS(w http.ResponseWriter, r *http.Request) {
 				buf[0] = byte(msgType)
 				copy(buf[1:], rawData)
 			}
-			enc, eErr := Encrypt(key, buf, FrameAAD(deviceID, "ws-s2c"))
+			aad := FrameAAD(deviceID, "ws-s2c")
+			if useSeq {
+				aad = FrameSeqAAD(deviceID, "ws-s2c", s2cSeq)
+				s2cSeq++
+			}
+			enc, eErr := Encrypt(key, buf, aad)
 			if eErr != nil {
 				errCh <- eErr
 				return

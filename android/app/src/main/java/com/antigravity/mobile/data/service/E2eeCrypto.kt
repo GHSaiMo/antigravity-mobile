@@ -57,6 +57,8 @@ object E2eeCrypto {
     const val HEADER_ACCEPT_ENC = "X-Mgy-E2EE-Enc"
     const val HEADER_CAPS = "X-Mgy-E2EE-Caps"
     const val CAP_REQ_BIN2 = "req-bin2"
+    const val CAP_REPLAY_V1 = "replay-v1"
+    const val CAP_WS_SEQ1 = "ws-seq1"
     const val SUPPORTED_ENC = "bin2,flate"
     const val FRAME_BIN_RAW: Byte = 0x01
     const val FRAME_BIN_FLATE: Byte = 0x02
@@ -89,6 +91,8 @@ object E2eeCrypto {
     private val secureRandom = SecureRandom()
     private val e2eeRequiredHosts = ConcurrentHashMap.newKeySet<String>()
     private val binaryRequestHosts = ConcurrentHashMap.newKeySet<String>()
+    private val wsSeqHosts = ConcurrentHashMap.newKeySet<String>()
+    private val clockOffsetsMs = ConcurrentHashMap<String, Long>()
     private val upgradeInFlight = AtomicBoolean(false)
     private val lastUpgradeAttemptMs = AtomicLong(0L)
 
@@ -114,6 +118,8 @@ object E2eeCrypto {
             }
         }
         binaryRequestHosts.clear()
+        wsSeqHosts.clear()
+        clockOffsetsMs.clear()
         lastUpgradeAttemptMs.set(0L)
     }
 
@@ -136,10 +142,71 @@ object E2eeCrypto {
         return clean.isNotEmpty() && binaryRequestHosts.contains(clean)
     }
 
+    fun markHostSupportsWsSeq(host: String) {
+        val clean = ConnectionManager.extractHost(host)
+        if (clean.isNotEmpty()) {
+            wsSeqHosts.add(clean)
+        }
+    }
+
+    fun clearHostWsSeqSupport(host: String) {
+        val clean = ConnectionManager.extractHost(host)
+        if (clean.isNotEmpty()) {
+            wsSeqHosts.remove(clean)
+        }
+    }
+
+    fun supportsWsSeq(host: String): Boolean {
+        val clean = ConnectionManager.extractHost(host)
+        return clean.isNotEmpty() && wsSeqHosts.contains(clean)
+    }
+
     fun observeServerCapabilities(response: Response, host: String) {
         val rawCaps = response.header(HEADER_CAPS) ?: return
-        if (rawCaps.split(',').any { it.trim().equals(CAP_REQ_BIN2, ignoreCase = true) }) {
+        val tokens = rawCaps.split(',').map { it.trim().lowercase() }
+        if (tokens.contains(CAP_REQ_BIN2)) {
             markHostSupportsBinaryRequest(host)
+        }
+        if (tokens.contains(CAP_WS_SEQ1)) {
+            markHostSupportsWsSeq(host)
+        }
+    }
+
+    fun adjustedTimestampMs(host: String): Long {
+        val now = System.currentTimeMillis()
+        val clean = ConnectionManager.extractHost(host)
+        val offset = if (clean.isNotEmpty()) (clockOffsetsMs[clean] ?: 0L) else 0L
+        return now + offset
+    }
+
+    fun recordClockSkew(host: String, serverTsMs: Long) {
+        val clean = ConnectionManager.extractHost(host)
+        if (clean.isNotEmpty() && serverTsMs > 0L) {
+            clockOffsetsMs[clean] = serverTsMs - System.currentTimeMillis()
+        }
+    }
+
+    fun generateRequestId(): String {
+        val bytes = ByteArray(16)
+        secureRandom.nextBytes(bytes)
+        val sb = StringBuilder(32)
+        for (b in bytes) {
+            val v = b.toInt() and 0xFF
+            sb.append(Character.forDigit(v ushr 4, 16))
+            sb.append(Character.forDigit(v and 0x0F, 16))
+        }
+        return sb.toString()
+    }
+
+    fun parseClockSkewServerTs(statusCode: Int, bodySnippet: String): Long? {
+        if (statusCode != 401 || bodySnippet.isBlank()) return null
+        return try {
+            val obj = JSONObject(bodySnippet)
+            if (obj.optString("error") != "e2ee_replay_clock_skew") return null
+            val ts = obj.optLong("server_ts_ms", 0L)
+            if (ts > 0L) ts else null
+        } catch (_: Exception) {
+            null
         }
     }
 
@@ -259,6 +326,9 @@ object E2eeCrypto {
 
     fun frameAad(deviceId: String, direction: String): ByteArray =
         "mgy-e2ee-v1:${deviceId.trim()}:$direction".toByteArray(Charsets.UTF_8)
+
+    fun frameSeqAad(deviceId: String, direction: String, seq: Long): ByteArray =
+        "mgy-e2ee-v1:${deviceId.trim()}:$direction:$seq".toByteArray(Charsets.UTF_8)
 
     fun pairFrameAad(clientPubB64: String, direction: String): ByteArray =
         "mgy-e2ee-pair-v1:${clientPubB64.trim()}:$direction".toByteArray(Charsets.UTF_8)
@@ -465,7 +535,8 @@ class E2eeTransportInterceptor(
         original: Request,
         forceLegacyJson: Boolean,
         explicitCtx: com.antigravity.mobile.data.model.GatewayRequestContext? = null,
-        reqEpoch: Long = com.antigravity.mobile.data.model.GatewayRuntimeState.epoch
+        reqEpoch: Long = com.antigravity.mobile.data.model.GatewayRuntimeState.epoch,
+        retriedClockSkew: Boolean = false
     ): Response {
         val deviceId = (explicitCtx?.deviceId ?: prefs.deviceId)?.trim()?.takeIf { it.isNotEmpty() }
             ?: throw IOException("E2EE device_id missing")
@@ -510,11 +581,15 @@ class E2eeTransportInterceptor(
         }
 
         val useBinaryFrame = !forceLegacyJson && rawBodyBytes != null && E2eeCrypto.supportsBinaryRequest(url.host)
+        val tsMs = E2eeCrypto.adjustedTimestampMs(url.host)
+        val reqId = E2eeCrypto.generateRequestId()
         val plaintext: ByteArray = if (useBinaryFrame) {
             val metaJson = JSONObject().apply {
                 put("m", original.method.uppercase())
                 put("p", pathWithQuery)
                 if (headersJson.length() > 0) put("h", headersJson)
+                put("ts", tsMs)
+                put("id", reqId)
             }.toString().toByteArray(Charsets.UTF_8)
             val body = rawBodyBytes!!
             ByteArray(1 + 4 + metaJson.size + body.size).also { frame ->
@@ -533,6 +608,8 @@ class E2eeTransportInterceptor(
                 put("p", pathWithQuery)
                 if (headersJson.length() > 0) put("h", headersJson)
                 rawBodyBytes?.let { put("b", Base64.encodeToString(it, Base64.NO_WRAP)) }
+                put("ts", tsMs)
+                put("id", reqId)
             }
             innerJson.toString().toByteArray(Charsets.UTF_8)
         }
@@ -577,6 +654,26 @@ class E2eeTransportInterceptor(
 
         val outerResp = chain.proceed(outerReq)
         if (outerResp.code != 200) {
+            if (!retriedClockSkew && outerResp.code == 401) {
+                val snippet = try {
+                    outerResp.peekBody(512).string()
+                } catch (_: Exception) {
+                    ""
+                }
+                val serverTs = E2eeCrypto.parseClockSkewServerTs(401, snippet)
+                if (serverTs != null) {
+                    outerResp.close()
+                    E2eeCrypto.recordClockSkew(url.host, serverTs)
+                    return executeEncrypted(
+                        chain,
+                        original,
+                        forceLegacyJson = forceLegacyJson,
+                        explicitCtx = explicitCtx,
+                        reqEpoch = reqEpoch,
+                        retriedClockSkew = true
+                    )
+                }
+            }
             if (useBinaryFrame && !forceLegacyJson && outerResp.code == 400) {
                 val snippet = try {
                     outerResp.peekBody(256).string().lowercase()
@@ -586,7 +683,14 @@ class E2eeTransportInterceptor(
                 if (snippet.contains("invalid_inner_request")) {
                     outerResp.close()
                     E2eeCrypto.clearHostBinaryRequestSupport(url.host)
-                    return executeEncrypted(chain, original, forceLegacyJson = true, explicitCtx = explicitCtx, reqEpoch = reqEpoch)
+                    return executeEncrypted(
+                        chain,
+                        original,
+                        forceLegacyJson = true,
+                        explicitCtx = explicitCtx,
+                        reqEpoch = reqEpoch,
+                        retriedClockSkew = retriedClockSkew
+                    )
                 }
             }
             return outerResp
@@ -697,7 +801,29 @@ object E2eeWebSocketHelper {
             else -> url.scheme
         }
         if (!E2eeCrypto.shouldEncrypt(effectiveScheme, url.host, url.encodedPath, prefs)) {
-            return client.newWebSocket(request, listener)
+            val shouldWatchUpgrade = effectiveScheme.equals("wss", ignoreCase = true) &&
+                !ConnectionManager.isLanHost(url.host) &&
+                !ConnectionManager.isTailscaleHost(url.host)
+            if (!shouldWatchUpgrade) {
+                return client.newWebSocket(request, listener)
+            }
+            return client.newWebSocket(request, object : WebSocketListener() {
+                override fun onOpen(webSocket: WebSocket, response: Response) {
+                    E2eeCrypto.observeServerCapabilities(response, url.host)
+                    listener.onOpen(webSocket, response)
+                }
+                override fun onMessage(webSocket: WebSocket, text: String) = listener.onMessage(webSocket, text)
+                override fun onMessage(webSocket: WebSocket, bytes: ByteString) = listener.onMessage(webSocket, bytes)
+                override fun onClosing(webSocket: WebSocket, code: Int, reason: String) = listener.onClosing(webSocket, code, reason)
+                override fun onClosed(webSocket: WebSocket, code: Int, reason: String) = listener.onClosed(webSocket, code, reason)
+                override fun onFailure(webSocket: WebSocket, t: Throwable, response: Response?) {
+                    if (response?.code == 426 && E2eeCrypto.isReady(prefs)) {
+                        E2eeCrypto.markHostRequiresE2ee(url.host)
+                        GatewayProfileStore.sharedOrNull()?.markActiveE2eeHost(url.host)
+                    }
+                    listener.onFailure(webSocket, t, response)
+                }
+            })
         }
 
         val deviceId = prefs.deviceId?.trim() ?: return client.newWebSocket(request, listener)
@@ -730,14 +856,21 @@ object E2eeWebSocketHelper {
 
         val outerReq = Request.Builder().url(outerUrl).build()
 
+        val s2cSeq = AtomicLong(0L)
         lateinit var wrapper: E2eeWebSocketWrapper
         val rawWs = client.newWebSocket(outerReq, object : WebSocketListener() {
             override fun onOpen(webSocket: WebSocket, response: Response) {
                 try {
+                    E2eeCrypto.observeServerCapabilities(response, url.host)
+                    val useSeq = E2eeCrypto.supportsWsSeq(url.host)
+                    wrapper.useSeq = useSeq
                     val openObj = JSONObject().apply {
                         put("path", innerPath)
                         if (innerHeaders.length() > 0) put("headers", innerHeaders)
                         put("enc", "flate")
+                        if (useSeq) put("seq", "v1")
+                        put("ts", E2eeCrypto.adjustedTimestampMs(url.host))
+                        put("id", E2eeCrypto.generateRequestId())
                     }
                     val frame0 = E2eeCrypto.encrypt(
                         key = key,
@@ -753,11 +886,18 @@ object E2eeWebSocketHelper {
             }
 
             override fun onMessage(webSocket: WebSocket, bytes: ByteString) {
+                val useSeq = wrapper.useSeq
+                val seq = s2cSeq.getAndIncrement()
                 try {
+                    val aad = if (useSeq) {
+                        E2eeCrypto.frameSeqAad(deviceId, "ws-s2c", seq)
+                    } else {
+                        E2eeCrypto.frameAad(deviceId, "ws-s2c")
+                    }
                     val plain = E2eeCrypto.decrypt(
                         key = key,
                         frame = bytes.toByteArray(),
-                        aad = E2eeCrypto.frameAad(deviceId, "ws-s2c")
+                        aad = aad
                     )
                     if (plain.isEmpty()) return
                     val headerByte = plain[0].toInt() and 0xFF
@@ -774,6 +914,9 @@ object E2eeWebSocketHelper {
                         listener.onMessage(wrapper, payload.toByteString())
                     }
                 } catch (e: Exception) {
+                    if (useSeq && seq == 0L) {
+                        E2eeCrypto.clearHostWsSeqSupport(url.host)
+                    }
                     Log.w("E2eeWS", "Failed to decrypt WS frame: ${e.message}")
                     webSocket.close(1008, "e2ee_decrypt_failed")
                 }
@@ -784,10 +927,20 @@ object E2eeWebSocketHelper {
             }
 
             override fun onClosing(webSocket: WebSocket, code: Int, reason: String) {
+                if (reason.startsWith("e2ee_replay_clock_skew:")) {
+                    reason.removePrefix("e2ee_replay_clock_skew:").toLongOrNull()?.let { ts ->
+                        E2eeCrypto.recordClockSkew(url.host, ts)
+                    }
+                }
                 listener.onClosing(wrapper, code, reason)
             }
 
             override fun onClosed(webSocket: WebSocket, code: Int, reason: String) {
+                if (reason.startsWith("e2ee_replay_clock_skew:")) {
+                    reason.removePrefix("e2ee_replay_clock_skew:").toLongOrNull()?.let { ts ->
+                        E2eeCrypto.recordClockSkew(url.host, ts)
+                    }
+                }
                 listener.onClosed(wrapper, code, reason)
             }
 
@@ -795,7 +948,7 @@ object E2eeWebSocketHelper {
                 listener.onFailure(wrapper, t, response)
             }
         })
-        wrapper = E2eeWebSocketWrapper(rawWs, request, deviceId, key)
+        wrapper = E2eeWebSocketWrapper(rawWs, request, deviceId, key, E2eeCrypto.supportsWsSeq(url.host))
         return wrapper
     }
 
@@ -803,8 +956,12 @@ object E2eeWebSocketHelper {
         private val delegate: WebSocket,
         private val originalRequest: Request,
         private val deviceId: String,
-        private val key: ByteArray
+        private val key: ByteArray,
+        @Volatile var useSeq: Boolean = false
     ) : WebSocket {
+        private val sendLock = Any()
+        private var c2sSeq: Long = 0L
+
         override fun request(): Request = originalRequest
         override fun queueSize(): Long = delegate.queueSize()
         override fun cancel() = delegate.cancel()
@@ -815,8 +972,16 @@ object E2eeWebSocketHelper {
             val plain = ByteArray(1 + payload.size)
             plain[0] = 1 // websocket.TextMessage
             System.arraycopy(payload, 0, plain, 1, payload.size)
-            val enc = E2eeCrypto.encrypt(key, plain, E2eeCrypto.frameAad(deviceId, "ws-c2s"))
-            return delegate.send(enc.toByteString())
+            synchronized(sendLock) {
+                val seq = c2sSeq++
+                val aad = if (useSeq) {
+                    E2eeCrypto.frameSeqAad(deviceId, "ws-c2s", seq)
+                } else {
+                    E2eeCrypto.frameAad(deviceId, "ws-c2s")
+                }
+                val enc = E2eeCrypto.encrypt(key, plain, aad)
+                return delegate.send(enc.toByteString())
+            }
         }
 
         override fun send(bytes: ByteString): Boolean {
@@ -824,8 +989,16 @@ object E2eeWebSocketHelper {
             val plain = ByteArray(1 + payload.size)
             plain[0] = 2 // websocket.BinaryMessage
             System.arraycopy(payload, 0, plain, 1, payload.size)
-            val enc = E2eeCrypto.encrypt(key, plain, E2eeCrypto.frameAad(deviceId, "ws-c2s"))
-            return delegate.send(enc.toByteString())
+            synchronized(sendLock) {
+                val seq = c2sSeq++
+                val aad = if (useSeq) {
+                    E2eeCrypto.frameSeqAad(deviceId, "ws-c2s", seq)
+                } else {
+                    E2eeCrypto.frameAad(deviceId, "ws-c2s")
+                }
+                val enc = E2eeCrypto.encrypt(key, plain, aad)
+                return delegate.send(enc.toByteString())
+            }
         }
     }
 }

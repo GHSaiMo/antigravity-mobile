@@ -42,8 +42,19 @@ type FCMClient struct {
 	deviceToken string
 	deviceLang  string
 	iconURL     string
+	redact      bool
 	store       *PushDeviceStore
 	client      *http.Client
+}
+
+// SetRedact toggles strict push redaction (suppressing custom gateway labels on outgoing FCM payloads).
+func (f *FCMClient) SetRedact(enabled bool) {
+	if f == nil {
+		return
+	}
+	f.mu.Lock()
+	f.redact = enabled
+	f.mu.Unlock()
 }
 
 // SetPushStore attaches a shared PushDeviceStore for multi-device Android FCM fan-out.
@@ -64,6 +75,7 @@ func NewFCMClient(cfg config.NotificationConfig) *FCMClient {
 		serverKey:   strings.TrimSpace(cfg.FCMServerKey),
 		deviceToken: strings.TrimSpace(cfg.FCMDeviceToken),
 		iconURL:     cfg.IconURL,
+		redact:      cfg.PushRedact,
 		client: &http.Client{
 			Timeout: 10 * time.Second,
 		},
@@ -190,8 +202,11 @@ func (f *FCMClient) sendOne(
 	deviceToken := target.Token
 	deviceLang := target.Lang
 	gwID := strings.TrimSpace(payload.GatewayID)
+	f.mu.RLock()
+	redact := f.redact
+	f.mu.RUnlock()
 	gwLabel := ""
-	if target.ShowGatewayLabel {
+	if target.ShowGatewayLabel && !redact {
 		lbl := strings.TrimSpace(target.GatewayLabel)
 		if lbl == "" {
 			lbl = strings.TrimSpace(payload.GatewayName)

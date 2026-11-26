@@ -11,6 +11,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/gorilla/websocket"
 )
@@ -509,8 +510,10 @@ func TestE2EE_Bin2Request_RawAndFlateAndMalformed(t *testing.T) {
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("expected 200, got %d body=%s", resp.StatusCode, string(encResp))
 	}
-	if !headerContainsToken(resp.Header.Get(HeaderE2EECaps), SupportedCaps) {
-		t.Fatalf("expected %s header containing %q, got %q", HeaderE2EECaps, SupportedCaps, resp.Header.Get(HeaderE2EECaps))
+	for _, capTok := range SupportedCapsList() {
+		if !headerContainsToken(resp.Header.Get(HeaderE2EECaps), capTok) {
+			t.Fatalf("expected %s header containing %q, got %q", HeaderE2EECaps, capTok, resp.Header.Get(HeaderE2EECaps))
+		}
 	}
 	if gotFileName != "wechat_record.zip" || gotContentLength != int64(len(zipPayload)) || !bytes.Equal(gotBody, zipPayload) {
 		t.Fatalf("inner request mismatch: fileName=%q contentLen=%d bodyLen=%d want=%d", gotFileName, gotContentLength, len(gotBody), len(zipPayload))
@@ -558,5 +561,248 @@ func TestE2EE_Bin2Request_RawAndFlateAndMalformed(t *testing.T) {
 		if badResp.StatusCode != http.StatusBadRequest {
 			t.Fatalf("malformed[%d]: expected 400, got %d", i, badResp.StatusCode)
 		}
+	}
+}
+
+func TestRelayGuardMiddleware_DisableWebOption(t *testing.T) {
+	inner := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	})
+	guarded := RelayGuardMiddlewareWithOptions(inner, RelayGuardOptions{DisableWeb: true})
+
+	// Static Web/PWA assets must be blocked with 403 over relay when DisableWeb=true
+	for _, path := range []string{"/", "/index.html", "/js/e2ee.js", "/sw.js", "/manifest.json"} {
+		req := httptest.NewRequest(http.MethodGet, path, nil)
+		req = req.WithContext(WithRelayTransport(req.Context()))
+		rr := httptest.NewRecorder()
+		guarded.ServeHTTP(rr, req)
+		if rr.Code != http.StatusForbidden {
+			t.Errorf("expected 403 for disabled web path %s, got %d", path, rr.Code)
+		}
+	}
+
+	// Core E2EE and healthz endpoints remain allowed
+	for _, tc := range []struct{ method, path string }{
+		{http.MethodGet, "/healthz"},
+		{http.MethodPost, "/api/v1/e2ee/rpc"},
+		{http.MethodPost, "/api/v1/e2ee/pair"},
+		{http.MethodGet, "/api/v1/e2ee/ws"},
+	} {
+		req := httptest.NewRequest(tc.method, tc.path, nil)
+		req = req.WithContext(WithRelayTransport(req.Context()))
+		rr := httptest.NewRecorder()
+		guarded.ServeHTTP(rr, req)
+		if rr.Code != http.StatusOK {
+			t.Errorf("expected 200 for core path %s %s, got %d", tc.method, tc.path, rr.Code)
+		}
+	}
+
+	// Plaintext API paths still return 426 so native apps auto-upgrade to E2EE
+	apiReq := httptest.NewRequest(http.MethodGet, "/gateway/status", nil)
+	apiReq = apiReq.WithContext(WithRelayTransport(apiReq.Context()))
+	apiRR := httptest.NewRecorder()
+	guarded.ServeHTTP(apiRR, apiReq)
+	if apiRR.Code != http.StatusUpgradeRequired {
+		t.Errorf("expected 426 for plaintext API, got %d", apiRR.Code)
+	}
+
+	// Non-relay LAN access to web shell remains unaffected
+	lanReq := httptest.NewRequest(http.MethodGet, "/", nil)
+	lanRR := httptest.NewRecorder()
+	guarded.ServeHTTP(lanRR, lanReq)
+	if lanRR.Code != http.StatusOK {
+		t.Errorf("expected 200 for LAN web access, got %d", lanRR.Code)
+	}
+}
+
+func TestE2EE_HTTP_ReplayProtection_And_ClockSkew(t *testing.T) {
+	gwID, _ := GenerateIdentity()
+	cliID, _ := GenerateIdentity()
+	shared, _ := gwID.ECDH(cliID.PublicKeyB64())
+	salt, _ := RandomBytes(16)
+	devID := "dev_replay_test"
+	devKey := DeriveDeviceKey(shared, salt, devID)
+
+	now := time.Date(2026, 11, 26, 12, 0, 0, 0, time.UTC)
+	calls := 0
+	innerMux := http.NewServeMux()
+	innerMux.HandleFunc("/mutate", func(w http.ResponseWriter, r *http.Request) {
+		calls++
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{"ok":true}`))
+	})
+
+	h := &Handler{
+		Identity:     gwID,
+		LookupKey:    func(id string) ([]byte, bool) { return devKey, id == devID },
+		InnerHandler: innerMux,
+		ReplayGuard:  NewReplayGuardWithOptions(5*time.Minute, 128, func() time.Time { return now }),
+	}
+	outerSrv := httptest.NewServer(http.HandlerFunc(h.HandleRPC))
+	defer outerSrv.Close()
+
+	sendFrame := func(encReq []byte) (*http.Response, []byte) {
+		req, _ := http.NewRequest(http.MethodPost, outerSrv.URL+"/api/v1/e2ee/rpc", bytes.NewReader(encReq))
+		req.Header.Set(HeaderDeviceID, devID)
+		resp, err := http.DefaultClient.Do(req)
+		if err != nil {
+			t.Fatalf("RPC do: %v", err)
+		}
+		body, _ := io.ReadAll(resp.Body)
+		resp.Body.Close()
+		return resp, body
+	}
+
+	// 1. First request with ts + id succeeds
+	inner1, _ := json.Marshal(InnerHTTPRequest{
+		Method: "POST",
+		Path:   "/mutate",
+		TSMs:   now.UnixMilli(),
+		ReqID:  "req_1234567890abcdef",
+	})
+	enc1, _ := Encrypt(devKey, inner1, FrameAAD(devID, "c2s"))
+	resp1, _ := sendFrame(enc1)
+	if resp1.StatusCode != http.StatusOK || calls != 1 {
+		t.Fatalf("first request failed: status=%d calls=%d", resp1.StatusCode, calls)
+	}
+
+	// 2. Exact ciphertext replay MUST be rejected with 409 e2ee_replay_detected without hitting inner handler!
+	respReplay, bodyReplay := sendFrame(enc1)
+	if respReplay.StatusCode != http.StatusConflict || !strings.Contains(string(bodyReplay), ErrReplayDetected) {
+		t.Fatalf("expected 409 %s on replay, got %d body=%s", ErrReplayDetected, respReplay.StatusCode, string(bodyReplay))
+	}
+	if calls != 1 {
+		t.Fatalf("replayed request must not execute inner handler (calls=%d)", calls)
+	}
+
+	// 3. Skewed timestamp (>5m) MUST be rejected with 401 e2ee_replay_clock_skew + server_ts_ms
+	innerSkew, _ := json.Marshal(InnerHTTPRequest{
+		Method: "POST",
+		Path:   "/mutate",
+		TSMs:   now.Add(-10 * time.Minute).UnixMilli(),
+		ReqID:  "req_skew_1234567890",
+	})
+	encSkew, _ := Encrypt(devKey, innerSkew, FrameAAD(devID, "c2s"))
+	respSkew, bodySkew := sendFrame(encSkew)
+	if respSkew.StatusCode != http.StatusUnauthorized || !strings.Contains(string(bodySkew), ErrReplayClockSkew) {
+		t.Fatalf("expected 401 %s on skewed ts, got %d body=%s", ErrReplayClockSkew, respSkew.StatusCode, string(bodySkew))
+	}
+	var skewPayload struct {
+		Error      string `json:"error"`
+		ServerTSMs int64  `json:"server_ts_ms"`
+	}
+	if err := json.Unmarshal(bodySkew, &skewPayload); err != nil || skewPayload.ServerTSMs != now.UnixMilli() {
+		t.Fatalf("expected server_ts_ms=%d, got %+v err=%v", now.UnixMilli(), skewPayload, err)
+	}
+
+	// 4. Legacy client without ts/id still accepted when StrictReplay=false, rejected when StrictReplay=true
+	innerLegacy, _ := json.Marshal(InnerHTTPRequest{Method: "POST", Path: "/mutate"})
+	encLegacy, _ := Encrypt(devKey, innerLegacy, FrameAAD(devID, "c2s"))
+	respLegacy, _ := sendFrame(encLegacy)
+	if respLegacy.StatusCode != http.StatusOK || calls != 2 {
+		t.Fatalf("expected legacy request allowed when StrictReplay=false, got %d", respLegacy.StatusCode)
+	}
+	h.StrictReplay = true
+	respStrict, bodyStrict := sendFrame(encLegacy)
+	if respStrict.StatusCode != http.StatusBadRequest || !strings.Contains(string(bodyStrict), ErrReplayRequired) {
+		t.Fatalf("expected 400 %s under StrictReplay=true, got %d body=%s", ErrReplayRequired, respStrict.StatusCode, string(bodyStrict))
+	}
+}
+
+func TestE2EE_WS_MonotonicSeqAAD_BlocksReplayDropAndReorder(t *testing.T) {
+	gwID, _ := GenerateIdentity()
+	cliID, _ := GenerateIdentity()
+	shared, _ := gwID.ECDH(cliID.PublicKeyB64())
+	salt, _ := RandomBytes(16)
+	devID := "dev_ws_seq"
+	devToken := "tok_ws_seq_123456"
+	devKey := DeriveDeviceKey(shared, salt, devID)
+
+	wsUpgrader := websocket.Upgrader{CheckOrigin: func(*http.Request) bool { return true }}
+	innerMux := http.NewServeMux()
+	innerMux.HandleFunc("/echo", func(w http.ResponseWriter, r *http.Request) {
+		conn, err := wsUpgrader.Upgrade(w, r, nil)
+		if err != nil {
+			return
+		}
+		defer conn.Close()
+		for {
+			mt, msg, err := conn.ReadMessage()
+			if err != nil {
+				return
+			}
+			_ = conn.WriteMessage(mt, append([]byte("ack:"), msg...))
+		}
+	})
+	localSrv := httptest.NewServer(innerMux)
+	defer localSrv.Close()
+	localAddr := strings.TrimPrefix(localSrv.URL, "http://")
+
+	h := &Handler{
+		Identity:      gwID,
+		LookupKey:     func(id string) ([]byte, bool) { return devKey, id == devID },
+		ValidateToken: func(raw string) (string, bool) { return devID, raw == devToken },
+		LocalWSAddr:   func() string { return localAddr },
+	}
+	outerSrv := httptest.NewServer(http.HandlerFunc(h.HandleWS))
+	defer outerSrv.Close()
+
+	wsURL := "ws" + strings.TrimPrefix(outerSrv.URL, "http") + "/api/v1/e2ee/ws?d=" + devID
+	wsConn, resp, err := websocket.DefaultDialer.Dial(wsURL, nil)
+	if err != nil {
+		t.Fatalf("ws dial: %v", err)
+	}
+	defer wsConn.Close()
+	if !headerContainsToken(resp.Header.Get(HeaderE2EECaps), CapWSSeq1) {
+		t.Fatalf("expected WS upgrade header %s containing %s, got %q", HeaderE2EECaps, CapWSSeq1, resp.Header.Get(HeaderE2EECaps))
+	}
+
+	// Send Frame 0 with seq="v1" + replay ts/id
+	openJSON, _ := json.Marshal(WSOpenFrame{
+		Path:    "/echo",
+		Headers: map[string]string{"Authorization": "Bearer " + devToken},
+		Seq:     "v1",
+		TSMs:    time.Now().UnixMilli(),
+		ReqID:   "ws_open_1234567890",
+	})
+	encOpen, _ := Encrypt(devKey, openJSON, FrameAAD(devID, "ws-open"))
+	if err := wsConn.WriteMessage(websocket.BinaryMessage, encOpen); err != nil {
+		t.Fatalf("write open: %v", err)
+	}
+
+	// Frame seq=0 & seq=1 succeed in order
+	enc0, _ := Encrypt(devKey, append([]byte{byte(websocket.TextMessage)}, []byte("m0")...), FrameSeqAAD(devID, "ws-c2s", 0))
+	enc1, _ := Encrypt(devKey, append([]byte{byte(websocket.TextMessage)}, []byte("m1")...), FrameSeqAAD(devID, "ws-c2s", 1))
+	_ = wsConn.WriteMessage(websocket.BinaryMessage, enc0)
+	_ = wsConn.WriteMessage(websocket.BinaryMessage, enc1)
+
+	for wantSeq, wantMsg := range []string{"ack:m0", "ack:m1"} {
+		_, encAck, err := wsConn.ReadMessage()
+		if err != nil {
+			t.Fatalf("read ack %d: %v", wantSeq, err)
+		}
+		plain, err := Decrypt(devKey, encAck, FrameSeqAAD(devID, "ws-s2c", uint64(wantSeq)))
+		if err != nil || string(plain[1:]) != wantMsg {
+			t.Fatalf("ack %d mismatch: err=%v got=%q want=%q", wantSeq, err, string(plain), wantMsg)
+		}
+	}
+
+	// Replaying enc1 (which carries seq=1 while server now expects seq=2) MUST break GCM and close the WS!
+	_ = wsConn.WriteMessage(websocket.BinaryMessage, enc1)
+	_ = wsConn.SetReadDeadline(time.Now().Add(2 * time.Second))
+	if _, _, err := wsConn.ReadMessage(); err == nil {
+		t.Fatalf("expected WS connection to close when replaying previous frame seq=1")
+	}
+
+	// Replaying the exact same Frame 0 on a new WS connection MUST be rejected by Frame 0 replay guard!
+	wsConn2, _, err := websocket.DefaultDialer.Dial(wsURL, nil)
+	if err != nil {
+		t.Fatalf("ws dial2: %v", err)
+	}
+	defer wsConn2.Close()
+	_ = wsConn2.WriteMessage(websocket.BinaryMessage, encOpen)
+	_ = wsConn2.SetReadDeadline(time.Now().Add(2 * time.Second))
+	if _, _, err := wsConn2.ReadMessage(); err == nil {
+		t.Fatalf("expected replayed WS Frame 0 to be rejected")
 	}
 }

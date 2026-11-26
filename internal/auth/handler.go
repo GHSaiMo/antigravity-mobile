@@ -67,6 +67,7 @@ type AuthHandler struct {
 	cfURL                string
 	cloudMode            string // "cloudflare" (default) | "relay_v1" | "relay"
 	relayCloudURL        string // Dual-track E2EE relay URL when running alongside legacy CF tunnel
+	forceE2EE            bool   // MGY_FORCE_E2EE=1: advertise external endpoints as type="relay"
 	gatewayID            string
 	gatewayName          string
 	e2eeIdentity         *e2ee.Identity
@@ -181,6 +182,21 @@ func (h *AuthHandler) E2EEPubKey() string {
 		return ""
 	}
 	return id.PublicKeyB64()
+}
+
+// SetForceE2EE configures whether non-LAN external endpoints (DDNS/reverse proxy/Cloudflare)
+// should be advertised as E2EE-required ("relay") endpoints to paired clients.
+func (h *AuthHandler) SetForceE2EE(enabled bool) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	h.forceE2EE = enabled
+}
+
+// ForceE2EE reports whether forced E2EE mode is active.
+func (h *AuthHandler) ForceE2EE() bool {
+	h.mu.RLock()
+	defer h.mu.RUnlock()
+	return h.forceE2EE
 }
 
 // SetDualTrackRelayURL registers an E2EE relay_v1 HTTPS URL running in parallel with a legacy Cloudflare Tunnel.
@@ -317,6 +333,7 @@ func (h *AuthHandler) GetEndpointsForDevice(e2eeReady bool) []EndpointInfo {
 	cfURL := h.cfURL
 	cloudMode := h.cloudMode
 	dualRelayURL := h.relayCloudURL
+	forceE2EE := h.forceE2EE
 	h.mu.RUnlock()
 
 	if e2eeReady && dualRelayURL != "" {
@@ -333,7 +350,7 @@ func (h *AuthHandler) GetEndpointsForDevice(e2eeReady bool) []EndpointInfo {
 	// 1. Managed Cloud Tunnel (Cloudflare or future relay_v1 HTTPS domain) - Top Priority
 	if cfURL != "" {
 		epType := "cloudflare"
-		if cloudMode == "relay_v1" || cloudMode == "relay" {
+		if cloudMode == "relay_v1" || cloudMode == "relay" || forceE2EE {
 			epType = "relay"
 		}
 		endpoints = append(endpoints, EndpointInfo{
@@ -378,8 +395,12 @@ func (h *AuthHandler) GetEndpointsForDevice(e2eeReady bool) []EndpointInfo {
 
 	// 3. DDNS / Custom Domain
 	if ddnsHost != "" {
+		ddnsType := "ddns"
+		if forceE2EE {
+			ddnsType = "relay"
+		}
 		endpoints = append(endpoints, EndpointInfo{
-			Type: "ddns",
+			Type: ddnsType,
 			URL:  fmt.Sprintf("%s%s:%d", scheme, ddnsHost, port),
 		})
 	}

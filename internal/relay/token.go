@@ -127,3 +127,33 @@ func VerifyToken(secret, rawToken string, now time.Time, maxAge time.Duration) (
 
 	return &claims, nil
 }
+
+// PeekTokenClaims parses and validates the structural fields of a `mgyr1.*` token payload
+// without verifying its HMAC signature (used by the gateway client to derive PublicURL/Subdomain
+// from an offline-issued BYO-Relay token when MGY_CUSTOM_RELAY_PUBLIC_URL is omitted).
+func PeekTokenClaims(rawToken string) (*TokenClaims, error) {
+	rawToken = strings.TrimSpace(rawToken)
+	parts := strings.Split(rawToken, ".")
+	if len(parts) != 3 || parts[0] != tokenPrefix || parts[1] == "" || parts[2] == "" {
+		return nil, errors.New("malformed relay token")
+	}
+	payloadBytes, err := base64.RawURLEncoding.DecodeString(parts[1])
+	if err != nil {
+		return nil, errors.New("invalid token payload encoding")
+	}
+	var claims TokenClaims
+	if err := json.Unmarshal(payloadBytes, &claims); err != nil {
+		return nil, errors.New("invalid token payload json")
+	}
+	claims.ShortID = strings.ToLower(strings.TrimSpace(claims.ShortID))
+	claims.OwnerHash = strings.ToLower(strings.TrimSpace(claims.OwnerHash))
+	claims.Domain = strings.ToLower(strings.TrimSpace(claims.Domain))
+	claims.Region = strings.ToLower(strings.TrimSpace(claims.Region))
+	if claims.Version != 1 {
+		return nil, fmt.Errorf("unsupported token version %d", claims.Version)
+	}
+	if !reHostname.MatchString(claims.Domain) {
+		return nil, errors.New("invalid token domain")
+	}
+	return &claims, nil
+}

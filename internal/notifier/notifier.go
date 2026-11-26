@@ -353,14 +353,50 @@ func (n *Notifier) AttachAPNsClient(client *APNsRelayClient, liveActivityEnabled
 	defer n.mu.Unlock()
 	n.apns = client
 	if client != nil {
+		client.SetRedact(n.cfg.PushRedact)
 		if n.pushStore == nil && client.Store() != nil {
 			n.pushStore = client.Store()
 		}
 		la := NewLiveActivityDispatcher(client, liveActivityEnabled)
 		la.SetGatewayIdentity(n.gatewayID, n.gatewayName)
+		la.SetRedact(n.cfg.PushRedact)
 		n.liveActivity = la
 	} else {
 		n.liveActivity = nil
+	}
+}
+
+// Redacted reports whether strict push redaction (MGY_PUSH_REDACT / PUSH_REDACT / APNS_REDACT) is enabled.
+func (n *Notifier) Redacted() bool {
+	if n == nil {
+		return false
+	}
+	n.mu.RLock()
+	defer n.mu.RUnlock()
+	return n.cfg.PushRedact
+}
+
+// SetPushRedact updates strict push redaction dynamically across Notifier, APNs, Live Activity, and FCM senders.
+func (n *Notifier) SetPushRedact(enabled bool) {
+	if n == nil {
+		return
+	}
+	n.mu.Lock()
+	n.cfg.PushRedact = enabled
+	apns := n.apns
+	la := n.liveActivity
+	senders := append([]NotificationSender(nil), n.senders...)
+	n.mu.Unlock()
+	if apns != nil {
+		apns.SetRedact(enabled)
+	}
+	if la != nil {
+		la.SetRedact(enabled)
+	}
+	for _, s := range senders {
+		if fc, ok := s.(*FCMClient); ok {
+			fc.SetRedact(enabled)
+		}
 	}
 }
 
@@ -518,6 +554,7 @@ func (n *Notifier) sendToAll(ctx context.Context, payload PushPayload) error {
 	n.mu.RLock()
 	gwID := n.gatewayID
 	gwName := n.gatewayName
+	redacted := n.cfg.PushRedact
 	senders := make([]NotificationSender, 0, len(n.senders)+1)
 	if n.cfg.Enabled || (n.pushStore != nil && n.pushStore.HasFCMTargets()) {
 		senders = append(senders, n.senders...)
@@ -533,7 +570,9 @@ func (n *Notifier) sendToAll(ctx context.Context, payload PushPayload) error {
 	if payload.GatewayID == "" {
 		payload.GatewayID = gwID
 	}
-	if payload.GatewayName == "" {
+	if redacted {
+		payload.GatewayName = ""
+	} else if payload.GatewayName == "" {
 		payload.GatewayName = gwName
 	}
 	if payload.GatewayID != "" && payload.URL != "" {
@@ -598,45 +637,70 @@ func (n *Notifier) NotifyAction(cascadeID, title string, pi *proxy.PendingIntera
 	}
 	cleanSessionTitle := SanitizePushText(title)
 	isHighRisk := piCopy.ApprovalPreview != nil && piCopy.ApprovalPreview.RiskLevel == "high" && piCopy.Type != "ask_question"
+	redacted := n.Redacted()
 	buildActionCopy := func(lang string) (string, string) {
 		nt := msgTitleApprovalFor(lang)
 		var nb string
+		redactedKind := piCopy.Type
 		switch piCopy.Type {
 		case "workflow_approval":
 			nt = msgTitleWorkflowApprovalFor(lang)
-			if piCopy.WorkflowApproval != nil && piCopy.WorkflowApproval.Description != "" {
-				nb = msgBodyWorkflowDescFor(lang, truncateString(SanitizePushText(piCopy.WorkflowApproval.Description), 90))
-			} else {
-				nb = msgBodyWorkflowTitleFor(lang, truncateString(SanitizePushText(piCopy.Title), 90))
+			if !redacted {
+				if piCopy.WorkflowApproval != nil && piCopy.WorkflowApproval.Description != "" {
+					nb = msgBodyWorkflowDescFor(lang, truncateString(SanitizePushText(piCopy.WorkflowApproval.Description), 90))
+				} else {
+					nb = msgBodyWorkflowTitleFor(lang, truncateString(SanitizePushText(piCopy.Title), 90))
+				}
 			}
 		case "permission":
 			actionLower := strings.ToLower(piCopy.Action)
-			cleanTarget := truncateString(SanitizePushText(piCopy.Target), 90)
 			if strings.Contains(actionLower, "command") || strings.Contains(actionLower, "run") {
-				nb = msgBodyCommandFor(lang, cleanTarget)
+				redactedKind = "command"
+				if !redacted {
+					nb = msgBodyCommandFor(lang, truncateString(SanitizePushText(piCopy.Target), 90))
+				}
 			} else if strings.Contains(actionLower, "write") || strings.Contains(actionLower, "edit") {
-				nb = msgBodyWriteFileFor(lang, cleanTarget)
+				redactedKind = "file"
+				if !redacted {
+					nb = msgBodyWriteFileFor(lang, truncateString(SanitizePushText(piCopy.Target), 90))
+				}
 			} else if strings.Contains(actionLower, "read") {
-				nb = msgBodyReadFileFor(lang, cleanTarget)
-			} else if piCopy.Description != "" {
-				nb = msgBodyApprovalFor(lang, truncateString(SanitizePushText(piCopy.Description), 90))
-			} else {
-				nb = msgBodyGenericActionFor(lang, SanitizePushText(piCopy.Action), cleanTarget)
+				redactedKind = "file"
+				if !redacted {
+					nb = msgBodyReadFileFor(lang, truncateString(SanitizePushText(piCopy.Target), 90))
+				}
+			} else if !redacted {
+				if piCopy.Description != "" {
+					nb = msgBodyApprovalFor(lang, truncateString(SanitizePushText(piCopy.Description), 90))
+				} else {
+					nb = msgBodyGenericActionFor(lang, SanitizePushText(piCopy.Action), truncateString(SanitizePushText(piCopy.Target), 90))
+				}
 			}
 		case "ask_question":
 			nt = msgTitleQuestionFor(lang)
-			nb = msgBodyQuestionFor(lang, truncateString(SanitizePushText(piCopy.Title), 90))
+			if !redacted {
+				nb = msgBodyQuestionFor(lang, truncateString(SanitizePushText(piCopy.Title), 90))
+			}
 		case "run_command":
 			nt = msgTitleRunCommandFor(lang)
-			nb = msgBodyCommandFor(lang, truncateString(SanitizePushText(piCopy.Target), 90))
+			if !redacted {
+				nb = msgBodyCommandFor(lang, truncateString(SanitizePushText(piCopy.Target), 90))
+			}
 		case "file_permission":
 			nt = msgTitleFileAccessFor(lang)
-			nb = msgBodyAccessFileFor(lang, truncateString(SanitizePushText(piCopy.Target), 90))
+			if !redacted {
+				nb = msgBodyAccessFileFor(lang, truncateString(SanitizePushText(piCopy.Target), 90))
+			}
 		default:
-			nb = msgBodyWaitingFor(lang, truncateString(SanitizePushText(piCopy.Title), 90))
+			if !redacted {
+				nb = msgBodyWaitingFor(lang, truncateString(SanitizePushText(piCopy.Title), 90))
+			}
 		}
 		if isHighRisk {
 			nt = msgTitleHighRiskApprovalFor(lang)
+		}
+		if redacted {
+			return nt, msgRedactedActionBodyFor(lang, redactedKind, isHighRisk)
 		}
 		if cleanSessionTitle != "" && cleanSessionTitle != MsgUntitledSession {
 			nb = formatSessionPrefixFor(lang, truncateString(cleanSessionTitle, 60), nb)
@@ -681,7 +745,11 @@ func (n *Notifier) NotifyProceed(cascadeID, title string, totalSteps int) error 
 		return nil
 	}
 
+	redacted := n.Redacted()
 	buildProceedCopy := func(lang string) (string, string) {
+		if redacted {
+			return msgTitleProceedFor(lang), msgRedactedProceedBodyFor(lang, totalSteps)
+		}
 		displayTitle := title
 		if displayTitle == "" || displayTitle == MsgUntitledSession {
 			displayTitle = msgDefaultPlanFor(lang)
@@ -753,7 +821,11 @@ func (n *Notifier) NotifyCompleted(cascadeID, title string, totalSteps int) erro
 		return nil
 	}
 
+	redacted := n.Redacted()
 	buildCompletedCopy := func(lang string) (string, string) {
+		if redacted {
+			return msgTitleCompletedFor(lang), msgRedactedCompletedBodyFor(lang, totalSteps)
+		}
 		displayTitle := title
 		if displayTitle == "" || displayTitle == MsgUntitledSession {
 			displayTitle = msgDefaultTaskFor(lang)
@@ -793,7 +865,11 @@ func (n *Notifier) NotifyFailed(cascadeID, title string, totalSteps int) error {
 		return nil
 	}
 
+	redacted := n.Redacted()
 	buildFailedCopy := func(lang string) (string, string) {
+		if redacted {
+			return msgTitleFailedFor(lang), msgRedactedFailedBodyFor(lang)
+		}
 		displayTitle := title
 		if displayTitle == "" || displayTitle == MsgUntitledSession {
 			displayTitle = msgDefaultTaskFor(lang)
@@ -834,7 +910,11 @@ func (n *Notifier) NotifyCockpitAlert(title, message string) error {
 	}
 
 	rawTitle, rawMessage := title, message
+	redacted := n.Redacted()
 	buildCockpitCopy := func(lang string) (string, string) {
+		if redacted {
+			return msgTitleCockpitOfflineFor(lang), msgRedactedCockpitBodyFor(lang)
+		}
 		t := rawTitle
 		if t == "" {
 			t = msgTitleCockpitOfflineFor(lang)
@@ -868,10 +948,22 @@ func (n *Notifier) NotifyCockpitAlert(title, message string) error {
 // NotifyQuotaAlert pushes a low-quota alert. key identifies the (account, reset cycle) so a flaky sender retry
 // cannot double-send; the alerter itself already guarantees one push per level per cycle.
 func (n *Notifier) NotifyQuotaAlert(key, title, body string, critical bool) error {
-	return n.notifyQuotaAlert(key, title, body, critical, nil)
+	level := "warn"
+	if critical {
+		level = "critical"
+	}
+	return n.notifyQuotaAlertWithLevel(level, key, title, body, critical, nil)
 }
 
 func (n *Notifier) notifyQuotaAlert(key, title, body string, critical bool, localize func(lang string) (string, string)) error {
+	level := "warn"
+	if critical {
+		level = "critical"
+	}
+	return n.notifyQuotaAlertWithLevel(level, key, title, body, critical, localize)
+}
+
+func (n *Notifier) notifyQuotaAlertWithLevel(level, key, title, body string, critical bool, localize func(lang string) (string, string)) error {
 	if !n.IsEnabled() {
 		return nil
 	}
@@ -881,6 +973,13 @@ func (n *Notifier) notifyQuotaAlert(key, title, body string, critical bool, loca
 	}
 	if !n.dedup.TryNotify(dedupKey, 6*time.Hour) {
 		return nil
+	}
+	if n.Redacted() {
+		normLevel := strings.ToLower(strings.TrimSpace(level))
+		title, body = msgRedactedQuotaCopyFor("", normLevel)
+		localize = func(lang string) (string, string) {
+			return msgRedactedQuotaCopyFor(lang, normLevel)
+		}
 	}
 
 	payload := PushPayload{
@@ -914,7 +1013,8 @@ func (n *Notifier) NotifyQuotaAlertWithLevel(level, key, title, body string) err
 // NotifyQuotaAlertLocalized behaves like NotifyQuotaAlertWithLevel and optionally localizes title/body per recipient device.
 func (n *Notifier) NotifyQuotaAlertLocalized(level, key, title, body string, localize func(lang string) (string, string)) error {
 	prefs := n.AlertPreferences()
-	switch strings.ToLower(strings.TrimSpace(level)) {
+	normLevel := strings.ToLower(strings.TrimSpace(level))
+	switch normLevel {
 	case "bonus_reset":
 		if !prefs.QuotaBonusReset {
 			return nil
@@ -928,7 +1028,7 @@ func (n *Notifier) NotifyQuotaAlertLocalized(level, key, title, body string, loc
 			return nil
 		}
 	}
-	return n.notifyQuotaAlert(key, title, body, strings.EqualFold(level, "critical"), localize)
+	return n.notifyQuotaAlertWithLevel(normLevel, key, title, body, normLevel == "critical", localize)
 }
 
 func pickModelName(details *proxy.TrajectoryDetails, meter *proxy.ContextMeterItem) string {
@@ -1066,9 +1166,10 @@ func (n *Notifier) sendCacheMissPush(cascadeID, title string, streak int, missTo
 
 	compactTokens := formatCompactTokens(missTokens)
 	cleanSessionTitle := SanitizePushText(title)
+	redacted := n.Redacted()
 	buildCacheMissCopy := func(lang string) (string, string) {
 		nb := msgBodyCacheMissAlertFor(lang, streak, compactTokens)
-		if cleanSessionTitle != "" && cleanSessionTitle != MsgUntitledSession {
+		if !redacted && cleanSessionTitle != "" && cleanSessionTitle != MsgUntitledSession {
 			nb = formatSessionPrefixFor(lang, truncateString(cleanSessionTitle, 60), nb)
 		}
 		return msgTitleCacheMissAlertFor(lang), nb
@@ -1109,9 +1210,10 @@ func (n *Notifier) NotifyStallAlert(cascadeID, title string, stalledMinutes, tot
 	}
 
 	cleanSessionTitle := SanitizePushText(title)
+	redacted := n.Redacted()
 	buildStallCopy := func(lang string) (string, string) {
 		nb := msgBodyStallAlertFor(lang, stalledMinutes)
-		if cleanSessionTitle != "" && cleanSessionTitle != MsgUntitledSession {
+		if !redacted && cleanSessionTitle != "" && cleanSessionTitle != MsgUntitledSession {
 			nb = formatSessionPrefixFor(lang, truncateString(cleanSessionTitle, 60), nb)
 		}
 		return msgTitleStallAlertFor(lang), nb

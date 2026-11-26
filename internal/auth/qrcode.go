@@ -53,7 +53,21 @@ const DefaultDomainSuffix = ".jiuge.space"
 var (
 	defaultE2EEPubMu  sync.RWMutex
 	defaultE2EEPubKey string
+
+	customRelayHostsMu sync.RWMutex
+	customRelayHosts   = map[string]bool{}
 )
+
+// RegisterRelayHost records a custom BYO-Relay hostname so QR banners render E2EE labels accurately.
+func RegisterRelayHost(host string) {
+	h := strings.ToLower(strings.TrimSpace(host))
+	if h == "" {
+		return
+	}
+	customRelayHostsMu.Lock()
+	customRelayHosts[h] = true
+	customRelayHostsMu.Unlock()
+}
 
 // SetDefaultE2EEPubKey registers the gateway's P-256 public key so generated pairing QR URIs embed `&pk=...`.
 func SetDefaultE2EEPubKey(pubB64 string) {
@@ -482,6 +496,12 @@ func PrintRawPairingQRCode(code string, uri string) {
 // or "r-541ba9e5.tokyo.jiuge.space") rather than a legacy Cloudflare Tunnel subdomain.
 func isRelayDomainLabel(host string) bool {
 	h := strings.ToLower(strings.TrimSpace(host))
-	return strings.HasPrefix(h, "r-") || strings.Contains(h, ".relay.")
+	if strings.HasPrefix(h, "r-") || strings.Contains(h, ".relay.") {
+		return true
+	}
+	customRelayHostsMu.RLock()
+	matched := customRelayHosts[h]
+	customRelayHostsMu.RUnlock()
+	return matched
 }
 

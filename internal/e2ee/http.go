@@ -19,10 +19,16 @@ const (
 	HeaderDeviceID = "X-Mgy-E2EE-Device"
 	// HeaderAcceptEnc advertises client-supported E2EE inner response framing/compression (e.g. "bin2,flate").
 	HeaderAcceptEnc = "X-Mgy-E2EE-Enc"
-	// HeaderE2EECaps advertises optional gateway E2EE capabilities (e.g. "req-bin2").
+	// HeaderE2EECaps advertises optional gateway E2EE capabilities (e.g. "req-bin2,replay-v1,ws-seq1").
 	HeaderE2EECaps = "X-Mgy-E2EE-Caps"
+	// CapReqBin2 advertises support for binary v2 request envelopes (zero base64 inflation).
+	CapReqBin2 = "req-bin2"
+	// CapReplayV1 advertises HTTP RPC + WS Frame 0 timestamp & req_id replay protection.
+	CapReplayV1 = "replay-v1"
+	// CapWSSeq1 advertises monotonic per-frame sequence AAD protection on /api/v1/e2ee/ws.
+	CapWSSeq1 = "ws-seq1"
 	// SupportedCaps is the comma-separated capability list advertised by this gateway.
-	SupportedCaps = "req-bin2"
+	SupportedCaps = "req-bin2,replay-v1,ws-seq1"
 
 	// Inner binary v2 response framing markers (never collide with legacy JSON '{' = 0x7b).
 	FrameTypeBinRaw   byte = 0x01 // [0x01][u32 BE metaLen][metaJSON][rawBody]
@@ -78,16 +84,23 @@ func headerContainsToken(raw, token string) bool {
 	return false
 }
 
+// SupportedCapsList returns the individual capability tokens advertised in X-Mgy-E2EE-Caps.
+func SupportedCapsList() []string {
+	return []string{CapReqBin2, CapReplayV1, CapWSSeq1}
+}
+
 // InnerHTTPReqMeta is the JSON metadata header inside Binary v2 E2EE requests (without base64 body).
 type InnerHTTPReqMeta struct {
 	Method  string            `json:"m"`
 	Path    string            `json:"p"`
 	Headers map[string]string `json:"h,omitempty"`
+	TSMs    int64             `json:"ts,omitempty"`
+	ReqID   string            `json:"id,omitempty"`
 }
 
-func decodeInnerHTTPRequest(plainBytes []byte) (method, path string, headers map[string]string, body []byte, errStatus int, errCode string) {
+func decodeInnerHTTPRequest(plainBytes []byte) (method, path string, headers map[string]string, body []byte, tsMs int64, reqID string, errStatus int, errCode string) {
 	if len(plainBytes) == 0 {
-		return "", "", nil, nil, http.StatusBadRequest, "invalid_inner_request"
+		return "", "", nil, nil, 0, "", http.StatusBadRequest, "invalid_inner_request"
 	}
 	first := plainBytes[0]
 	if first == FrameTypeBinRaw || first == FrameTypeBinFlate {
@@ -98,41 +111,41 @@ func decodeInnerHTTPRequest(plainBytes []byte) (method, path string, headers map
 			unpacked, err = io.ReadAll(io.LimitReader(fr, maxEncryptedRPCBytes+1))
 			_ = fr.Close()
 			if err != nil {
-				return "", "", nil, nil, http.StatusBadRequest, "invalid_inner_request"
+				return "", "", nil, nil, 0, "", http.StatusBadRequest, "invalid_inner_request"
 			}
 			if len(unpacked) > maxEncryptedRPCBytes {
-				return "", "", nil, nil, http.StatusRequestEntityTooLarge, "payload_too_large"
+				return "", "", nil, nil, 0, "", http.StatusRequestEntityTooLarge, "payload_too_large"
 			}
 		} else {
 			unpacked = plainBytes[1:]
 		}
 		if len(unpacked) < 4 {
-			return "", "", nil, nil, http.StatusBadRequest, "invalid_inner_request"
+			return "", "", nil, nil, 0, "", http.StatusBadRequest, "invalid_inner_request"
 		}
 		metaLen := binary.BigEndian.Uint32(unpacked[:4])
 		if metaLen < 2 || uint64(4)+uint64(metaLen) > uint64(len(unpacked)) {
-			return "", "", nil, nil, http.StatusBadRequest, "invalid_inner_request"
+			return "", "", nil, nil, 0, "", http.StatusBadRequest, "invalid_inner_request"
 		}
 		var meta InnerHTTPReqMeta
 		if err := json.Unmarshal(unpacked[4:4+metaLen], &meta); err != nil {
-			return "", "", nil, nil, http.StatusBadRequest, "invalid_inner_request"
+			return "", "", nil, nil, 0, "", http.StatusBadRequest, "invalid_inner_request"
 		}
-		return meta.Method, meta.Path, meta.Headers, unpacked[4+metaLen:], 0, ""
+		return meta.Method, meta.Path, meta.Headers, unpacked[4+metaLen:], meta.TSMs, strings.TrimSpace(meta.ReqID), 0, ""
 	}
 
 	var inner InnerHTTPRequest
 	if err := json.Unmarshal(plainBytes, &inner); err != nil {
-		return "", "", nil, nil, http.StatusBadRequest, "invalid_inner_request"
+		return "", "", nil, nil, 0, "", http.StatusBadRequest, "invalid_inner_request"
 	}
 	var innerBody []byte
 	if inner.BodyB64 != "" {
 		var err error
 		innerBody, err = base64.StdEncoding.DecodeString(inner.BodyB64)
 		if err != nil {
-			return "", "", nil, nil, http.StatusBadRequest, "invalid_inner_body_b64"
+			return "", "", nil, nil, 0, "", http.StatusBadRequest, "invalid_inner_body_b64"
 		}
 	}
-	return inner.Method, inner.Path, inner.Headers, innerBody, 0, ""
+	return inner.Method, inner.Path, inner.Headers, innerBody, inner.TSMs, strings.TrimSpace(inner.ReqID), 0, ""
 }
 
 // InnerHTTPMeta is the JSON metadata header inside Binary v2 E2EE responses (without base64 body).
@@ -173,6 +186,8 @@ type InnerHTTPRequest struct {
 	Path    string            `json:"p"`
 	Headers map[string]string `json:"h,omitempty"`
 	BodyB64 string            `json:"b,omitempty"`
+	TSMs    int64             `json:"ts,omitempty"`
+	ReqID   string            `json:"id,omitempty"`
 }
 
 // InnerHTTPResponse is the JSON-encoded plaintext returned inside `POST /api/v1/e2ee/rpc`.
@@ -196,18 +211,59 @@ type Handler struct {
 	InnerHandler   http.Handler
 	LocalWSAddr    func() string
 	PairDispatcher func(rawPairBody []byte, clientPubB64 string, outerReq *http.Request) (pairRespJSON []byte, deviceID string, status int, err error)
+	ReplayGuard    *ReplayGuard
+	StrictReplay   bool
+
+	replayInitOnce sync.Once
+	defaultReplay  *ReplayGuard
+}
+
+func (h *Handler) replayGuard() *ReplayGuard {
+	if h.ReplayGuard != nil {
+		return h.ReplayGuard
+	}
+	h.replayInitOnce.Do(func() {
+		h.defaultReplay = NewReplayGuard()
+	})
+	return h.defaultReplay
+}
+
+// RelayGuardOptions configures RelayGuardMiddlewareWithOptions.
+type RelayGuardOptions struct {
+	// DisableWeb blocks read-only static Web/PWA shell assets on relay/E2EE-enforced transports
+	// (MGY_RELAY_DISABLE_WEB=1) so untrusted relays cannot tamper with browser JS for native-app-only users.
+	DisableWeb bool
 }
 
 // RelayGuardMiddleware strictly enforces zero-knowledge E2EE on any connection arriving via relay_v1.
 // Plaintext API/WebSocket calls on LAN, Tailscale, or legacy Cloudflare Tunnel are completely unaffected.
 func RelayGuardMiddleware(next http.Handler) http.Handler {
+	return RelayGuardMiddlewareWithOptions(next, RelayGuardOptions{})
+}
+
+// RelayGuardMiddlewareWithOptions enforces zero-knowledge E2EE with optional static Web shell blocking.
+func RelayGuardMiddlewareWithOptions(next http.Handler, opts RelayGuardOptions) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if !IsRelayTransport(r.Context()) {
 			next.ServeHTTP(w, r)
 			return
 		}
-		if isRelayAllowedPath(r.Method, r.URL.Path) {
+		if isRelayCorePath(r.Method, r.URL.Path) {
 			next.ServeHTTP(w, r)
+			return
+		}
+		if isRelayStaticWebPath(r.Method, r.URL.Path) {
+			if !opts.DisableWeb {
+				next.ServeHTTP(w, r)
+				return
+			}
+			w.Header().Set("Content-Type", "application/json; charset=utf-8")
+			w.Header().Set("Cache-Control", "no-store")
+			w.WriteHeader(http.StatusForbidden)
+			_ = json.NewEncoder(w).Encode(map[string]string{
+				"error":   "web_disabled_on_relay",
+				"message": "Web UI static assets are disabled on relay transport (MGY_RELAY_DISABLE_WEB=1); use native Multigravity app.",
+			})
 			return
 		}
 		w.Header().Set("Content-Type", "application/json; charset=utf-8")
@@ -220,7 +276,7 @@ func RelayGuardMiddleware(next http.Handler) http.Handler {
 	})
 }
 
-func isRelayAllowedPath(method, path string) bool {
+func isRelayCorePath(method, path string) bool {
 	switch path {
 	case "/healthz":
 		return method == http.MethodGet || method == http.MethodHead
@@ -229,8 +285,11 @@ func isRelayAllowedPath(method, path string) bool {
 	case "/api/v1/e2ee/ws":
 		return method == http.MethodGet
 	}
+	return false
+}
 
-	// Allow read-only static PWA shell assets so browsers can bootstrap Web Crypto E2EE
+func isRelayStaticWebPath(method, path string) bool {
+	// Read-only static PWA shell assets so browsers can bootstrap Web Crypto E2EE
 	if method == http.MethodGet || method == http.MethodHead {
 		switch path {
 		case "/", "/index.html", "/style.css", "/sw.js", "/favicon.ico",
@@ -242,6 +301,10 @@ func isRelayAllowedPath(method, path string) bool {
 		}
 	}
 	return false
+}
+
+func isRelayAllowedPath(method, path string) bool {
+	return isRelayCorePath(method, path) || isRelayStaticWebPath(method, path)
 }
 
 // HandleRPC decrypts an encrypted HTTP request envelope, runs it through InnerHandler, and encrypts the response.
@@ -277,7 +340,7 @@ func (h *Handler) HandleRPC(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	innerMethod, innerPath, innerHeaders, innerBody, errStatus, errCode := decodeInnerHTTPRequest(plainBytes)
+	innerMethod, innerPath, innerHeaders, innerBody, tsMs, reqID, errStatus, errCode := decodeInnerHTTPRequest(plainBytes)
 	if errCode != "" {
 		writeE2EEError(w, errStatus, errCode)
 		return
@@ -285,6 +348,30 @@ func (h *Handler) HandleRPC(w http.ResponseWriter, r *http.Request) {
 	if !strings.HasPrefix(innerPath, "/") || strings.HasPrefix(innerPath, "//") || strings.HasPrefix(innerPath, "/api/v1/e2ee/") {
 		writeE2EEError(w, http.StatusBadRequest, "invalid_inner_path")
 		return
+	}
+	if tsMs != 0 || reqID != "" || h.StrictReplay {
+		if tsMs == 0 || reqID == "" {
+			writeE2EEError(w, http.StatusBadRequest, ErrReplayRequired)
+			return
+		}
+		if rCode, serverTS := h.replayGuard().Check(deviceID, reqID, tsMs); rCode != "" {
+			switch rCode {
+			case ErrReplayClockSkew:
+				w.Header().Set("Content-Type", "application/json; charset=utf-8")
+				w.Header().Set("Cache-Control", "no-store")
+				w.Header().Set(HeaderE2EECaps, SupportedCaps)
+				w.WriteHeader(http.StatusUnauthorized)
+				_ = json.NewEncoder(w).Encode(map[string]any{
+					"error":        ErrReplayClockSkew,
+					"server_ts_ms": serverTS,
+				})
+			case ErrReplayDetected:
+				writeE2EEError(w, http.StatusConflict, ErrReplayDetected)
+			default:
+				writeE2EEError(w, http.StatusBadRequest, rCode)
+			}
+			return
+		}
 	}
 	if innerMethod == "" {
 		innerMethod = http.MethodGet

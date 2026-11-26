@@ -83,6 +83,7 @@ type LiveActivityDispatcher struct {
 	mu               sync.Mutex
 	client           *APNsRelayClient
 	enabled          bool
+	redact           bool
 	gatewayID        string
 	gatewayName      string
 	nowFunc          func() time.Time
@@ -94,6 +95,26 @@ type LiveActivityDispatcher struct {
 	pendingLatest    map[string]*proxy.TrajectoryDetails
 	coalesceInFlight map[string]bool
 	coalesceWorkers  int
+}
+
+// SetRedact enables or disables strict push redaction for Live Activity updates and Push-to-Start payloads.
+func (d *LiveActivityDispatcher) SetRedact(enabled bool) {
+	if d == nil {
+		return
+	}
+	d.mu.Lock()
+	d.redact = enabled
+	d.mu.Unlock()
+}
+
+// Redact reports whether Live Activity redaction is active.
+func (d *LiveActivityDispatcher) Redact() bool {
+	if d == nil {
+		return false
+	}
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	return d.redact
 }
 
 // admitLocked decides whether cascadeID may hold a card. Caller holds d.mu.
@@ -344,6 +365,88 @@ func BuildContentStateForLang(details *proxy.TrajectoryDetails, now time.Time, l
 	}
 }
 
+// BuildRedactedContentStateForLang builds a privacy-redacted LiveActivityContentState that strips
+// conversation titles, commands, paths, focus text, and agent prose, retaining only status,
+// risk/approval category, and numeric progress counts (e.g. "3/5" or step counts).
+func BuildRedactedContentStateForLang(details *proxy.TrajectoryDetails, now time.Time, lang string) LiveActivityContentState {
+	resolvedLang := i18n.ResolveLang(lang)
+
+	var blockingCount int
+	for _, t := range details.RunningTasks {
+		if !t.IsDaemon {
+			blockingCount++
+		}
+	}
+
+	hasPending := details.CanProceed || details.PendingInteraction != nil
+	isRunning := details.Status == "CASCADE_RUN_STATUS_RUNNING"
+
+	status := "RUNNING"
+	if hasPending {
+		status = "WAITING_APPROVAL"
+	} else if blockingCount > 0 && !isRunning {
+		status = "TASK_RUNNING"
+	} else if details.Status == "CASCADE_RUN_STATUS_FAILED" || details.Status == "CASCADE_RUN_STATUS_ERROR" || details.HasError {
+		status = "FAILED"
+	} else if !isRunning {
+		status = "COMPLETED"
+	}
+
+	var pendingStep *int
+	var pendingKind string
+	if details.PendingInteraction != nil {
+		idx := details.PendingInteraction.StepIndex
+		pendingStep = &idx
+		pendingKind = details.PendingInteraction.Type
+	} else if details.CanProceed {
+		idx := details.TotalSteps
+		pendingStep = &idx
+		pendingKind = "proceed"
+	}
+
+	latestAction := buildRedactedLatestActionForLang(details, blockingCount, resolvedLang)
+	stepCount := details.TotalSteps
+	if stepCount < 1 {
+		stepCount = 1
+	}
+
+	return LiveActivityContentState{
+		ConversationTitle: msgRedactedSessionTitleFor(resolvedLang),
+		Status:            status,
+		StepCount:         stepCount,
+		LatestAction:      truncateString(latestAction, 100),
+		RunningTaskCount:  blockingCount,
+		RunningTasks:      []LiveActivityTaskSnapshot{},
+		HasPendingAction:  hasPending,
+		PendingStepIndex:  pendingStep,
+		PendingActionKind: pendingKind,
+		LastUpdated:       float64(now.Unix()),
+	}
+}
+
+func buildRedactedLatestActionForLang(details *proxy.TrajectoryDetails, blockingCount int, lang string) string {
+	resolvedLang := i18n.ResolveLang(lang)
+	if pi := details.PendingInteraction; pi != nil {
+		if pi.ApprovalPreview != nil && pi.ApprovalPreview.RiskLevel == "high" && pi.Type != "ask_question" {
+			return msgRedactedLiveActivityHighRiskFor(resolvedLang)
+		}
+		return i18n.T3For(resolvedLang, "等待用户审批操作", "Waiting for approval", "承認待ちです")
+	}
+	if details.CanProceed {
+		return i18n.T3For(resolvedLang, "方案待确认，可点击 Proceed", "Plan ready — tap Proceed", "計画を確認して Proceed")
+	}
+	if details.ActivePlan != nil && details.ActivePlan.TotalCount > 0 {
+		return fmt.Sprintf("%d/%d", details.ActivePlan.DoneCount, details.ActivePlan.TotalCount)
+	}
+	if blockingCount > 0 {
+		return msgRedactedLiveActivityRunningTasksFor(resolvedLang, blockingCount)
+	}
+	if details.TotalSteps > 0 {
+		return i18n.Sprintf3For(resolvedLang, "正在执行第 %d 步...", "Running step %d...", "ステップ %d を実行中...", details.TotalSteps)
+	}
+	return i18n.T3For(resolvedLang, "Agent 正在执行...", "Agent is working...", "Agent が実行中...")
+}
+
 func buildLatestActionSummaryForLang(details *proxy.TrajectoryDetails, activeTaskTitle, lang string) string {
 	resolvedLang := i18n.ResolveLang(lang)
 	if pi := details.PendingInteraction; pi != nil {
@@ -444,7 +547,13 @@ func (d *LiveActivityDispatcher) SyncFromDetails(ctx context.Context, details *p
 		return
 	}
 
-	state := BuildContentState(details, now)
+	redact := d.Redact()
+	var state LiveActivityContentState
+	if redact {
+		state = BuildRedactedContentStateForLang(details, now, i18n.GetLang())
+	} else {
+		state = BuildContentState(details, now)
+	}
 	stateHash := hashContentState(state)
 
 	d.mu.Lock()
@@ -522,7 +631,11 @@ func (d *LiveActivityDispatcher) SyncFromDetails(ctx context.Context, details *p
 	for _, target := range toSend {
 		targetState := state
 		if resolved := i18n.ResolveLang(target.Lang); resolved != defaultLang {
-			targetState = BuildContentStateForLang(details, now, resolved)
+			if redact {
+				targetState = BuildRedactedContentStateForLang(details, now, resolved)
+			} else {
+				targetState = BuildContentStateForLang(details, now, resolved)
+			}
 		}
 		req := APNsLiveActivityRequest{
 			Event:        "update",
@@ -542,7 +655,7 @@ func (d *LiveActivityDispatcher) SyncFromDetails(ctx context.Context, details *p
 			gwName := d.gatewayName
 			d.mu.Unlock()
 			gwLabel := ""
-			if target.ShowGatewayLabel {
+			if target.ShowGatewayLabel && !redact {
 				gwLabel = strings.TrimSpace(target.GatewayLabel)
 				if gwLabel == "" {
 					gwLabel = gwName
@@ -667,10 +780,15 @@ func (d *LiveActivityDispatcher) sendEnd(ctx context.Context, cascadeID, title, 
 		stepCount = 1
 	}
 
+	redact := d.Redact()
 	truncatedTitle := truncateString(title, 40)
 	for _, target := range targets {
+		convTitle := truncatedTitle
+		if redact {
+			convTitle = msgRedactedSessionTitleFor(target.Lang)
+		}
 		finalState := LiveActivityContentState{
-			ConversationTitle: truncatedTitle,
+			ConversationTitle: convTitle,
 			Status:            finalStatus,
 			StepCount:         stepCount,
 			LatestAction:      liveActivityEndSummary(target.Lang, finalStatus, quiet),

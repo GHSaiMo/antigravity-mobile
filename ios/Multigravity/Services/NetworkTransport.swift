@@ -406,7 +406,8 @@ public final class NetworkTransport: Sendable {
     private func sendOverE2EEOnce(
         _ req: URLRequest,
         preferCellular: Bool,
-        forceLegacyJSON: Bool = false
+        forceLegacyJSON: Bool = false,
+        retriedClockSkew: Bool = false
     ) async throws -> (data: Data, response: URLResponse, outerStatus: Int?) {
         guard let originalURL = req.url else {
             throw URLError(.badURL)
@@ -417,11 +418,26 @@ public final class NetworkTransport: Sendable {
             return (outerData, decorateResponse(outerResp, url: originalURL, forcedCellular: usedCellular), nil)
         }
         if outerHTTP.statusCode != 200 {
+            if !retriedClockSkew,
+               let serverTs = E2EECrypto.parseClockSkewServerTimestamp(statusCode: outerHTTP.statusCode, data: outerData) {
+                E2EECrypto.shared.recordClockSkew(host: originalURL.host ?? "", serverTsMs: serverTs)
+                return try await sendOverE2EEOnce(
+                    req,
+                    preferCellular: preferCellular,
+                    forceLegacyJSON: forceLegacyJSON,
+                    retriedClockSkew: true
+                )
+            }
             if wrapped.usedBinaryFrame && !forceLegacyJSON && Self.isInvalidInnerRequestError(statusCode: outerHTTP.statusCode, data: outerData) {
                 if let host = originalURL.host {
                     E2EECrypto.shared.clearHostBinaryRequestSupport(host)
                 }
-                return try await sendOverE2EEOnce(req, preferCellular: preferCellular, forceLegacyJSON: true)
+                return try await sendOverE2EEOnce(
+                    req,
+                    preferCellular: preferCellular,
+                    forceLegacyJSON: true,
+                    retriedClockSkew: retriedClockSkew
+                )
             }
             return (outerData, decorateResponse(outerHTTP, url: originalURL, forcedCellular: usedCellular), outerHTTP.statusCode)
         }
@@ -573,6 +589,8 @@ public final class NetworkTransport: Sendable {
         request: URLRequest,
         fileURL: URL,
         forceLegacyJSON: Bool,
+        retriedClockSkew: Bool = false,
+        retriedFreshEnvelope: Bool = false,
         onProgress: (@Sendable (Double) -> Void)?,
         streamUpload: @escaping @Sendable (URLRequest, URL, (@Sendable (Double) -> Void)?) async throws -> (Data, URLResponse)
     ) async throws -> (Data, URLResponse) {
@@ -610,21 +628,61 @@ public final class NetworkTransport: Sendable {
         do {
             firstResult = try await attempt(wrapped.outerRequest)
         } catch {
-            guard !Task.isCancelled, Self.isRetryableTransportError(error) else {
+            guard !Task.isCancelled, !retriedFreshEnvelope, Self.isRetryableTransportError(error) else {
                 throw error
             }
             if let migratedBase = await RelayPoolResolver.shared.migrateRelayHostIfNeeded(failedURL: originalURL),
-               let migratedReq = Self.rewrittenRequest(wrapped.outerRequest, toBaseURL: migratedBase) {
-                let retried = try await attempt(migratedReq)
-                return (retried.data, retried.response)
+               let migratedReq = Self.rewrittenRequest(request, toBaseURL: migratedBase) {
+                return try await uploadOverE2EEInternal(
+                    request: migratedReq,
+                    fileURL: fileURL,
+                    forceLegacyJSON: forceLegacyJSON,
+                    retriedClockSkew: retriedClockSkew,
+                    retriedFreshEnvelope: true,
+                    onProgress: onProgress,
+                    streamUpload: streamUpload
+                )
             }
             try await Task.sleep(nanoseconds: 300_000_000)
-            let retried = try await attempt(wrapped.outerRequest)
-            return (retried.data, retried.response)
+            return try await uploadOverE2EEInternal(
+                request: request,
+                fileURL: fileURL,
+                forceLegacyJSON: forceLegacyJSON,
+                retriedClockSkew: retriedClockSkew,
+                retriedFreshEnvelope: true,
+                onProgress: onProgress,
+                streamUpload: streamUpload
+            )
         }
 
         guard let outerStatus = firstResult.outerStatus, outerStatus != 200 else {
             return (firstResult.data, firstResult.response)
+        }
+
+        if !retriedClockSkew,
+           let serverTs = E2EECrypto.parseClockSkewServerTimestamp(statusCode: outerStatus, data: firstResult.data) {
+            E2EECrypto.shared.recordClockSkew(host: originalURL.host ?? "", serverTsMs: serverTs)
+            return try await uploadOverE2EEInternal(
+                request: request,
+                fileURL: fileURL,
+                forceLegacyJSON: forceLegacyJSON,
+                retriedClockSkew: true,
+                retriedFreshEnvelope: retriedFreshEnvelope,
+                onProgress: onProgress,
+                streamUpload: streamUpload
+            )
+        }
+
+        if !retriedFreshEnvelope && E2EECrypto.isReplayDetectedError(statusCode: outerStatus, data: firstResult.data) {
+            return try await uploadOverE2EEInternal(
+                request: request,
+                fileURL: fileURL,
+                forceLegacyJSON: forceLegacyJSON,
+                retriedClockSkew: retriedClockSkew,
+                retriedFreshEnvelope: true,
+                onProgress: onProgress,
+                streamUpload: streamUpload
+            )
         }
 
         if wrapped.usedBinaryFrame && !forceLegacyJSON && Self.isInvalidInnerRequestError(statusCode: outerStatus, data: firstResult.data) {
@@ -635,6 +693,8 @@ public final class NetworkTransport: Sendable {
                 request: request,
                 fileURL: fileURL,
                 forceLegacyJSON: true,
+                retriedClockSkew: retriedClockSkew,
+                retriedFreshEnvelope: retriedFreshEnvelope,
                 onProgress: onProgress,
                 streamUpload: streamUpload
             )
@@ -645,10 +705,24 @@ public final class NetworkTransport: Sendable {
             return (firstResult.data, firstResult.response)
         }
 
+        // For non-preGateway blips (e.g. 502 where gateway might have already recorded req_id), re-wrap with a fresh req_id.
+        if !classification.preGateway && !retriedFreshEnvelope {
+            try await Task.sleep(nanoseconds: 250_000_000)
+            return try await uploadOverE2EEInternal(
+                request: request,
+                fileURL: fileURL,
+                forceLegacyJSON: forceLegacyJSON,
+                retriedClockSkew: retriedClockSkew,
+                retriedFreshEnvelope: true,
+                onProgress: onProgress,
+                streamUpload: streamUpload
+            )
+        }
+
         var latest = firstResult
         var latestStatus = outerStatus
 
-        // 1. Fast same-node retry for 502/429/edge blips (immediately rotates onto a healthy yamux slot).
+        // 1. Fast same-node retry for 429 tunnel_busy (preGateway; never reached mgy replay cache).
         if latestStatus != 503 {
             try await Task.sleep(nanoseconds: 250_000_000)
             if let retried = try? await attempt(wrapped.outerRequest) {
@@ -767,7 +841,7 @@ public final class NetworkTransport: Sendable {
             }
         }
 
-        func sendContextE2EEOnce(forceLegacyJSON: Bool) async throws -> (Data, URLResponse) {
+        func sendContextE2EEOnce(forceLegacyJSON: Bool, retriedClockSkew: Bool = false) async throws -> (Data, URLResponse) {
             let wrapped = try E2EECrypto.shared.wrapHTTPRequestDetailed(
                 req,
                 context: context,
@@ -778,11 +852,16 @@ public final class NetworkTransport: Sendable {
                 return (outerData, outerResp)
             }
             if outerHTTP.statusCode != 200 {
+                if !retriedClockSkew,
+                   let serverTs = E2EECrypto.parseClockSkewServerTimestamp(statusCode: outerHTTP.statusCode, data: outerData) {
+                    E2EECrypto.shared.recordClockSkew(host: originalURL.host ?? "", serverTsMs: serverTs)
+                    return try await sendContextE2EEOnce(forceLegacyJSON: forceLegacyJSON, retriedClockSkew: true)
+                }
                 if wrapped.usedBinaryFrame && !forceLegacyJSON && Self.isInvalidInnerRequestError(statusCode: outerHTTP.statusCode, data: outerData) {
                     if let host = originalURL.host {
                         E2EECrypto.shared.clearHostBinaryRequestSupport(host)
                     }
-                    return try await sendContextE2EEOnce(forceLegacyJSON: true)
+                    return try await sendContextE2EEOnce(forceLegacyJSON: true, retriedClockSkew: retriedClockSkew)
                 }
                 return (outerData, outerHTTP)
             }
@@ -874,7 +953,8 @@ public final class NetworkTransport: Sendable {
 
     private func downloadOverE2EEOnce(
         _ req: URLRequest,
-        onProgress: (@Sendable (Double, Int64, Int64) -> Void)?
+        onProgress: (@Sendable (Double, Int64, Int64) -> Void)?,
+        retriedClockSkew: Bool = false
     ) async throws -> (fileURL: URL, response: HTTPURLResponse, outerStatus: Int) {
         guard let originalURL = req.url else {
             throw URLError(.badURL)
@@ -882,6 +962,13 @@ public final class NetworkTransport: Sendable {
         let (outerReq, deviceID, key) = try E2EECrypto.shared.wrapHTTPRequest(req)
         let (tempEncURL, outerHTTP) = try await downloadViaURLSession(outerReq, onProgress: onProgress)
         if outerHTTP.statusCode != 200 {
+            if outerHTTP.statusCode == 401 && !retriedClockSkew,
+               let errData = try? Data(contentsOf: tempEncURL),
+               let serverTs = E2EECrypto.parseClockSkewServerTimestamp(statusCode: 401, data: errData) {
+                try? FileManager.default.removeItem(at: tempEncURL)
+                E2EECrypto.shared.recordClockSkew(host: originalURL.host ?? "", serverTsMs: serverTs)
+                return try await downloadOverE2EEOnce(req, onProgress: onProgress, retriedClockSkew: true)
+            }
             let decorated = (decorateResponse(outerHTTP, url: originalURL) as? HTTPURLResponse) ?? outerHTTP
             return (tempEncURL, decorated, outerHTTP.statusCode)
         }

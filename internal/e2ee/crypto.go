@@ -15,6 +15,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 )
 
@@ -266,6 +267,12 @@ func Decrypt(key, frame, aad []byte) ([]byte, error) {
 // FrameAAD builds canonical AAD binding device ID and direction ("c2s", "s2c", "ws-open", "ws-c2s", "ws-s2c").
 func FrameAAD(deviceID, direction string) []byte {
 	return []byte("mgy-e2ee-v1:" + strings.TrimSpace(deviceID) + ":" + direction)
+}
+
+// FrameSeqAAD builds canonical AAD binding device ID, direction ("ws-c2s", "ws-s2c"),
+// and a monotonic per-connection frame sequence number to block replay, drop, and reordering.
+func FrameSeqAAD(deviceID, direction string, seq uint64) []byte {
+	return []byte("mgy-e2ee-v1:" + strings.TrimSpace(deviceID) + ":" + direction + ":" + strconv.FormatUint(seq, 10))
 }
 
 // PairFrameAAD builds canonical AAD for pairing handshake frames.

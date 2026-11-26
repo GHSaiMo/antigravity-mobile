@@ -26,6 +26,7 @@ type NotificationConfig struct {
 	APNSRelayURL            string // Stateless APNs relay endpoint (defaults to DefaultAPNSRelayURL)
 	LiveActivityPushEnabled bool   // Enable remote Dynamic Island / Live Activity updates via APNs
 	PushStorePath           string // Persisted push token store path (defaults to ~/.multigravity/push_devices.json)
+	PushRedact              bool   // Strip session titles, commands, paths, and text previews from outgoing push relays
 
 	// FCM (Android Push) fields
 	FCMEnabled     bool
@@ -183,6 +184,8 @@ func GetNotificationConfig() NotificationConfig {
 		pushStorePath = filepath.Join(GetDataDir(), "push_devices.json")
 	}
 
+	pushRedact := envBoolAny("MGY_PUSH_REDACT", "PUSH_REDACT", "APNS_REDACT")
+
 	return NotificationConfig{
 		Enabled:                 enabled,
 		IconURL:                 icon,
@@ -193,6 +196,7 @@ func GetNotificationConfig() NotificationConfig {
 		APNSRelayURL:            apnsRelayURL,
 		LiveActivityPushEnabled: liveActivityPushEnabled,
 		PushStorePath:           pushStorePath,
+		PushRedact:              pushRedact,
 		FCMEnabled:              fcmEnabled,
 		FCMServerKey:            fcmServerKey,
 		FCMDeviceToken:          fcmDeviceToken,
@@ -340,6 +344,81 @@ func DefaultGatewayName() string {
 		raw = string(runes[:24])
 	}
 	return raw
+}
+
+func envBoolAny(keys ...string) bool {
+	for _, key := range keys {
+		raw := strings.ToLower(strings.TrimSpace(os.Getenv(key)))
+		if raw == "" {
+			continue
+		}
+		return raw == "1" || raw == "true" || raw == "yes" || raw == "on"
+	}
+	return false
+}
+
+// CustomRelayConfig holds settings for a self-hosted mgy-relay instance (BYO-Relay),
+// bypassing the centralized dispatcher Worker and cloudflared completely.
+type CustomRelayConfig struct {
+	Endpoint  string // e.g. "wss://relay.example.com/_mgy_tunnel"
+	Token     string // offline-signed mgyr1.* token
+	PublicURL string // optional override e.g. "https://dev.example.com" (auto-derived from token domain if empty)
+}
+
+// Enabled reports whether a custom self-hosted relay endpoint and token are both configured.
+func (c CustomRelayConfig) Enabled() bool {
+	return strings.TrimSpace(c.Endpoint) != "" && strings.TrimSpace(c.Token) != ""
+}
+
+// GetCustomRelayConfig parses BYO-Relay environment variables.
+func GetCustomRelayConfig() CustomRelayConfig {
+	endpoint := strings.TrimSpace(os.Getenv("MGY_CUSTOM_RELAY_ENDPOINT"))
+	if endpoint != "" {
+		lower := strings.ToLower(endpoint)
+		switch {
+		case strings.HasPrefix(lower, "https://"):
+			endpoint = "wss://" + endpoint[len("https://"):]
+		case strings.HasPrefix(lower, "http://"):
+			endpoint = "ws://" + endpoint[len("http://"):]
+		case !strings.HasPrefix(lower, "wss://") && !strings.HasPrefix(lower, "ws://"):
+			endpoint = "wss://" + endpoint
+		}
+		trimmed := strings.TrimRight(endpoint, "/")
+		// Append default tunnel upgrade path if caller passed only scheme://host[:port].
+		if schemeIdx := strings.Index(trimmed, "://"); schemeIdx >= 0 {
+			afterScheme := trimmed[schemeIdx+3:]
+			if !strings.Contains(afterScheme, "/") {
+				endpoint = trimmed + "/_mgy_tunnel"
+			}
+		}
+	}
+	publicURL := strings.TrimRight(strings.TrimSpace(os.Getenv("MGY_CUSTOM_RELAY_PUBLIC_URL")), "/")
+	if publicURL != "" && !strings.Contains(publicURL, "://") {
+		publicURL = "https://" + publicURL
+	}
+	return CustomRelayConfig{
+		Endpoint:  endpoint,
+		Token:     strings.TrimSpace(os.Getenv("MGY_CUSTOM_RELAY_TOKEN")),
+		PublicURL: publicURL,
+	}
+}
+
+// GetRelayDisableWeb reports whether static Web/PWA shell assets (and /healthz e2ee_pub)
+// should be blocked on relay/E2EE-enforced transports (MGY_RELAY_DISABLE_WEB=1).
+func GetRelayDisableWeb() bool {
+	return envBoolAny("MGY_RELAY_DISABLE_WEB", "MULTIGRAVITY_RELAY_DISABLE_WEB")
+}
+
+// GetForceE2EE reports whether external/proxied requests on the main HTTP server
+// must be strictly gated by RelayGuardMiddleware (MGY_FORCE_E2EE=1).
+func GetForceE2EE() bool {
+	return envBoolAny("MGY_FORCE_E2EE", "MULTIGRAVITY_FORCE_E2EE")
+}
+
+// GetStrictE2EEReplay reports whether legacy E2EE requests without replay timestamps/IDs
+// should be rejected (MGY_E2EE_STRICT_REPLAY=1).
+func GetStrictE2EEReplay() bool {
+	return envBoolAny("MGY_E2EE_STRICT_REPLAY", "MULTIGRAVITY_E2EE_STRICT_REPLAY")
 }
 
 

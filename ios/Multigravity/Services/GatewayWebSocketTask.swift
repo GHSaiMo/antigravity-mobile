@@ -17,14 +17,21 @@ public final class GatewayWebSocketTask: @unchecked Sendable {
     }
 
     private struct E2EEConfig: Sendable {
+        let host: String
         let deviceID: String
         let key: Data
         let openPath: String
         let openHeaders: [String: String]
     }
 
+    private final class SendSeqBox: @unchecked Sendable {
+        var c2sSeq: UInt64 = 0
+    }
+
     private let engine: Engine
     private let e2eeConfig: E2EEConfig?
+    private let e2eeSendQueue = DispatchQueue(label: "com.multigravity.e2ee.ws.send")
+    private let sendSeqBox = SendSeqBox()
     private let stateLock = OSAllocatedUnfairLock(initialState: State())
     private let onOpen: (@Sendable () -> Void)?
     private let onClose: (@Sendable () -> Void)?
@@ -37,6 +44,8 @@ public final class GatewayWebSocketTask: @unchecked Sendable {
         var didOpen = false
         var didFinish = false
         var isCancelled = false
+        var useSeq = false
+        var s2cSeq: UInt64 = 0
     }
 
     public init(
@@ -74,7 +83,7 @@ public final class GatewayWebSocketTask: @unchecked Sendable {
                let tok = KeychainHelper.shared.read(key: .deviceToken), !tok.isEmpty {
                 innerHeaders["Authorization"] = "Bearer \(tok)"
             }
-            resolvedE2EE = E2EEConfig(deviceID: deviceID, key: key, openPath: innerPath, openHeaders: innerHeaders)
+            resolvedE2EE = E2EEConfig(host: host, deviceID: deviceID, key: key, openPath: innerPath, openHeaders: innerHeaders)
 
             var outerComps = URLComponents()
             outerComps.scheme = "wss"
@@ -190,32 +199,43 @@ public final class GatewayWebSocketTask: @unchecked Sendable {
     }
 
     public func send(_ message: Message, completionHandler: @escaping @Sendable ((any Error)?) -> Void) {
-        let outgoing: Message
         if let e2ee = e2eeConfig {
-            var plain = Data()
-            switch message {
-            case .string(let text):
-                plain.append(1) // websocket.TextMessage
-                plain.append(Data(text.utf8))
-            case .data(let data):
-                plain.append(2) // websocket.BinaryMessage
-                plain.append(data)
+            e2eeSendQueue.async { [weak self] in
+                guard let self else {
+                    completionHandler(URLError(.cancelled))
+                    return
+                }
+                let useSeq = self.stateLock.withLock { $0.useSeq }
+                let seq = self.sendSeqBox.c2sSeq
+                self.sendSeqBox.c2sSeq &+= 1
+                var plain = Data()
+                switch message {
+                case .string(let text):
+                    plain.append(1) // websocket.TextMessage
+                    plain.append(Data(text.utf8))
+                case .data(let data):
+                    plain.append(2) // websocket.BinaryMessage
+                    plain.append(data)
+                }
+                let aad = useSeq
+                    ? E2EECrypto.frameSeqAAD(deviceID: e2ee.deviceID, direction: "ws-c2s", seq: seq)
+                    : E2EECrypto.frameAAD(deviceID: e2ee.deviceID, direction: "ws-c2s")
+                let enc: Data
+                do {
+                    enc = try E2EECrypto.encrypt(key: e2ee.key, plaintext: plain, aad: aad)
+                } catch {
+                    completionHandler(error)
+                    return
+                }
+                self.sendRaw(.data(enc), completionHandler: completionHandler)
             }
-            do {
-                let enc = try E2EECrypto.encrypt(
-                    key: e2ee.key,
-                    plaintext: plain,
-                    aad: E2EECrypto.frameAAD(deviceID: e2ee.deviceID, direction: "ws-c2s")
-                )
-                outgoing = .data(enc)
-            } catch {
-                completionHandler(error)
-                return
-            }
-        } else {
-            outgoing = message
+            return
         }
 
+        sendRaw(message, completionHandler: completionHandler)
+    }
+
+    private func sendRaw(_ outgoing: Message, completionHandler: @escaping @Sendable ((any Error)?) -> Void) {
         switch engine {
         case .urlSession(_, let task, _):
             switch outgoing {
@@ -244,7 +264,7 @@ public final class GatewayWebSocketTask: @unchecked Sendable {
 
     public func receive(completionHandler: @escaping @Sendable (Result<Message, any Error>) -> Void) {
         let e2ee = self.e2eeConfig
-        let deliver: @Sendable (Result<Message, any Error>) -> Void = { result in
+        let deliver: @Sendable (Result<Message, any Error>) -> Void = { [weak self] result in
             guard let e2ee else {
                 completionHandler(result)
                 return
@@ -257,11 +277,19 @@ public final class GatewayWebSocketTask: @unchecked Sendable {
                     completionHandler(.failure(E2EEError.decryptionFailed))
                     return
                 }
+                let (useSeq, seq) = self?.stateLock.withLock { st -> (Bool, UInt64) in
+                    let cur = st.s2cSeq
+                    st.s2cSeq &+= 1
+                    return (st.useSeq, cur)
+                } ?? (false, 0)
+                let aad = useSeq
+                    ? E2EECrypto.frameSeqAAD(deviceID: e2ee.deviceID, direction: "ws-s2c", seq: seq)
+                    : E2EECrypto.frameAAD(deviceID: e2ee.deviceID, direction: "ws-s2c")
                 do {
                     let plain = try E2EECrypto.decrypt(
                         key: e2ee.key,
                         frame: enc,
-                        aad: E2EECrypto.frameAAD(deviceID: e2ee.deviceID, direction: "ws-s2c")
+                        aad: aad
                     )
                     guard let rawHeader = plain.first else {
                         completionHandler(.failure(E2EEError.decryptionFailed))
@@ -278,6 +306,9 @@ public final class GatewayWebSocketTask: @unchecked Sendable {
                         completionHandler(.success(.data(payload)))
                     }
                 } catch {
+                    if useSeq && seq == 0 {
+                        E2EECrypto.shared.clearHostWSSeqSupport(e2ee.host)
+                    }
                     completionHandler(.failure(error))
                 }
             }
@@ -379,7 +410,7 @@ public final class GatewayWebSocketTask: @unchecked Sendable {
         }
     }
 
-    fileprivate func notifySessionOpened() {
+    fileprivate func notifySessionOpened(upgradeResponse: HTTPURLResponse? = nil) {
         let fire = stateLock.withLock { st -> Bool in
             guard !st.didOpen && !st.isCancelled else { return false }
             st.didOpen = true
@@ -387,26 +418,39 @@ public final class GatewayWebSocketTask: @unchecked Sendable {
         }
         guard fire else { return }
 
+        if let upgradeResponse {
+            let url = upgradeResponse.url ?? originalHost.flatMap { URL(string: "https://\($0)") }
+            E2EECrypto.shared.observeServerCapabilities(from: upgradeResponse, url: url)
+        }
+
         if let e2ee = e2eeConfig {
+            let useSeq = E2EECrypto.shared.supportsWSSeq(host: e2ee.host)
+            stateLock.withLock { $0.useSeq = useSeq }
             struct OpenPayload: Encodable {
                 let path: String
                 let headers: [String: String]?
                 let enc: String?
+                let seq: String?
+                let ts: Int64
+                let id: String
             }
-            do {
-                let openJSON = try JSONEncoder().encode(OpenPayload(
-                    path: e2ee.openPath,
-                    headers: e2ee.openHeaders.isEmpty ? nil : e2ee.openHeaders,
-                    enc: "flate"
-                ))
-                let frame0 = try E2EECrypto.encrypt(
-                    key: e2ee.key,
-                    plaintext: openJSON,
-                    aad: E2EECrypto.frameAAD(deviceID: e2ee.deviceID, direction: "ws-open")
-                )
-                switch engine {
-                case .urlSession(_, let task, _):
-                    task.send(.data(frame0)) { [weak self] err in
+            e2eeSendQueue.async { [weak self] in
+                guard let self else { return }
+                do {
+                    let openJSON = try JSONEncoder().encode(OpenPayload(
+                        path: e2ee.openPath,
+                        headers: e2ee.openHeaders.isEmpty ? nil : e2ee.openHeaders,
+                        enc: "flate",
+                        seq: useSeq ? "v1" : nil,
+                        ts: E2EECrypto.shared.adjustedTimestampMs(forHost: e2ee.host),
+                        id: E2EECrypto.generateRequestID()
+                    ))
+                    let frame0 = try E2EECrypto.encrypt(
+                        key: e2ee.key,
+                        plaintext: openJSON,
+                        aad: E2EECrypto.frameAAD(deviceID: e2ee.deviceID, direction: "ws-open")
+                    )
+                    self.sendRaw(.data(frame0)) { [weak self] err in
                         guard let self else { return }
                         if let err {
                             self.notifySessionFailed(err)
@@ -414,20 +458,9 @@ public final class GatewayWebSocketTask: @unchecked Sendable {
                             self.onOpen?()
                         }
                     }
-                case .nwConnection(let connection):
-                    let meta = NWProtocolWebSocket.Metadata(opcode: .binary)
-                    let ctx = NWConnection.ContentContext(identifier: "ws-e2ee-open", metadata: [meta])
-                    connection.send(content: frame0, contentContext: ctx, isComplete: true, completion: .contentProcessed { [weak self] err in
-                        guard let self else { return }
-                        if let err {
-                            self.notifySessionFailed(err)
-                        } else {
-                            self.onOpen?()
-                        }
-                    })
+                } catch {
+                    self.notifySessionFailed(error)
                 }
-            } catch {
-                notifySessionFailed(error)
             }
             return
         }
@@ -475,10 +508,17 @@ public final class GatewayWebSocketTask: @unchecked Sendable {
         weak var owner: GatewayWebSocketTask?
 
         func urlSession(_ session: URLSession, webSocketTask: URLSessionWebSocketTask, didOpenWithProtocol protocol: String?) {
-            owner?.notifySessionOpened()
+            owner?.notifySessionOpened(upgradeResponse: webSocketTask.response as? HTTPURLResponse)
         }
 
         func urlSession(_ session: URLSession, webSocketTask: URLSessionWebSocketTask, didCloseWith closeCode: URLSessionWebSocketTask.CloseCode, reason: Data?) {
+            if let reason,
+               let text = String(data: reason, encoding: .utf8),
+               text.hasPrefix("e2ee_replay_clock_skew:"),
+               let serverTs = Int64(text.dropFirst("e2ee_replay_clock_skew:".count)),
+               let host = owner?.originalHost, !host.isEmpty {
+                E2EECrypto.shared.recordClockSkew(host: host, serverTsMs: serverTs)
+            }
             if closeCode.rawValue == 4001 || closeCode.rawValue == 4003 {
                 owner?.notifyAuthRejected()
             }

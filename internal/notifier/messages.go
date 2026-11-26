@@ -272,3 +272,139 @@ func formatCompactTokens(n int64) string {
 		return fmt.Sprintf("%d", n)
 	}
 }
+
+// Redacted push notification templates (used when MGY_PUSH_REDACT / PUSH_REDACT / APNS_REDACT is enabled).
+// These strip all session titles, terminal commands, file paths, questions, plan text, and account details,
+// preserving only notification category, risk level, and numeric progress counts.
+
+func msgRedactedSessionTitleFor(lang string) string {
+	return i18n.T3For(i18n.ResolveLang(lang), "Antigravity 会话", "Antigravity Session", "Antigravity セッション")
+}
+
+func msgRedactedActionBodyFor(lang, kind string, isHighRisk bool) string {
+	resolved := i18n.ResolveLang(lang)
+	if isHighRisk {
+		return i18n.T3For(resolved,
+			"高危操作等待审批，请打开客户端查看详情",
+			"High-risk action awaits approval. Open app to review.",
+			"高リスク操作の承認待ちです。アプリで確認してください。",
+		)
+	}
+	switch kind {
+	case "ask_question":
+		return i18n.T3For(resolved,
+			"Agent 提出了新问题，请打开客户端查看并回复",
+			"Agent asked a question. Open app to reply.",
+			"Agent から質問があります。アプリで回答してください。",
+		)
+	case "run_command", "command":
+		return i18n.T3For(resolved,
+			"终端命令等待审批，请打开客户端查看",
+			"Terminal command awaits approval. Open app to review.",
+			"コマンド実行の承認待ちです。アプリで確認してください。",
+		)
+	case "file_permission", "file":
+		return i18n.T3For(resolved,
+			"文件操作等待审批，请打开客户端查看",
+			"File access awaits approval. Open app to review.",
+			"ファイル操作の承認待ちです。アプリで確認してください。",
+		)
+	case "workflow_approval":
+		return i18n.T3For(resolved,
+			"动态工作流等待审批，请打开客户端查看",
+			"Workflow awaits approval. Open app to review.",
+			"ワークフローの承認待ちです。アプリで確認してください。",
+		)
+	default:
+		return i18n.T3For(resolved,
+			"有操作等待审批，请打开客户端查看",
+			"An action awaits your approval. Open app to review.",
+			"承認待ちの操作があります。アプリで確認してください。",
+		)
+	}
+}
+
+func msgRedactedProceedBodyFor(lang string, totalSteps int) string {
+	resolved := i18n.ResolveLang(lang)
+	if totalSteps > 0 {
+		return i18n.Sprintf3For(resolved,
+			"方案已就绪（共 %d 步），请打开客户端确认 Proceed。",
+			"Plan ready (%d steps). Open app to confirm Proceed.",
+			"計画の準備が完了しました（全 %d ステップ）。アプリで Proceed を確認してください。",
+			totalSteps,
+		)
+	}
+	return i18n.T3For(resolved,
+		"方案已就绪，请打开客户端确认 Proceed。",
+		"Plan ready. Open app to confirm Proceed.",
+		"計画の準備が完了しました。アプリで Proceed を確認してください。",
+	)
+}
+
+func msgRedactedCompletedBodyFor(lang string, totalSteps int) string {
+	resolved := i18n.ResolveLang(lang)
+	if totalSteps > 0 {
+		return i18n.Sprintf3For(resolved,
+			"任务已完成，共执行 %d 个步骤。",
+			"Task finished (%d steps).",
+			"タスクが完了しました（全 %d ステップ）。",
+			totalSteps,
+		)
+	}
+	return i18n.T3For(resolved,
+		"任务已顺利执行完毕。",
+		"Task finished.",
+		"タスクが完了しました。",
+	)
+}
+
+func msgRedactedFailedBodyFor(lang string) string {
+	return i18n.T3For(i18n.ResolveLang(lang),
+		"任务执行出现异常或已被终止，请打开客户端查看。",
+		"Task encountered an error or was stopped. Open app for details.",
+		"タスクでエラーが発生したか停止されました。アプリで確認してください。",
+	)
+}
+
+func msgRedactedQuotaCopyFor(lang, level string) (string, string) {
+	resolved := i18n.ResolveLang(lang)
+	switch level {
+	case "critical":
+		return i18n.T3For(resolved, "🚨 配额紧急预警", "🚨 Critical Quota Alert", "🚨 クォータ緊急警告"),
+			i18n.T3For(resolved, "当前配额接近耗尽，请打开客户端查看。", "Quota is critically low. Open app for details.", "クォータ残量が極めて少なくなっています。アプリで確認してください。")
+	case "bonus_reset":
+		return i18n.T3For(resolved, "✨ 配额状态更新", "✨ Quota Update", "✨ クォータ更新"),
+			i18n.T3For(resolved, "检测到配额已刷新，请打开客户端查看。", "Quota has been refreshed. Open app for details.", "クォータが更新されました。アプリで確認してください。")
+	case "anomaly":
+		return i18n.T3For(resolved, "⚠️ 配额消耗异常", "⚠️ Quota Usage Alert", "⚠️ クォータ異常警告"),
+			i18n.T3For(resolved, "检测到配额消耗异常，请打开客户端查看。", "Unusual quota usage detected. Open app for details.", "クォータの異常消費を検知しました。アプリで確認してください。")
+	default:
+		return i18n.T3For(resolved, "⚠️ 配额偏低提醒", "⚠️ Low Quota Alert", "⚠️ クォータ低下警告"),
+			i18n.T3For(resolved, "当前配额偏低，请打开客户端查看。", "Quota is running low. Open app for details.", "クォータ残量が少なくなっています。アプリで確認してください。")
+	}
+}
+
+func msgRedactedCockpitBodyFor(lang string) string {
+	return i18n.T3For(i18n.ResolveLang(lang),
+		"本地配额服务未能连接，请打开客户端或电脑查看。",
+		"Local quota service is unreachable. Open app or host to check.",
+		"ローカルクォータサービスに接続できません。アプリまたはPCで確認してください。",
+	)
+}
+
+func msgRedactedLiveActivityRunningTasksFor(lang string, count int) string {
+	return i18n.Sprintf3For(i18n.ResolveLang(lang),
+		"后台任务运行中 (%d)",
+		"Running tasks (%d)",
+		"バックグラウンド実行中 (%d)",
+		count,
+	)
+}
+
+func msgRedactedLiveActivityHighRiskFor(lang string) string {
+	return i18n.T3For(i18n.ResolveLang(lang),
+		"高危操作待审批",
+		"High-risk approval needed",
+		"高リスク承認待ち",
+	)
+}

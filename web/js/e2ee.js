@@ -17,6 +17,8 @@
   const LS_BEARER = "agy_e2ee_bearer";
   const HEADER_DEVICE_ID = "X-Mgy-E2EE-Device";
   const HEADER_ACCEPT_ENC = "X-Mgy-E2EE-Enc";
+  const HEADER_CAPS = "X-Mgy-E2EE-Caps";
+  const CAP_WS_SEQ1 = "ws-seq1";
   const PAIR_SALT = new TextEncoder().encode("mgy-e2ee-pair-v1");
 
   const SUPPORTS_DEFLATE_RAW = (() => {
@@ -43,6 +45,37 @@
   let cachedGatewayPub = null;
   let cachedAesKey = null;
   let cachedAesKeyB64 = null;
+  const serverCaps = new Set();
+  let clockOffsetMs = 0;
+
+  function observeCapsFromHeader(raw) {
+    if (!raw || typeof raw !== "string") return;
+    raw.split(",").forEach((t) => {
+      const clean = t.trim().toLowerCase();
+      if (clean) serverCaps.add(clean);
+    });
+  }
+
+  function observeCaps(resp) {
+    try {
+      if (resp && resp.headers && typeof resp.headers.get === "function") {
+        observeCapsFromHeader(resp.headers.get(HEADER_CAPS));
+      }
+    } catch (_) {}
+  }
+
+  function generateRequestId() {
+    const bytes = window.crypto.getRandomValues(new Uint8Array(16));
+    let hex = "";
+    for (let i = 0; i < bytes.length; i++) {
+      hex += bytes[i].toString(16).padStart(2, "0");
+    }
+    return hex;
+  }
+
+  function adjustedTimestampMs() {
+    return Math.round(Date.now() + clockOffsetMs);
+  }
 
   function isLocalHost(host) {
     const h = (host || "").toLowerCase();
@@ -169,6 +202,10 @@
     return enc.encode("mgy-e2ee-v1:" + deviceId.trim() + ":" + dir);
   }
 
+  function frameSeqAad(deviceId, dir, seq) {
+    return enc.encode("mgy-e2ee-v1:" + deviceId.trim() + ":" + dir + ":" + seq);
+  }
+
   function pairFrameAad(clientPubB64, dir) {
     return enc.encode("mgy-e2ee-pair-v1:" + clientPubB64.trim() + ":" + dir);
   }
@@ -216,8 +253,12 @@
     if (cachedGatewayPub) return cachedGatewayPub;
     try {
       const resp = await nativeFetch("/healthz", { credentials: "omit" });
+      observeCaps(resp);
       if (resp.ok) {
         const j = await resp.json();
+        if (j && Array.isArray(j.e2ee_caps)) {
+          j.e2ee_caps.forEach((c) => observeCapsFromHeader(String(c)));
+        }
         if (j && j.e2ee_pub) {
           cachedGatewayPub = String(j.e2ee_pub).trim();
           return cachedGatewayPub;
@@ -313,7 +354,7 @@
     return b64StdEncode(enc.encode(String(body)));
   }
 
-  async function executeEncryptedRPC(parsedUrl, options, creds) {
+  async function executeEncryptedRPC(parsedUrl, options, creds, retriedClockSkew) {
     const method = ((options && options.method) || "GET").toUpperCase();
     const pathWithQuery = (parsedUrl.pathname || "/") + (parsedUrl.search || "");
     const headersObj = {};
@@ -331,7 +372,13 @@
     }
 
     const bodyB64 = options && options.body != null ? await serializeFetchBody(options.body) : "";
-    const inner = { m: method, p: pathWithQuery, h: headersObj };
+    const inner = {
+      m: method,
+      p: pathWithQuery,
+      h: headersObj,
+      ts: adjustedTimestampMs(),
+      id: generateRequestId(),
+    };
     if (bodyB64) inner.b = bodyB64;
 
     const aesKey = await getActiveAesKey(creds.keyB64);
@@ -353,8 +400,25 @@
       signal: options && options.signal,
     });
 
+    observeCaps(outerResp);
     if (outerResp.status !== 200) {
-      if (outerResp.status === 401) clearStoredCreds();
+      if (outerResp.status === 401) {
+        if (!retriedClockSkew) {
+          try {
+            const errJson = await outerResp.clone().json();
+            if (
+              errJson &&
+              errJson.error === "e2ee_replay_clock_skew" &&
+              typeof errJson.server_ts_ms === "number" &&
+              errJson.server_ts_ms > 0
+            ) {
+              clockOffsetMs = errJson.server_ts_ms - Date.now();
+              return await executeEncryptedRPC(parsedUrl, options, creds, true);
+            }
+          } catch (_) {}
+        }
+        clearStoredCreds();
+      }
       return outerResp;
     }
 
@@ -428,7 +492,11 @@
     }
 
     if (parsedUrl.origin !== window.location.origin || shouldBypassPath(parsedUrl.pathname)) {
-      return nativeFetch(input, init);
+      const bypassResp = await nativeFetch(input, init);
+      if (parsedUrl.origin === window.location.origin && parsedUrl.pathname === "/healthz") {
+        observeCaps(bypassResp);
+      }
+      return bypassResp;
     }
 
     // Clear E2EE creds on logout/unpair
@@ -487,65 +555,90 @@
       this._creds = creds;
       this._aesPromise = getActiveAesKey(creds.keyB64);
       this._pendingSends = [];
+      this._useSeq = serverCaps.has(CAP_WS_SEQ1);
+      this._c2sSeq = 0;
+      this._s2cSeq = 0;
+      this._sendChain = Promise.resolve();
+      this._recvChain = Promise.resolve();
       this._raw = new NativeWebSocket(outerUrl);
       this._raw.binaryType = "arraybuffer";
 
-      this._raw.addEventListener("open", async () => {
-        try {
-          const aesKey = await this._aesPromise;
-          const openHeaders = {};
-          if (creds.bearer) openHeaders["Authorization"] = "Bearer " + creds.bearer;
-          if (protocols) {
-            openHeaders["Sec-WebSocket-Protocol"] = Array.isArray(protocols)
-              ? protocols.join(", ")
-              : String(protocols);
+      this._raw.addEventListener("open", () => {
+        this._sendChain = this._sendChain.then(async () => {
+          try {
+            const aesKey = await this._aesPromise;
+            this._useSeq = serverCaps.has(CAP_WS_SEQ1);
+            const openHeaders = {};
+            if (creds.bearer) openHeaders["Authorization"] = "Bearer " + creds.bearer;
+            if (protocols) {
+              openHeaders["Sec-WebSocket-Protocol"] = Array.isArray(protocols)
+                ? protocols.join(", ")
+                : String(protocols);
+            }
+            const openFrame = {
+              path: innerPath,
+              headers: openHeaders,
+              ts: adjustedTimestampMs(),
+              id: generateRequestId(),
+            };
+            if (SUPPORTS_DEFLATE_RAW) openFrame.enc = "flate";
+            if (this._useSeq) openFrame.seq = "v1";
+            const frame0 = await aesEncrypt(
+              aesKey,
+              enc.encode(JSON.stringify(openFrame)),
+              frameAad(creds.deviceId, "ws-open")
+            );
+            this._raw.send(frame0);
+            this.readyState = NativeWebSocket.OPEN;
+            while (this._pendingSends.length > 0) {
+              const item = this._pendingSends.shift();
+              this._sendEncrypted(item);
+            }
+            const ev = new Event("open");
+            if (typeof this.onopen === "function") this.onopen(ev);
+            this.dispatchEvent(ev);
+          } catch (err) {
+            this.close(1008, "e2ee_open_failed");
           }
-          const openFrame = { path: innerPath, headers: openHeaders };
-          if (SUPPORTS_DEFLATE_RAW) openFrame.enc = "flate";
-          const frame0 = await aesEncrypt(
-            aesKey,
-            enc.encode(JSON.stringify(openFrame)),
-            frameAad(creds.deviceId, "ws-open")
-          );
-          this._raw.send(frame0);
-          this.readyState = NativeWebSocket.OPEN;
-          const ev = new Event("open");
-          if (typeof this.onopen === "function") this.onopen(ev);
-          this.dispatchEvent(ev);
-          while (this._pendingSends.length > 0) {
-            const item = this._pendingSends.shift();
-            this._sendEncrypted(item);
-          }
-        } catch (err) {
-          this.close(1008, "e2ee_open_failed");
-        }
+        });
       });
 
-      this._raw.addEventListener("message", async (ev) => {
-        try {
-          const aesKey = await this._aesPromise;
-          let buf;
-          if (ev.data instanceof ArrayBuffer) {
-            buf = new Uint8Array(ev.data);
-          } else if (ev.data instanceof Blob) {
-            buf = new Uint8Array(await ev.data.arrayBuffer());
-          } else {
-            return;
+      this._raw.addEventListener("message", (ev) => {
+        const rawData = ev.data;
+        this._recvChain = this._recvChain.then(async () => {
+          let seq = 0;
+          try {
+            const aesKey = await this._aesPromise;
+            let buf;
+            if (rawData instanceof ArrayBuffer) {
+              buf = new Uint8Array(rawData);
+            } else if (rawData instanceof Blob) {
+              buf = new Uint8Array(await rawData.arrayBuffer());
+            } else {
+              return;
+            }
+            seq = this._s2cSeq++;
+            const aad = this._useSeq
+              ? frameSeqAad(creds.deviceId, "ws-s2c", seq)
+              : frameAad(creds.deviceId, "ws-s2c");
+            const plain = await aesDecrypt(aesKey, buf, aad);
+            if (!plain || plain.length < 1) return;
+            const headerByte = plain[0];
+            const isCompressed = (headerByte & 0x80) !== 0;
+            const msgType = headerByte & 0x7f;
+            const rawPayload = plain.slice(1);
+            const payload = isCompressed ? await inflateRawBytes(rawPayload) : rawPayload;
+            const outData = msgType === 1 ? dec.decode(payload) : payload.buffer;
+            const msgEv = new MessageEvent("message", { data: outData });
+            if (typeof this.onmessage === "function") this.onmessage(msgEv);
+            this.dispatchEvent(msgEv);
+          } catch (_) {
+            if (this._useSeq && seq === 0) {
+              serverCaps.delete(CAP_WS_SEQ1);
+            }
+            this.close(1008, "e2ee_decrypt_failed");
           }
-          const plain = await aesDecrypt(aesKey, buf, frameAad(creds.deviceId, "ws-s2c"));
-          if (!plain || plain.length < 1) return;
-          const headerByte = plain[0];
-          const isCompressed = (headerByte & 0x80) !== 0;
-          const msgType = headerByte & 0x7f;
-          const rawPayload = plain.slice(1);
-          const payload = isCompressed ? await inflateRawBytes(rawPayload) : rawPayload;
-          const outData = msgType === 1 ? dec.decode(payload) : payload.buffer;
-          const msgEv = new MessageEvent("message", { data: outData });
-          if (typeof this.onmessage === "function") this.onmessage(msgEv);
-          this.dispatchEvent(msgEv);
-        } catch (_) {
-          this.close(1008, "e2ee_decrypt_failed");
-        }
+        });
       });
 
       this._raw.addEventListener("error", (ev) => {
@@ -554,6 +647,12 @@
       });
 
       this._raw.addEventListener("close", (ev) => {
+        if (ev && typeof ev.reason === "string" && ev.reason.startsWith("e2ee_replay_clock_skew:")) {
+          const parsedTs = parseInt(ev.reason.slice("e2ee_replay_clock_skew:".length), 10);
+          if (Number.isFinite(parsedTs) && parsedTs > 0) {
+            clockOffsetMs = parsedTs - Date.now();
+          }
+        }
         this.readyState = NativeWebSocket.CLOSED;
         const closeEv = new CloseEvent("close", {
           code: ev.code,
@@ -573,33 +672,39 @@
       this._sendEncrypted(data);
     }
 
-    async _sendEncrypted(data) {
-      try {
-        const aesKey = await this._aesPromise;
-        let msgType = 1;
-        let payload;
-        if (typeof data === "string") {
-          msgType = 1;
-          payload = enc.encode(data);
-        } else if (data instanceof ArrayBuffer) {
-          msgType = 2;
-          payload = new Uint8Array(data);
-        } else if (ArrayBuffer.isView(data)) {
-          msgType = 2;
-          payload = new Uint8Array(data.buffer, data.byteOffset, data.byteLength);
-        } else if (data instanceof Blob) {
-          msgType = 2;
-          payload = new Uint8Array(await data.arrayBuffer());
-        } else {
-          msgType = 1;
-          payload = enc.encode(String(data));
-        }
-        const buf = new Uint8Array(1 + payload.length);
-        buf[0] = msgType;
-        buf.set(payload, 1);
-        const frame = await aesEncrypt(aesKey, buf, frameAad(this._creds.deviceId, "ws-c2s"));
-        this._raw.send(frame);
-      } catch (_) {}
+    _sendEncrypted(data) {
+      this._sendChain = this._sendChain.then(async () => {
+        try {
+          const aesKey = await this._aesPromise;
+          let msgType = 1;
+          let payload;
+          if (typeof data === "string") {
+            msgType = 1;
+            payload = enc.encode(data);
+          } else if (data instanceof ArrayBuffer) {
+            msgType = 2;
+            payload = new Uint8Array(data);
+          } else if (ArrayBuffer.isView(data)) {
+            msgType = 2;
+            payload = new Uint8Array(data.buffer, data.byteOffset, data.byteLength);
+          } else if (data instanceof Blob) {
+            msgType = 2;
+            payload = new Uint8Array(await data.arrayBuffer());
+          } else {
+            msgType = 1;
+            payload = enc.encode(String(data));
+          }
+          const buf = new Uint8Array(1 + payload.length);
+          buf[0] = msgType;
+          buf.set(payload, 1);
+          const seq = this._c2sSeq++;
+          const aad = this._useSeq
+            ? frameSeqAad(this._creds.deviceId, "ws-c2s", seq)
+            : frameAad(this._creds.deviceId, "ws-c2s");
+          const frame = await aesEncrypt(aesKey, buf, aad);
+          this._raw.send(frame);
+        } catch (_) {}
+      });
     }
 
     close(code, reason) {

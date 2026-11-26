@@ -1,7 +1,10 @@
 package main
 
 import (
+	"bytes"
+	"encoding/base64"
 	"encoding/json"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
@@ -11,9 +14,14 @@ import (
 	"time"
 
 	"antigravity-mobile/internal/auth"
+	"antigravity-mobile/internal/config"
+	"antigravity-mobile/internal/e2ee"
 	"antigravity-mobile/internal/inspector"
 	"antigravity-mobile/internal/proxy"
+	"antigravity-mobile/internal/relay"
 	"antigravity-mobile/web"
+
+	"github.com/gorilla/websocket"
 )
 
 func setupTestRouter(t *testing.T) http.Handler {
@@ -469,6 +477,283 @@ func TestNormalizeTopLevelCommand(t *testing.T) {
 		if got := normalizeTopLevelCommand(tc.arg); got != tc.want {
 			t.Errorf("normalizeTopLevelCommand(%q) = %q, want %q", tc.arg, got, tc.want)
 		}
+	}
+}
+
+func TestHealthz_HidesPubKeyOnlyWhenRelayAndDisableWeb(t *testing.T) {
+	tmpDir := t.TempDir()
+	authStore, err := auth.NewAuthStore(filepath.Join(tmpDir, "auth.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(authStore.Close)
+
+	e2eeID, err := e2ee.LoadOrCreateIdentity(tmpDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	pm := auth.NewPairingManager()
+	authHandler := auth.NewAuthHandler(authStore, pm, "127.0.0.1", 58900, false)
+	t.Cleanup(authHandler.Close)
+	authHandler.SetE2EEIdentity(e2eeID)
+
+	insp := inspector.NewInspector(10 * time.Second)
+	p := proxy.NewProxy(insp)
+
+	// 1. Default relay (web enabled): /healthz MUST keep e2ee_pub for Web/PWA pairing.
+	routerWebOn := buildRouterWithOptions(authStore, authHandler, p, insp, time.Now(), web.Handler(), auth.AuthPolicy{}, routerOptions{
+		RelayDisableWeb: false,
+	})
+	reqRelayOn := httptest.NewRequest(http.MethodGet, "/healthz", nil)
+	reqRelayOn = reqRelayOn.WithContext(e2ee.WithRelayTransport(reqRelayOn.Context()))
+	rrOn := httptest.NewRecorder()
+	routerWebOn.ServeHTTP(rrOn, reqRelayOn)
+	if rrOn.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", rrOn.Code)
+	}
+	var bodyOn map[string]any
+	if err := json.NewDecoder(rrOn.Body).Decode(&bodyOn); err != nil {
+		t.Fatal(err)
+	}
+	if bodyOn["e2ee_pub"] != e2eeID.PublicKeyB64() {
+		t.Fatalf("expected e2ee_pub to remain visible when web enabled on relay, got %+v", bodyOn)
+	}
+	if bodyOn["e2ee_required"] != true {
+		t.Fatalf("expected e2ee_required=true on relay transport, got %+v", bodyOn)
+	}
+
+	// 2. MGY_RELAY_DISABLE_WEB=1 on relay transport: hide e2ee_pub, version, os, platform; keep caps & e2ee=true.
+	routerWebOff := buildRouterWithOptions(authStore, authHandler, p, insp, time.Now(), web.Handler(), auth.AuthPolicy{}, routerOptions{
+		RelayDisableWeb: true,
+	})
+	reqRelayOff := httptest.NewRequest(http.MethodGet, "/healthz", nil)
+	reqRelayOff = reqRelayOff.WithContext(e2ee.WithRelayTransport(reqRelayOff.Context()))
+	rrOff := httptest.NewRecorder()
+	routerWebOff.ServeHTTP(rrOff, reqRelayOff)
+	if rrOff.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", rrOff.Code)
+	}
+	if hdr := rrOff.Header().Get(e2ee.HeaderE2EECaps); hdr != e2ee.SupportedCaps {
+		t.Fatalf("expected %s=%q, got %q", e2ee.HeaderE2EECaps, e2ee.SupportedCaps, hdr)
+	}
+	var bodyOff map[string]any
+	if err := json.NewDecoder(rrOff.Body).Decode(&bodyOff); err != nil {
+		t.Fatal(err)
+	}
+	for _, hidden := range []string{"e2ee_pub", "version", "os", "platform"} {
+		if _, exists := bodyOff[hidden]; exists {
+			t.Fatalf("expected %q hidden on relay /healthz when MGY_RELAY_DISABLE_WEB=1, got %+v", hidden, bodyOff)
+		}
+	}
+	if bodyOff["e2ee"] != true || bodyOff["e2ee_required"] != true {
+		t.Fatalf("expected e2ee=true and e2ee_required=true, got %+v", bodyOff)
+	}
+
+	// 3. Direct LAN/loopback request with MGY_RELAY_DISABLE_WEB=1 still exposes normal /healthz fields.
+	reqLocal := httptest.NewRequest(http.MethodGet, "/healthz", nil)
+	rrLocal := httptest.NewRecorder()
+	routerWebOff.ServeHTTP(rrLocal, reqLocal)
+	var bodyLocal map[string]any
+	if err := json.NewDecoder(rrLocal.Body).Decode(&bodyLocal); err != nil {
+		t.Fatal(err)
+	}
+	if bodyLocal["e2ee_pub"] != e2eeID.PublicKeyB64() {
+		t.Fatalf("local /healthz should keep e2ee_pub even when MGY_RELAY_DISABLE_WEB=1, got %+v", bodyLocal)
+	}
+}
+
+func TestWrapForceE2EEHandler_AllowsLocalLanTailscale_BlocksProxiedAndSupportsWS(t *testing.T) {
+	tmpDir := t.TempDir()
+	authStore, err := auth.NewAuthStore(filepath.Join(tmpDir, "auth.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(authStore.Close)
+
+	e2eeID, err := e2ee.LoadOrCreateIdentity(tmpDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	devID := "dev-force-e2ee"
+	devTok := "tok-force-e2ee-secret"
+	devKey := bytes.Repeat([]byte{0x42}, 32)
+	if err := authStore.AddDevice(auth.PairedDevice{
+		DeviceID:   devID,
+		DeviceName: "iPhone",
+		Platform:   "ios",
+		TokenHash:  auth.HashToken(devTok),
+		E2EEKeyB64: base64.RawURLEncoding.EncodeToString(devKey),
+		E2EEReady:  true,
+		CreatedAt:  time.Now(),
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	pm := auth.NewPairingManager()
+	authHandler := auth.NewAuthHandler(authStore, pm, "127.0.0.1", 58900, false)
+	t.Cleanup(authHandler.Close)
+	authHandler.SetE2EEIdentity(e2eeID)
+	authHandler.SetForceE2EE(true)
+
+	insp := inspector.NewInspector(10 * time.Second)
+	p := proxy.NewProxy(insp)
+
+	// Start isolated internal loopback WS listener just like runGatewayServerWithMode does when MGY_FORCE_E2EE=1.
+	innerLn, err := net.Listen("tcp4", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = innerLn.Close() })
+
+	router := buildRouterWithOptions(authStore, authHandler, p, insp, time.Now(), web.Handler(), auth.AuthPolicy{TrustLAN: true}, routerOptions{
+		LocalWSAddr:     func() string { return innerLn.Addr().String() },
+		RelayDisableWeb: true,
+	})
+
+	// Serve a simple WS echo endpoint on innerLn alongside raw router to prove e2ee.HandleWS dials without 426.
+	innerMux := http.NewServeMux()
+	upgrader := websocket.Upgrader{CheckOrigin: func(*http.Request) bool { return true }}
+	innerMux.HandleFunc("/gateway/events", func(w http.ResponseWriter, r *http.Request) {
+		conn, err := upgrader.Upgrade(w, r, nil)
+		if err != nil {
+			return
+		}
+		defer conn.Close()
+		mt, msg, err := conn.ReadMessage()
+		if err == nil {
+			_ = conn.WriteMessage(mt, append([]byte("echo:"), msg...))
+		}
+	})
+	innerMux.Handle("/", router)
+	innerSrv := &http.Server{Handler: innerMux}
+	go innerSrv.Serve(innerLn)
+	t.Cleanup(func() { _ = innerSrv.Close() })
+
+	forced := wrapForceE2EEHandler(router, true)
+
+	// 1. Direct loopback CLI request passes without 426.
+	reqLoop := httptest.NewRequest(http.MethodGet, "/api/v1/version", nil)
+	reqLoop.RemoteAddr = "127.0.0.1:54321"
+	rrLoop := httptest.NewRecorder()
+	forced.ServeHTTP(rrLoop, reqLoop)
+	if rrLoop.Code != http.StatusOK {
+		t.Fatalf("expected 200 for loopback request, got %d", rrLoop.Code)
+	}
+
+	// 2. Direct LAN and Tailscale CGNAT requests pass without 426.
+	for _, addr := range []string{"192.168.50.10:12345", "100.100.42.5:12345"} {
+		req := httptest.NewRequest(http.MethodGet, "/api/v1/version", nil)
+		req.RemoteAddr = addr
+		rr := httptest.NewRecorder()
+		forced.ServeHTTP(rr, req)
+		if rr.Code != http.StatusOK {
+			t.Fatalf("expected 200 for direct private/Tailscale addr %s, got %d", addr, rr.Code)
+		}
+	}
+
+	// 3. Proxied plaintext API request gets 426 Upgrade Required.
+	reqProxied := httptest.NewRequest(http.MethodGet, "/api/v1/version", nil)
+	reqProxied.RemoteAddr = "127.0.0.1:54321"
+	reqProxied.Header.Set("X-Forwarded-For", "198.51.100.9")
+	reqProxied.Header.Set("X-Forwarded-Proto", "https")
+	rrProxied := httptest.NewRecorder()
+	forced.ServeHTTP(rrProxied, reqProxied)
+	if rrProxied.Code != http.StatusUpgradeRequired {
+		t.Fatalf("expected 426 for proxied plaintext API under ForceE2EE, got %d body=%s", rrProxied.Code, rrProxied.Body.String())
+	}
+
+	// 4. Proxied static web shell gets 403 when RelayDisableWeb=true.
+	reqWeb := httptest.NewRequest(http.MethodGet, "/index.html", nil)
+	reqWeb.RemoteAddr = "198.51.100.9:443"
+	rrWeb := httptest.NewRecorder()
+	forced.ServeHTTP(rrWeb, reqWeb)
+	if rrWeb.Code != http.StatusForbidden {
+		t.Fatalf("expected 403 for public web shell when RelayDisableWeb=true, got %d", rrWeb.Code)
+	}
+
+	// 5. E2EE WS tunnel through the ForceE2EE outer server succeeds because HandleWS dials isolated innerWSServer.
+	outerSrv := httptest.NewServer(forced)
+	t.Cleanup(outerSrv.Close)
+	wsURL := "ws" + strings.TrimPrefix(outerSrv.URL, "http") + "/api/v1/e2ee/ws?d=" + devID
+	hdr := http.Header{
+		"X-Forwarded-For":   []string{"198.51.100.9"},
+		"X-Forwarded-Proto": []string{"https"},
+	}
+	conn, resp, err := websocket.DefaultDialer.Dial(wsURL, hdr)
+	if err != nil {
+		t.Fatalf("dial /api/v1/e2ee/ws under ForceE2EE failed: %v (resp=%v)", err, resp)
+	}
+	defer conn.Close()
+
+	openPayload, _ := json.Marshal(e2ee.WSOpenFrame{
+		Path:    "/gateway/events",
+		Headers: map[string]string{"Authorization": "Bearer " + devTok},
+		Seq:     "v1",
+		TSMs:    time.Now().UnixMilli(),
+		ReqID:   "ws-force-e2ee-test-01",
+	})
+	encOpen, err := e2ee.Encrypt(devKey, openPayload, e2ee.FrameAAD(devID, "ws-open"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := conn.WriteMessage(websocket.BinaryMessage, encOpen); err != nil {
+		t.Fatal(err)
+	}
+	c2sPlain := append([]byte{byte(websocket.TextMessage)}, []byte("ping")...)
+	c2sEnc, err := e2ee.Encrypt(devKey, c2sPlain, e2ee.FrameSeqAAD(devID, "ws-c2s", 0))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := conn.WriteMessage(websocket.BinaryMessage, c2sEnc); err != nil {
+		t.Fatal(err)
+	}
+	_, encReply, err := conn.ReadMessage()
+	if err != nil {
+		t.Fatalf("read encrypted ws reply failed: %v", err)
+	}
+	plainReply, err := e2ee.Decrypt(devKey, encReply, e2ee.FrameSeqAAD(devID, "ws-s2c", 0))
+	if err != nil {
+		t.Fatalf("decrypt ws reply with seq=0 failed: %v", err)
+	}
+	if got := string(plainReply[1:]); got != "echo:ping" {
+		t.Fatalf("expected echo:ping, got %q", got)
+	}
+}
+
+func TestResolveCustomRelayResult(t *testing.T) {
+	tok, err := relay.SignToken("test-relay-secret-32-bytes-minimum", relay.TokenClaims{
+		ShortID:   "a1b2c3d4",
+		OwnerHash: "0123456789abcdef0123456789abcdef",
+		Domain:    "dev.example.com",
+		IssuedAt:  time.Now().Unix(),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// 1. Auto-derives PublicURL and Subdomain from signed token when PublicURL is omitted.
+	res, err := resolveCustomRelayResult(config.CustomRelayConfig{
+		Endpoint: "wss://relay.example.com/_mgy_tunnel",
+		Token:    tok,
+	})
+	if err != nil {
+		t.Fatalf("resolveCustomRelayResult auto-derive failed: %v", err)
+	}
+	if res.Subdomain != "dev.example.com" || res.URL != "https://dev.example.com" {
+		t.Fatalf("unexpected auto-derived result: %+v", res)
+	}
+
+	// 2. Explicit PublicURL override takes precedence.
+	res2, err := resolveCustomRelayResult(config.CustomRelayConfig{
+		Endpoint:  "wss://relay.example.com/_mgy_tunnel",
+		Token:     tok,
+		PublicURL: "https://custom.example.org/",
+	})
+	if err != nil {
+		t.Fatalf("resolveCustomRelayResult override failed: %v", err)
+	}
+	if res2.Subdomain != "custom.example.org" || res2.URL != "https://custom.example.org" {
+		t.Fatalf("unexpected override result: %+v", res2)
 	}
 }
 

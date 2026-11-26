@@ -206,14 +206,41 @@ func NewServer(cfg ServerConfig) (*Server, error) {
 		}
 	}
 
-	reserved := map[string]bool{
-		"jiuge.space":            true,
-		"www.jiuge.space":        true,
-		"mgy.jiuge.space":        true,
-		"dispatcher.jiuge.space": true,
-		"push.jiuge.space":       true,
-		"relay.jiuge.space":      true,
-		"hal9000.jiuge.space":    true,
+	var suffixes []string
+	usesOfficialSpace := false
+	for _, s := range cfg.AllowedSuffixes {
+		s = strings.ToLower(strings.TrimSpace(s))
+		if s == "" {
+			continue
+		}
+		if !strings.HasPrefix(s, ".") {
+			s = "." + s
+		}
+		if s == ".jiuge.space" || strings.HasSuffix(s, ".jiuge.space") {
+			usesOfficialSpace = true
+		}
+		suffixes = append(suffixes, s)
+	}
+	for h := range ctrl {
+		if h == "jiuge.space" || strings.HasSuffix(h, ".jiuge.space") {
+			usesOfficialSpace = true
+			break
+		}
+	}
+
+	reserved := make(map[string]bool)
+	if usesOfficialSpace {
+		for _, official := range []string{
+			"jiuge.space",
+			"www.jiuge.space",
+			"mgy.jiuge.space",
+			"dispatcher.jiuge.space",
+			"push.jiuge.space",
+			"relay.jiuge.space",
+			"hal9000.jiuge.space",
+		} {
+			reserved[official] = true
+		}
 	}
 	for h := range ctrl {
 		reserved[h] = true
@@ -223,18 +250,6 @@ func NewServer(cfg ServerConfig) (*Server, error) {
 		if h != "" {
 			reserved[h] = true
 		}
-	}
-
-	var suffixes []string
-	for _, s := range cfg.AllowedSuffixes {
-		s = strings.ToLower(strings.TrimSpace(s))
-		if s == "" {
-			continue
-		}
-		if !strings.HasPrefix(s, ".") {
-			s = "." + s
-		}
-		suffixes = append(suffixes, s)
 	}
 
 	return &Server{

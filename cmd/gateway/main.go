@@ -10,6 +10,7 @@ import (
 	"log/slog"
 	"net"
 	"net/http"
+	"net/url"
 	"os"
 	"os/signal"
 	"path/filepath"
@@ -336,9 +337,16 @@ func runGatewayServerWithMode(mode gatewayMode, args []string) {
 	// 3.5. Prepare public tunnel configuration (fast disk cache read now; dispatch & transport init run async after port bind)
 	tunnel.SetClientVersion(Version)
 	cfCfg := config.GetCloudflareConfig()
+	customRelayCfg := config.GetCustomRelayConfig()
+	relayDisableWeb := config.GetRelayDisableWeb()
+	forceE2EE := config.GetForceE2EE()
+	strictReplay := config.GetStrictE2EEReplay()
+	authHandler.SetForceE2EE(forceE2EE)
+
 	if hubCfg.Mode == modeNode && os.Getenv("MGY_NODE_ENABLE_TUNNEL") != "1" {
 		// In LAN node mode, the unified Hub owns public E2EE tunneling and mobile pairing.
 		cfCfg.Enabled = false
+		customRelayCfg = config.CustomRelayConfig{}
 	}
 	relayListener := relay.NewStreamListener()
 	var (
@@ -365,8 +373,28 @@ func runGatewayServerWithMode(mode gatewayMode, args []string) {
 	}
 	defer stopCFTunnel()
 
-	var cachedCFRes *tunnel.CFTunnelResult
-	if cfCfg.Enabled {
+	var (
+		cachedCFRes    *tunnel.CFTunnelResult
+		customRelayRes *tunnel.CFTunnelResult
+	)
+	if customRelayCfg.Enabled() {
+		var cErr error
+		customRelayRes, cErr = resolveCustomRelayResult(customRelayCfg)
+		if cErr != nil {
+			log.Fatalf("❌ Invalid MGY_CUSTOM_RELAY_* configuration: %v", cErr)
+		}
+		auth.RegisterRelayHost(customRelayRes.Subdomain)
+		authHandler.SetCloudEndpoint(customRelayRes.URL, tunnel.ModeRelayV1)
+		authHandler.SetPrimary(customRelayRes.Subdomain, 443, true)
+		cfDomain = customRelayRes.URL
+		cfDomainMode = tunnel.ModeRelayV1
+		qrHost = customRelayRes.Subdomain
+		qrPort = 443
+		extraHosts = nil
+		if netAddrs.LANIPv4 != "" {
+			extraHosts = append(extraHosts, netAddrs.LANIPv4)
+		}
+	} else if cfCfg.Enabled {
 		if cfCfg.Token != "" {
 			cachedCFRes = &tunnel.CFTunnelResult{
 				Success:   true,
@@ -575,6 +603,9 @@ func runGatewayServerWithMode(mode gatewayMode, args []string) {
 			pushSummary = i18n.T("未配置 (支持 APNs / FCM)", "Not configured (Supports APNs / FCM)")
 		}
 	}
+	if notifCfg.PushRedact {
+		pushSummary += i18n.T(" [隐私脱敏]", " [Redacted]")
+	}
 
 	// 5. Web frontend handler
 	webHandler := web.Handler()
@@ -644,10 +675,10 @@ func runGatewayServerWithMode(mode gatewayMode, args []string) {
 	}
 
 	listenLoopback := auth.IsListenAddrLoopback(*host)
-	// P1-5 Guardrail: Always preset TunnelEnabled from cfCfg.Enabled (never from async cfTunnel != nil)
+	// P1-5 Guardrail: Always preset TunnelEnabled from cfCfg.Enabled / customRelayCfg.Enabled (never from async cfTunnel != nil)
 	// so loopback admin/AUTH_DISABLED protections remain strictly enforced while the tunnel initializes.
 	authPolicy := auth.AuthPolicy{
-		TunnelEnabled:  cfCfg.Enabled,
+		TunnelEnabled:  cfCfg.Enabled || customRelayCfg.Enabled(),
 		ListenLoopback: listenLoopback,
 		TrustLAN:       *trustLAN,
 	}
@@ -668,11 +699,39 @@ func runGatewayServerWithMode(mode gatewayMode, args []string) {
 		wsDialHost = h
 	}
 	localWSAddr := fmt.Sprintf("%s:%d", wsDialHost, *port)
-	router := buildRouterWithHub(authStore, authHandler, p, insp, time.Now(), webHandler, authPolicy, func() string { return localWSAddr }, hubMgr)
+
+	// When MGY_FORCE_E2EE=1 wraps the main HTTP server, bind an isolated loopback-only listener for
+	// e2ee.HandleWS internal decrypted WS dialing so HandleWS's injected X-Forwarded-Proto header is
+	// never rejected with 426 by ForceE2EE middleware.
+	var (
+		innerWSListener net.Listener
+		innerWSServer   *http.Server
+	)
+	if forceE2EE {
+		var lErr error
+		innerWSListener, lErr = net.Listen("tcp4", "127.0.0.1:0")
+		if lErr != nil {
+			log.Fatalf("❌ Failed to bind internal E2EE WS loopback listener: %v", lErr)
+		}
+		defer innerWSListener.Close()
+		localWSAddr = innerWSListener.Addr().String()
+	}
+
+	router := buildRouterWithOptions(authStore, authHandler, p, insp, time.Now(), webHandler, authPolicy, routerOptions{
+		LocalWSAddr:     func() string { return localWSAddr },
+		HubMgr:          hubMgr,
+		RelayDisableWeb: relayDisableWeb,
+		StrictReplay:    strictReplay,
+	})
+
+	mainHandler := router
+	if forceE2EE {
+		mainHandler = wrapForceE2EEHandler(router, relayDisableWeb)
+	}
 
 	server := &http.Server{
 		Addr:    fmt.Sprintf("%s:%d", *host, *port),
-		Handler: router,
+		Handler: mainHandler,
 		// SEC-6: ReadHeaderTimeout and MaxHeaderBytes prevent Slowloris & header memory amplification.
 		ReadHeaderTimeout: 10 * time.Second,
 		MaxHeaderBytes:    64 << 10,
@@ -684,10 +743,21 @@ func runGatewayServerWithMode(mode gatewayMode, args []string) {
 		IdleTimeout:  120 * time.Second,
 	}
 
+	if innerWSListener != nil {
+		innerWSServer = &http.Server{
+			Handler:           router,
+			ReadHeaderTimeout: 10 * time.Second,
+			MaxHeaderBytes:    64 << 10,
+			ReadTimeout:       0,
+			WriteTimeout:      0,
+			IdleTimeout:       120 * time.Second,
+		}
+	}
+
 	// Dedicated in-process HTTP server for relay_v1 yamux streams: strictly enforces zero-knowledge E2EE
 	// via RelayGuardMiddleware + unspoofable ConnContext tagging (never bypassable via HTTP headers).
 	relayServer := &http.Server{
-		Handler:           e2ee.RelayGuardMiddleware(router),
+		Handler:           e2ee.RelayGuardMiddlewareWithOptions(router, e2ee.RelayGuardOptions{DisableWeb: relayDisableWeb}),
 		ReadHeaderTimeout: 10 * time.Second,
 		MaxHeaderBytes:    64 << 10,
 		ReadTimeout:       0,
@@ -712,6 +782,13 @@ func runGatewayServerWithMode(mode gatewayMode, args []string) {
 			log.Fatalf("Server error: %v", err)
 		}
 	}()
+	if innerWSServer != nil {
+		go func() {
+			if err := innerWSServer.Serve(innerWSListener); err != nil && err != http.ErrServerClosed && err != net.ErrClosed {
+				slog.Warn("[E2EE] Internal WS loopback server exited", "err", err)
+			}
+		}()
+	}
 	go func() {
 		if err := relayServer.Serve(relayListener); err != nil && err != http.ErrServerClosed && err != net.ErrClosed {
 			slog.Warn("[Relay] HTTP server exited", "err", err)
@@ -766,7 +843,10 @@ func runGatewayServerWithMode(mode gatewayMode, args []string) {
 				"  ➜  LAN:          %s (Pairing required)\n", lanURL))
 		}
 	}
-	if cfDomain != "" {
+	if customRelayRes != nil {
+		fmt.Print(i18n.Sprintf("  ➜  云端穿透:   自建 E2EE 中继已就绪 (%s | 跳过公共调度器)\n",
+			"  ➜  Cloud Tunnel: Self-hosted E2EE relay active (%s | BYO-Relay)\n", customRelayRes.URL))
+	} else if cfDomain != "" {
 		if cfDomainMode == tunnel.ModeRelayV1 {
 			fmt.Print(i18n.T("  ➜  云端穿透:   E2EE 端到端加密专属通道已就绪 (强制配对)\n",
 				"  ➜  Cloud Tunnel: E2EE exclusive HTTPS relay active (Pairing required)\n"))
@@ -781,12 +861,26 @@ func runGatewayServerWithMode(mode gatewayMode, args []string) {
 		fmt.Print(i18n.T("  ➜  云端穿透:   DDNS 专属域名已配置 (强制配对)\n",
 			"  ➜  Cloud Tunnel: DDNS domain configured (Pairing required)\n"))
 	}
+	var secFlags []string
+	if forceE2EE {
+		secFlags = append(secFlags, "FORCE_E2EE")
+	}
+	if relayDisableWeb {
+		secFlags = append(secFlags, "RELAY_DISABLE_WEB")
+	}
+	if strictReplay {
+		secFlags = append(secFlags, "STRICT_REPLAY")
+	}
+	secSuffix := ""
+	if len(secFlags) > 0 {
+		secSuffix = " [" + strings.Join(secFlags, ", ") + "]"
+	}
 	if authPolicy.TrustLAN {
-		fmt.Print(i18n.T("  ➜  安全策略:   局域网已信任免密放行 (可通过 mgy lan 切换策略)\n",
-			"  ➜  Security:     LAN trusted without pairing (Switch policy via mgy lan)\n"))
+		fmt.Print(i18n.Sprintf("  ➜  安全策略:   局域网已信任免密放行 (可通过 mgy lan 切换策略)%s\n",
+			"  ➜  Security:     LAN trusted without pairing (Switch policy via mgy lan)%s\n", secSuffix))
 	} else {
-		fmt.Print(i18n.T("  ➜  安全策略:   局域网标准安全配对 (可通过 mgy lan 切换策略)\n",
-			"  ➜  Security:     LAN standard pairing (Switch policy via mgy lan)\n"))
+		fmt.Print(i18n.Sprintf("  ➜  安全策略:   局域网标准安全配对 (可通过 mgy lan 切换策略)%s\n",
+			"  ➜  Security:     LAN standard pairing (Switch policy via mgy lan)%s\n", secSuffix))
 	}
 	fmt.Print(i18n.Sprintf("  ➜  目标实例:   %s\n",
 		"  ➜  Core Engine:  %s\n", upstreamDesc))
@@ -843,12 +937,40 @@ func runGatewayServerWithMode(mode gatewayMode, args []string) {
 
 	// Start public tunnel asynchronously after local HTTP server is already bound and serving (P1-5).
 	// Supports:
+	//   - Case 0 (BYO-Relay via MGY_CUSTOM_RELAY_*): connects directly to the user's self-hosted mgy-relay
+	//     without contacting dispatcher.jiuge.space, touching cf_tunnel.json, or downloading cloudflared.
 	//   - Case A (brand-new install or all paired devices E2EE-ready): directly uses dispatcher choice
 	//     (relay_v1 E2EE pool without downloading cloudflared, with automatic Cloudflare fallback if all VPS nodes fail).
 	//   - Case B (legacy non-E2EE paired devices exist): Dual-Track migration — keeps legacy Cloudflare Tunnel alive
 	//     for un-upgraded Apps while spinning up parallel E2EE relay_v1 for upgraded Apps; once all devices upgrade
 	//     to E2EE, automatically retires legacy Cloudflare Tunnel after a 30s drain grace window.
-	if cfCfg.Enabled {
+	if customRelayRes != nil {
+		go func(res *tunnel.CFTunnelResult) {
+			prov, err := tunnel.NewProviderWithOptions(watcherCtx, res, &cfCfg, tunnel.ProviderOptions{
+				RelayListener: relayListener,
+				LocalAddr:     localWSAddr,
+			})
+			if err != nil {
+				if watcherCtx.Err() == nil {
+					slog.Warn(i18n.T("⚠️  自建 E2EE 中继引擎准备失败", "⚠️  Failed to prepare self-hosted E2EE relay"), "err", err)
+				}
+				return
+			}
+			if err := prov.Start(watcherCtx); err != nil {
+				slog.Warn(i18n.T("⚠️  启动自建 E2EE 中继连接失败", "⚠️  Failed to start self-hosted E2EE relay"), "endpoint", res.RelayEndpoint, "err", err)
+				return
+			}
+			cfMu.Lock()
+			if watcherCtx.Err() != nil {
+				cfMu.Unlock()
+				prov.Stop()
+				return
+			}
+			activeTunnel = prov
+			cfMu.Unlock()
+			slog.Info("✅ [BYO-Relay] 自建 E2EE 中继隧道已连接", "endpoint", res.RelayEndpoint, "url", res.URL)
+		}(customRelayRes)
+	} else if cfCfg.Enabled {
 		hadCachedDomain := cfDomain != ""
 		lanExtra := netAddrs.LANIPv4
 		go func(cfgCopy config.CloudflareConfig, preloaded *tunnel.CFTunnelResult) {
@@ -1123,6 +1245,9 @@ func runGatewayServerWithMode(mode gatewayMode, args []string) {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 	_ = relayServer.Shutdown(ctx)
+	if innerWSServer != nil {
+		_ = innerWSServer.Shutdown(ctx)
+	}
 	if err := server.Shutdown(ctx); err != nil {
 		slog.Warn("Server shutdown error", "err", err)
 	}
@@ -1487,6 +1612,79 @@ func buildRouterWithWSAddr(
 	return buildRouterWithHub(authStore, authHandler, p, insp, startTime, webHandler, authPolicy, localWSAddr, nil)
 }
 
+type routerOptions struct {
+	LocalWSAddr     func() string
+	HubMgr          *hub.Hub
+	RelayDisableWeb bool
+	StrictReplay    bool
+}
+
+func resolveCustomRelayResult(cfg config.CustomRelayConfig) (*tunnel.CFTunnelResult, error) {
+	if !cfg.Enabled() {
+		return nil, fmt.Errorf("both MGY_CUSTOM_RELAY_ENDPOINT and MGY_CUSTOM_RELAY_TOKEN are required")
+	}
+	publicURL := strings.TrimRight(strings.TrimSpace(cfg.PublicURL), "/")
+	subdomain := ""
+	if publicURL != "" {
+		parsed, err := url.Parse(publicURL)
+		if err != nil || parsed.Hostname() == "" {
+			return nil, fmt.Errorf("invalid MGY_CUSTOM_RELAY_PUBLIC_URL %q", cfg.PublicURL)
+		}
+		subdomain = strings.ToLower(strings.TrimSpace(parsed.Hostname()))
+		publicURL = strings.TrimRight(parsed.String(), "/")
+	} else {
+		claims, err := relay.PeekTokenClaims(cfg.Token)
+		if err != nil {
+			return nil, fmt.Errorf("could not parse MGY_CUSTOM_RELAY_TOKEN (%w); set MGY_CUSTOM_RELAY_PUBLIC_URL explicitly", err)
+		}
+		subdomain = strings.ToLower(strings.TrimSpace(claims.Domain))
+		if subdomain == "" {
+			return nil, fmt.Errorf("token missing domain claim; set MGY_CUSTOM_RELAY_PUBLIC_URL explicitly")
+		}
+		publicURL = "https://" + subdomain
+	}
+	return &tunnel.CFTunnelResult{
+		Success:       true,
+		Mode:          tunnel.ModeRelayV1,
+		RelayEndpoint: cfg.Endpoint,
+		Subdomain:     subdomain,
+		URL:           publicURL,
+		Token:         cfg.Token,
+		Region:        "custom",
+	}, nil
+}
+
+func isTailscaleCGNATAddr(remoteAddr string) bool {
+	host, _, err := net.SplitHostPort(remoteAddr)
+	if err != nil {
+		host = remoteAddr
+	}
+	ip := net.ParseIP(strings.Trim(host, "[]"))
+	if ip == nil {
+		return false
+	}
+	ip4 := ip.To4()
+	if ip4 == nil {
+		return false
+	}
+	// RFC 6598 CGNAT 100.64.0.0/10 (used by Tailscale)
+	return ip4[0] == 100 && ip4[1] >= 64 && ip4[1] <= 127
+}
+
+func wrapForceE2EEHandler(router http.Handler, disableWeb bool) http.Handler {
+	guarded := e2ee.RelayGuardMiddlewareWithOptions(router, e2ee.RelayGuardOptions{DisableWeb: disableWeb})
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requiresE2EE := auth.IsProxiedRequest(r) ||
+			(!auth.IsLoopbackAddr(r.RemoteAddr) && !auth.IsPrivateLANAddr(r.RemoteAddr) && !isTailscaleCGNATAddr(r.RemoteAddr))
+		if requiresE2EE {
+			r = r.WithContext(e2ee.WithRelayTransport(r.Context()))
+			guarded.ServeHTTP(w, r)
+			return
+		}
+		router.ServeHTTP(w, r)
+	})
+}
+
 func buildRouterWithHub(
 	authStore *auth.AuthStore,
 	authHandler *auth.AuthHandler,
@@ -1498,6 +1696,28 @@ func buildRouterWithHub(
 	localWSAddr func() string,
 	hubMgr *hub.Hub,
 ) http.Handler {
+	return buildRouterWithOptions(authStore, authHandler, p, insp, startTime, webHandler, authPolicy, routerOptions{
+		LocalWSAddr:     localWSAddr,
+		HubMgr:          hubMgr,
+		RelayDisableWeb: config.GetRelayDisableWeb(),
+		StrictReplay:    config.GetStrictE2EEReplay(),
+	})
+}
+
+func buildRouterWithOptions(
+	authStore *auth.AuthStore,
+	authHandler *auth.AuthHandler,
+	p *proxy.Proxy,
+	insp inspector.UpstreamDiscoverer,
+	startTime time.Time,
+	webHandler http.Handler,
+	authPolicy auth.AuthPolicy,
+	opts routerOptions,
+) http.Handler {
+	localWSAddr := opts.LocalWSAddr
+	hubMgr := opts.HubMgr
+	relayDisableWeb := opts.RelayDisableWeb
+
 	rootMux := http.NewServeMux()
 
 	// E2EE transport handler (zero-knowledge relay envelope termination)
@@ -1515,6 +1735,7 @@ func buildRouterWithHub(
 		},
 		LocalWSAddr:    localWSAddr,
 		PairDispatcher: authHandler.PairFromEncryptedPayload,
+		StrictReplay:   opts.StrictReplay,
 	}
 
 	// Auth & E2EE endpoints
@@ -1913,17 +2134,33 @@ func buildRouterWithHub(
 		})
 	})
 	rootMux.HandleFunc("GET /healthz", func(w http.ResponseWriter, r *http.Request) {
+		pk := authHandler.E2EEPubKey()
+		if e2ee.IsRelayTransport(r.Context()) && relayDisableWeb {
+			if pk != "" {
+				w.Header().Set(e2ee.HeaderE2EECaps, e2ee.SupportedCaps)
+			}
+			writeJSON(w, http.StatusOK, map[string]any{
+				"status":        "ok",
+				"e2ee":          pk != "",
+				"e2ee_required": true,
+				"e2ee_caps":     e2ee.SupportedCapsList(),
+			})
+			return
+		}
 		resp := map[string]any{
 			"status":   "ok",
 			"version":  Version,
 			"os":       runtime.GOOS,
 			"platform": runtime.GOOS,
 		}
-		if pk := authHandler.E2EEPubKey(); pk != "" {
+		if pk != "" {
 			w.Header().Set(e2ee.HeaderE2EECaps, e2ee.SupportedCaps)
 			resp["e2ee"] = true
 			resp["e2ee_pub"] = pk
-			resp["e2ee_caps"] = []string{e2ee.SupportedCaps}
+			resp["e2ee_caps"] = e2ee.SupportedCapsList()
+		}
+		if e2ee.IsRelayTransport(r.Context()) {
+			resp["e2ee_required"] = true
 		}
 		writeJSON(w, http.StatusOK, resp)
 	})

@@ -50,6 +50,18 @@ object RelayPoolResolver {
         return trustedSuffixes.any { clean.endsWith(it) }
     }
 
+    /**
+     * Returns true if [hostOrUrl] belongs to the official managed relay pool (`.jiuge.space` or a
+     * suffix published by the official pool manifest). Custom self-hosted BYO-Relay domains return
+     * false so clients never contact `dispatcher.jiuge.space`.
+     */
+    fun isOfficialOrPoolHost(hostOrUrl: String): Boolean {
+        val clean = ConnectionManager.extractHost(hostOrUrl)
+        if (clean.isEmpty()) return false
+        if (clean.endsWith(".jiuge.space") || clean == "jiuge.space") return true
+        return isPoolDomainHost(clean)
+    }
+
     fun fetchPoolNodes(httpClient: OkHttpClient, forceRefresh: Boolean = false): List<PoolNode> {
         val now = System.currentTimeMillis()
         if (!forceRefresh && cachedNodes.isNotEmpty() && (now - cachedAtMs) < CACHE_TTL_MS) {
@@ -99,6 +111,7 @@ object RelayPoolResolver {
         httpClient: OkHttpClient
     ): String? {
         if (!E2eeCrypto.isReady(prefs)) return null
+        if (currentCloudUrl == null || !isOfficialOrPoolHost(currentCloudUrl)) return null
         val sid = extractSid(currentCloudUrl) ?: return null
         val currentClean = currentCloudUrl?.trim()?.trimEnd('/')?.lowercase()
 

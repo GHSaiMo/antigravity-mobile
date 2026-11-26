@@ -84,6 +84,28 @@ type APNsRelayClient struct {
 	alertSem       chan struct{}
 	rateMu         sync.Mutex
 	rateLimitUntil time.Time
+	redactMu       sync.RWMutex
+	redact         bool
+}
+
+// SetRedact toggles strict push redaction (stripping gateway labels/subtitles on outgoing APNs payloads).
+func (c *APNsRelayClient) SetRedact(enabled bool) {
+	if c == nil {
+		return
+	}
+	c.redactMu.Lock()
+	c.redact = enabled
+	c.redactMu.Unlock()
+}
+
+// Redact reports whether strict push redaction is active on this APNs relay client.
+func (c *APNsRelayClient) Redact() bool {
+	if c == nil {
+		return false
+	}
+	c.redactMu.RLock()
+	defer c.redactMu.RUnlock()
+	return c.redact
 }
 
 // NewAPNsRelayClient creates an APNsRelayClient bound to relayURL and store.
@@ -206,12 +228,14 @@ func (c *APNsRelayClient) Send(ctx context.Context, payload PushPayload) error {
 			targetSubtitle := ""
 			threadID := "multigravity"
 			if t.ShowGatewayLabel {
-				lbl := strings.TrimSpace(t.GatewayLabel)
-				if lbl == "" {
-					lbl = strings.TrimSpace(payload.GatewayName)
-				}
-				if lbl != "" {
-					targetSubtitle = truncateString(SanitizePushText(lbl), 32)
+				if !c.Redact() {
+					lbl := strings.TrimSpace(t.GatewayLabel)
+					if lbl == "" {
+						lbl = strings.TrimSpace(payload.GatewayName)
+					}
+					if lbl != "" {
+						targetSubtitle = truncateString(SanitizePushText(lbl), 32)
+					}
 				}
 				if gw := strings.TrimSpace(payload.GatewayID); gw != "" {
 					threadID = "multigravity-" + gw

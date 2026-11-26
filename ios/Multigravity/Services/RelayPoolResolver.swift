@@ -60,6 +60,18 @@ public final class RelayPoolResolver: Sendable {
         return suffixes.contains { clean.hasSuffix($0) }
     }
 
+    /// Returns true if `hostOrURL` belongs to the official managed relay pool (`.jiuge.space` or a
+    /// suffix advertised by the official pool manifest). Custom self-hosted BYO-Relay domains return
+    /// false so clients never phone home to `dispatcher.jiuge.space`.
+    public func isOfficialOrPoolHost(_ hostOrURL: String) -> Bool {
+        let clean = NetworkTransport.extractHost(from: hostOrURL)
+        guard !clean.isEmpty else { return false }
+        if clean.hasSuffix(".jiuge.space") || clean == "jiuge.space" {
+            return true
+        }
+        return isPoolDomainHost(clean)
+    }
+
     /// Fetches (or returns 60s-cached) pool node templates from the dispatcher Worker.
     public func fetchPoolNodes(forceRefresh: Bool = false) async -> [PoolNode] {
         let cached = cacheLock.withLock { state -> [PoolNode]? in
@@ -106,6 +118,8 @@ public final class RelayPoolResolver: Sendable {
     /// Returns the lowest-latency reachable HTTPS base URL, or nil if no pool node is online.
     public func resolveReachableCloudURL(currentCloudURL: String?) async -> String? {
         guard E2EECrypto.shared.isReady,
+              let raw = currentCloudURL,
+              isOfficialOrPoolHost(raw),
               Self.extractSID(from: currentCloudURL) != nil else {
             return nil
         }
@@ -171,6 +185,8 @@ public final class RelayPoolResolver: Sendable {
 
     private func performResolveReachableCloudURL(currentCloudURL: String?) async -> String? {
         guard E2EECrypto.shared.isReady,
+              let raw = currentCloudURL,
+              isOfficialOrPoolHost(raw),
               let sid = Self.extractSID(from: currentCloudURL) else {
             return nil
         }
