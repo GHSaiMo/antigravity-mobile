@@ -33,6 +33,13 @@ type GatewaySummary struct {
 	TotalActive  int `json:"total_active"`
 }
 
+const (
+	// HeaderMgyError distinguishes gateway-generated 503 errors (e.g. Antigravity not open)
+	// from cloud relay / edge 503 errors (gateway_offline / relay_capacity_full).
+	HeaderMgyError             = "X-Mgy-Error"
+	ErrCodeUpstreamUnavailable = "upstream_not_connected"
+)
+
 // GatewayStatus represents the public status of the gateway.
 type GatewayStatus struct {
 	Status                string                  `json:"status"`
@@ -42,6 +49,7 @@ type GatewayStatus struct {
 	GatewayName           string                  `json:"gateway_name,omitempty"`
 	Summary               *GatewaySummary         `json:"summary,omitempty"`
 	Upstream              *inspector.InstanceInfo `json:"upstream,omitempty"`
+	UpstreamReason        string                  `json:"upstream_reason,omitempty"`
 	ActiveStreamCascadeID string                  `json:"active_stream_cascade_id,omitempty"`
 	ActiveStreamTitle     string                  `json:"active_stream_title,omitempty"`
 	Timestamp             time.Time               `json:"timestamp"`
@@ -117,6 +125,9 @@ type Proxy struct {
 
 	// allTrajectories shares one GetAllCascadeTrajectories response across Watcher, list polls and lookups.
 	allTrajectories allTrajectoriesSnapshot
+
+	// rescanFlights coalesces concurrent on-demand upstream rescans when activePort == 0.
+	rescanFlights flightGroup[*inspector.InstanceInfo]
 
 	// events fans conversation-list change notifications out to /gateway/events subscribers.
 	events eventsHub
@@ -240,6 +251,116 @@ func (p *Proxy) ActiveUpstream() (int, string) {
 	p.mu.RLock()
 	defer p.mu.RUnlock()
 	return p.activePort, p.activeToken
+}
+
+func (p *Proxy) triggerForceScan() *inspector.InstanceInfo {
+	if p.insp == nil {
+		return nil
+	}
+	if fs, ok := p.insp.(inspector.ForceScanner); ok {
+		return fs.ForceScan()
+	}
+	return p.insp.Scan()
+}
+
+func (p *Proxy) upstreamFailureReason() string {
+	if p.insp != nil {
+		if r, ok := p.insp.(inspector.FailureReasonReporter); ok {
+			if reason := strings.TrimSpace(r.LastFailureReason()); reason != "" {
+				return reason
+			}
+		}
+	}
+	return inspector.ReasonAntigravityNotRunning
+}
+
+// writeUpstreamUnavailable returns a structured HTTP 503 with X-Mgy-Error so mobile/web clients
+// can distinguish "Antigravity not open/ready on computer" from "cloud relay gateway_offline"
+// and show clear guidance instead of triggering unnecessary relay node failovers.
+func (p *Proxy) writeUpstreamUnavailable(w http.ResponseWriter) {
+	reason := p.upstreamFailureReason()
+	payload, _ := json.Marshal(map[string]string{
+		"code":    ErrCodeUpstreamUnavailable,
+		"reason":  reason,
+		"error":   "Antigravity upstream not connected",
+		"message": "Antigravity language_server is not connected",
+	})
+	w.Header().Set("Content-Type", "application/json; charset=utf-8")
+	w.Header().Set(HeaderMgyError, ErrCodeUpstreamUnavailable)
+	w.Header().Set("Content-Length", strconv.Itoa(len(payload)))
+	w.WriteHeader(http.StatusServiceUnavailable)
+	_, _ = w.Write(payload)
+}
+
+// ensureActiveUpstream returns the currently connected upstream, or performs a singleflight,
+// bounded on-demand ForceScan when disconnected so users who just opened Antigravity recover
+// immediately without waiting out the background 40s backoff.
+func (p *Proxy) ensureActiveUpstream(ctx context.Context) (int, string, *httputil.ReverseProxy) {
+	p.mu.RLock()
+	port, token, rp := p.activePort, p.activeToken, p.activeProxy
+	p.mu.RUnlock()
+	if port > 0 || p.insp == nil {
+		return port, token, rp
+	}
+
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	scanCtx, cancel := context.WithTimeout(ctx, 2*time.Second)
+	defer cancel()
+
+	done := make(chan *inspector.InstanceInfo, 1)
+	go func() {
+		info, _ := p.rescanFlights.do("force", func() (*inspector.InstanceInfo, error) {
+			return p.triggerForceScan(), nil
+		})
+		done <- info
+	}()
+
+	select {
+	case info := <-done:
+		if info != nil && info.IsHealthy && info.Port > 0 {
+			p.mu.RLock()
+			curPort := p.activePort
+			p.mu.RUnlock()
+			if curPort == 0 {
+				p.updateUpstream(*info)
+			}
+		}
+	case <-scanCtx.Done():
+	}
+
+	p.mu.RLock()
+	port, token, rp = p.activePort, p.activeToken, p.activeProxy
+	p.mu.RUnlock()
+	return port, token, rp
+}
+
+// triggerBackgroundRescan kicks off a non-blocking singleflight ForceScan when disconnected
+// (used by SQLite-backed list reads so the list renders immediately while warming upstream).
+func (p *Proxy) triggerBackgroundRescan() {
+	if p.insp == nil {
+		return
+	}
+	p.mu.RLock()
+	port := p.activePort
+	p.mu.RUnlock()
+	if port > 0 {
+		return
+	}
+	go func() {
+		info, _ := p.rescanFlights.do("force", func() (*inspector.InstanceInfo, error) {
+			return p.triggerForceScan(), nil
+		})
+		if info != nil && info.IsHealthy && info.Port > 0 {
+			p.mu.RLock()
+			curPort := p.activePort
+			p.mu.RUnlock()
+			if curPort == 0 {
+				p.updateUpstream(*info)
+			}
+		}
+	}()
 }
 
 // SetTestUpstream configures active port and token for testing.
@@ -430,6 +551,20 @@ func (p *Proxy) Shutdown() {
 }
 
 func (p *Proxy) updateUpstream(info inspector.InstanceInfo) {
+	if !info.IsHealthy || info.Port <= 0 {
+		p.mu.Lock()
+		wasConnected := p.activePort != 0
+		p.activeProxy = nil
+		p.activePort = 0
+		p.activeToken = ""
+		p.mu.Unlock()
+		if wasConnected {
+			p.invalidateAllTrajectories()
+			p.invalidateProjectsCache()
+		}
+		return
+	}
+
 	if info.AppDataDir != "" {
 		setActiveAntigravityDataDir(info.AppDataDir)
 	}
@@ -974,8 +1109,11 @@ func (p *Proxy) GatewayIdentity() (string, string) {
 func (p *Proxy) handleStatus(w http.ResponseWriter, r *http.Request) {
 	cur := p.insp.Current()
 	status := "disconnected"
+	upstreamReason := ""
 	if cur != nil && cur.IsHealthy {
 		status = "connected"
+	} else {
+		upstreamReason = p.upstreamFailureReason()
 	}
 
 	activeID, activeTitle := p.ActiveStream()
@@ -994,6 +1132,7 @@ func (p *Proxy) handleStatus(w http.ResponseWriter, r *http.Request) {
 		GatewayName:           gwName,
 		Summary:               summary,
 		Upstream:              publicInstanceInfo(cur),
+		UpstreamReason:        upstreamReason,
 		ActiveStreamCascadeID: activeID,
 		ActiveStreamTitle:     activeTitle,
 		Timestamp:             time.Now(),
@@ -1042,20 +1181,30 @@ func (p *Proxy) handleRescan(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
-	info := p.insp.Scan()
+	info := p.triggerForceScan()
 	status := "failed"
-	if info != nil && info.IsHealthy {
+	upstreamReason := ""
+	if info != nil && info.IsHealthy && info.Port > 0 {
 		status = "connected"
+		p.mu.RLock()
+		curPort := p.activePort
+		p.mu.RUnlock()
+		if curPort == 0 {
+			p.updateUpstream(*info)
+		}
 		ResetHistoricalSyncState()
 		go func(prt int, tok string) {
 			_ = p.SyncHistoricalTrajectories(prt, tok)
 		}(info.Port, info.CSRFToken)
+	} else {
+		upstreamReason = p.upstreamFailureReason()
 	}
 
 	data, err := json.Marshal(GatewayStatus{
-		Status:    status,
-		Upstream:  publicInstanceInfo(info),
-		Timestamp: time.Now(),
+		Status:         status,
+		Upstream:       publicInstanceInfo(info),
+		UpstreamReason: upstreamReason,
+		Timestamp:      time.Now(),
 	})
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)

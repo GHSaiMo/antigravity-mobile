@@ -1,6 +1,7 @@
 package inspector
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -349,5 +350,138 @@ func TestInstanceInfoOmitsCSRFTokenFromJSON(t *testing.T) {
 		t.Fatalf("CSRFToken must not be serialized in JSON: %s", string(raw))
 	}
 }
+
+func TestExtractCmdExecutableBase_ProxyWrappers(t *testing.T) {
+	cases := []struct {
+		name     string
+		cmdline  string
+		wantBase string
+		wantOK   bool
+	}{
+		{
+			name:     "proxychains4_desktop_ls",
+			cmdline:  `4210 /opt/homebrew/bin/proxychains4 -q -f /tmp/pc.conf /Applications/Antigravity.app/Contents/Resources/bin/language_server --csrf_token=5aacbcc0-cf40-4b94-8f17-986485a8d0d5`,
+			wantBase: "language_server",
+			wantOK:   true,
+		},
+		{
+			name:     "graftcp_space_path_ls",
+			cmdline:  `4211 graftcp -a 127.0.0.1 -p 2233 /Applications/Antigravity IDE.app/Contents/Resources/bin/language_server --csrf_token 5aacbcc0-cf40-4b94-8f17-986485a8d0d5`,
+			wantBase: "language_server",
+			wantOK:   true,
+		},
+		{
+			name:     "env_proxy_vars_agy",
+			cmdline:  `4212 /usr/bin/env HTTP_PROXY=http://127.0.0.1:7890 NO_PROXY=127.0.0.1 /usr/local/bin/agy --csrf_token=5aacbcc0-cf40-4b94-8f17-986485a8d0d5 remote-control serve`,
+			wantBase: "agy",
+			wantOK:   true,
+		},
+		{
+			name:     "python_wrapper_still_rejected",
+			cmdline:  `4213 /usr/bin/python3 helper.py /Applications/Antigravity.app/Contents/Resources/bin/language_server --csrf_token=5aacbcc0-cf40-4b94-8f17-986485a8d0d5`,
+			wantBase: "python3",
+			wantOK:   false,
+		},
+		{
+			name:     "shell_wrapper_still_rejected",
+			cmdline:  `4214 /bin/sh -c "/Applications/Antigravity.app/Contents/Resources/bin/language_server --csrf_token=5aacbcc0-cf40-4b94-8f17-986485a8d0d5"`,
+			wantBase: "sh",
+			wantOK:   false,
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			gotBase := ExtractCmdExecutableBase(tc.cmdline)
+			if gotBase != tc.wantBase {
+				t.Errorf("ExtractCmdExecutableBase() = %q, want %q", gotBase, tc.wantBase)
+			}
+			if gotOK := IsAntigravityProcessBase(gotBase); gotOK != tc.wantOK {
+				t.Errorf("IsAntigravityProcessBase(%q) = %v, want %v", gotBase, gotOK, tc.wantOK)
+			}
+		})
+	}
+}
+
+func TestScanMultiPIDFallbackAndForceScanBypassBackoff(t *testing.T) {
+	tmpDir := t.TempDir()
+	daemonDirOverride = tmpDir
+	t.Cleanup(func() { daemonDirOverride = "" })
+
+	insp := NewInspector(10 * time.Second)
+	insp.forceScanCooldown = 20 * time.Millisecond
+
+	// 1. First Scan fails while Antigravity is closed -> enters backoff + records antigravity_not_running.
+	insp.findCandidatesFn = func(context.Context) processScanResult {
+		return processScanResult{Err: fmt.Errorf("not found")}
+	}
+	if got := insp.Scan(); got != nil {
+		t.Fatalf("expected nil on initial empty scan, got %+v", got)
+	}
+	if reason := insp.LastFailureReason(); reason != ReasonAntigravityNotRunning {
+		t.Fatalf("LastFailureReason = %q, want %q", reason, ReasonAntigravityNotRunning)
+	}
+
+	// Simulate maxed-out 40s backoff (as if mgy waited while Antigravity was closed).
+	insp.failedScanMu.Lock()
+	insp.failedBackoff = 40 * time.Second
+	insp.failedScanAt = time.Now()
+	insp.failedScanMu.Unlock()
+
+	// 2. Now user launches Antigravity with TWO candidate language_server PIDs:
+	//    PID 9002 (higher priority/PID) has no healthy port; PID 9001 has a healthy port 55123.
+	insp.findCandidatesFn = func(context.Context) processScanResult {
+		return processScanResult{
+			AppRunning: true,
+			Candidates: []processCandidate{
+				{PID: 9002, CSRFToken: "bad-tok", Priority: 11},
+				{PID: 9001, CSRFToken: "good-tok", Priority: 9},
+			},
+		}
+	}
+	insp.findPortsFn = func(_ context.Context, pid int) ([]int, error) {
+		if pid == 9002 {
+			return []int{55120}, nil
+		}
+		return []int{55122, 55123}, nil
+	}
+	insp.verifyPortFn = func(port int, csrf string) bool {
+		return port == 55123 && csrf == "good-tok"
+	}
+
+	// Periodic Scan() is still held back by the 40s backoff...
+	if got := insp.Scan(); got != nil {
+		t.Fatalf("expected periodic Scan() to respect 40s backoff, got %+v", got)
+	}
+	// ...whereas ForceScan() immediately bypasses the 40s backoff and falls back from PID 9002 to PID 9001!
+	got := insp.ForceScan()
+	if got == nil || got.PID != 9001 || got.Port != 55123 || got.CSRFToken != "good-tok" {
+		t.Fatalf("ForceScan() = %+v, want PID=9001 Port=55123", got)
+	}
+	if reason := insp.LastFailureReason(); reason != ReasonNone {
+		t.Fatalf("expected LastFailureReason to clear on connect, got %q", reason)
+	}
+
+	// 3. When Antigravity closes, unhealthy transition notifies listeners and updates reason.
+	var updates []InstanceInfo
+	insp.OnUpdate(func(info InstanceInfo) {
+		updates = append(updates, info)
+	})
+	insp.verifyPortFn = func(int, string) bool { return false }
+	insp.findCandidatesFn = func(context.Context) processScanResult {
+		return processScanResult{AccessDenied: true}
+	}
+	time.Sleep(25 * time.Millisecond)
+	if got := insp.ForceScan(); got != nil {
+		t.Fatalf("expected nil after disconnect, got %+v", got)
+	}
+	if reason := insp.LastFailureReason(); reason != ReasonLSAccessDenied {
+		t.Fatalf("LastFailureReason = %q, want %q", reason, ReasonLSAccessDenied)
+	}
+	if len(updates) != 1 || updates[0].IsHealthy {
+		t.Fatalf("expected single unhealthy listener notification, got %+v", updates)
+	}
+}
+
 
 

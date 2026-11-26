@@ -625,7 +625,9 @@ class ApiClient(
 
             client.newCall(req).await().use { response ->
                 if (!response.isSuccessful) {
-                    return@withContext Result.failure(RuntimeException("创建会话失败: HTTP %d".loc(response.code)))
+                    val errMsg = formatUpstreamUnavailableError(response)
+                        ?: "创建会话失败: HTTP %d".loc(response.code)
+                    return@withContext Result.failure(RuntimeException(errMsg))
                 }
                 val bodyStr = response.body?.string() ?: "{}"
                 val resObj = json.parseToJsonElement(bodyStr).jsonObject
@@ -734,6 +736,42 @@ class ApiClient(
         }
     }
 
+    private fun formatUpstreamUnavailableError(response: okhttp3.Response): String? {
+        if (response.code != 503) return null
+        val mgyErr = response.header("X-Mgy-Error")?.trim()?.lowercase()
+        val bodyStr = try {
+            response.peekBody(1024).string()
+        } catch (_: Exception) {
+            ""
+        }
+        var code: String? = null
+        var reason: String? = null
+        var hint = bodyStr.lowercase()
+        if (bodyStr.isNotBlank()) {
+            try {
+                val obj = json.parseToJsonElement(bodyStr).jsonObject
+                code = obj["code"]?.jsonPrimitive?.contentOrNull?.trim()?.lowercase()
+                reason = obj["reason"]?.jsonPrimitive?.contentOrNull?.trim()?.lowercase()
+                val errPart = obj["error"]?.jsonPrimitive?.contentOrNull.orEmpty()
+                val msgPart = obj["message"]?.jsonPrimitive?.contentOrNull.orEmpty()
+                hint = "$errPart $msgPart".lowercase()
+            } catch (_: Exception) {
+            }
+        }
+        val matched = mgyErr == "upstream_not_connected" ||
+            code == "upstream_not_connected" ||
+            hint.contains("antigravity upstream not connected") ||
+            hint.contains("language_server is not connected") ||
+            hint.contains("language_server not connected") ||
+            hint.contains("upstream not connected")
+        if (!matched) return null
+        return when (reason) {
+            "ls_access_denied" -> "检测到电脑端 Antigravity 权限隔离（如管理员权限启动），请以相同权限运行 mgy 或用普通权限重启 Antigravity 后重试".loc
+            "ls_not_ready" -> "已检测到电脑端 Antigravity，正在等待服务就绪（请确认已登录并进入主界面），请稍后重试".loc
+            else -> "电脑端 Antigravity 未打开或尚未连接，请先在电脑上启动 Antigravity 后重试".loc
+        }
+    }
+
     /**
      * Fetch paginated messages for a cascade session
      */
@@ -765,7 +803,9 @@ class ApiClient(
                     return@withContext Result.success(cached.second)
                 }
                 if (!response.isSuccessful) {
-                    return@withContext Result.failure(RuntimeException("获取消息失败: HTTP %d".loc(response.code)))
+                    val errMsg = formatUpstreamUnavailableError(response)
+                        ?: "获取消息失败: HTTP %d".loc(response.code)
+                    return@withContext Result.failure(RuntimeException(errMsg))
                 }
                 if (response.networkResponse?.code == 304 && cached != null) {
                     return@withContext Result.success(cached.second)
@@ -867,7 +907,9 @@ class ApiClient(
                 if (response.isSuccessful) {
                     Result.success(Unit)
                 } else {
-                    Result.failure(RuntimeException("发送失败: HTTP %d".loc(response.code)))
+                    val errMsg = formatUpstreamUnavailableError(response)
+                        ?: "发送失败: HTTP %d".loc(response.code)
+                    Result.failure(RuntimeException(errMsg))
                 }
             }
         } catch (e: Exception) {
@@ -2580,6 +2622,22 @@ class RouteFailoverInterceptor(
             path.endsWith("/SearchConversations")
     }
 
+    private fun isGatewayUpstreamUnavailableResponse(response: okhttp3.Response): Boolean {
+        if (response.code != 503) return false
+        if (response.header("X-Mgy-Error")?.trim().equals("upstream_not_connected", ignoreCase = true)) {
+            return true
+        }
+        val snippet = try {
+            response.peekBody(320).string().lowercase()
+        } catch (_: Exception) {
+            ""
+        }
+        return snippet.contains("upstream_not_connected") ||
+            snippet.contains("antigravity upstream not connected") ||
+            snippet.contains("language_server is not connected") ||
+            snippet.contains("language_server not connected")
+    }
+
     private fun isRelayGatewayOfflineResponse(response: okhttp3.Response): Boolean {
         if (response.code != 503) return false
         val snippet = try {
@@ -2698,6 +2756,7 @@ class RouteFailoverInterceptor(
                 connectionManager != null &&
                 request.body?.isOneShot() != true &&
                 (response.code == 502 || response.code == 503) &&
+                !isGatewayUpstreamUnavailableResponse(response) &&
                 (isRelayGatewayOfflineResponse(response) || isSafeReadRequest(request))
             ) {
                 val failedOrigin = originOf(originalUrl)
@@ -2738,6 +2797,7 @@ class RouteFailoverInterceptor(
                 }
                 if (fallbackResponse != null) {
                     if ((fallbackResponse.code == 502 || fallbackResponse.code == 503) &&
+                        !isGatewayUpstreamUnavailableResponse(fallbackResponse) &&
                         connectionManager != null &&
                         (isRelayGatewayOfflineResponse(fallbackResponse) || isSafeReadRequest(request))
                     ) {

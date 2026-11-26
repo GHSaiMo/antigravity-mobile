@@ -553,6 +553,29 @@ function handleFilesSelected(files) {
 
 // --- ConnectRPC & Gateway API ---
 
+function formatUpstreamUnavailableError(resp, errBody) {
+  if (!resp || resp.status !== 503) return "";
+  const mgyErr = (resp.headers?.get?.("X-Mgy-Error") || "").trim().toLowerCase();
+  const code = String(errBody?.code || "").trim().toLowerCase();
+  const reason = String(errBody?.reason || "").trim().toLowerCase();
+  const hint = `${errBody?.error || ""} ${errBody?.message || ""}`.toLowerCase();
+  const matched =
+    mgyErr === "upstream_not_connected" ||
+    code === "upstream_not_connected" ||
+    hint.includes("antigravity upstream not connected") ||
+    hint.includes("language_server is not connected") ||
+    hint.includes("language_server not connected") ||
+    hint.includes("upstream not connected");
+  if (!matched) return "";
+  let key = "电脑端 Antigravity 未打开或尚未连接，请先在电脑上启动 Antigravity 后重试";
+  if (reason === "ls_access_denied") {
+    key = "检测到电脑端 Antigravity 权限隔离（如管理员权限启动），请以相同权限运行 mgy 或用普通权限重启 Antigravity 后重试";
+  } else if (reason === "ls_not_ready") {
+    key = "已检测到电脑端 Antigravity，正在等待服务就绪（请确认已登录并进入主界面），请稍后重试";
+  }
+  return typeof t === "function" ? t(key) : key;
+}
+
 async function rpc(method, body = {}, extraHeaders = {}) {
   const headers = {
     "Content-Type": "application/json",
@@ -570,11 +593,13 @@ async function rpc(method, body = {}, extraHeaders = {}) {
 
   if (!resp.ok) {
     let errMsg = resp.statusText;
+    let errObj = null;
     try {
-      const err = await resp.json();
-      errMsg = err.message || errMsg;
+      errObj = await resp.json();
+      errMsg = errObj.message || errObj.error || errMsg;
     } catch (_) {}
-    throw new Error(errMsg);
+    const friendly = formatUpstreamUnavailableError(resp, errObj);
+    throw new Error(friendly || errMsg);
   }
   return resp.json();
 }

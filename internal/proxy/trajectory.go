@@ -130,15 +130,9 @@ func (p *Proxy) handleCascadeMessages(w http.ResponseWriter, r *http.Request) {
 		slog.Info("[Proxy] CascadeMessages", "cascadeId", cascadeID, "limit", limit, "offset", offset, "fromOffset", fromOffset)
 	}
 
-	p.mu.RLock()
-	port := p.activePort
-	token := p.activeToken
-	p.mu.RUnlock()
-
+	port, token, _ := p.ensureActiveUpstream(r.Context())
 	if port == 0 {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusServiceUnavailable)
-		w.Write([]byte(`{"error":"Antigravity upstream not connected"}`))
+		p.writeUpstreamUnavailable(w)
 		return
 	}
 

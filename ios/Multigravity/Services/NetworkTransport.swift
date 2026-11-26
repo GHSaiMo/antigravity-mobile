@@ -356,9 +356,26 @@ public final class NetworkTransport: Sendable {
         return snippet.contains("tunnel_busy")
     }
 
+    private static func isGatewayUpstreamUnavailableResponse(statusCode: Int, headers: [AnyHashable: Any]? = nil, data: Data) -> Bool {
+        guard statusCode == 503 else { return false }
+        if let headers,
+           let mgyErr = headers.first(where: { String(describing: $0.key).caseInsensitiveCompare("X-Mgy-Error") == .orderedSame })?.value,
+           String(describing: mgyErr).trimmingCharacters(in: .whitespacesAndNewlines).lowercased() == "upstream_not_connected" {
+            return true
+        }
+        let snippet = String(data: data.prefix(320), encoding: .utf8)?.lowercased() ?? ""
+        return snippet.contains("upstream_not_connected") ||
+            snippet.contains("antigravity upstream not connected") ||
+            snippet.contains("language_server is not connected") ||
+            snippet.contains("language_server not connected")
+    }
+
     private static func isOuterRelayRetryableStatus(_ statusCode: Int, data: Data) -> (retryable: Bool, preGateway: Bool) {
         switch statusCode {
         case 503:
+            if isGatewayUpstreamUnavailableResponse(statusCode: statusCode, data: data) {
+                return (false, false)
+            }
             // Relay `gateway_offline` / `relay_capacity_full` (or edge 503): never reached mgy gateway.
             return (true, true)
         case 429:
@@ -796,8 +813,10 @@ public final class NetworkTransport: Sendable {
             return try await sendOverE2EE(req, preferCellular: preferCellular)
         }
         // Auto-migrate if a legacy cloud/tunnel endpoint returns 502/503 while local LAN or an E2EE relay pool node is live
+        // (never treat a gateway-generated 503 upstream_not_connected as an offline relay node).
         if let http = response as? HTTPURLResponse,
            (http.statusCode == 503 || (http.statusCode == 502 && Self.isIdempotentForTransientRetry(req))),
+           !Self.isGatewayUpstreamUnavailableResponse(statusCode: http.statusCode, headers: http.allHeaderFields, data: data),
            GatewayRuntimeState.shared.epoch == reqEpoch,
            let reqURL = req.url,
            reqURL.path != "/healthz",

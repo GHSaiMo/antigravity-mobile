@@ -2191,7 +2191,11 @@ func buildRouterWithOptions(
 			return
 		}
 		if insp != nil {
-			insp.Scan()
+			if fs, ok := insp.(inspector.ForceScanner); ok {
+				fs.ForceScan()
+			} else {
+				insp.Scan()
+			}
 		}
 		p.RefreshLiveModelsAfterSwitch(r.Context())
 		slog.Info(fmt.Sprintf("[Cockpit] Account switched successfully to: %s", targetID))

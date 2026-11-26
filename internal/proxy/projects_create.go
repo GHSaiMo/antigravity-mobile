@@ -95,18 +95,9 @@ func (p *Proxy) HandleCreateCascade(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	p.mu.RLock()
-	port := p.activePort
-	token := p.activeToken
-	p.mu.RUnlock()
-
+	port, token, _ := p.ensureActiveUpstream(r.Context())
 	if port == 0 {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusServiceUnavailable)
-		json.NewEncoder(w).Encode(CreateCascadeResponse{
-			Status: "error",
-			Error:  "Antigravity language_server not connected",
-		})
+		p.writeUpstreamUnavailable(w)
 		return
 	}
 

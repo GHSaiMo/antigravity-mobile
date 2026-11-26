@@ -18517,6 +18517,72 @@
         }
       }
     },
+    "电脑端 Antigravity 未打开或尚未连接，请先在电脑上启动 Antigravity 后重试": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Antigravity is not running on your computer yet. Open Antigravity on your computer and try again."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "PCで Antigravity が起動していないか未接続です。PCで Antigravity を開いてから再試行してください。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "电脑端 Antigravity 未打开或尚未连接，请先在电脑上启动 Antigravity 后重试"
+          }
+        }
+      }
+    },
+    "已检测到电脑端 Antigravity，正在等待服务就绪（请确认已登录并进入主界面），请稍后重试": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Antigravity is open on your computer, waiting for its local service to be ready (ensure you are signed in and in the main window), then try again."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "PCの Antigravity を検出しましたがサービス起動待ちです（ログイン済みでメイン画面が開いているか確認し、少し待ってから再試行してください）。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已检测到电脑端 Antigravity，正在等待服务就绪（请确认已登录并进入主界面），请稍后重试"
+          }
+        }
+      }
+    },
+    "检测到电脑端 Antigravity 权限隔离（如管理员权限启动），请以相同权限运行 mgy 或用普通权限重启 Antigravity 后重试": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Antigravity appears to be running with elevated privileges on your computer. Run mgy with the same privileges or restart Antigravity normally, then try again."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "PCの Antigravity が管理者権限などで分離実行されているため接続できません。同じ権限で mgy を起動するか、通常権限で Antigravity を再起動して再試行してください。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "检测到电脑端 Antigravity 权限隔离（如管理员权限启动），请以相同权限运行 mgy 或用普通权限重启 Antigravity 后重试"
+          }
+        }
+      }
+    },
     "未开启": {
       "localizations": {
         "en": {

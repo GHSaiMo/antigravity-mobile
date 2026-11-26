@@ -73,6 +73,13 @@ public final class APIClient: Sendable {
             if httpResp.statusCode == 401 && GatewayRuntimeState.shared.epoch == reqEpoch {
                 NotificationCenter.default.post(name: .deviceTokenRevoked, object: nil, userInfo: ["epoch": reqEpoch])
             }
+            if let upstreamErr = APIError.upstreamUnavailableIfMatched(
+                statusCode: httpResp.statusCode,
+                headers: httpResp.allHeaderFields,
+                data: data
+            ) {
+                throw upstreamErr
+            }
             let errorMsg = String(data: data, encoding: .utf8) ?? httpResp.description
             throw APIError.serverError(statusCode: httpResp.statusCode, message: errorMsg)
         }

@@ -2,14 +2,59 @@ import Foundation
 
 public enum APIError: LocalizedError, Sendable {
     case invalidURL
+    case upstreamNotConnected(reason: String?)
     case serverError(statusCode: Int, message: String)
     case networkError(String)
     case decodingError(String)
+
+    public static func upstreamUnavailableIfMatched(
+        statusCode: Int,
+        headers: [AnyHashable: Any],
+        data: Data
+    ) -> APIError? {
+        guard statusCode == 503 else { return nil }
+        let mgyErrorHeader = headers.first { key, _ in
+            String(describing: key).caseInsensitiveCompare("X-Mgy-Error") == .orderedSame
+        }.map { String(describing: $0.value).trimmingCharacters(in: .whitespacesAndNewlines).lowercased() }
+
+        var code: String?
+        var reason: String?
+        var textHint = ""
+        if !data.isEmpty,
+           let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
+            code = (obj["code"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+            reason = (obj["reason"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+            let errStr = (obj["error"] as? String) ?? ""
+            let msgStr = (obj["message"] as? String) ?? ""
+            textHint = "\(errStr) \(msgStr)".lowercased()
+        } else if !data.isEmpty {
+            textHint = (String(data: data.prefix(256), encoding: .utf8) ?? "").lowercased()
+        }
+
+        let isUpstreamUnavailable =
+            mgyErrorHeader == "upstream_not_connected" ||
+            code == "upstream_not_connected" ||
+            textHint.contains("antigravity upstream not connected") ||
+            textHint.contains("language_server is not connected") ||
+            textHint.contains("language_server not connected") ||
+            textHint.contains("upstream not connected")
+        guard isUpstreamUnavailable else { return nil }
+        return .upstreamNotConnected(reason: reason)
+    }
     
     public var errorDescription: String? {
         switch self {
         case .invalidURL:
             return String(localized: "无效的服务器地址，请在设置中检查")
+        case .upstreamNotConnected(let reason):
+            switch reason {
+            case "ls_access_denied":
+                return String(localized: "检测到电脑端 Antigravity 权限隔离（如管理员权限启动），请以相同权限运行 mgy 或用普通权限重启 Antigravity 后重试")
+            case "ls_not_ready":
+                return String(localized: "已检测到电脑端 Antigravity，正在等待服务就绪（请确认已登录并进入主界面），请稍后重试")
+            default:
+                return String(localized: "电脑端 Antigravity 未打开或尚未连接，请先在电脑上启动 Antigravity 后重试")
+            }
         case .serverError(let code, let msg):
             return String(localized: "服务器错误 (\(code)): \(msg)")
         case .networkError(let msg):

@@ -130,6 +130,123 @@ func isAllDigitsASCII(s string) bool {
 	return true
 }
 
+func nextShellToken(s string) (string, string) {
+	s = strings.TrimLeft(s, " \t")
+	if s == "" {
+		return "", ""
+	}
+	if s[0] == '"' || s[0] == '\'' {
+		quote := s[0]
+		if end := strings.IndexByte(s[1:], quote); end != -1 {
+			tok := s[1 : 1+end]
+			rest := strings.TrimLeft(s[1+end+1:], " \t")
+			return tok, rest
+		}
+	}
+	if sp := strings.IndexAny(s, " \t"); sp != -1 {
+		return s[:sp], strings.TrimLeft(s[sp+1:], " \t")
+	}
+	return s, ""
+}
+
+func isEnvAssignmentToken(tok string) bool {
+	eq := strings.IndexByte(tok, '=')
+	if eq <= 0 {
+		return false
+	}
+	name := tok[:eq]
+	for i := 0; i < len(name); i++ {
+		c := name[i]
+		isAlpha := (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || c == '_'
+		isDigit := c >= '0' && c <= '9'
+		if (i == 0 && !isAlpha) || (i > 0 && !isAlpha && !isDigit) {
+			return false
+		}
+	}
+	return true
+}
+
+// stripAllowedWrapperPrefix strips an explicit, narrow allowlist of transparent proxy / env
+// launcher prefixes (proxychains, proxychains4, proxychains-ng, graftcp, env) so that
+// Antigravity language_server processes launched via proxy-injection scripts remain discoverable,
+// while arbitrary script wrappers (python3, sh, node, etc.) continue to be rejected.
+func stripAllowedWrapperPrefix(s string) string {
+	cur := strings.TrimSpace(s)
+	for depth := 0; depth < 4 && cur != ""; depth++ {
+		tok, rest := nextShellToken(cur)
+		if tok == "" {
+			break
+		}
+		base := strings.ToLower(baseFromAnyOSPath(tok))
+		switch base {
+		case "proxychains", "proxychains4", "proxychains-ng":
+			next := rest
+			for next != "" {
+				flagTok, after := nextShellToken(next)
+				if !strings.HasPrefix(flagTok, "-") {
+					break
+				}
+				next = after
+				if flagTok == "--" {
+					break
+				}
+				if flagTok == "-f" {
+					_, next = nextShellToken(next)
+				}
+			}
+			cur = next
+		case "graftcp":
+			next := rest
+			for next != "" {
+				flagTok, after := nextShellToken(next)
+				if !strings.HasPrefix(flagTok, "-") {
+					break
+				}
+				next = after
+				if flagTok == "--" {
+					break
+				}
+				if !strings.Contains(flagTok, "=") {
+					switch flagTok {
+					case "-a", "-p", "-c", "-f", "-l", "-s", "--config", "--listen", "--socks5", "--http_proxy":
+						_, next = nextShellToken(next)
+					}
+				}
+			}
+			cur = next
+		case "env":
+			next := rest
+			for next != "" {
+				t, after := nextShellToken(next)
+				if t == "" {
+					break
+				}
+				if t == "--" {
+					next = after
+					break
+				}
+				if t == "-u" || t == "--unset" {
+					_, next = nextShellToken(after)
+					continue
+				}
+				if t == "-i" || t == "-0" || t == "--ignore-environment" || strings.HasPrefix(t, "--unset=") {
+					next = after
+					continue
+				}
+				if isEnvAssignmentToken(t) {
+					next = after
+					continue
+				}
+				break
+			}
+			cur = next
+		default:
+			return cur
+		}
+	}
+	return cur
+}
+
 // ExtractCmdExecutableBase extracts the executable basename from either a raw command line
 // or a `ps -eo pid,command` line (which starts with a numeric PID column).
 func ExtractCmdExecutableBase(cmdline string) string {
@@ -141,6 +258,7 @@ func ExtractCmdExecutableBase(cmdline string) string {
 	if sp := strings.IndexAny(s, " \t"); sp > 0 && isAllDigitsASCII(s[:sp]) {
 		s = strings.TrimSpace(s[sp+1:])
 	}
+	s = stripAllowedWrapperPrefix(s)
 	if s == "" {
 		return ""
 	}
@@ -161,7 +279,8 @@ func ExtractCmdExecutableBase(cmdline string) string {
 	}
 	// Fallback for unquoted paths containing spaces (e.g. `/Users/my user/bin/agy --csrf_token=...`):
 	// inspect the prefix before the first CLI flag or `remote-control` subcommand only when the
-	// command starts with a path separator or drive letter (not a wrapper like `python3` or `sh`).
+	// command starts with a path separator or drive letter AND the prefix does not contain separate
+	// arguments (such as ` -c`, ` /other/path`, or embedded quotes from wrappers like `python3` or `sh`).
 	if strings.HasPrefix(s, "/") || strings.HasPrefix(s, `\`) || (len(s) >= 3 && s[1] == ':' && (s[2] == '\\' || s[2] == '/')) {
 		cut := len(s)
 		for _, marker := range []string{" --", "\t--", " remote-control", "\tremote-control"} {
@@ -169,8 +288,17 @@ func ExtractCmdExecutableBase(cmdline string) string {
 				cut = idx
 			}
 		}
-		if candidate := baseFromAnyOSPath(s[:cut]); IsAntigravityProcessBase(candidate) {
-			return candidate
+		prefix := s[:cut]
+		if !strings.Contains(prefix, " /") &&
+			!strings.Contains(prefix, "\t/") &&
+			!strings.Contains(prefix, ` \`) &&
+			!strings.Contains(prefix, "\t\\") &&
+			!strings.Contains(prefix, " -") &&
+			!strings.Contains(prefix, "\t-") &&
+			!strings.ContainsAny(prefix, `"'`) {
+			if candidate := baseFromAnyOSPath(prefix); IsAntigravityProcessBase(candidate) {
+				return candidate
+			}
 		}
 	}
 	return firstBase

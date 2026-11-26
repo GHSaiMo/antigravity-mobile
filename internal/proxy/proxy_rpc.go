@@ -54,18 +54,17 @@ func (p *Proxy) handleRpcProxy(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if strings.HasSuffix(reqPath, "/GetAllCascadeTrajectories") && r.Method == http.MethodPost {
+		if port == 0 {
+			p.triggerBackgroundRescan()
+		}
 		p.handleGetAllCascadeTrajectories(w, r, port, token)
 		return
 	}
 	if rp == nil {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusServiceUnavailable)
-		if err := json.NewEncoder(w).Encode(map[string]string{
-			"code":    "unavailable",
-			"message": "Antigravity language_server is not connected",
-		}); err != nil {
-			slog.Warn("[Proxy] handleRpcProxy: failed to encode error response", "err", err)
-		}
+		port, token, rp = p.ensureActiveUpstream(r.Context())
+	}
+	if rp == nil {
+		p.writeUpstreamUnavailable(w)
 		return
 	}
 	if strings.HasSuffix(reqPath, "/SendUserCascadeMessage") && r.Method == http.MethodPost {
@@ -294,7 +293,7 @@ func (p *Proxy) handleGetCascadeTrajectoryRPC(w http.ResponseWriter, r *http.Req
 		rp := p.activeProxy
 		p.mu.RUnlock()
 		if rp == nil {
-			writeJSONError(w, "Antigravity language_server is not connected", http.StatusServiceUnavailable)
+			p.writeUpstreamUnavailable(w)
 			return
 		}
 		fwdReq := r.Clone(r.Context())
@@ -324,7 +323,7 @@ func (p *Proxy) handleGetCascadeTrajectoryRPC(w http.ResponseWriter, r *http.Req
 		rp := p.activeProxy
 		p.mu.RUnlock()
 		if rp == nil {
-			writeJSONError(w, "Antigravity language_server is not connected", http.StatusServiceUnavailable)
+			p.writeUpstreamUnavailable(w)
 			return
 		}
 		fwdReq := r.Clone(r.Context())

@@ -34,6 +34,14 @@ type InstanceInfo struct {
 	AppDataDir string `json:"-"`
 }
 
+// Diagnostic failure reasons reported by Inspector when no healthy language_server is connected.
+const (
+	ReasonNone                  = ""
+	ReasonAntigravityNotRunning = "antigravity_not_running"
+	ReasonLSNotReady            = "ls_not_ready"
+	ReasonLSAccessDenied        = "ls_access_denied"
+)
+
 // UpstreamDiscoverer defines the contract for discovering and monitoring Antigravity language_server instances.
 type UpstreamDiscoverer interface {
 	Current() *InstanceInfo
@@ -41,6 +49,31 @@ type UpstreamDiscoverer interface {
 	Start()
 	Stop()
 	OnUpdate(fn func(InstanceInfo))
+}
+
+// ForceScanner is optionally implemented by UpstreamDiscoverer to bypass exponential backoff
+// on user-initiated rescan or on-demand request recovery.
+type ForceScanner interface {
+	ForceScan() *InstanceInfo
+}
+
+// FailureReasonReporter is optionally implemented by UpstreamDiscoverer to expose the latest
+// sanitized discovery failure reason (never contains paths, PIDs, or tokens).
+type FailureReasonReporter interface {
+	LastFailureReason() string
+}
+
+type processCandidate struct {
+	PID       int
+	CSRFToken string
+	Priority  int
+}
+
+type processScanResult struct {
+	Candidates   []processCandidate
+	AppRunning   bool
+	AccessDenied bool
+	Err          error
 }
 
 // Inspector monitors and discovers Antigravity language_server instances.
@@ -55,9 +88,20 @@ type Inspector struct {
 	listeners    []func(InstanceInfo)
 
 	// PERF-3: exponential backoff for the expensive ps+lsof full-scan path.
-	failedScanMu   sync.Mutex
-	failedScanAt   time.Time  // time of last failed full-scan
-	failedBackoff  time.Duration // current backoff duration
+	failedScanMu      sync.Mutex
+	failedScanAt      time.Time     // time of last failed full-scan
+	failedBackoff     time.Duration // current backoff duration
+	lastForceScanAt   time.Time     // cooldown timestamp for ForceScan
+	forceScanCooldown time.Duration // minimum gap between forced full-scans (default 1.5s)
+
+	initialScanDone   bool
+	lastFailureReason string
+	lastLoggedReason  string
+
+	// Optional test seams; nil in production (falls back to OS implementations).
+	findCandidatesFn func(context.Context) processScanResult
+	findPortsFn      func(context.Context, int) ([]int, error)
+	verifyPortFn     func(int, string) bool
 }
 
 // NewInspector creates a new instance inspector.
@@ -81,8 +125,19 @@ func NewInspector(pollInterval time.Duration) *Inspector {
 			Transport: tr,
 			Timeout:   2 * time.Second,
 		},
-		stopCh: make(chan struct{}),
+		stopCh:            make(chan struct{}),
+		forceScanCooldown: 1500 * time.Millisecond,
 	}
+}
+
+// LastFailureReason returns the latest sanitized failure reason when disconnected ("" when healthy).
+func (i *Inspector) LastFailureReason() string {
+	i.mu.RLock()
+	defer i.mu.RUnlock()
+	if i.current != nil && i.current.IsHealthy && i.current.Port > 0 {
+		return ReasonNone
+	}
+	return i.lastFailureReason
 }
 
 // OnUpdate registers a listener callback called when instance info changes.
@@ -107,6 +162,9 @@ func (i *Inspector) Current() *InstanceInfo {
 func (i *Inspector) Start() {
 	// Immediate first discovery
 	i.Scan()
+	i.mu.Lock()
+	i.initialScanDone = true
+	i.mu.Unlock()
 
 	go func() {
 		ticker := time.NewTicker(i.pollInterval)
@@ -140,6 +198,23 @@ var (
 // that an authoritative desktop/daemon instance under $HOME always takes precedence and can
 // immediately preempt any fallback process discovered during a desktop restart window.
 func (i *Inspector) Scan() *InstanceInfo {
+	return i.scan(false)
+}
+
+// ForceScan performs an on-demand inspection pass that bypasses the exponential failed-scan
+// backoff (subject to a short cooldown to prevent subprocess storms under request bursts).
+func (i *Inspector) ForceScan() *InstanceInfo {
+	return i.scan(true)
+}
+
+func (i *Inspector) verify(port int, csrfToken string) bool {
+	if i.verifyPortFn != nil {
+		return i.verifyPortFn(port, csrfToken)
+	}
+	return i.verifyPort(port, csrfToken)
+}
+
+func (i *Inspector) scan(force bool) *InstanceInfo {
 	i.scanMu.Lock()
 	defer i.scanMu.Unlock()
 
@@ -158,63 +233,76 @@ func (i *Inspector) Scan() *InstanceInfo {
 	i.mu.RUnlock()
 
 	if curr != nil && curr.IsHealthy && curr.Port > 0 {
-		if i.verifyPort(curr.Port, curr.CSRFToken) {
+		if i.verify(curr.Port, curr.CSRFToken) {
 			return curr
 		}
 	}
 
-	// PERF-3: exponential backoff — skip expensive ps+lsof if we recently failed.
+	// PERF-3: exponential backoff for periodic scans; ForceScan bypasses the long 40s backoff
+	// while still enforcing a short cooldown to prevent concurrent request storms.
 	i.failedScanMu.Lock()
-	if i.failedBackoff > 0 && time.Since(i.failedScanAt) < i.failedBackoff {
+	if force {
+		cooldown := i.forceScanCooldown
+		if cooldown <= 0 {
+			cooldown = 1500 * time.Millisecond
+		}
+		if !i.lastForceScanAt.IsZero() && time.Since(i.lastForceScanAt) < cooldown {
+			i.failedScanMu.Unlock()
+			return nil
+		}
+		i.lastForceScanAt = time.Now()
+	} else if i.failedBackoff > 0 && time.Since(i.failedScanAt) < i.failedBackoff {
 		i.failedScanMu.Unlock()
 		return nil
 	}
 	i.failedScanMu.Unlock()
 
-	pid, csrfToken, err := i.findProcess(context.Background())
-	if err != nil {
-		i.markUnhealthy()
-		i.recordFailedScan()
-		return nil
+	var procRes processScanResult
+	if i.findCandidatesFn != nil {
+		procRes = i.findCandidatesFn(context.Background())
+	} else {
+		procRes = i.findProcessCandidates(context.Background())
 	}
 
-	ports, err := i.findListeningPorts(context.Background(), pid)
-	if err != nil || len(ports) == 0 {
-		i.markUnhealthy()
-		i.recordFailedScan()
-		return nil
+	findPorts := i.findListeningPorts
+	if i.findPortsFn != nil {
+		findPorts = i.findPortsFn
 	}
 
-	// Verify candidate ports with health check
-	var activePort int
-	for _, port := range ports {
-		if i.verifyPort(port, csrfToken) {
-			activePort = port
-			break
+	for _, cand := range procRes.Candidates {
+		ports, err := findPorts(context.Background(), cand.PID)
+		if err != nil || len(ports) == 0 {
+			continue
+		}
+		for _, port := range ports {
+			if i.verify(port, cand.CSRFToken) {
+				i.failedScanMu.Lock()
+				i.failedBackoff = 0
+				i.failedScanMu.Unlock()
+
+				info := &InstanceInfo{
+					PID:          cand.PID,
+					Port:         port,
+					CSRFToken:    cand.CSRFToken,
+					DiscoveredAt: time.Now(),
+					IsHealthy:    true,
+				}
+				i.update(info)
+				return info
+			}
 		}
 	}
 
-	if activePort == 0 {
-		i.markUnhealthy()
-		i.recordFailedScan()
-		return nil
+	reason := ReasonAntigravityNotRunning
+	switch {
+	case procRes.AccessDenied:
+		reason = ReasonLSAccessDenied
+	case len(procRes.Candidates) > 0 || procRes.AppRunning:
+		reason = ReasonLSNotReady
 	}
-
-	// Success — reset backoff.
-	i.failedScanMu.Lock()
-	i.failedBackoff = 0
-	i.failedScanMu.Unlock()
-
-	info := &InstanceInfo{
-		PID:          pid,
-		Port:         activePort,
-		CSRFToken:    csrfToken,
-		DiscoveredAt: time.Now(),
-		IsHealthy:    true,
-	}
-
-	i.update(info)
-	return info
+	i.markUnhealthyWithReason(reason)
+	i.recordFailedScan()
+	return nil
 }
 
 // recordFailedScan advances the exponential backoff after a full-scan failure.
@@ -235,11 +323,41 @@ func (i *Inspector) recordFailedScan() {
 }
 
 func (i *Inspector) markUnhealthy() {
+	i.markUnhealthyWithReason(ReasonAntigravityNotRunning)
+}
+
+func (i *Inspector) markUnhealthyWithReason(reason string) {
 	i.mu.Lock()
-	defer i.mu.Unlock()
+	var notify bool
+	var listeners []func(InstanceInfo)
+	var disconnected InstanceInfo
+
 	if i.current != nil && i.current.IsHealthy {
 		i.current.IsHealthy = false
+		disconnected = *i.current
+		notify = true
+		listeners = append([]func(InstanceInfo){}, i.listeners...)
 		slog.Warn("[Inspector] ⚠️  Antigravity 实例已断开")
+	}
+
+	if reason != "" {
+		i.lastFailureReason = reason
+		if reason != i.lastLoggedReason {
+			i.lastLoggedReason = reason
+			switch reason {
+			case ReasonLSAccessDenied:
+				slog.Warn("[Inspector] ⚠️  检测到 language_server 进程但无权读取命令行（Windows 管理员权限隔离）；请以管理员身份运行 mgy 或普通权限启动 Antigravity")
+			case ReasonLSNotReady:
+				slog.Info("[Inspector] ⏳ 检测到 Antigravity 已启动，等待 language_server 本地服务就绪...")
+			}
+		}
+	}
+	i.mu.Unlock()
+
+	if notify {
+		for _, fn := range listeners {
+			fn(disconnected)
+		}
 	}
 }
 
@@ -253,13 +371,15 @@ func (i *Inspector) update(newInfo *InstanceInfo) {
 		i.current.Port != newInfo.Port ||
 		i.current.CSRFToken != newInfo.CSRFToken ||
 		!i.current.IsHealthy {
-		if i.current != nil {
+		if i.current != nil || i.initialScanDone {
 			slog.Info(fmt.Sprintf("[Inspector] ✅ 已连接 Antigravity 实例 (PID %d, 端口 %d)", newInfo.PID, newInfo.Port))
 		}
 		notify = true
 		listeners = append([]func(InstanceInfo){}, i.listeners...)
 	}
 	i.current = newInfo
+	i.lastFailureReason = ReasonNone
+	i.lastLoggedReason = ReasonNone
 	i.mu.Unlock()
 
 	if notify {
@@ -431,7 +551,7 @@ func (i *Inspector) findFromDaemon() *InstanceInfo {
 		if err := json.Unmarshal(data, &d); err != nil {
 			continue
 		}
-		if d.HTTPSPort > 0 && i.verifyPort(d.HTTPSPort, d.CSRFToken) {
+		if d.HTTPSPort > 0 && i.verify(d.HTTPSPort, d.CSRFToken) {
 			appDataDir := ""
 			if daemonDirOverride == "" {
 				appDataDir = filepath.Dir(entry.dir)

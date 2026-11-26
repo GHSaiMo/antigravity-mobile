@@ -158,7 +158,19 @@ extension APIClient {
                     }
                     return result
                 }
+                if let upstreamErr = APIError.upstreamUnavailableIfMatched(
+                    statusCode: httpResp.statusCode,
+                    headers: httpResp.allHeaderFields,
+                    data: data
+                ) {
+                    throw upstreamErr
+                }
             }
+        } catch let apiErr as APIError {
+            if case .upstreamNotConnected = apiErr {
+                throw apiErr
+            }
+            // Fallback to full trajectory fetch if gateway custom endpoint fails
         } catch {
             // Fallback to full trajectory fetch if gateway custom endpoint fails
         }

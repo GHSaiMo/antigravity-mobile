@@ -968,13 +968,9 @@ func (p *Proxy) HandleCascadeInteraction(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	p.mu.RLock()
-	port := p.activePort
-	token := p.activeToken
-	p.mu.RUnlock()
-
+	port, token, _ := p.ensureActiveUpstream(r.Context())
 	if port == 0 {
-		http.Error(w, `{"error":"upstream not connected"}`, http.StatusServiceUnavailable)
+		p.writeUpstreamUnavailable(w)
 		return
 	}
 
@@ -1237,13 +1233,9 @@ func (p *Proxy) handleCascadeTaskStop(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	p.mu.RLock()
-	port := p.activePort
-	token := p.activeToken
-	p.mu.RUnlock()
-
+	port, token, _ := p.ensureActiveUpstream(r.Context())
 	if port == 0 {
-		http.Error(w, `{"error":"upstream not connected"}`, http.StatusServiceUnavailable)
+		p.writeUpstreamUnavailable(w)
 		return
 	}
 
@@ -1300,9 +1292,9 @@ func (p *Proxy) HandleCascadeRevertPreview(w http.ResponseWriter, r *http.Reques
 		return
 	}
 
-	port, token := p.ActiveUpstream()
+	port, token, _ := p.ensureActiveUpstream(r.Context())
 	if port == 0 {
-		writeJSONError(w, "No active Antigravity upstream", http.StatusServiceUnavailable)
+		p.writeUpstreamUnavailable(w)
 		return
 	}
 
@@ -1340,9 +1332,9 @@ func (p *Proxy) HandleCascadeRevertExecute(w http.ResponseWriter, r *http.Reques
 		return
 	}
 
-	port, token := p.ActiveUpstream()
+	port, token, _ := p.ensureActiveUpstream(r.Context())
 	if port == 0 {
-		writeJSONError(w, "No active Antigravity upstream", http.StatusServiceUnavailable)
+		p.writeUpstreamUnavailable(w)
 		return
 	}
 

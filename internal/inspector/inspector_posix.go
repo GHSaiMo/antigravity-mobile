@@ -7,30 +7,48 @@ import (
 	"fmt"
 	"os/exec"
 	"runtime"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
 )
 
-// findProcess uses ps to find the language_server process and extract PID & CSRF token on POSIX systems.
-func (i *Inspector) findProcess(ctx context.Context) (int, string, error) {
+func isAntigravityDesktopProcessLine(line string) bool {
+	if ShouldExcludeProcessCmdline(line) {
+		return false
+	}
+	if strings.Contains(line, "Antigravity.app/Contents/MacOS/Antigravity") ||
+		strings.Contains(line, "Antigravity IDE.app/Contents/MacOS/") {
+		return true
+	}
+	base := strings.ToLower(ExtractCmdExecutableBase(line))
+	return base == "antigravity" || base == "antigravity-ide"
+}
+
+// findProcessCandidates uses ps to find all matching language_server / agy processes on POSIX
+// systems, sorted by descending priority then PID so Scan() can fall back across multiple PIDs.
+func (i *Inspector) findProcessCandidates(ctx context.Context) processScanResult {
 	cmdCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
 	cmd := exec.CommandContext(cmdCtx, "ps", "-eo", "pid,command")
 	out, err := cmd.Output()
 	if err != nil {
-		return 0, "", fmt.Errorf("failed to run ps: %w", err)
+		return processScanResult{Err: fmt.Errorf("failed to run ps: %w", err)}
 	}
 
-	var (
-		bestPID      int
-		bestCSRF     string
-		bestPriority int
-	)
+	var res processScanResult
+	seenPID := make(map[int]bool)
 
 	lines := strings.Split(string(out), "\n")
 	for _, line := range lines {
 		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+		if !res.AppRunning && isAntigravityDesktopProcessLine(line) {
+			res.AppRunning = true
+		}
+
 		ok, priority := ClassifyLanguageServerCmdline(line)
 		if !ok {
 			continue
@@ -41,11 +59,12 @@ func (i *Inspector) findProcess(ctx context.Context) (int, string, error) {
 			continue
 		}
 		pid, err := strconv.Atoi(fields[0])
-		if err != nil || pid <= 0 {
+		if err != nil || pid <= 0 || seenPID[pid] {
 			continue
 		}
 
-		// Verify the command actually executes language_server or agy / antigravity-cli (not a shell wrapper or python script)
+		// Verify the command actually executes language_server or agy / antigravity-cli
+		// (optionally under an allowlisted transparent proxy launcher like proxychains4/graftcp/env).
 		base := ExtractCmdExecutableBase(line)
 		if !IsAntigravityProcessBase(base) {
 			continue
@@ -57,18 +76,25 @@ func (i *Inspector) findProcess(ctx context.Context) (int, string, error) {
 			csrfToken = matches[1]
 		}
 
-		if priority > bestPriority || (priority == bestPriority && pid > bestPID) {
-			bestPID = pid
-			bestCSRF = csrfToken
-			bestPriority = priority
+		seenPID[pid] = true
+		res.Candidates = append(res.Candidates, processCandidate{
+			PID:       pid,
+			CSRFToken: csrfToken,
+			Priority:  priority,
+		})
+	}
+
+	sort.Slice(res.Candidates, func(a, b int) bool {
+		if res.Candidates[a].Priority != res.Candidates[b].Priority {
+			return res.Candidates[a].Priority > res.Candidates[b].Priority
 		}
-	}
+		return res.Candidates[a].PID > res.Candidates[b].PID
+	})
 
-	if bestPID > 0 {
-		return bestPID, bestCSRF, nil
+	if len(res.Candidates) == 0 {
+		res.Err = fmt.Errorf("language_server process not found")
 	}
-
-	return 0, "", fmt.Errorf("language_server process not found")
+	return res
 }
 
 // findListeningPorts uses ss (Linux primary) and lsof (macOS primary / Linux fallback)
