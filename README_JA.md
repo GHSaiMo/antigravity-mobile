@@ -277,6 +277,15 @@ make test           # Go のユニットテストおよび結合テストを実�
 
 ---
 
+<a id="acknowledgments"></a>
+## 🙏 謝辞
+
+Multigravity に貴重なアイデアやフィードバックを寄せてくださったコミュニティメンバーに感謝します：
+
+- **[@tuzkil](https://github.com/tuzkil)**：プッシュ通知の E2EE およびマルチノード集約ハブ（`mgy hub`）の設計アイデアを提供いただきました。
+
+---
+
 ## 📄 ライセンス
 
 本プロジェクトは [MIT License](LICENSE) のもとで公開されています。Issue や Pull Request を歓迎します！

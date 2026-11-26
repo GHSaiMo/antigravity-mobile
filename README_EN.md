@@ -277,6 +277,15 @@ Scan the QR code below to join the **mgy WeChat User Group** (valid for 7 days; 
 
 ---
 
+<a id="acknowledgments"></a>
+## 🙏 Acknowledgments
+
+Special thanks to the following community contributors for their valuable ideas and feedback:
+
+- **[@tuzkil](https://github.com/tuzkil)**: Contributed design ideas for push notification E2EE and the multi-node aggregation hub (`mgy hub`).
+
+---
+
 ## 📄 License
 
 This project is licensed under the [MIT License](LICENSE). Issues and Pull Requests are welcome!

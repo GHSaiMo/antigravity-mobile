@@ -269,6 +269,15 @@ make test           # 运行 Go 单元与集成测试
 
 ---
 
+<a id="acknowledgments"></a>
+## 🙏 致谢
+
+感谢以下社区伙伴为 Multigravity 提供的宝贵思路与建议：
+
+- **[@tuzkil](https://github.com/tuzkil)**：贡献了推送通知的 E2EE 以及多节点聚合网关（`mgy hub`）的设计思路。
+
+---
+
 ## 📄 开源许可证
 
 本项目基于 [MIT License](LICENSE) 协议开源。欢迎提交 Issue 与 Pull Request！
