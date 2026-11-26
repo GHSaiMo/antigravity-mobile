@@ -783,6 +783,7 @@ func (p *Proxy) handleUpdateConversationAnnotations(w http.ResponseWriter, r *ht
 			LastUserViewTime string `json:"lastUserViewTime,omitempty"`
 			Pinned           *bool  `json:"pinned,omitempty"`
 			Archived         *bool  `json:"archived,omitempty"`
+			Starred          *bool  `json:"starred,omitempty"`
 		} `json:"annotations"`
 		MergeAnnotations *bool `json:"mergeAnnotations,omitempty"`
 	}
@@ -834,6 +835,15 @@ func (p *Proxy) handleUpdateConversationAnnotations(w http.ResponseWriter, r *ht
 			for _, cid := range activeIDs {
 				if cid != "" {
 					writeAnnotationArchived(cid, *payload.Annotations.Archived)
+				}
+			}
+			p.invalidateAllTrajectories()
+		}
+
+		if payload.Annotations.Starred != nil {
+			for _, cid := range activeIDs {
+				if cid != "" {
+					writeAnnotationStarred(cid, *payload.Annotations.Starred)
 				}
 			}
 			p.invalidateAllTrajectories()

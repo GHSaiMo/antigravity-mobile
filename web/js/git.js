@@ -92,9 +92,13 @@ function renderGitSheet() {
        }).join("")}</div>`
     : "";
 
+  const worktreePrBtn = st.isWorktree
+    ? `<button type="button" class="git-btn" data-git="worktree-pr" style="margin-bottom:10px;">创建 / 更新 Worktree PR</button>`
+    : "";
+
   if (st.clean) {
     const canPush = st.ahead > 0 && st.upstream;
-    body.innerHTML = `${head}${prBlock}${gitNotice("工作区没有可提交的改动", "ok")}
+    body.innerHTML = `${head}${prBlock}${worktreePrBtn}${gitNotice("工作区没有可提交的改动", "ok")}
       ${canPush ? `<button type="button" class="git-btn primary" data-git="retry-push" ${gitState.working ? "disabled" : ""}>${gitState.working ? "推送中…" : `推送 ${st.ahead} 个未推送的提交`}</button>` : ""}
       ${gitState.actionError ? `<div class="git-error">${escapeHtml(gitState.actionError)}</div>` : ""}`;
     return;
@@ -122,7 +126,7 @@ function renderGitSheet() {
     })
     .join("");
 
-  body.innerHTML = `${head}${prBlock}
+  body.innerHTML = `${head}${prBlock}${worktreePrBtn}
     <div class="git-section-title">变更文件</div><div class="git-files">${rows}</div>
     <div class="git-section-title">提交信息</div>
     <textarea id="git-message" class="git-message" rows="3" placeholder="提交信息">${escapeHtml(gitState.message)}</textarea>
@@ -258,6 +262,7 @@ function initGitSheet() {
     else if (action === "done") closeGitSheet();
     else if (action === "branches") openGitBranchPicker();
     else if (action === "discard") discardGitFile(actionBtn?.getAttribute("data-discard-path"));
+    else if (action === "worktree-pr") window.Phase4?.openWorktreePrDialog?.(activeCascadeId, refreshGitStatus);
   });
   body?.addEventListener("input", (e) => {
     if (e.target.id !== "git-message") return;

@@ -30,6 +30,11 @@ public struct GitCommitSheet: View {
     @State private var pendingPushBranch: String = ""
     @State private var pendingPushCount: Int = 0
     @State private var gitErrorMessage: String? = nil
+    @State private var showWorktreePRSheet: Bool = false
+    @State private var prTitleInput: String = ""
+    @State private var prBodyInput: String = ""
+    @State private var isCreatingPR: Bool = false
+    @State private var createdPRURL: String? = nil
 
     public init(viewModel: ChatViewModel, onDelegateToAgent: @escaping () -> Void) {
         self.viewModel = viewModel
@@ -100,6 +105,42 @@ public struct GitCommitSheet: View {
         } message: {
             Text(gitErrorMessage ?? "")
         }
+        .sheet(isPresented: $showWorktreePRSheet) {
+            NavigationStack {
+                Form {
+                    Section(header: Text("Pull Request 信息")) {
+                        TextField("PR 标题（留空自动生成）", text: $prTitleInput)
+                        TextField("PR 说明（可选）", text: $prBodyInput, axis: .vertical)
+                            .lineLimit(3...6)
+                    }
+                    if let urlStr = createdPRURL, !urlStr.isEmpty {
+                        Section(header: Text("已创建 / 更新 PR")) {
+                            Button {
+                                if let u = URL(string: urlStr) { openURL(u) }
+                            } label: {
+                                Label(urlStr, systemImage: "arrow.up.right.square")
+                                    .font(.system(size: 13))
+                            }
+                        }
+                    }
+                }
+                .navigationTitle("创建 / 更新 Worktree PR")
+                .navigationBarTitleDisplayMode(.inline)
+                .toolbar {
+                    ToolbarItem(placement: .topBarLeading) {
+                        Button("关闭") { showWorktreePRSheet = false }
+                    }
+                    ToolbarItem(placement: .topBarTrailing) {
+                        Button(isCreatingPR ? "提交中..." : "提交 PR") {
+                            submitWorktreePR()
+                        }
+                        .fontWeight(.semibold)
+                        .disabled(isCreatingPR)
+                    }
+                }
+            }
+            .presentationDetents([.medium])
+        }
     }
 
     private func loadBranches() async {
@@ -147,6 +188,30 @@ public struct GitCommitSheet: View {
         }
     }
 
+    private func submitWorktreePR() {
+        guard let gwUrl = AppSettings.shared.gatewayURL, !viewModel.cascadeId.isEmpty else { return }
+        isCreatingPR = true
+        Task { @MainActor in
+            defer { isCreatingPR = false }
+            do {
+                let resp = try await APIClient.shared.updateWorktreePR(
+                    cascadeId: viewModel.cascadeId,
+                    title: prTitleInput.trimmingCharacters(in: .whitespacesAndNewlines),
+                    body: prBodyInput.trimmingCharacters(in: .whitespacesAndNewlines),
+                    commitMessage: message.trimmingCharacters(in: .whitespacesAndNewlines),
+                    baseURL: gwUrl
+                )
+                createdPRURL = resp.prUrl
+                viewModel.refreshGitStatus()
+                if let urlStr = resp.prUrl, !urlStr.isEmpty, let u = URL(string: urlStr) {
+                    openURL(u)
+                }
+            } catch {
+                gitErrorMessage = error.localizedDescription
+            }
+        }
+    }
+
     @ViewBuilder
     private func content(_ state: GitSheetState) -> some View {
         if let result = state.result, result.committed {
@@ -185,6 +250,27 @@ public struct GitCommitSheet: View {
                 Section("GitHub Pull Requests") {
                     ForEach(prs) { pr in
                         pullRequestRow(pr)
+                    }
+                    if status.isWorktree == true {
+                        Button {
+                            createdPRURL = nil
+                            showWorktreePRSheet = true
+                        } label: {
+                            Label("同步更新 Worktree PR", systemImage: "arrow.triangle.pull")
+                                .font(.system(size: 13.5, weight: .semibold))
+                                .foregroundColor(.indigo)
+                        }
+                    }
+                }
+            } else if status.isWorktree == true {
+                Section("Worktree Pull Request") {
+                    Button {
+                        createdPRURL = nil
+                        showWorktreePRSheet = true
+                    } label: {
+                        Label("创建 / 更新 Worktree PR", systemImage: "arrow.triangle.pull")
+                            .font(.system(size: 13.5, weight: .semibold))
+                            .foregroundColor(.indigo)
                     }
                 }
             }

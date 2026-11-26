@@ -72,6 +72,7 @@ public struct Annotations: Codable, Sendable {
     public let markedAsUnread: Bool?
     public let archived: Bool?
     public let pinned: Bool?
+    public let starred: Bool?
 }
 
 public struct TrajectoryMetadata: Codable, Sendable {
@@ -157,6 +158,7 @@ public struct ConversationItem: Identifiable, Hashable, Sendable, Codable {
     public let nestingDepth: Int
     public let isPinned: Bool
     public let isArchived: Bool
+    public let isStarred: Bool
     public let hasRunningTasks: Bool
     public let hasRunningSubagents: Bool
     public let hasSwarm: Bool
@@ -199,6 +201,7 @@ public struct ConversationItem: Identifiable, Hashable, Sendable, Codable {
         case nestingDepth
         case isPinned
         case isArchived
+        case isStarred
         case hasRunningTasks
         case hasRunningSubagents
         case hasSwarm
@@ -227,6 +230,7 @@ public struct ConversationItem: Identifiable, Hashable, Sendable, Codable {
         self.nestingDepth = try container.decodeIfPresent(Int.self, forKey: .nestingDepth) ?? 0
         self.isPinned = try container.decodeIfPresent(Bool.self, forKey: .isPinned) ?? false
         self.isArchived = try container.decodeIfPresent(Bool.self, forKey: .isArchived) ?? false
+        self.isStarred = try container.decodeIfPresent(Bool.self, forKey: .isStarred) ?? false
         self.hasRunningTasks = try container.decodeIfPresent(Bool.self, forKey: .hasRunningTasks) ?? false
         self.hasRunningSubagents = try container.decodeIfPresent(Bool.self, forKey: .hasRunningSubagents) ?? false
         self.hasSwarm = try container.decodeIfPresent(Bool.self, forKey: .hasSwarm) ?? false
@@ -255,6 +259,7 @@ public struct ConversationItem: Identifiable, Hashable, Sendable, Codable {
         try container.encode(nestingDepth, forKey: .nestingDepth)
         try container.encode(isPinned, forKey: .isPinned)
         if isArchived { try container.encode(isArchived, forKey: .isArchived) }
+        if isStarred { try container.encode(isStarred, forKey: .isStarred) }
         try container.encode(hasRunningTasks, forKey: .hasRunningTasks)
         try container.encode(hasRunningSubagents, forKey: .hasRunningSubagents)
         if hasSwarm { try container.encode(hasSwarm, forKey: .hasSwarm) }
@@ -303,6 +308,7 @@ public struct ConversationItem: Identifiable, Hashable, Sendable, Codable {
             nestingDepth: self.nestingDepth,
             isPinned: self.isPinned,
             isArchived: self.isArchived,
+            isStarred: self.isStarred,
             hasRunningTasks: self.hasRunningTasks,
             hasRunningSubagents: self.hasRunningSubagents,
             hasSwarm: self.hasSwarm,
@@ -332,6 +338,7 @@ public struct ConversationItem: Identifiable, Hashable, Sendable, Codable {
             nestingDepth: self.nestingDepth,
             isPinned: pinned,
             isArchived: self.isArchived,
+            isStarred: self.isStarred,
             hasRunningTasks: self.hasRunningTasks,
             hasRunningSubagents: self.hasRunningSubagents,
             hasSwarm: self.hasSwarm,
@@ -361,6 +368,37 @@ public struct ConversationItem: Identifiable, Hashable, Sendable, Codable {
             nestingDepth: self.nestingDepth,
             isPinned: self.isPinned,
             isArchived: archived,
+            isStarred: self.isStarred,
+            hasRunningTasks: self.hasRunningTasks,
+            hasRunningSubagents: self.hasRunningSubagents,
+            hasSwarm: self.hasSwarm,
+            swarmWorkingCount: self.swarmWorkingCount,
+            swarmTotalMembers: self.swarmTotalMembers,
+            currentBranch: self.currentBranch,
+            pullRequest: self.pullRequest,
+            isSideQuestion: self.isSideQuestion,
+            branchParentId: self.branchParentId,
+            branchParentTitle: self.branchParentTitle,
+            forkStepIndex: self.forkStepIndex
+        )
+    }
+
+    public func withStarred(_ starred: Bool) -> ConversationItem {
+        ConversationItem(
+            id: self.id,
+            title: self.title,
+            status: self.status,
+            stepCount: self.stepCount,
+            workspaceName: self.workspaceName,
+            lastModified: self.lastModified,
+            isSubagent: self.isSubagent,
+            isUnread: self.isUnread,
+            draftProject: self.draftProject,
+            parentConversationId: self.parentConversationId,
+            nestingDepth: self.nestingDepth,
+            isPinned: self.isPinned,
+            isArchived: self.isArchived,
+            isStarred: starred,
             hasRunningTasks: self.hasRunningTasks,
             hasRunningSubagents: self.hasRunningSubagents,
             hasSwarm: self.hasSwarm,
@@ -485,6 +523,7 @@ public struct ConversationItem: Identifiable, Hashable, Sendable, Codable {
             self.isPinned = CacheManager.shared.isPinned(cascadeId: id)
         }
         self.isArchived = summary.annotations?.archived == true
+        self.isStarred = summary.annotations?.starred == true
         self.currentBranch = summary.currentBranch
         self.pullRequest = summary.pullRequest
         self.isSideQuestion = summary.isSideQuestion == true
@@ -507,6 +546,7 @@ public struct ConversationItem: Identifiable, Hashable, Sendable, Codable {
         nestingDepth: Int = 0,
         isPinned: Bool = false,
         isArchived: Bool = false,
+        isStarred: Bool = false,
         hasRunningTasks: Bool = false,
         hasRunningSubagents: Bool = false,
         hasSwarm: Bool = false,
@@ -532,6 +572,7 @@ public struct ConversationItem: Identifiable, Hashable, Sendable, Codable {
         self.nestingDepth = nestingDepth
         self.isPinned = isPinned
         self.isArchived = isArchived
+        self.isStarred = isStarred
         self.hasRunningTasks = hasRunningTasks
         self.hasRunningSubagents = hasRunningSubagents
         self.hasSwarm = hasSwarm

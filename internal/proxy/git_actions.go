@@ -181,6 +181,7 @@ type GitStatusResponse struct {
 	Ahead        int                  `json:"ahead"`
 	Behind       int                  `json:"behind"`
 	Detached     bool                 `json:"detached"`
+	IsWorktree   bool                 `json:"isWorktree,omitempty"`
 	Files        []GitFileStatus      `json:"files"`
 	Clean        bool                 `json:"clean"`
 	GitHubTarget *GitHubBranchTarget  `json:"githubTarget,omitempty"`
@@ -361,6 +362,20 @@ func gitStatus(ctx context.Context, repoRoot string) (*GitStatusResponse, error)
 	}
 	res := parseGitStatus(out)
 	res.RepoName = filepath.Base(repoRoot)
+	if wtOut, wtErr := runGit(ctx, repoRoot, 5*time.Second, "rev-parse", "--git-dir", "--git-common-dir"); wtErr == nil {
+		lines := strings.Split(strings.TrimSpace(wtOut), "\n")
+		if len(lines) >= 2 {
+			gd := filepath.Clean(strings.TrimSpace(lines[0]))
+			gcd := filepath.Clean(strings.TrimSpace(lines[1]))
+			if !filepath.IsAbs(gd) {
+				gd = filepath.Clean(filepath.Join(repoRoot, gd))
+			}
+			if !filepath.IsAbs(gcd) {
+				gcd = filepath.Clean(filepath.Join(repoRoot, gcd))
+			}
+			res.IsWorktree = gd != "" && gcd != "" && gd != gcd
+		}
+	}
 	return &res, nil
 }
 

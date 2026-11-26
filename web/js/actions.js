@@ -589,6 +589,7 @@ async function openMarkdownViewer(uri, title) {
 
   sheet.classList.remove("hidden");
   triggerHaptic("selection");
+  window.Phase4?.refreshArtifactSnapshots?.(activeCascadeId, currentViewerUri);
 
   try {
     const data = await fetchFileContent(currentViewerUri, activeCascadeId);
@@ -992,7 +993,8 @@ function renderNewProjectsList(projects) {
     </div>
   `;
 
-  listEl.innerHTML = html;
+  listEl.innerHTML = html + `<div id="new-remotes-container"></div>`;
+  window.Phase4?.renderRemoteSshSection?.(document.getElementById("new-remotes-container"));
 
   listEl.querySelectorAll(".project-select-card").forEach(card => {
     card.addEventListener("click", () => {

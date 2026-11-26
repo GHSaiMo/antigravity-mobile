@@ -377,21 +377,44 @@ public struct CreateProjectResponse: Codable, Sendable {
 public struct PermissionStateResponse: Codable, Hashable, Sendable {
     public let ok: Bool?
     public let preset: String
+    public let mode: String?
     public let label: String
     public let isUnlocked: Bool
 
-    public init(ok: Bool? = true, preset: String = "strict", label: String = String(localized: "严格审批"), isUnlocked: Bool = false) {
+    public init(ok: Bool? = true, preset: String = "strict", mode: String? = nil, label: String = String(localized: "严格审批"), isUnlocked: Bool = false) {
         self.ok = ok
         self.preset = preset
+        self.mode = mode
         self.label = label
         self.isUnlocked = isUnlocked
     }
 
+    /// Canonical 4-tier Antigravity 2.35+ mode: "strict" | "default" | "auto" | "turbo"
+    public var effectiveMode: String {
+        if let m = mode?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased(), !m.isEmpty {
+            switch m {
+            case "strict", "request_review": return "strict"
+            case "default", "sandbox": return "default"
+            case "auto", "smart_auto": return "auto"
+            case "turbo": return "turbo"
+            default: return m
+            }
+        }
+        switch preset.lowercased() {
+        case "strict": return "strict"
+        case "sandbox", "default": return "default"
+        case "smart_auto": return "auto"
+        case "auto", "turbo": return "turbo"
+        default: return "strict"
+        }
+    }
+
     public var localizedLabel: String {
-        switch preset {
+        switch effectiveMode {
         case "strict": return String(localized: "严格审批")
-        case "sandbox": return String(localized: "离席沙箱放行")
-        case "auto": return String(localized: "全自动放行")
+        case "default": return String(localized: "默认沙箱")
+        case "auto": return String(localized: "智能自动 (沙箱)")
+        case "turbo": return String(localized: "全自动 (无沙箱)")
         default: return label
         }
     }

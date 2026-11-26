@@ -15,6 +15,7 @@ public struct SubagentDetailSheet: View {
     @State private var browserState: BrowserSubagentResponse? = nil
     @State private var isBrowserActionBusy: Bool = false
     @State private var browserFeedback: String? = nil
+    @State private var showBrowserViewer: Bool = false
 
     private var isBrowserSubagent: Bool {
         let roleLower = (subagent.role ?? "").lowercased()
@@ -265,6 +266,20 @@ public struct SubagentDetailSheet: View {
                                 .buttonStyle(.bordered)
                                 .tint(.orange)
                                 .disabled(isBrowserActionBusy)
+                            }
+
+                            Button {
+                                UIImpactFeedbackGenerator(style: .medium).impactOccurred()
+                                showBrowserViewer = true
+                            } label: {
+                                Label("实时接管浏览器", systemImage: "hand.tap.fill")
+                                    .font(.system(size: 13, weight: .semibold))
+                                    .frame(maxWidth: .infinity)
+                            }
+                            .buttonStyle(.borderedProminent)
+                            .tint(.indigo)
+                            .sheet(isPresented: $showBrowserViewer) {
+                                BrowserViewerSheet(cascadeId: subagent.conversationId)
                             }
 
                             if let bfb = browserFeedback {

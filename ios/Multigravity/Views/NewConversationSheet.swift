@@ -96,6 +96,12 @@ public struct NewConversationSheet: View {
                                 projectCard(for: project)
                             }
                         }
+
+                        RemoteSSHSectionView {
+                            Task {
+                                await refreshProjectsInBackground()
+                            }
+                        }
                     }
                     .padding(.horizontal, 16)
                     .padding(.top, 4)

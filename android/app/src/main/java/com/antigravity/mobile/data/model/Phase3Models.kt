@@ -160,10 +160,22 @@ data class CreateProjectResponse(
 @Serializable
 data class PermissionStateResponse(
     val ok: Boolean = true,
-    val preset: String = "strict", // "strict" | "sandbox" | "auto"
+    val mode: String = "", // "strict" | "default" | "auto" | "turbo"
+    val preset: String = "strict", // legacy: "strict" | "sandbox" | "auto"
     val label: String = "严格审批".loc,
     val isUnlocked: Boolean = false
-)
+) {
+    val effectiveMode: String
+        get() = when (mode.trim().lowercase()) {
+            "strict", "default", "auto", "turbo" -> mode.trim().lowercase()
+            else -> when (preset.trim().lowercase()) {
+                "sandbox" -> "default"
+                "auto" -> "turbo"
+                "strict" -> "strict"
+                else -> "strict"
+            }
+        }
+}
 
 @Serializable
 data class MemoryRuleItem(

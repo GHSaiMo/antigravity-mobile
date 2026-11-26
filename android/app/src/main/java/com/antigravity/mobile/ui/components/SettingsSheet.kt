@@ -61,6 +61,7 @@ import com.antigravity.mobile.data.service.AppUpdateParser
 import com.antigravity.mobile.data.service.AppUpdateState
 import com.antigravity.mobile.data.service.ConnectionManager
 import com.antigravity.mobile.data.service.PreferencesManager
+import com.antigravity.mobile.data.service.fetchDesktopUpdateStatus
 import com.antigravity.mobile.data.service.fetchPermissionSettings
 import com.antigravity.mobile.data.service.updatePermissionPreset
 import com.antigravity.mobile.ui.theme.AntigravityTheme
@@ -848,20 +849,41 @@ private fun MainSettingsContent(
 
         // MARK: - 4. 扩展与能力（Agent 权限模式 + MCP 工具与技能看板）
         val permPrefs = remember { localContext.getSharedPreferences("antigravity_tips", android.content.Context.MODE_PRIVATE) }
-        var permPreset by remember { mutableStateOf(permPrefs.getString("cached_permission_preset", "strict") ?: "strict") }
+        var permMode by remember {
+            val saved = permPrefs.getString("cached_permission_preset", "strict") ?: "strict"
+            mutableStateOf(
+                when (saved.lowercase()) {
+                    "sandbox" -> "default"
+                    "strict", "default", "auto", "turbo" -> saved.lowercase()
+                    else -> "strict"
+                }
+            )
+        }
+        var pendingTurboConfirm by remember { mutableStateOf(false) }
         LaunchedEffect(Unit) {
             ApiClient.defaultInstance?.fetchPermissionSettings()?.onSuccess {
-                permPreset = it.preset
-                permPrefs.edit().putString("cached_permission_preset", it.preset).apply()
+                permMode = it.effectiveMode
+                permPrefs.edit().putString("cached_permission_preset", it.effectiveMode).apply()
             }
         }
         val currentLang = L10n.currentLang
         val permissionOptions = remember(colors, currentLang) {
             listOf(
                 PickerMenuOption("strict", "严格审批".loc, accentColor = colors.accentIndigo),
-                PickerMenuOption("sandbox", "离席沙箱放行".loc, accentColor = colors.accentOrange),
-                PickerMenuOption("auto", "全自动放行".loc, accentColor = colors.accentOrange)
+                PickerMenuOption("default", "默认沙箱".loc, accentColor = colors.accentBlue),
+                PickerMenuOption("auto", "智能自动 · 沙箱".loc, accentColor = colors.accentOrange),
+                PickerMenuOption("turbo", "全自动 · 无沙箱".loc, accentColor = colors.accentRed)
             )
+        }
+        fun applyPermissionMode(key: String) {
+            permMode = key
+            permPrefs.edit().putString("cached_permission_preset", key).apply()
+            coroutineScope.launch {
+                ApiClient.defaultInstance?.updatePermissionPreset(key)?.onSuccess {
+                    permMode = it.effectiveMode
+                    permPrefs.edit().putString("cached_permission_preset", it.effectiveMode).apply()
+                }
+            }
         }
         SettingsSection(
             title = "扩展与能力".loc,
@@ -876,21 +898,51 @@ private fun MainSettingsContent(
             ) {
                 SettingsMenuPickerRow(
                     label = "Agent 权限模式".loc,
-                    selectedLabel = permissionOptions.firstOrNull { it.id == permPreset }?.label ?: "严格审批".loc,
-                    selectedId = permPreset,
-                    selectedColor = if (permPreset == "strict") colors.accentIndigo else colors.accentOrange,
+                    selectedLabel = permissionOptions.firstOrNull { it.id == permMode }?.label ?: "严格审批".loc,
+                    selectedId = permMode,
+                    selectedColor = when (permMode) {
+                        "strict" -> colors.accentIndigo
+                        "default" -> colors.accentBlue
+                        "turbo" -> colors.accentRed
+                        else -> colors.accentOrange
+                    },
                     options = permissionOptions,
                     onSelect = { key ->
-                        permPreset = key
-                        permPrefs.edit().putString("cached_permission_preset", key).apply()
-                        coroutineScope.launch {
-                            ApiClient.defaultInstance?.updatePermissionPreset(key)?.onSuccess {
-                                permPreset = it.preset
-                                permPrefs.edit().putString("cached_permission_preset", it.preset).apply()
-                            }
+                        if (key == "turbo") {
+                            pendingTurboConfirm = true
+                        } else {
+                            applyPermissionMode(key)
                         }
                     }
                 )
+                if (pendingTurboConfirm) {
+                    AlertDialog(
+                        onDismissRequest = { pendingTurboConfirm = false },
+                        containerColor = colors.surface,
+                        title = { Text("开启全自动 · 无沙箱？".loc, fontWeight = FontWeight.Bold) },
+                        text = {
+                            Text(
+                                "开启后 Agent 将自动执行终端命令并访问工作区外文件（同步作用于桌面端全部会话）。建议仅在可信或隔离环境中使用。".loc,
+                                fontSize = 13.5.sp,
+                                color = colors.textSecondary
+                            )
+                        },
+                        confirmButton = {
+                            Button(
+                                onClick = {
+                                    pendingTurboConfirm = false
+                                    applyPermissionMode("turbo")
+                                },
+                                colors = ButtonDefaults.buttonColors(containerColor = colors.accentRed)
+                            ) { Text("确认开启".loc) }
+                        },
+                        dismissButton = {
+                            TextButton(onClick = { pendingTurboConfirm = false }) {
+                                Text("取消".loc, color = colors.textSecondary)
+                            }
+                        }
+                    )
+                }
                 HorizontalDivider(color = colors.separator.copy(alpha = 0.4f), thickness = 0.5.dp)
                 Row(
                     modifier = Modifier
@@ -1324,6 +1376,15 @@ private fun MainSettingsContent(
         val appUpdateState by AppUpdateInstaller.state.collectAsState()
         val updateHaptic = rememberHaptic()
         var showAppUpdateDialog by remember { mutableStateOf(false) }
+        var desktopUpdateStatus by remember { mutableStateOf<com.antigravity.mobile.data.model.DesktopUpdateStatus?>(null) }
+        var showDesktopUpdateDialog by remember { mutableStateOf(false) }
+        LaunchedEffect(isPaired) {
+            if (isPaired) {
+                ApiClient.defaultInstance?.fetchDesktopUpdateStatus()?.onSuccess {
+                    desktopUpdateStatus = it
+                }
+            }
+        }
 
         SettingsSection(title = "关于".loc) {
             Column(
@@ -1476,7 +1537,51 @@ private fun MainSettingsContent(
                         }
                     }
                 }
+                if (isPaired) {
+                    HorizontalDivider(color = colors.separator.copy(alpha = 0.4f), thickness = 0.5.dp)
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable { showDesktopUpdateDialog = true }
+                            .padding(horizontal = 16.dp, vertical = 14.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Text(text = "Antigravity 桌面端".loc, color = colors.textPrimary, fontSize = 15.sp)
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            val curVer = desktopUpdateStatus?.currentVersion?.takeIf { it.isNotBlank() }
+                            if (curVer != null) {
+                                Text(text = "v$curVer", color = colors.textSecondary, fontSize = 13.5.sp)
+                            }
+                            if (desktopUpdateStatus?.updateAvailable == true) {
+                                Text(
+                                    text = "有更新".loc,
+                                    color = colors.accentOrange,
+                                    fontSize = 11.5.sp,
+                                    fontWeight = FontWeight.SemiBold,
+                                    modifier = Modifier
+                                        .clip(RoundedCornerShape(999.dp))
+                                        .background(colors.accentOrange.copy(alpha = 0.14f))
+                                        .padding(horizontal = 7.dp, vertical = 2.dp)
+                                )
+                            }
+                            Icon(
+                                imageVector = Icons.AutoMirrored.Filled.KeyboardArrowRight,
+                                contentDescription = null,
+                                tint = colors.textMuted,
+                                modifier = Modifier.size(16.dp)
+                            )
+                        }
+                    }
+                }
             }
+        }
+
+        if (showDesktopUpdateDialog) {
+            DesktopUpdateDialog(onDismiss = { showDesktopUpdateDialog = false })
         }
 
         if (AppUpdateInstaller.isSupported && showAppUpdateDialog) {

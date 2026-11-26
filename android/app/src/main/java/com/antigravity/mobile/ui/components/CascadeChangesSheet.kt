@@ -24,21 +24,24 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.foundation.clickable
 import com.antigravity.mobile.data.model.RevertPreviewFile
 import com.antigravity.mobile.ui.theme.AntigravityTheme
 import com.antigravity.mobile.ui.viewmodel.ChangesSheetState
 
-/** 「本会话改动」：Agent 在当前会话里累计改动了哪些文件，点开可看正向 diff。 */
+/** 「本会话改动」：Agent 在当前会话里累计改动了哪些文件，点开可看正向 diff；同时内嵌工作区代码/文件检索。 */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun CascadeChangesSheet(
     state: ChangesSheetState,
+    cascadeId: String = "",
     onDismiss: () -> Unit,
     modifier: Modifier = Modifier
 ) {
     val colors = AntigravityTheme.colors
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     var viewingDiffFile by remember { mutableStateOf<RevertPreviewFile?>(null) }
+    var activeSegment by remember { mutableIntStateOf(0) } // 0 = 本会话改动, 1 = 搜索代码, 2 = 搜索文件
 
     ModalBottomSheet(
         onDismissRequest = onDismiss,
@@ -88,13 +91,51 @@ fun CascadeChangesSheet(
 
                 HorizontalDivider(thickness = 0.5.dp, color = colors.border)
 
+                if (cascadeId.isNotBlank()) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 20.dp, vertical = 10.dp)
+                            .clip(RoundedCornerShape(10.dp))
+                            .background(colors.surfaceVariant)
+                            .padding(3.dp),
+                        horizontalArrangement = Arrangement.spacedBy(4.dp)
+                    ) {
+                        listOf("本会话改动".loc, "搜索代码".loc, "搜索文件".loc).forEachIndexed { idx, label ->
+                            val selected = activeSegment == idx
+                            Box(
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .clip(RoundedCornerShape(8.dp))
+                                    .background(if (selected) colors.surface else Color.Transparent)
+                                    .clickable { activeSegment = idx }
+                                    .padding(vertical = 7.dp),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Text(
+                                    text = label,
+                                    fontSize = 12.5.sp,
+                                    fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Medium,
+                                    color = if (selected) colors.accentIndigo else colors.textSecondary,
+                                    maxLines = 1
+                                )
+                            }
+                        }
+                    }
+                }
+
                 Column(
                     modifier = Modifier
                         .fillMaxWidth()
                         .weight(1f)
                         .padding(horizontal = 20.dp)
-                        .padding(top = 14.dp, bottom = 24.dp)
+                        .padding(top = 6.dp, bottom = 24.dp)
                 ) {
+                    if (cascadeId.isNotBlank() && activeSegment == 1) {
+                        WorkspaceSearchTab(cascadeId = cascadeId, mode = WorkspaceSearchMode.CODE)
+                    } else if (cascadeId.isNotBlank() && activeSegment == 2) {
+                        WorkspaceSearchTab(cascadeId = cascadeId, mode = WorkspaceSearchMode.FILES)
+                    } else {
                     val data = state.data
                     when {
                         state.isLoading -> {
@@ -133,6 +174,7 @@ fun CascadeChangesSheet(
                                 }
                             }
                         }
+                    }
                     }
                 }
             }

@@ -7,6 +7,7 @@ import SwiftUI
 public final class ConversationListViewModel {
     public enum WorkspaceFilter: Equatable, Hashable, Sendable {
         case chat
+        case starred
         case workspace(String)
         case archived
 
@@ -14,6 +15,8 @@ public final class ConversationListViewModel {
             switch self {
             case .chat:
                 return String(localized: "Chat")
+            case .starred:
+                return String(localized: "已星标")
             case .workspace(let name):
                 return name
             case .archived:
@@ -26,6 +29,11 @@ public final class ConversationListViewModel {
             return false
         }
 
+        public var isStarred: Bool {
+            if case .starred = self { return true }
+            return false
+        }
+
         public var isArchived: Bool {
             if case .archived = self { return true }
             return false
@@ -35,6 +43,8 @@ public final class ConversationListViewModel {
             switch self {
             case .chat:
                 return !item.isArchived && item.isPureChat
+            case .starred:
+                return !item.isArchived && item.isStarred
             case .workspace(let name):
                 return !item.isArchived && !item.isPureChat && item.workspaceName == name
             case .archived:
@@ -52,6 +62,8 @@ public final class ConversationListViewModel {
             switch filter {
             case .chat:
                 return "__pure_chat__"
+            case .starred:
+                return "__starred__"
             case .workspace(let name):
                 return "ws:\(name)"
             case .archived:
@@ -309,6 +321,11 @@ public final class ConversationListViewModel {
         }
 
         var result: [WorkspaceFilterOption] = []
+        let starredItems = visibleConversations.filter { $0.isStarred }
+        if !starredItems.isEmpty {
+            let latestStarred = starredItems.map(\.effectiveLastModified).max() ?? .distantPast
+            result.append(WorkspaceFilterOption(filter: .starred, count: starredItems.count, latestModified: latestStarred))
+        }
         if chatCount > 0 {
             result.append(WorkspaceFilterOption(filter: .chat, count: chatCount, latestModified: chatLatest))
         }
@@ -1163,6 +1180,24 @@ public final class ConversationListViewModel {
         guard let url = settings.serverURL, settings.isPaired else { return }
         Task {
             try? await apiClient.setConversationPinned(cascadeId: item.id, pinned: newPinned, baseURL: url)
+        }
+    }
+
+    @MainActor
+    public func toggleStar(item: ConversationItem) {
+        guard !item.isDraft else { return }
+        let newStarred = !item.isStarred
+        if let idx = conversations.firstIndex(where: { $0.id == item.id }) {
+            var updated = conversations
+            updated[idx] = updated[idx].withStarred(newStarred)
+            withAnimation(.spring(response: 0.34, dampingFraction: 0.86)) {
+                self.conversations = updated
+            }
+            cacheManager.saveConversations(updated.filter { !$0.isDraft && !$0.isSubagent })
+        }
+        guard let url = settings.gatewayURL ?? settings.serverURL, settings.isPaired else { return }
+        Task {
+            try? await apiClient.setConversationStarred(cascadeId: item.id, starred: newStarred, baseURL: url)
         }
     }
 

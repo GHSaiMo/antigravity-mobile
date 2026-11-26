@@ -158,6 +158,9 @@ type Proxy struct {
 	cloneJobsMu sync.Mutex
 	cloneJobs   map[string]*cloneRepoJob
 
+	remoteJobsMu sync.Mutex
+	remoteJobs   map[string]*remoteConnectJob
+
 	// nuxCache caches GetCascadeNuxes responses for nuxCacheTTL to avoid
 	// 300-900ms upstream latency on every desktop workbench initialization.
 	nuxCacheMu      sync.RWMutex
@@ -403,6 +406,7 @@ func (p *Proxy) Shutdown() {
 	p.agentStateHub.StopAll()
 	p.summariesHub.StopAll()
 	p.cancelAllCloneJobs()
+	p.cancelAllRemoteJobs()
 
 	p.wsConnsMu.Lock()
 	conns := make([]*websocket.Conn, 0, len(p.wsConns))
@@ -798,6 +802,42 @@ func (p *Proxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		r.URL.Path == "/gateway/btw/status":
 		p.HandleBtw(w, r)
 		return
+	// Phase 4 native feature routes (BrowserViewer, Remoting/SSH, Marketplace, Plugin/MCP OAuth, Desktop Update, Code Search, Artifact Snapshots, Worktree PR, Star)
+	case strings.HasPrefix(r.URL.Path, "/gateway/browser/"):
+		p.HandleBrowserViewer(w, r)
+		return
+	case r.URL.Path == "/gateway/remotes",
+		strings.HasPrefix(r.URL.Path, "/gateway/remotes/"),
+		r.URL.Path == "/gateway/environments":
+		p.HandleRemotes(w, r)
+		return
+	case strings.HasPrefix(r.URL.Path, "/gateway/marketplace/"):
+		p.HandleMarketplace(w, r)
+		return
+	case r.URL.Path == "/gateway/plugins/delete",
+		strings.HasPrefix(r.URL.Path, "/gateway/plugins/auth/"):
+		p.HandlePluginManageExtra(w, r)
+		return
+	case strings.HasPrefix(r.URL.Path, "/gateway/mcp/oauth/"),
+		r.URL.Path == "/gateway/oauth/callback-forward":
+		p.HandleMcpOAuth(w, r)
+		return
+	case strings.HasPrefix(r.URL.Path, "/gateway/desktop/"):
+		p.HandleDesktopUpdate(w, r)
+		return
+	case r.URL.Path == "/gateway/search/code",
+		r.URL.Path == "/gateway/search/files":
+		p.HandleWorkspaceSearch(w, r)
+		return
+	case r.URL.Path == "/gateway/artifacts/snapshots":
+		p.HandleArtifactSnapshots(w, r)
+		return
+	case r.URL.Path == "/gateway/worktree/pr":
+		p.HandleWorktreePR(w, r)
+		return
+	case r.URL.Path == "/gateway/cascade/star":
+		p.HandleStarCascade(w, r)
+		return
 	}
 
 	// WebSocket upgrade routes
@@ -815,7 +855,11 @@ func (p *Proxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// ConnectRPC proxy route (prefixed with /api/ or direct proto service prefix)
-	if strings.HasPrefix(r.URL.Path, "/api/") || strings.HasPrefix(r.URL.Path, "/exa.language_server_pb.") {
+	if strings.HasPrefix(r.URL.Path, "/api/") ||
+		strings.HasPrefix(r.URL.Path, "/exa.language_server_pb.") ||
+		strings.HasPrefix(r.URL.Path, "/exa.browser_viewer_pb.") ||
+		strings.HasPrefix(r.URL.Path, "/exa.remoting.") ||
+		strings.HasPrefix(r.URL.Path, "/product.v1.") {
 		p.handleRpcProxy(w, r)
 		return
 	}

@@ -578,3 +578,51 @@ func writeAnnotationPinned(cascadeID string, pinned bool) {
 	}
 }
 
+var starredRegex = regexp.MustCompile(`starred:\s*(true|false)`)
+
+func writeAnnotationStarred(cascadeID string, starred bool) {
+	if cascadeID == "" || !cascadeIDRe.MatchString(cascadeID) {
+		return
+	}
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return
+	}
+	dir := filepath.Join(home, ".gemini", "antigravity", "annotations")
+	_ = os.MkdirAll(dir, 0700)
+	p := filepath.Join(dir, cascadeID+".pbtxt")
+	b, err := os.ReadFile(p)
+	starredStr := fmt.Sprintf("starred:%t", starred)
+	if err != nil {
+		_ = os.WriteFile(p, []byte(starredStr+"\n"), 0600)
+	} else {
+		s := string(b)
+		if starredRegex.MatchString(s) {
+			newContent := starredRegex.ReplaceAllString(s, starredStr)
+			_ = os.WriteFile(p, []byte(newContent), 0600)
+		} else {
+			newContent := strings.TrimRight(s, "\n") + " " + starredStr + "\n"
+			_ = os.WriteFile(p, []byte(newContent), 0600)
+		}
+	}
+}
+
+func readAnnotationStarred(cascadeID string) (bool, bool) {
+	if cascadeID == "" || !cascadeIDRe.MatchString(cascadeID) {
+		return false, false
+	}
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return false, false
+	}
+	b, err := os.ReadFile(filepath.Join(home, ".gemini", "antigravity", "annotations", cascadeID+".pbtxt"))
+	if err != nil {
+		return false, false
+	}
+	m := starredRegex.FindSubmatch(b)
+	if len(m) < 2 {
+		return false, false
+	}
+	return string(m[1]) == "true", true
+}
+

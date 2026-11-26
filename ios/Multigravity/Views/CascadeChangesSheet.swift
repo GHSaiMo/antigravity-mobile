@@ -2,7 +2,14 @@ import SwiftUI
 
 /// 「本会话改动」：Agent 在当前会话里累计改动了哪些文件，点开可看正向 diff。
 public struct CascadeChangesSheet: View {
+    private enum SheetTab: String, CaseIterable {
+        case changes = "本会话改动"
+        case code = "代码"
+        case files = "文件"
+    }
+
     @Bindable var viewModel: ChatViewModel
+    @State private var selectedTab: SheetTab = .changes
     @State private var viewingDiffFile: RevertPreviewFile? = nil
 
     public init(viewModel: ChatViewModel) {
@@ -11,14 +18,33 @@ public struct CascadeChangesSheet: View {
 
     public var body: some View {
         NavigationStack {
-            Group {
-                if let state = viewModel.changesSheet {
-                    content(state)
-                } else {
-                    Color.clear
+            VStack(spacing: 0) {
+                Picker("视图", selection: $selectedTab) {
+                    Text("本会话改动").tag(SheetTab.changes)
+                    Text("搜索代码").tag(SheetTab.code)
+                    Text("搜索文件").tag(SheetTab.files)
+                }
+                .pickerStyle(.segmented)
+                .padding(.horizontal, 16)
+                .padding(.top, 8)
+                .padding(.bottom, 6)
+
+                Group {
+                    switch selectedTab {
+                    case .changes:
+                        if let state = viewModel.changesSheet {
+                            content(state)
+                        } else {
+                            Color.clear
+                        }
+                    case .code:
+                        WorkspaceSearchTabView(cascadeId: viewModel.cascadeId, mode: .code)
+                    case .files:
+                        WorkspaceSearchTabView(cascadeId: viewModel.cascadeId, mode: .files)
+                    }
                 }
             }
-            .navigationTitle("本会话改动")
+            .navigationTitle("工作区改动与搜索")
             .navigationBarTitleDisplayMode(.inline)
         }
         .sheet(item: $viewingDiffFile) { file in

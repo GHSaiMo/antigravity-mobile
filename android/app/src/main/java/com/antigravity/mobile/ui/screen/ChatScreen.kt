@@ -840,6 +840,7 @@ fun ChatScreen(
     val isNarrating by narrationPlayer.isPlaying.collectAsState()
     val narrationLabel by narrationPlayer.statusLabel.collectAsState()
     var showPermissionMenu by remember { mutableStateOf(false) }
+    var pendingTurboModeConfirm by remember { mutableStateOf(false) }
     var showBtwSheet by remember { mutableStateOf(false) }
     var btwAnchorStepIndex by remember { mutableStateOf<Int?>(null) }
     var btwAnchorPreview by remember { mutableStateOf<String?>(null) }
@@ -864,6 +865,7 @@ fun ChatScreen(
             showAttachmentSheet = false
             showVoiceTroubleshootBubble = false
             showPermissionMenu = false
+            pendingTurboModeConfirm = false
             showBtwSheet = false
             btwAnchorStepIndex = null
             btwAnchorPreview = null
@@ -1501,6 +1503,7 @@ fun ChatScreen(
                                 text = { Text("旁路快问".loc) },
                                 onClick = {
                                     showPermissionMenu = false
+            pendingTurboModeConfirm = false
                                     btwAnchorStepIndex = null
                                     btwAnchorPreview = null
                                     showBtwSheet = true
@@ -1523,17 +1526,23 @@ fun ChatScreen(
                             }
                             listOf(
                                 Triple("strict", "严格审批".loc, "每步高危命令需确认".loc),
-                                Triple("sandbox", "离席沙箱放行".loc, "工作区安全操作自动放行".loc),
-                                Triple("auto", "全自动".loc, "命令与编辑自动放行".loc)
-                            ).forEach { (preset, label, _) ->
-                                val selected = uiState.permissionState.preset == preset
-                                val selectedTint = if (preset != "strict") Color(0xFFFF9F0A) else colors.accentIndigo
+                                Triple("default", "默认沙箱".loc, "工作区安全操作自动放行".loc),
+                                Triple("auto", "智能自动 · 沙箱".loc, "Antigravity 2.35 自动模式".loc),
+                                Triple("turbo", "全自动 · 无沙箱".loc, "命令与编辑全自动放行".loc)
+                            ).forEach { (mode, label, _) ->
+                                val selected = uiState.permissionState.effectiveMode == mode
+                                val selectedTint = when (mode) {
+                                    "strict" -> colors.accentIndigo
+                                    "default" -> colors.accentBlue
+                                    "turbo" -> colors.accentRed
+                                    else -> Color(0xFFFF9F0A)
+                                }
                                 DropdownMenuItem(
                                     text = {
                                         Text(
                                             text = label,
                                             fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal,
-                                            color = if (selected && preset != "strict") Color(0xFFFF9F0A) else colors.textPrimary
+                                            color = if (selected && mode != "strict") selectedTint else colors.textPrimary
                                         )
                                     },
                                     trailingIcon = if (selected) {
@@ -1548,7 +1557,12 @@ fun ChatScreen(
                                     } else null,
                                     onClick = {
                                         showPermissionMenu = false
-                                        viewModel.setPermissionPreset(preset) { msg -> phase3Notice = msg }
+            pendingTurboModeConfirm = false
+                                        if (mode == "turbo") {
+                                            pendingTurboModeConfirm = true
+                                        } else {
+                                            viewModel.setPermissionPreset(mode) { msg -> phase3Notice = msg }
+                                        }
                                     }
                                 )
                             }
@@ -3079,6 +3093,7 @@ fun ChatScreen(
             data = viewerData,
             onProceed = { viewModel.proceedFromViewer() },
             onDismiss = { viewModel.closeMarkdownViewer() },
+            cascadeId = uiState.cascadeId.ifBlank { cascadeId },
             urlResolver = { raw -> viewModel.resolveMediaUrl(raw) },
             onImageClick = { url ->
                 if (com.antigravity.mobile.data.service.FileIconResolver.isVideo(url)) {
@@ -3137,9 +3152,13 @@ fun ChatScreen(
         viewModel.refreshActionAvailability(changesSupported)
     }
 
-    // 本会话改动（累计 diff）
+    // 本会话改动（累计 diff）+ 工作区代码/文件检索
     uiState.changesSheet?.let { sheet ->
-        CascadeChangesSheet(state = sheet, onDismiss = { viewModel.closeChangesSheet() })
+        CascadeChangesSheet(
+            state = sheet,
+            cascadeId = uiState.cascadeId.ifBlank { cascadeId },
+            onDismiss = { viewModel.closeChangesSheet() }
+        )
     }
 
     // Git 直接提交
@@ -3152,6 +3171,35 @@ fun ChatScreen(
             onRetryPush = { viewModel.retryGitPush() },
             onDelegateToAgent = { viewModel.delegateCommitToAgent() },
             onDismiss = { viewModel.closeGitSheet() }
+        )
+    }
+
+    if (pendingTurboModeConfirm) {
+        AlertDialog(
+            onDismissRequest = { pendingTurboModeConfirm = false },
+            containerColor = colors.surface,
+            title = { Text("开启全自动 · 无沙箱？".loc, fontWeight = FontWeight.Bold) },
+            text = {
+                Text(
+                    "开启后 Agent 将自动执行终端命令并访问工作区外文件（同步作用于桌面端全部会话）。建议仅在可信或隔离环境中使用。".loc,
+                    fontSize = 13.5.sp,
+                    color = colors.textSecondary
+                )
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        pendingTurboModeConfirm = false
+                        viewModel.setPermissionPreset("turbo") { msg -> phase3Notice = msg }
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = colors.accentRed)
+                ) { Text("确认开启".loc) }
+            },
+            dismissButton = {
+                TextButton(onClick = { pendingTurboModeConfirm = false }) {
+                    Text("取消".loc, color = colors.textSecondary)
+                }
+            }
         )
     }
 

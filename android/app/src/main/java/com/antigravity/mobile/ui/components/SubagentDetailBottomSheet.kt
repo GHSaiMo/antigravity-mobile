@@ -58,6 +58,7 @@ fun SubagentDetailBottomSheet(
     var messageInput by remember { mutableStateOf("") }
     var actionNotice by remember { mutableStateOf<String?>(null) }
     var browserState by remember { mutableStateOf<BrowserSubagentResponse?>(null) }
+    var showBrowserViewer by remember { mutableStateOf(false) }
 
     LaunchedEffect(subagent.conversationId, isBrowser) {
         if (isBrowser && subagent.conversationId.isNotBlank()) {
@@ -274,23 +275,36 @@ fun SubagentDetailBottomSheet(
                 }
             }
 
-            // Browser Subagent Live View / Skip / Whitelist
-            if (isBrowser && browserState != null) {
-                val b = browserState!!
+            // Browser Subagent Live View / Takeover / Skip / Whitelist
+            if (isBrowser) {
+                val b = browserState
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Text(
-                        text = "浏览器实时画布".loc,
-                        style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
-                        color = colors.textSecondary
-                    )
-                    b.url?.takeIf { it.isNotBlank() }?.let { url ->
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            text = "浏览器实时画布".loc,
+                            style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
+                            color = colors.textSecondary
+                        )
+                        FilledTonalButton(
+                            onClick = { showBrowserViewer = true },
+                            contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp),
+                            modifier = Modifier.height(30.dp)
+                        ) {
+                            Text("实时接管浏览器".loc, fontSize = 11.5.sp, fontWeight = FontWeight.SemiBold)
+                        }
+                    }
+                    b?.url?.takeIf { it.isNotBlank() }?.let { url ->
                         Text(
                             text = url,
                             style = MaterialTheme.typography.bodySmall.copy(fontFamily = FontFamily.Monospace),
                             color = colors.accentBlue
                         )
                     }
-                    b.imageBase64?.takeIf { it.isNotBlank() }?.let { b64 ->
+                    b?.imageBase64?.takeIf { it.isNotBlank() }?.let { b64 ->
                         val bmp = remember(b64) {
                             try {
                                 val pure = if (b64.contains(",")) b64.substringAfter(",") else b64
@@ -310,7 +324,7 @@ fun SubagentDetailBottomSheet(
                         }
                     }
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        b.url?.takeIf { it.isNotBlank() }?.let { url ->
+                        b?.url?.takeIf { it.isNotBlank() }?.let { url ->
                             OutlinedButton(onClick = {
                                 scope.launch {
                                     ApiClient.defaultInstance?.whitelistBrowserUrl(url)?.onSuccess {
@@ -406,5 +420,12 @@ fun SubagentDetailBottomSheet(
                 }
             }
         }
+    }
+
+    if (showBrowserViewer) {
+        BrowserViewerDialog(
+            initialUrl = browserState?.url,
+            onDismiss = { showBrowserViewer = false }
+        )
     }
 }

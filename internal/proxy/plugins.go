@@ -26,11 +26,32 @@ type PluginItem struct {
 	Accounts    []string `json:"accounts,omitempty"`
 }
 
+// PluginAuthAccountInfo represents one connected account under a plugin auth provider.
+type PluginAuthAccountInfo struct {
+	AccountID       string `json:"accountId"`
+	Alias           string `json:"alias,omitempty"`
+	Identity        string `json:"identity,omitempty"`
+	Label           string `json:"label,omitempty"`
+	IsDefault       bool   `json:"isDefault,omitempty"`
+	NeedsAuth       bool   `json:"needsAuth,omitempty"`
+	NeedsAuthReason string `json:"needsAuthReason,omitempty"`
+}
+
 // PluginAuthProvider represents a normalised plugin authentication provider entry.
 type PluginAuthProvider struct {
-	ID       string `json:"id"`
-	Name     string `json:"name"`
-	SignedIn bool   `json:"signedIn"`
+	ID                string                  `json:"id"`
+	Name              string                  `json:"name"`
+	SignedIn          bool                    `json:"signedIn"`
+	Plugin            string                  `json:"plugin,omitempty"`
+	Provider          string                  `json:"provider,omitempty"`
+	Identity          string                  `json:"identity,omitempty"`
+	NeedsAuth         bool                    `json:"needsAuth,omitempty"`
+	NeedsAuthReason   string                  `json:"needsAuthReason,omitempty"`
+	LastSignInError   string                  `json:"lastSignInError,omitempty"`
+	SetupURL          string                  `json:"setupUrl,omitempty"`
+	SetupInstructions string                  `json:"setupInstructions,omitempty"`
+	SignInPending     bool                    `json:"signInPending,omitempty"`
+	Accounts          []PluginAuthAccountInfo `json:"accounts,omitempty"`
 }
 
 // PluginPermissionGrant represents one persisted plugin permission grant (Antigravity 2.35+).
@@ -272,15 +293,23 @@ func (p *Proxy) HandleGetPlugins(w http.ResponseWriter, r *http.Request) {
 		// omits every identifying field.
 		var rawAuth struct {
 			Providers []struct {
-				ID          string `json:"id"`
-				Name        string `json:"name"`
-				DisplayName string `json:"displayName"`
-				SignedIn    bool   `json:"signedIn"`
-				Plugin      string `json:"plugin"`
-				PluginID    string `json:"pluginId"`
-				PluginName  string `json:"pluginName"`
-				Provider    string `json:"provider"`
-				Connected   bool   `json:"connected"`
+				ID                string                  `json:"id"`
+				Name              string                  `json:"name"`
+				DisplayName       string                  `json:"displayName"`
+				SignedIn          bool                    `json:"signedIn"`
+				Plugin            string                  `json:"plugin"`
+				PluginID          string                  `json:"pluginId"`
+				PluginName        string                  `json:"pluginName"`
+				Provider          string                  `json:"provider"`
+				Connected         bool                    `json:"connected"`
+				Identity          string                  `json:"identity"`
+				NeedsAuth         bool                    `json:"needsAuth"`
+				NeedsAuthReason   string                  `json:"needsAuthReason"`
+				LastSignInError   string                  `json:"lastSignInError"`
+				SetupURL          string                  `json:"setupUrl"`
+				SetupInstructions string                  `json:"setupInstructions"`
+				SignInPending     bool                    `json:"signInPending"`
+				Accounts          []PluginAuthAccountInfo `json:"accounts"`
 			} `json:"providers"`
 		}
 		if json.Unmarshal(body, &rawAuth) == nil {
@@ -349,9 +378,19 @@ func (p *Proxy) HandleGetPlugins(w http.ResponseWriter, r *http.Request) {
 				}
 
 				resp.Providers = append(resp.Providers, PluginAuthProvider{
-					ID:       id,
-					Name:     display,
-					SignedIn: pv.Connected || pv.SignedIn,
+					ID:                id,
+					Name:              display,
+					SignedIn:          pv.Connected || pv.SignedIn,
+					Plugin:            plugin,
+					Provider:          provider,
+					Identity:          strings.TrimSpace(pv.Identity),
+					NeedsAuth:         pv.NeedsAuth,
+					NeedsAuthReason:   strings.TrimSpace(pv.NeedsAuthReason),
+					LastSignInError:   strings.TrimSpace(pv.LastSignInError),
+					SetupURL:          strings.TrimSpace(pv.SetupURL),
+					SetupInstructions: strings.TrimSpace(pv.SetupInstructions),
+					SignInPending:     pv.SignInPending,
+					Accounts:          pv.Accounts,
 				})
 			}
 		}

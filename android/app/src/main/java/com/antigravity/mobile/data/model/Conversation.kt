@@ -19,7 +19,8 @@ data class Annotations(
     val lastUserViewTime: String? = null,
     val markedAsUnread: Boolean? = null,
     val archived: Boolean? = null,
-    val pinned: Boolean? = null
+    val pinned: Boolean? = null,
+    val starred: Boolean? = null
 )
 
 @Serializable
@@ -109,6 +110,7 @@ data class ConversationItem(
     val nestingDepth: Int = 0,
     val isPinned: Boolean = false,
     val isArchived: Boolean = false,
+    val isStarred: Boolean = false,
     val hasRunningTasks: Boolean = false,
     val hasRunningSubagents: Boolean = false,
     val hasSwarm: Boolean = false,
@@ -243,6 +245,7 @@ data class ConversationItem(
                 nestingDepth = depth,
                 isPinned = isPinned,
                 isArchived = summary.annotations?.archived == true,
+                isStarred = summary.annotations?.starred == true,
                 hasRunningTasks = hasRunningTasks,
                 hasRunningSubagents = hasRunningSubagents,
                 hasSwarm = hasSwarm,

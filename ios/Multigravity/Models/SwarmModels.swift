@@ -455,19 +455,41 @@ public struct PluginAuthProviderItem: Codable, Sendable, Identifiable, Equatable
     public let id: String
     public let name: String
     public let signedIn: Bool
+    public let plugin: String
+    public let provider: String
+    public let identity: String?
+    public let needsAuth: Bool
+    public let needsAuthReason: String?
+    public let accounts: [PluginAuthAccountInfo]
 
     enum CodingKeys: String, CodingKey {
-        case id, name, signedIn
+        case id, name, signedIn, plugin, provider, identity, needsAuth, needsAuthReason, accounts
     }
 
     private enum FallbackKeys: String, CodingKey {
-        case displayName, plugin, pluginId, pluginName, provider, connected
+        case displayName, pluginId, pluginName, connected
     }
 
-    public init(id: String, name: String, signedIn: Bool) {
+    public init(
+        id: String,
+        name: String,
+        signedIn: Bool,
+        plugin: String = "",
+        provider: String = "",
+        identity: String? = nil,
+        needsAuth: Bool = false,
+        needsAuthReason: String? = nil,
+        accounts: [PluginAuthAccountInfo] = []
+    ) {
         self.id = id
         self.name = name
         self.signedIn = signedIn
+        self.plugin = plugin
+        self.provider = provider
+        self.identity = identity
+        self.needsAuth = needsAuth
+        self.needsAuthReason = needsAuthReason
+        self.accounts = accounts
     }
 
     public init(from decoder: Decoder) throws {
@@ -477,12 +499,19 @@ public struct PluginAuthProviderItem: Codable, Sendable, Identifiable, Equatable
         let rawId = (try c.decodeIfPresent(String.self, forKey: .id) ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
         let rawName = (try c.decodeIfPresent(String.self, forKey: .name) ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
         let displayName = (try extra.decodeIfPresent(String.self, forKey: .displayName) ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
-        let plugin = (try extra.decodeIfPresent(String.self, forKey: .plugin) ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        let plugin = (try c.decodeIfPresent(String.self, forKey: .plugin) ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
         let pluginId = (try extra.decodeIfPresent(String.self, forKey: .pluginId) ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
         let pluginName = (try extra.decodeIfPresent(String.self, forKey: .pluginName) ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
-        let provider = (try extra.decodeIfPresent(String.self, forKey: .provider) ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        let provider = (try c.decodeIfPresent(String.self, forKey: .provider) ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
 
         let effectivePlugin = !plugin.isEmpty ? plugin : pluginId
+        self.plugin = effectivePlugin
+        self.provider = provider
+        self.identity = try c.decodeIfPresent(String.self, forKey: .identity)
+        self.needsAuth = try c.decodeIfPresent(Bool.self, forKey: .needsAuth) ?? false
+        self.needsAuthReason = try c.decodeIfPresent(String.self, forKey: .needsAuthReason)
+        self.accounts = try c.decodeIfPresent([PluginAuthAccountInfo].self, forKey: .accounts) ?? []
+
         let resolvedId: String
         if !rawId.isEmpty {
             resolvedId = rawId

@@ -59,10 +59,11 @@ func normalizeGitHubSlug(raw string) string {
 
 // CreateCascadeRequest represents payload to start a new cascade.
 type CreateCascadeRequest struct {
-	WorkspaceURI string `json:"workspaceUri"`
-	Prompt       string `json:"prompt"`
-	Model        string `json:"model,omitempty"`
-	ProjectID    string `json:"projectId,omitempty"`
+	WorkspaceURI  string `json:"workspaceUri"`
+	Prompt        string `json:"prompt"`
+	Model         string `json:"model,omitempty"`
+	ProjectID     string `json:"projectId,omitempty"`
+	EnvironmentID string `json:"environmentId,omitempty"`
 }
 
 // CreateCascadeResponse represents result of starting a new cascade.
@@ -192,15 +193,21 @@ func (p *Proxy) HandleCreateCascade(w http.ResponseWriter, r *http.Request) {
 
 	// 1. Call StartCascade RPC upstream
 	startPayload := map[string]interface{}{}
+	envID := strings.TrimSpace(req.EnvironmentID)
 	if projectID != "" {
 		// When project environment config is provided, language_server strictly requires
 		// workspaceUris to be empty ([]), otherwise it errors with invalid_argument.
 		startPayload["source"] = "CORTEX_TRAJECTORY_SOURCE_CASCADE_CLIENT"
 		startPayload["workspaceUris"] = []string{}
-		startPayload["projectEnvConfig"] = map[string]interface{}{
-			"projectId":                 projectID,
-			"defaultProjectEnvironment": map[string]interface{}{},
+		envCfg := map[string]interface{}{
+			"projectId": projectID,
 		}
+		if envID != "" {
+			envCfg["environmentId"] = envID
+		} else {
+			envCfg["defaultProjectEnvironment"] = map[string]interface{}{}
+		}
+		startPayload["projectEnvConfig"] = envCfg
 	} else if wsURI == "" || wsURI == "file://" {
 		// Pure conversation (Chat / outside of project)
 		startPayload["source"] = "CORTEX_TRAJECTORY_SOURCE_CASCADE_CLIENT"

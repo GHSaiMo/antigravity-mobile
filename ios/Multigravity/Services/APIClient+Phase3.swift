@@ -194,9 +194,24 @@ extension APIClient {
     }
 
     public func updatePermissionPreset(preset: String, baseURL: URL) async throws -> PermissionStateResponse {
-        try await p3PostJSON(
+        let norm = preset.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        let mode: String
+        let legacyPreset: String
+        switch norm {
+        case "strict", "request_review":
+            mode = "strict"; legacyPreset = "strict"
+        case "default", "sandbox":
+            mode = "default"; legacyPreset = "sandbox"
+        case "auto", "smart_auto":
+            mode = "auto"; legacyPreset = "smart_auto"
+        case "turbo":
+            mode = "turbo"; legacyPreset = "auto"
+        default:
+            mode = norm; legacyPreset = norm
+        }
+        return try await p3PostJSON(
             path: "gateway/permissions",
-            payload: ["preset": .string(preset)],
+            payload: ["mode": .string(mode), "preset": .string(legacyPreset)],
             baseURL: baseURL
         )
     }

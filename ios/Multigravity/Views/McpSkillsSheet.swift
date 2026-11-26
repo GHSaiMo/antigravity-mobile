@@ -53,6 +53,22 @@ public struct McpSkillsSheet: View {
     @State private var actionErrorMessage: String? = nil
     @State private var noticeToastMessage: String? = nil
     @State private var noticeToastSeq: Int = 0
+
+    // Phase 4 State (Marketplace search, Plugin uninstall, Plugin/MCP OAuth)
+    private struct OAuthSheetContext: Identifiable {
+        let id = UUID()
+        let title: String
+        let authUrl: String
+        let isLoopbackCallback: Bool
+        let mcpServerName: String?
+    }
+    @State private var marketplaceItems: [MarketplaceItem] = []
+    @State private var isLoadingMarketplace: Bool = false
+    @State private var hasLoadedMarketplace: Bool = false
+    @State private var pendingDeletePlugin: CascadePluginItem? = nil
+    @State private var deletingPluginIds: Set<String> = []
+    @State private var oauthSheetContext: OAuthSheetContext? = nil
+    @State private var busyAuthKeys: Set<String> = []
     
     private let currentConversationId: String?
     private let hasActiveSwarm: Bool
@@ -167,6 +183,36 @@ public struct McpSkillsSheet: View {
             }
             .sheet(isPresented: $showCreateAutomation) {
                 createAutomationSheet
+            }
+            .sheet(item: $oauthSheetContext) { ctx in
+                OAuthHybridSheet(
+                    title: ctx.title,
+                    authUrl: ctx.authUrl,
+                    isLoopbackCallback: ctx.isLoopbackCallback,
+                    mcpServerName: ctx.mcpServerName,
+                    onCompleted: {
+                        Task { await loadData() }
+                    }
+                )
+            }
+            .confirmationDialog(
+                "确认卸载插件？",
+                isPresented: Binding(
+                    get: { pendingDeletePlugin != nil },
+                    set: { if !$0 { pendingDeletePlugin = nil } }
+                ),
+                titleVisibility: .visible,
+                presenting: pendingDeletePlugin
+            ) { plugin in
+                Button("卸载", role: .destructive) {
+                    uninstallPlugin(plugin)
+                    pendingDeletePlugin = nil
+                }
+                Button("取消", role: .cancel) {
+                    pendingDeletePlugin = nil
+                }
+            } message: { plugin in
+                Text("将从电脑端移除插件「\(plugin.name)」。")
             }
             .alert(
                 "确认删除记忆条目？",
@@ -387,6 +433,18 @@ public struct McpSkillsSheet: View {
                         }
                     }
                     .padding(.vertical, 4)
+                    .contextMenu {
+                        Button {
+                            startMcpOAuthFlow(serverName: server.spec.serverName)
+                        } label: {
+                            Label("OAuth 授权 / 重连", systemImage: "key.fill")
+                        }
+                        Button(role: .destructive) {
+                            disconnectMcpOAuthFlow(serverName: server.spec.serverName)
+                        } label: {
+                            Label("断开 OAuth", systemImage: "xmark.shield")
+                        }
+                    }
                     
                     // Tools list
                     if let tools = server.tools, !tools.isEmpty {
@@ -765,15 +823,75 @@ public struct McpSkillsSheet: View {
         if !pluginProviders.isEmpty {
             Section(header: Text("已授权服务账号")) {
                 ForEach(pluginProviders) { provider in
-                    HStack {
-                        Image(systemName: provider.signedIn ? "checkmark.seal.fill" : "exclamationmark.circle")
-                            .foregroundColor(provider.signedIn ? .green : .orange)
-                        Text(provider.name)
-                            .font(.system(size: 14, weight: .medium))
-                        Spacer()
-                        Text(provider.signedIn ? String(localized: "已登录") : String(localized: "需重连"))
-                            .font(.system(size: 11.5, weight: .medium))
-                            .foregroundColor(provider.signedIn ? .green : .orange)
+                    VStack(alignment: .leading, spacing: 6) {
+                        HStack {
+                            Image(systemName: (provider.signedIn && !provider.needsAuth) ? "checkmark.seal.fill" : "exclamationmark.circle")
+                                .foregroundColor((provider.signedIn && !provider.needsAuth) ? .green : .orange)
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text(provider.name)
+                                    .font(.system(size: 14, weight: .medium))
+                                if let ident = provider.identity, !ident.isEmpty {
+                                    Text(ident)
+                                        .font(.system(size: 11.5))
+                                        .foregroundColor(.secondary)
+                                        .lineLimit(1)
+                                }
+                            }
+                            Spacer()
+                            if busyAuthKeys.contains(provider.id) {
+                                ProgressView().scaleEffect(0.75)
+                            } else {
+                                Button(provider.signedIn && !provider.needsAuth ? String(localized: "重连") : String(localized: "登录")) {
+                                    startPluginAuthFlow(provider: provider, accountId: nil, addAccount: false)
+                                }
+                                .buttonStyle(.bordered)
+                                .controlSize(.mini)
+                                .tint(provider.signedIn && !provider.needsAuth ? .secondary : .indigo)
+                            }
+                        }
+
+                        if !provider.accounts.isEmpty {
+                            ForEach(provider.accounts) { acc in
+                                HStack(spacing: 6) {
+                                    Image(systemName: acc.isDefault == true ? "checkmark.circle.fill" : "person.circle")
+                                        .font(.system(size: 12))
+                                        .foregroundColor(acc.isDefault == true ? .green : .secondary)
+                                    Text(acc.displayLabel)
+                                        .font(.system(size: 12))
+                                        .foregroundColor(.secondary)
+                                        .lineLimit(1)
+                                    Spacer()
+                                    if acc.isDefault != true {
+                                        Button("设为默认") {
+                                            setDefaultPluginAccount(provider: provider, accountId: acc.accountId)
+                                        }
+                                        .font(.system(size: 11, weight: .medium))
+                                        .buttonStyle(.borderless)
+                                    }
+                                }
+                                .padding(.leading, 22)
+                            }
+                        }
+                    }
+                    .padding(.vertical, 2)
+                    .contextMenu {
+                        Button {
+                            startPluginAuthFlow(provider: provider, accountId: nil, addAccount: false)
+                        } label: {
+                            Label("OAuth 重新授权", systemImage: "key.fill")
+                        }
+                        Button {
+                            startPluginAuthFlow(provider: provider, accountId: nil, addAccount: true)
+                        } label: {
+                            Label("添加新账号", systemImage: "person.badge.plus")
+                        }
+                        if provider.signedIn {
+                            Button(role: .destructive) {
+                                signOutPluginAuthFlow(provider: provider, accountId: nil)
+                            } label: {
+                                Label("退出登录", systemImage: "rectangle.portrait.and.arrow.right")
+                            }
+                        }
                     }
                 }
             }
@@ -917,7 +1035,225 @@ public struct McpSkillsSheet: View {
                         }
                     }
                     .padding(.vertical, 4)
+                    .contextMenu {
+                        if plugin.installed && plugin.kind != "builtin" {
+                            Button(role: .destructive) {
+                                pendingDeletePlugin = plugin
+                            } label: {
+                                Label("卸载插件", systemImage: "trash")
+                            }
+                        }
+                    }
                 }
+            }
+        }
+
+        // Agent Marketplace Discovery & Search
+        Section(header: HStack {
+            Text(searchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "插件市场推荐" : "插件市场搜索结果")
+            Spacer()
+            Button(isLoadingMarketplace ? "加载中..." : "搜索市场") {
+                Task { await loadMarketplace(query: searchText) }
+            }
+            .font(.system(size: 11.5, weight: .medium))
+            .disabled(isLoadingMarketplace)
+        }) {
+            if isLoadingMarketplace && marketplaceItems.isEmpty {
+                HStack {
+                    ProgressView().scaleEffect(0.8)
+                    Text("正在查询官方插件市场...")
+                        .font(.system(size: 13))
+                        .foregroundColor(.secondary)
+                }
+            } else if marketplaceItems.isEmpty {
+                Button {
+                    Task { await loadMarketplace(query: searchText) }
+                } label: {
+                    Label(
+                        searchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                            ? String(localized: "点击浏览官方精选插件")
+                            : String(localized: "在官方市场中搜索「\(searchText)」"),
+                        systemImage: "bag.badge.plus"
+                    )
+                    .font(.system(size: 13.5, weight: .medium))
+                    .foregroundColor(.indigo)
+                }
+            } else {
+                ForEach(marketplaceItems) { item in
+                    VStack(alignment: .leading, spacing: 5) {
+                        HStack(spacing: 8) {
+                            Text(item.name)
+                                .font(.system(size: 14.5, weight: .semibold))
+                                .lineLimit(1)
+                            Spacer()
+                            if item.isInstalled {
+                                Text("已安装")
+                                    .font(.system(size: 11, weight: .medium))
+                                    .foregroundColor(.green)
+                            } else {
+                                Button {
+                                    installPlugin(item.id)
+                                } label: {
+                                    if installingPluginIds.contains(item.id) {
+                                        ProgressView().scaleEffect(0.7)
+                                    } else {
+                                        Text("安装")
+                                            .font(.system(size: 12, weight: .semibold))
+                                    }
+                                }
+                                .buttonStyle(.borderedProminent)
+                                .controlSize(.mini)
+                                .tint(.indigo)
+                                .disabled(installingPluginIds.contains(item.id))
+                            }
+                        }
+                        if let desc = item.description, !desc.isEmpty {
+                            Text(desc)
+                                .font(.system(size: 12))
+                                .foregroundColor(.secondary)
+                                .lineLimit(2)
+                        }
+                        HStack(spacing: 8) {
+                            if let author = item.author, !author.isEmpty {
+                                Text(author).font(.system(size: 11)).foregroundColor(.secondary)
+                            }
+                            Text(item.id)
+                                .font(.system(size: 10.5, design: .monospaced))
+                                .foregroundColor(.secondary)
+                                .lineLimit(1)
+                                .truncationMode(.middle)
+                        }
+                    }
+                    .padding(.vertical, 3)
+                }
+            }
+        }
+    }
+
+    @MainActor
+    private func loadMarketplace(query: String) async {
+        guard let url = settings.gatewayURL ?? settings.serverURL else { return }
+        isLoadingMarketplace = true
+        defer { isLoadingMarketplace = false; hasLoadedMarketplace = true }
+        do {
+            marketplaceItems = try await APIClient.shared.searchMarketplace(query: query, baseURL: url)
+        } catch {
+            actionErrorMessage = error.localizedDescription
+        }
+    }
+
+    private func uninstallPlugin(_ plugin: CascadePluginItem) {
+        guard let url = settings.gatewayURL ?? settings.serverURL else { return }
+        deletingPluginIds.insert(plugin.id)
+        Task { @MainActor in
+            defer { deletingPluginIds.remove(plugin.id) }
+            do {
+                try await APIClient.shared.deletePlugin(pluginId: plugin.id, baseURL: url)
+                plugins.removeAll { $0.id == plugin.id }
+                showNoticeToast(String(localized: "已卸载插件 \(plugin.name)"))
+            } catch {
+                actionErrorMessage = error.localizedDescription
+            }
+        }
+    }
+
+    private func startPluginAuthFlow(provider: PluginAuthProviderItem, accountId: String?, addAccount: Bool) {
+        guard let url = settings.gatewayURL ?? settings.serverURL else { return }
+        let pluginKey = provider.plugin.isEmpty ? provider.id : provider.plugin
+        let providerKey = provider.provider.isEmpty ? provider.id : provider.provider
+        busyAuthKeys.insert(provider.id)
+        Task { @MainActor in
+            defer { busyAuthKeys.remove(provider.id) }
+            do {
+                let resp = try await APIClient.shared.startPluginAuthSignIn(
+                    plugin: pluginKey,
+                    provider: providerKey,
+                    accountId: accountId,
+                    addAccount: addAccount,
+                    baseURL: url
+                )
+                if let authUrl = resp.authUrl, !authUrl.isEmpty {
+                    oauthSheetContext = OAuthSheetContext(
+                        title: provider.name,
+                        authUrl: authUrl,
+                        isLoopbackCallback: resp.isLoopbackCallback ?? false,
+                        mcpServerName: nil
+                    )
+                } else {
+                    await loadData()
+                    showNoticeToast(String(localized: "已触发授权流程"))
+                }
+            } catch {
+                actionErrorMessage = error.localizedDescription
+            }
+        }
+    }
+
+    private func signOutPluginAuthFlow(provider: PluginAuthProviderItem, accountId: String?) {
+        guard let url = settings.gatewayURL ?? settings.serverURL else { return }
+        let pluginKey = provider.plugin.isEmpty ? provider.id : provider.plugin
+        let providerKey = provider.provider.isEmpty ? provider.id : provider.provider
+        busyAuthKeys.insert(provider.id)
+        Task { @MainActor in
+            defer { busyAuthKeys.remove(provider.id) }
+            do {
+                try await APIClient.shared.signOutPluginAuth(plugin: pluginKey, provider: providerKey, accountId: accountId, baseURL: url)
+                await loadData()
+                showNoticeToast(String(localized: "已退出 \(provider.name)"))
+            } catch {
+                actionErrorMessage = error.localizedDescription
+            }
+        }
+    }
+
+    private func setDefaultPluginAccount(provider: PluginAuthProviderItem, accountId: String) {
+        guard let url = settings.gatewayURL ?? settings.serverURL else { return }
+        let pluginKey = provider.plugin.isEmpty ? provider.id : provider.plugin
+        let providerKey = provider.provider.isEmpty ? provider.id : provider.provider
+        busyAuthKeys.insert(provider.id)
+        Task { @MainActor in
+            defer { busyAuthKeys.remove(provider.id) }
+            do {
+                try await APIClient.shared.setDefaultPluginAuthAccount(plugin: pluginKey, provider: providerKey, accountId: accountId, baseURL: url)
+                await loadData()
+                showNoticeToast(String(localized: "已切换默认账号"))
+            } catch {
+                actionErrorMessage = error.localizedDescription
+            }
+        }
+    }
+
+    private func startMcpOAuthFlow(serverName: String) {
+        guard let url = settings.gatewayURL ?? settings.serverURL else { return }
+        Task { @MainActor in
+            do {
+                let resp = try await APIClient.shared.startMcpOAuth(serverName: serverName, baseURL: url)
+                if let authUrl = resp.authUrl, !authUrl.isEmpty {
+                    oauthSheetContext = OAuthSheetContext(
+                        title: "MCP: \(serverName)",
+                        authUrl: authUrl,
+                        isLoopbackCallback: resp.isLoopbackCallback ?? false,
+                        mcpServerName: serverName
+                    )
+                } else {
+                    await loadData()
+                    showNoticeToast(String(localized: "已触发 MCP 授权"))
+                }
+            } catch {
+                actionErrorMessage = error.localizedDescription
+            }
+        }
+    }
+
+    private func disconnectMcpOAuthFlow(serverName: String) {
+        guard let url = settings.gatewayURL ?? settings.serverURL else { return }
+        Task { @MainActor in
+            do {
+                try await APIClient.shared.disconnectMcpOAuth(serverName: serverName, baseURL: url)
+                await loadData()
+                showNoticeToast(String(localized: "已断开 \(serverName) OAuth"))
+            } catch {
+                actionErrorMessage = error.localizedDescription
             }
         }
     }

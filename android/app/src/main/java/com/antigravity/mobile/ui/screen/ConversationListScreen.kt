@@ -177,6 +177,7 @@ fun ConversationListScreen(
     var deletingItem by remember { mutableStateOf<ConversationItem?>(null) }
     var pinningItem by remember { mutableStateOf<ConversationItem?>(null) }
     var archivingItem by remember { mutableStateOf<ConversationItem?>(null) }
+    var longPressedItem by remember { mutableStateOf<ConversationItem?>(null) }
     var swipedConversationId by remember { mutableStateOf<String?>(null) }
     var editingAliasProject by remember { mutableStateOf<ProjectItem?>(null) }
     var aliasInputText by remember { mutableStateOf("") }
@@ -286,6 +287,7 @@ fun ConversationListScreen(
             deletingItem = null
             pinningItem = null
             archivingItem = null
+            longPressedItem = null
             editingAliasProject = null
         }
     }
@@ -300,6 +302,7 @@ fun ConversationListScreen(
             deletingItem = null
             pinningItem = null
             archivingItem = null
+            longPressedItem = null
             editingAliasProject = null
             showQuotaSheet = true
             viewModel.refreshQuotas()
@@ -313,7 +316,7 @@ fun ConversationListScreen(
     val listState = rememberLazyListState()
     val coroutineScope = rememberCoroutineScope()
     var previousSearchQuery by rememberSaveable { mutableStateOf(searchQuery) }
-    var previousFilterKey by rememberSaveable { mutableStateOf(selectedWorkspaceFilter?.let { if (it.isPureChat) "__chat__" else "ws:${it.displayName}" }) }
+    var previousFilterKey by rememberSaveable { mutableStateOf(selectedWorkspaceFilter?.let { when { it.isPureChat -> "__chat__"; it.isStarred -> "__starred__"; it.isArchived -> "__archived__"; else -> "ws:${it.displayName}" } }) }
 
     // 仅在搜索词真正发生变化时回到顶部，避免从详情页返回重建组合后把已恢复的列表滚动位置重置回 0
     LaunchedEffect(searchQuery) {
@@ -328,7 +331,7 @@ fun ConversationListScreen(
 
     LaunchedEffect(selectedWorkspaceFilter) {
         swipedConversationId = null
-        val currentKey = selectedWorkspaceFilter?.let { if (it.isPureChat) "__chat__" else "ws:${it.displayName}" }
+        val currentKey = selectedWorkspaceFilter?.let { when { it.isPureChat -> "__chat__"; it.isStarred -> "__starred__"; it.isArchived -> "__archived__"; else -> "ws:${it.displayName}" } }
         if (currentKey != previousFilterKey) {
             previousFilterKey = currentKey
             if (listState.firstVisibleItemIndex > 0 || listState.firstVisibleItemScrollOffset > 0) {
@@ -626,8 +629,7 @@ fun ConversationListScreen(
                             onRename = { item ->
                                 swipedConversationId = null
                                 if (!item.isDraft) {
-                                    renamingItem = item
-                                    renameText = item.title
+                                    longPressedItem = item
                                 }
                             },
                             onDelete = { item ->
@@ -1151,6 +1153,104 @@ fun ConversationListScreen(
             },
             onDismiss = { showSettingsSheet = false },
             onLoadModels = { viewModel.loadModelCatalog(force = true) }
+        )
+    }
+
+    // Unified Long-Press Conversation Context Dialog (Rename / Star / Archive / Delete)
+    longPressedItem?.let { item ->
+        AlertDialog(
+            onDismissRequest = { longPressedItem = null },
+            containerColor = colors.surface,
+            title = {
+                Text(
+                    text = item.displayTitle,
+                    color = colors.textPrimary,
+                    fontWeight = FontWeight.Bold,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
+                    fontSize = 16.sp
+                )
+            },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(8.dp))
+                            .clickable {
+                                val target = item
+                                longPressedItem = null
+                                renamingItem = target
+                                renameText = target.title
+                            }
+                            .padding(horizontal = 8.dp, vertical = 11.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
+                        Icon(Icons.Default.Edit, contentDescription = null, tint = colors.textSecondary, modifier = Modifier.size(18.dp))
+                        Text("重命名会话".loc, fontSize = 14.5.sp, color = colors.textPrimary)
+                    }
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(8.dp))
+                            .clickable {
+                                val target = item
+                                longPressedItem = null
+                                haptic.light()
+                                viewModel.toggleStarConversation(target.id)
+                            }
+                            .padding(horizontal = 8.dp, vertical = 11.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
+                        Icon(
+                            imageVector = if (item.isStarred) Icons.Default.Star else Icons.Default.StarBorder,
+                            contentDescription = null,
+                            tint = Color(0xFFF59E0B),
+                            modifier = Modifier.size(18.dp)
+                        )
+                        Text(if (item.isStarred) "取消星标".loc else "星标会话".loc, fontSize = 14.5.sp, color = colors.textPrimary)
+                    }
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(8.dp))
+                            .clickable {
+                                val target = item
+                                longPressedItem = null
+                                archivingItem = target
+                            }
+                            .padding(horizontal = 8.dp, vertical = 11.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
+                        Icon(Icons.Default.Inventory2, contentDescription = null, tint = colors.textSecondary, modifier = Modifier.size(18.dp))
+                        Text(if (item.isArchived) "取消归档".loc else "归档会话".loc, fontSize = 14.5.sp, color = colors.textPrimary)
+                    }
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(8.dp))
+                            .clickable {
+                                val target = item
+                                longPressedItem = null
+                                deletingItem = target
+                            }
+                            .padding(horizontal = 8.dp, vertical = 11.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
+                        Icon(Icons.Default.Delete, contentDescription = null, tint = colors.accentRed, modifier = Modifier.size(18.dp))
+                        Text("删除".loc, fontSize = 14.5.sp, color = colors.accentRed)
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = { longPressedItem = null }) {
+                    Text("取消".loc, color = colors.textSecondary)
+                }
+            }
         )
     }
 
@@ -2128,19 +2228,20 @@ private fun WorkspaceFilterCapsule(
             ) {
                 Icon(
                     imageVector = when {
+                        activeFilter.isStarred -> Icons.Default.Star
                         activeFilter.isArchived -> Icons.Default.Inventory2
                         activeFilter.isPureChat -> Icons.Default.ChatBubbleOutline
                         else -> Icons.Default.Folder
                     },
                     contentDescription = null,
-                    tint = colors.accentIndigo,
+                    tint = if (activeFilter.isStarred) Color(0xFFF59E0B) else colors.accentIndigo,
                     modifier = Modifier.size(14.dp)
                 )
                 Text(
                     text = activeFilter.displayName,
                     fontSize = 12.5.sp,
                     fontWeight = FontWeight.SemiBold,
-                    fontFamily = if (activeFilter.isPureChat || activeFilter.isArchived) FontFamily.Default else FontFamily.Monospace,
+                    fontFamily = if (activeFilter.isPureChat || activeFilter.isArchived || activeFilter.isStarred) FontFamily.Default else FontFamily.Monospace,
                     color = colors.textPrimary,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
@@ -2198,12 +2299,17 @@ private fun WorkspaceFilterCapsule(
                             leadingIcon = {
                                 Icon(
                                     imageVector = when {
+                                        opt.filter.isStarred -> Icons.Default.Star
                                         opt.filter.isArchived -> Icons.Default.Inventory2
                                         opt.filter.isPureChat -> Icons.Default.ChatBubbleOutline
                                         else -> Icons.Default.Folder
                                     },
                                     contentDescription = null,
-                                    tint = if (isCurrent) colors.accentIndigo else colors.textSecondary,
+                                    tint = when {
+                                        opt.filter.isStarred -> Color(0xFFF59E0B)
+                                        isCurrent -> colors.accentIndigo
+                                        else -> colors.textSecondary
+                                    },
                                     modifier = Modifier.size(18.dp)
                                 )
                             },
@@ -2881,6 +2987,14 @@ fun ConversationCard(
                             contentDescription = "已置顶".loc,
                             tint = colors.accentOrange,
                             modifier = Modifier.size(14.dp)
+                        )
+                    }
+                    if (conversation.isStarred) {
+                        Icon(
+                            imageVector = Icons.Default.Star,
+                            contentDescription = "已星标".loc,
+                            tint = Color(0xFFF59E0B),
+                            modifier = Modifier.size(13.dp)
                         )
                     }
                     if (conversation.nestingDepth > 0 || !conversation.parentConversationId.isNullOrBlank()) {

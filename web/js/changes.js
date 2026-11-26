@@ -1,7 +1,7 @@
 // 「本会话改动」：Agent 在当前会话里累计改动了哪些文件，点开可看正向 diff。
 // 数据来自网关 POST /gateway/cascade/changes（基于 GetRevertPreview 反转得到）。
 
-const changesState = { data: null, viewing: null, loading: false, error: "" };
+const changesState = { data: null, viewing: null, loading: false, error: "", tab: "diff" };
 const DIFF_MAX_LINES = 4000;
 
 function changesActionBadge(action) {
@@ -109,6 +109,14 @@ function renderChangesSheet() {
   const closeBtn = document.getElementById("btn-changes-close");
   if (!body) return;
 
+  const segBar = document.getElementById("changes-seg-bar");
+  if (segBar) {
+    segBar.classList.toggle("hidden", !!changesState.viewing);
+    segBar.querySelectorAll("[data-changes-tab]").forEach((b) => {
+      b.classList.toggle("active", b.getAttribute("data-changes-tab") === (changesState.tab || "diff"));
+    });
+  }
+
   // 单文件 diff
   if (changesState.viewing) {
     const f = changesState.viewing;
@@ -159,6 +167,11 @@ function renderChangesSheet() {
   backBtn.classList.add("hidden");
   closeBtn.classList.remove("hidden");
 
+  if (changesState.tab === "code" || changesState.tab === "files") {
+    window.Phase4?.renderWorkspaceSearchTab?.(body, activeCascadeId, changesState.tab);
+    return;
+  }
+
   if (changesState.loading) {
     body.innerHTML = '<div class="sheet-state"><div class="ios-spinner"></div><p>正在汇总代码改动…</p></div>';
     return;
@@ -198,6 +211,7 @@ async function openChangesSheet() {
   changesState.viewing = null;
   changesState.error = "";
   changesState.data = null;
+  changesState.tab = "diff";
   changesState.loading = true;
   renderChangesSheet();
   sheet.classList.remove("hidden");
@@ -222,6 +236,13 @@ function initChangesSheet() {
   document.getElementById("btn-changes")?.addEventListener("click", openChangesSheet);
   document.getElementById("btn-changes-close")?.addEventListener("click", closeChangesSheet);
   document.getElementById("btn-changes-back")?.addEventListener("click", () => {
+    changesState.viewing = null;
+    renderChangesSheet();
+  });
+  document.getElementById("changes-seg-bar")?.addEventListener("click", (e) => {
+    const btn = e.target.closest("[data-changes-tab]");
+    if (!btn) return;
+    changesState.tab = btn.getAttribute("data-changes-tab") || "diff";
     changesState.viewing = null;
     renderChangesSheet();
   });

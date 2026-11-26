@@ -17,6 +17,8 @@ public struct SettingsSheet: View {
     @State private var webSheetURL: IdentifiableURL? = nil
     @State private var showPrivacyPolicySheet: Bool = false
     @State private var showLicensesSheet: Bool = false
+    @State private var showDesktopUpdateSheet: Bool = false
+    @State private var desktopUpdateStatus: DesktopUpdateStatus? = nil
     @State private var permissionPreset: String = AppSettings.shared.cachedPermissionPreset
     @State private var confirmedPermissionPreset: String = AppSettings.shared.cachedPermissionPreset
     @State private var showAutoPermissionConfirm: Bool = false
@@ -192,12 +194,13 @@ public struct SettingsSheet: View {
                 ) {
                     Picker("Agent 权限模式", selection: $permissionPreset) {
                         Text("严格审批").tag("strict")
-                        Text("离席沙箱放行").tag("sandbox")
-                        Text("全自动放行").tag("auto")
+                        Text("默认沙箱").tag("default")
+                        Text("智能自动 (沙箱)").tag("auto")
+                        Text("全自动 (无沙箱)").tag("turbo")
                     }
                     .onChange(of: permissionPreset) { _, next in
                         guard next != confirmedPermissionPreset else { return }
-                        if next == "auto" {
+                        if next == "turbo" {
                             showAutoPermissionConfirm = true
                         } else {
                             applyPermissionPreset(next)
@@ -432,6 +435,34 @@ public struct SettingsSheet: View {
                         Text(Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "1.2.5")
                             .foregroundColor(.secondary)
                     }
+                    if settings.isPaired && !settings.isDemoMode {
+                        Button {
+                            showDesktopUpdateSheet = true
+                        } label: {
+                            HStack(spacing: 6) {
+                                Text("Antigravity 桌面端")
+                                    .foregroundColor(.primary)
+                                Spacer()
+                                if let ver = desktopUpdateStatus?.currentVersion, !ver.isEmpty {
+                                    Text("v\(ver)")
+                                        .font(.subheadline)
+                                        .foregroundColor(.secondary)
+                                }
+                                if desktopUpdateStatus?.hasUpdate == true {
+                                    Text("有新版")
+                                        .font(.system(size: 10.5, weight: .semibold))
+                                        .foregroundColor(.white)
+                                        .padding(.horizontal, 6)
+                                        .padding(.vertical, 2)
+                                        .background(Color.indigo)
+                                        .clipShape(Capsule())
+                                }
+                                Image(systemName: "chevron.right")
+                                    .font(.caption)
+                                    .foregroundColor(.secondary)
+                            }
+                        }
+                    }
                     Button {
                         showPrivacyPolicySheet = true
                     } label: {
@@ -486,8 +517,16 @@ public struct SettingsSheet: View {
         .onAppear {
             lanAddress = settings.lanServerURL ?? ""
             customAddress = settings.customServerURL ?? ""
-            permissionPreset = settings.cachedPermissionPreset
-            confirmedPermissionPreset = settings.cachedPermissionPreset
+            let normCached: String = {
+                switch settings.cachedPermissionPreset.lowercased() {
+                case "sandbox", "default": return "default"
+                case "smart_auto": return "auto"
+                case "auto", "turbo": return "turbo"
+                default: return "strict"
+                }
+            }()
+            permissionPreset = normCached
+            confirmedPermissionPreset = normCached
         }
         .onDisappear {
             probeTask?.cancel()
@@ -513,29 +552,34 @@ public struct SettingsSheet: View {
             if let url = settings.serverURL {
                 await modelCatalog.refresh(settings: settings, baseURL: url, force: true)
             }
-            if let gwUrl = settings.gatewayURL,
-               let state = try? await APIClient.shared.fetchPermissionSettings(baseURL: gwUrl) {
-                settings.cachedPermissionPreset = state.preset
-                confirmedPermissionPreset = state.preset
-                permissionPreset = state.preset
+            if let gwUrl = settings.gatewayURL {
+                if let state = try? await APIClient.shared.fetchPermissionSettings(baseURL: gwUrl) {
+                    settings.cachedPermissionPreset = state.effectiveMode
+                    confirmedPermissionPreset = state.effectiveMode
+                    permissionPreset = state.effectiveMode
+                }
+                if !settings.isDemoMode,
+                   let upd = try? await APIClient.shared.fetchDesktopUpdateStatus(baseURL: gwUrl) {
+                    desktopUpdateStatus = upd
+                }
             }
         }
         .onReceive(NotificationCenter.default.publisher(for: .permissionPresetDidChange)) { notif in
             if let state = notif.object as? PermissionStateResponse {
-                settings.cachedPermissionPreset = state.preset
-                confirmedPermissionPreset = state.preset
-                permissionPreset = state.preset
+                settings.cachedPermissionPreset = state.effectiveMode
+                confirmedPermissionPreset = state.effectiveMode
+                permissionPreset = state.effectiveMode
             }
         }
-        .alert("开启全自动放行？", isPresented: $showAutoPermissionConfirm) {
+        .alert("开启全自动 (无沙箱)？", isPresented: $showAutoPermissionConfirm) {
             Button("取消", role: .cancel) {
                 permissionPreset = confirmedPermissionPreset
             }
             Button("确认开启", role: .destructive) {
-                applyPermissionPreset("auto")
+                applyPermissionPreset("turbo")
             }
         } message: {
-            Text("开启后 Agent 将自动执行终端命令并访问工作区外文件（同步作用于桌面端全部会话）。建议仅在可信或隔离环境中使用。")
+            Text("开启后 Agent 将关闭终端沙箱并自动执行命令与工作区外写入（同步作用于桌面端全部会话）。日常离席推荐改用「智能自动 (沙箱)」。")
         }
         .alert("权限设置更新失败", isPresented: Binding(
             get: { permissionErrorMessage != nil },
@@ -601,6 +645,9 @@ public struct SettingsSheet: View {
         .sheet(isPresented: $showLicensesSheet) {
             OpenSourceLicensesSheet()
         }
+        .sheet(isPresented: $showDesktopUpdateSheet) {
+            DesktopUpdateSheet(initialStatus: desktopUpdateStatus)
+        }
     }
 
     private func normalizeURLString(_ raw: String) -> String {
@@ -643,9 +690,9 @@ public struct SettingsSheet: View {
         Task {
             do {
                 let state = try await APIClient.shared.updatePermissionPreset(preset: preset, baseURL: url)
-                settings.cachedPermissionPreset = state.preset
-                confirmedPermissionPreset = state.preset
-                permissionPreset = state.preset
+                settings.cachedPermissionPreset = state.effectiveMode
+                confirmedPermissionPreset = state.effectiveMode
+                permissionPreset = state.effectiveMode
                 NotificationCenter.default.post(name: .permissionPresetDidChange, object: state)
             } catch {
                 permissionPreset = confirmedPermissionPreset

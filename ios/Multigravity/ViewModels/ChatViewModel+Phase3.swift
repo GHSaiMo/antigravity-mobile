@@ -15,7 +15,7 @@ extension ChatViewModel {
         guard let url = settings.gatewayURL else { return }
         if let state = try? await apiClient.fetchPermissionSettings(baseURL: url) {
             permissionState = state
-            settings.cachedPermissionPreset = state.preset
+            settings.cachedPermissionPreset = state.effectiveMode
         }
     }
 
@@ -25,7 +25,7 @@ extension ChatViewModel {
         do {
             let state = try await apiClient.updatePermissionPreset(preset: preset, baseURL: url)
             permissionState = state
-            settings.cachedPermissionPreset = state.preset
+            settings.cachedPermissionPreset = state.effectiveMode
             NotificationCenter.default.post(name: .permissionPresetDidChange, object: state)
         } catch {
             errorMessage = String(localized: "权限模式切换失败: \(error.localizedDescription)")

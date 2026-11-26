@@ -6,6 +6,7 @@ import AVFoundation
 public struct MarkdownViewerSheet: View {
     @Environment(\.dismiss) private var dismiss
     public let data: MarkdownFileViewerData
+    public let cascadeId: String?
     public let onDismiss: (() -> Void)?
     public let onProceed: (() -> Void)?
     public let onRetry: (() -> Void)?
@@ -16,15 +17,20 @@ public struct MarkdownViewerSheet: View {
     @State private var toastSuccessMessage: String? = nil
     @State private var previewQuickLookURL: URL? = nil
     @State private var previewQuickLookTitle: String = ""
+    @State private var artifactSnapshots: [ArtifactSnapshotItem] = []
+    @State private var selectedSnapshot: ArtifactSnapshotItem? = nil
+    @State private var showSnapshotsSheet: Bool = false
     
     public init(
         data: MarkdownFileViewerData,
+        cascadeId: String? = nil,
         onDismiss: (() -> Void)? = nil,
         onProceed: (() -> Void)? = nil,
         onRetry: (() -> Void)? = nil,
         onRefresh: (() -> Void)? = nil
     ) {
         self.data = data
+        self.cascadeId = cascadeId
         self.onDismiss = onDismiss
         self.onProceed = onProceed
         self.onRetry = onRetry
@@ -89,7 +95,21 @@ public struct MarkdownViewerSheet: View {
                             }
                             .frame(maxWidth: .infinity, minHeight: 200)
                         } else {
-                            MarkdownContentView(content: data.content, onImageTap: { url in
+                            if let snap = selectedSnapshot {
+                                HStack(spacing: 8) {
+                                    Label("正在预览历史版本 v\(snap.index)", systemImage: "clock.arrow.circlepath")
+                                        .font(.system(size: 12, weight: .semibold))
+                                        .foregroundColor(.indigo)
+                                    Spacer()
+                                    Button("返回最新") { selectedSnapshot = nil }
+                                        .font(.system(size: 12, weight: .semibold))
+                                }
+                                .padding(.horizontal, 10)
+                                .padding(.vertical, 6)
+                                .background(Color.indigo.opacity(0.1))
+                                .clipShape(RoundedRectangle(cornerRadius: 8))
+                            }
+                            MarkdownContentView(content: selectedSnapshot?.content ?? data.content, onImageTap: { url in
                                 previewImage = IdentifiableImage(url: url)
                             })
                             .frame(maxWidth: .infinity, alignment: .leading)
@@ -157,7 +177,16 @@ public struct MarkdownViewerSheet: View {
                     .disabled(shareURL == nil)
                     .accessibilityLabel("存储到“文件”")
                 }
-                ToolbarItem(placement: .topBarTrailing) {
+                ToolbarItemGroup(placement: .topBarTrailing) {
+                    if artifactSnapshots.count > 1 {
+                        Button {
+                            showSnapshotsSheet = true
+                        } label: {
+                            Image(systemName: "clock.arrow.circlepath")
+                                .font(.system(size: 15, weight: .semibold))
+                        }
+                        .accessibilityLabel("查看历史版本")
+                    }
                     if let url = shareURL {
                         ShareLink(item: url, preview: SharePreview(data.title.isEmpty ? String(localized: "文档详情") : data.title)) {
                             Image(systemName: "square.and.arrow.up")
@@ -165,6 +194,23 @@ public struct MarkdownViewerSheet: View {
                         }
                         .accessibilityLabel("分享")
                     }
+                }
+            }
+            .task(id: data.uri) {
+                guard let cid = cascadeId, !cid.isEmpty,
+                      let gw = AppSettings.shared.gatewayURL ?? AppSettings.shared.serverURL else { return }
+                if let list = try? await APIClient.shared.fetchArtifactSnapshots(
+                    cascadeId: cid,
+                    uri: data.uri,
+                    artifactName: data.title,
+                    baseURL: gw
+                ), list.count > 1 {
+                    artifactSnapshots = list
+                }
+            }
+            .sheet(isPresented: $showSnapshotsSheet) {
+                ArtifactSnapshotsSheet(snapshots: artifactSnapshots) { snap in
+                    selectedSnapshot = snap
                 }
             }
             .sheet(isPresented: $isShowingDocumentPicker) {

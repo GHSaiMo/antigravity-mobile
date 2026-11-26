@@ -363,6 +363,7 @@ extension ChatView {
     func renderMarkdownViewer(data: MarkdownFileViewerData) -> some View {
         MarkdownViewerSheet(
             data: data,
+            cascadeId: viewModel.cascadeId,
             onDismiss: {
                 viewModel.closeMarkdownViewer()
             },

@@ -48,6 +48,7 @@ public struct ConversationListView: View {
     @State private var gatewayStore = GatewayProfileStore.shared
     @State private var gatewaySwitcher = GatewaySwitcher.shared
     @State private var isNavTitleCollapsed: Bool = false
+    @State private var isCollapsedTitlePressed: Bool = false
     @State private var scrollToTopToken: Int = 0
     @State private var gatewayToRename: GatewayProfile? = nil
     @State private var gatewayRenameText = ""
@@ -888,7 +889,7 @@ public struct ConversationListView: View {
             } else {
                 showNewConversation = true
             }
-        case .archived:
+        case .archived, .starred:
             showNewConversation = true
         }
     }
@@ -913,7 +914,7 @@ public struct ConversationListView: View {
                             HStack {
                                 Label(
                                     "\(opt.filter.displayName) (\(opt.count))",
-                                    systemImage: opt.filter.isArchived ? "archivebox" : (opt.filter.isPureChat ? "bubble.left" : "folder")
+                                    systemImage: opt.filter.isArchived ? "archivebox" : (opt.filter.isStarred ? "star" : (opt.filter.isPureChat ? "bubble.left" : "folder"))
                                 )
                                 if opt.filter == filter {
                                     Image(systemName: "checkmark")
@@ -924,11 +925,11 @@ public struct ConversationListView: View {
                 }
             } label: {
                 HStack(spacing: 6) {
-                    Image(systemName: filter.isArchived ? "archivebox.fill" : (filter.isPureChat ? "bubble.left.fill" : "folder.fill"))
+                    Image(systemName: filter.isArchived ? "archivebox.fill" : (filter.isStarred ? "star.fill" : (filter.isPureChat ? "bubble.left.fill" : "folder.fill")))
                         .font(.system(size: 11.5, weight: .semibold))
-                        .foregroundColor(.indigo)
+                        .foregroundColor(filter.isStarred ? .yellow : .indigo)
                     Text(filter.displayName)
-                        .font(.system(size: 12.5, weight: .semibold, design: (filter.isPureChat || filter.isArchived) ? .default : .monospaced))
+                        .font(.system(size: 12.5, weight: .semibold, design: (filter.isPureChat || filter.isArchived || filter.isStarred) ? .default : .monospaced))
                         .foregroundColor(.primary)
                         .lineLimit(1)
                     Image(systemName: "chevron.down")
@@ -997,13 +998,83 @@ public struct ConversationListView: View {
                     .fixedSize()
             }
         }
-        .padding(.horizontal, 8)
-        .padding(.vertical, 5)
+        .padding(.horizontal, 14)
+        .padding(.vertical, 8)
+        .frame(minWidth: 108, minHeight: 36)
         .contentShape(Rectangle())
-        .opacity(isNavTitleCollapsed ? 1 : 0)
+        .opacity(isNavTitleCollapsed ? (isCollapsedTitlePressed ? 0.55 : 1) : 0)
         .offset(y: isNavTitleCollapsed ? 0 : 4)
         .animation(.easeOut(duration: 0.16), value: isNavTitleCollapsed)
-        .allowsHitTesting(false)
+        .animation(.easeOut(duration: 0.10), value: isCollapsedTitlePressed)
+        .overlay {
+            CollapsedHostTitleGestureOverlay(
+                isEnabled: isNavTitleCollapsed,
+                onPressChanged: { pressed in
+                    if isCollapsedTitlePressed != pressed {
+                        isCollapsedTitlePressed = pressed
+                    }
+                },
+                onTap: { anchorRectInWindow, windowSize in
+                    if gatewayPickerState.isPresented {
+                        gatewayPickerState.dismiss()
+                        return
+                    }
+                    GatewayProfileStore.shared.updateActiveSummary(from: viewModel.conversations)
+                    gatewayPickerState.openInteractive(
+                        anchorRect: anchorRectInWindow,
+                        containerSize: windowSize,
+                        centered: true
+                    )
+                },
+                onLongPressBegan: { anchorRectInWindow, windowSize in
+                    gatewayPickerState.containerSize = windowSize
+                    GatewayProfileStore.shared.updateActiveSummary(from: viewModel.conversations)
+                    gatewayPickerState.open(
+                        anchorRect: anchorRectInWindow,
+                        centered: true
+                    )
+                },
+                onLongPressChanged: { pointInWindow in
+                    gatewayPickerState.updateDrag(
+                        at: pointInWindow,
+                        profileCount: GatewayProfileStore.shared.profiles.count
+                    )
+                },
+                onLongPressEnded: {
+                    gatewayPickerState.endDrag(
+                        profiles: GatewayProfileStore.shared.profiles,
+                        onSelectProfile: { profile in
+                            _ = GatewaySwitcher.shared.switchTo(
+                                profileId: profile.id,
+                                currentConversations: viewModel.conversations,
+                                showToast: true
+                            )
+                        },
+                        onAddGateway: {
+                            openAddGatewayFlow()
+                        }
+                    )
+                },
+                onLongPressCancelled: {
+                    gatewayPickerState.dismiss()
+                },
+                canHorizontalSwipe: {
+                    AppSettings.shared.isPaired
+                        && !AppSettings.shared.isDemoMode
+                        && GatewayProfileStore.shared.hasMultipleGateways
+                        && !gatewayPickerState.isPresented
+                },
+                onHorizontalSwipe: { step in
+                    UIImpactFeedbackGenerator(style: .rigid).impactOccurred()
+                    _ = GatewaySwitcher.shared.cycle(
+                        step: step,
+                        currentConversations: viewModel.conversations,
+                        showToast: true
+                    )
+                }
+            )
+        }
+        .allowsHitTesting(isNavTitleCollapsed)
         .accessibilityElement(children: .combine)
         .accessibilityAddTraits(.isButton)
         .accessibilityHidden(!isNavTitleCollapsed)
@@ -1413,7 +1484,7 @@ public struct ConversationListView: View {
                !viewModel.isAutoExitingArchive,
                viewModel.filteredConversations.isEmpty && unmatchedContentHits.isEmpty && !viewModel.isSearchingContent {
                 VStack(spacing: 10) {
-                    Image(systemName: viewModel.searchQuery.isEmpty ? (activeFilter.isArchived ? "archivebox" : (activeFilter.isPureChat ? "bubble.left" : "folder")) : "magnifyingglass")
+                    Image(systemName: viewModel.searchQuery.isEmpty ? (activeFilter.isArchived ? "archivebox" : (activeFilter.isStarred ? "star" : (activeFilter.isPureChat ? "bubble.left" : "folder"))) : "magnifyingglass")
                         .font(.system(size: 28))
                         .foregroundColor(.secondary)
                     Text(viewModel.searchQuery.isEmpty
@@ -1473,6 +1544,9 @@ public struct ConversationListView: View {
                             conversationToRename = item
                             renameText = item.title
                             showRenameAlert = true
+                        },
+                        onToggleStar: {
+                            viewModel.toggleStar(item: item)
                         },
                         onArchive: {
                             conversationToArchive = item
@@ -2442,6 +2516,13 @@ public struct ConversationListView: View {
                         .foregroundColor(.orange)
                         .padding(.top, 3)
                 }
+
+                if item.isStarred {
+                    Image(systemName: "star.fill")
+                        .font(.system(size: 11, weight: .bold))
+                        .foregroundColor(.yellow)
+                        .padding(.top, 3)
+                }
                 
                 if item.nestingDepth > 0 || (item.parentConversationId != nil && !item.parentConversationId!.isEmpty) {
                     Image(systemName: "arrow.turn.down.right")
@@ -2834,6 +2915,244 @@ class NavigationBarTapGestureRecognizer: UITapGestureRecognizer {}
 class NavigationBarLongPressGestureRecognizer: UILongPressGestureRecognizer {}
 class NavigationBarHorizontalPanGestureRecognizer: UIPanGestureRecognizer {}
 
+/// Dedicated touch target mounted directly inside the collapsed centered `[Host ▾]` principal title item.
+/// On iOS 26/27 Liquid Glass navigation bars, empty/non-interactive bar areas pass touches through to the
+/// underlying scroll view; hosting tap, 0.22s long-press-drag, and horizontal swipe recognizers directly
+/// on an interactive UIView guarantees reliable hit-testing without interfering with expanded large titles.
+private final class CollapsedHostTitleGestureView: UIView {
+    var onPressChanged: ((Bool) -> Void)?
+
+    override func touchesBegan(_ touches: Set<UITouch>, with event: UIEvent?) {
+        super.touchesBegan(touches, with: event)
+        onPressChanged?(true)
+    }
+
+    override func touchesEnded(_ touches: Set<UITouch>, with event: UIEvent?) {
+        super.touchesEnded(touches, with: event)
+        onPressChanged?(false)
+    }
+
+    override func touchesCancelled(_ touches: Set<UITouch>, with event: UIEvent?) {
+        super.touchesCancelled(touches, with: event)
+        onPressChanged?(false)
+    }
+}
+
+private struct CollapsedHostTitleGestureOverlay: UIViewRepresentable {
+    let isEnabled: Bool
+    let onPressChanged: (Bool) -> Void
+    let onTap: (CGRect, CGSize) -> Void
+    let onLongPressBegan: (CGRect, CGSize) -> Void
+    let onLongPressChanged: (CGPoint) -> Void
+    let onLongPressEnded: () -> Void
+    let onLongPressCancelled: () -> Void
+    let canHorizontalSwipe: () -> Bool
+    let onHorizontalSwipe: (Int) -> Void
+
+    func makeCoordinator() -> Coordinator {
+        Coordinator(
+            onPressChanged: onPressChanged,
+            onTap: onTap,
+            onLongPressBegan: onLongPressBegan,
+            onLongPressChanged: onLongPressChanged,
+            onLongPressEnded: onLongPressEnded,
+            onLongPressCancelled: onLongPressCancelled,
+            canHorizontalSwipe: canHorizontalSwipe,
+            onHorizontalSwipe: onHorizontalSwipe
+        )
+    }
+
+    func makeUIView(context: Context) -> CollapsedHostTitleGestureView {
+        let view = CollapsedHostTitleGestureView()
+        view.backgroundColor = .clear
+        view.isUserInteractionEnabled = isEnabled
+        view.onPressChanged = onPressChanged
+
+        let coordinator = context.coordinator
+
+        let tap = UITapGestureRecognizer(target: coordinator, action: #selector(Coordinator.handleTap(_:)))
+        tap.cancelsTouchesInView = false
+        tap.delegate = coordinator
+        view.addGestureRecognizer(tap)
+
+        let lp = UILongPressGestureRecognizer(target: coordinator, action: #selector(Coordinator.handleLongPress(_:)))
+        lp.minimumPressDuration = 0.22
+        lp.allowableMovement = 12
+        lp.cancelsTouchesInView = true
+        lp.delegate = coordinator
+        view.addGestureRecognizer(lp)
+
+        let pan = UIPanGestureRecognizer(target: coordinator, action: #selector(Coordinator.handleHorizontalPan(_:)))
+        pan.maximumNumberOfTouches = 1
+        pan.cancelsTouchesInView = true
+        pan.delegate = coordinator
+        view.addGestureRecognizer(pan)
+
+        coordinator.tapGesture = tap
+        coordinator.longPressGesture = lp
+        coordinator.panGesture = pan
+
+        return view
+    }
+
+    func updateUIView(_ uiView: CollapsedHostTitleGestureView, context: Context) {
+        uiView.isUserInteractionEnabled = isEnabled
+        uiView.onPressChanged = onPressChanged
+        if !isEnabled {
+            onPressChanged(false)
+        }
+        context.coordinator.onPressChanged = onPressChanged
+        context.coordinator.onTap = onTap
+        context.coordinator.onLongPressBegan = onLongPressBegan
+        context.coordinator.onLongPressChanged = onLongPressChanged
+        context.coordinator.onLongPressEnded = onLongPressEnded
+        context.coordinator.onLongPressCancelled = onLongPressCancelled
+        context.coordinator.canHorizontalSwipe = canHorizontalSwipe
+        context.coordinator.onHorizontalSwipe = onHorizontalSwipe
+    }
+
+    final class Coordinator: NSObject, UIGestureRecognizerDelegate {
+        weak var tapGesture: UITapGestureRecognizer?
+        weak var longPressGesture: UILongPressGestureRecognizer?
+        weak var panGesture: UIPanGestureRecognizer?
+
+        var onPressChanged: (Bool) -> Void
+        var onTap: (CGRect, CGSize) -> Void
+        var onLongPressBegan: (CGRect, CGSize) -> Void
+        var onLongPressChanged: (CGPoint) -> Void
+        var onLongPressEnded: () -> Void
+        var onLongPressCancelled: () -> Void
+        var canHorizontalSwipe: () -> Bool
+        var onHorizontalSwipe: (Int) -> Void
+
+        private var suppressNextTap = false
+        private var hasTriggeredHorizontalSwitch = false
+
+        init(
+            onPressChanged: @escaping (Bool) -> Void,
+            onTap: @escaping (CGRect, CGSize) -> Void,
+            onLongPressBegan: @escaping (CGRect, CGSize) -> Void,
+            onLongPressChanged: @escaping (CGPoint) -> Void,
+            onLongPressEnded: @escaping () -> Void,
+            onLongPressCancelled: @escaping () -> Void,
+            canHorizontalSwipe: @escaping () -> Bool,
+            onHorizontalSwipe: @escaping (Int) -> Void
+        ) {
+            self.onPressChanged = onPressChanged
+            self.onTap = onTap
+            self.onLongPressBegan = onLongPressBegan
+            self.onLongPressChanged = onLongPressChanged
+            self.onLongPressEnded = onLongPressEnded
+            self.onLongPressCancelled = onLongPressCancelled
+            self.canHorizontalSwipe = canHorizontalSwipe
+            self.onHorizontalSwipe = onHorizontalSwipe
+        }
+
+        @objc func handleTap(_ gesture: UITapGestureRecognizer) {
+            guard gesture.state == .ended else { return }
+            onPressChanged(false)
+            if suppressNextTap {
+                suppressNextTap = false
+                return
+            }
+            guard let view = gesture.view else { return }
+            let window = view.window
+            let windowSize = window?.bounds.size ?? view.bounds.size
+            let anchorInWindow = view.convert(view.bounds, to: window)
+            onTap(anchorInWindow, windowSize)
+        }
+
+        @objc func handleLongPress(_ gesture: UILongPressGestureRecognizer) {
+            guard let view = gesture.view else { return }
+            let window = view.window
+            let pointInWindow = gesture.location(in: window)
+            let windowSize = window?.bounds.size ?? view.bounds.size
+
+            switch gesture.state {
+            case .began:
+                suppressNextTap = true
+                onPressChanged(false)
+                let anchorInWindow = view.convert(view.bounds, to: window)
+                onLongPressBegan(anchorInWindow, windowSize)
+            case .changed:
+                onLongPressChanged(pointInWindow)
+            case .ended:
+                onLongPressEnded()
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { [weak self] in
+                    self?.suppressNextTap = false
+                }
+            case .cancelled, .failed:
+                onPressChanged(false)
+                onLongPressCancelled()
+                suppressNextTap = false
+            default:
+                break
+            }
+        }
+
+        @objc func handleHorizontalPan(_ gesture: UIPanGestureRecognizer) {
+            guard let view = gesture.view else { return }
+            let tx = gesture.translation(in: view).x
+            let vx = gesture.velocity(in: view).x
+
+            switch gesture.state {
+            case .began:
+                hasTriggeredHorizontalSwitch = false
+                suppressNextTap = true
+                onPressChanged(false)
+            case .changed:
+                if !hasTriggeredHorizontalSwitch && abs(tx) >= 36 {
+                    hasTriggeredHorizontalSwitch = true
+                    onHorizontalSwipe(tx < 0 ? 1 : -1)
+                }
+            case .ended:
+                if !hasTriggeredHorizontalSwitch && abs(tx) >= 18 && abs(vx) >= 300 {
+                    hasTriggeredHorizontalSwitch = true
+                    onHorizontalSwipe(tx < 0 ? 1 : -1)
+                }
+                hasTriggeredHorizontalSwitch = false
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { [weak self] in
+                    self?.suppressNextTap = false
+                }
+            case .cancelled, .failed:
+                hasTriggeredHorizontalSwitch = false
+                suppressNextTap = false
+                onPressChanged(false)
+            default:
+                break
+            }
+        }
+
+        func gestureRecognizerShouldBegin(_ gestureRecognizer: UIGestureRecognizer) -> Bool {
+            if gestureRecognizer === panGesture, let pan = gestureRecognizer as? UIPanGestureRecognizer {
+                guard canHorizontalSwipe(), let view = pan.view else { return false }
+                let vel = pan.velocity(in: view)
+                let trans = pan.translation(in: view)
+                let absVX = abs(vel.x)
+                let absVY = abs(vel.y)
+                if absVX > 10 || absVY > 10 {
+                    return absVX > absVY * 1.4
+                }
+                return abs(trans.x) > abs(trans.y) * 1.4 && abs(trans.x) > 4
+            }
+            return true
+        }
+
+        func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer, shouldRecognizeSimultaneouslyWith otherGestureRecognizer: UIGestureRecognizer) -> Bool {
+            if otherGestureRecognizer === tapGesture
+                || otherGestureRecognizer === longPressGesture
+                || otherGestureRecognizer === panGesture {
+                return false
+            }
+            let otherName = String(describing: type(of: otherGestureRecognizer))
+            if otherName.contains("ResponderGestureRecognizer") {
+                return true
+            }
+            return false
+        }
+    }
+}
+
 private final class NavigationBarHookView: UIView {
     weak var coordinator: NavigationBarTapHelper.Coordinator?
     private weak var observedNavBar: UINavigationBar?
@@ -3207,13 +3526,16 @@ private struct NavigationBarTapHelper: UIViewRepresentable {
                 return false
             }
             
-            // Check if touch is on an interactive control (gear, plus, search, etc.)
+            // Check if touch is on the dedicated collapsed host title overlay or an interactive control (gear, plus, search, etc.)
             var current: UIView? = touch.view
             while let v = current, v !== navBar {
-                if v is UIControl && !(v is UILabel) {
+                if v is CollapsedHostTitleGestureView {
                     return false
                 }
                 let clsName = NSStringFromClass(type(of: v))
+                if v is UIControl && !(v is UILabel) && !clsName.contains("NavigationBarTitleControl") {
+                    return false
+                }
                 if clsName.contains("ButtonBarButton") || clsName.contains("Search") {
                     return false
                 }
@@ -3424,43 +3746,44 @@ private struct SharePendingDeliveryPillV27: View {
 }
 #endif
 
-/// Row interactions: iPad (pointer / long press) gets a context menu, iPhone keeps long-press to rename.
+/// Row interactions: long-press native context menu with Rename, Star, Archive, and Delete.
 private struct RowActions: ViewModifier {
     let isSplit: Bool
     let item: ConversationItem
     let onRename: () -> Void
+    let onToggleStar: () -> Void
     let onArchive: () -> Void
     let onDelete: () -> Void
     
     func body(content: Content) -> some View {
-        if isSplit {
-            content.contextMenu {
-                if !item.isDraft {
-                    Button {
-                        onRename()
-                    } label: {
-                        Label("重命名", systemImage: "pencil")
-                    }
-                    Button {
-                        onArchive()
-                    } label: {
-                        Label(
-                            item.isArchived ? String(localized: "取消归档") : String(localized: "归档"),
-                            systemImage: item.isArchived ? "tray.and.arrow.up" : "archivebox"
-                        )
-                    }
-                }
-                Button(role: .destructive) {
-                    onDelete()
+        content.contextMenu {
+            if !item.isDraft {
+                Button {
+                    onRename()
                 } label: {
-                    Label("删除", systemImage: "trash")
+                    Label("重命名", systemImage: "pencil")
+                }
+                Button {
+                    onToggleStar()
+                } label: {
+                    Label(
+                        item.isStarred ? String(localized: "取消星标") : String(localized: "星标"),
+                        systemImage: item.isStarred ? "star.slash" : "star"
+                    )
+                }
+                Button {
+                    onArchive()
+                } label: {
+                    Label(
+                        item.isArchived ? String(localized: "取消归档") : String(localized: "归档"),
+                        systemImage: item.isArchived ? "tray.and.arrow.up" : "archivebox"
+                    )
                 }
             }
-        } else {
-            content.onLongPressGesture(minimumDuration: 0.45) {
-                guard !item.isDraft else { return }
-                UIImpactFeedbackGenerator(style: .medium).impactOccurred()
-                onRename()
+            Button(role: .destructive) {
+                onDelete()
+            } label: {
+                Label("删除", systemImage: "trash")
             }
         }
     }

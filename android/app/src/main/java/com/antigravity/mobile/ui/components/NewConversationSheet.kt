@@ -445,6 +445,11 @@ fun NewConversationSheet(
                         }
                     }
                 }
+
+                // SSH Remote Hosts (RemotingService) embedded inline below workspaces
+                item(key = "remote_ssh_section") {
+                    RemoteSshSection(onConnected = onRefreshProjects)
+                }
             }
             } // end activeSubPage else
         }

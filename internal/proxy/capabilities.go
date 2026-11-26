@@ -55,13 +55,17 @@ var Features = []Feature{
 	{ID: "chapters", RPCs: []string{"GetChapterTitles"}},
 	{ID: "github", RPCs: []string{"GetGitHubPullRequests"}},
 	{ID: "background_tasks", RPCs: []string{"ListBackgroundTasks"}},
-	{ID: "plugins", RPCs: []string{"GetAllPlugins", "InstallCascadePlugin", "ListPluginAuthProviders"}},
+	{ID: "plugins", RPCs: []string{"GetAllPlugins", "InstallCascadePlugin", "DeletePlugin", "ListPluginAuthProviders"}},
 	{ID: "plugin_grants", RPCs: []string{"ListPluginPermissionGrants", "RevokePluginPermissionGrant"}},
+	{ID: "marketplace", RPCs: []string{"SearchMarketplace", "GetMarketplaceFeatured", "GetMarketplaceBundles"}},
+	{ID: "plugin_auth", RPCs: []string{"StartPluginAuthSignIn", "SignOutPluginAuthProvider", "SetDefaultPluginAuthAccount", "SetPluginAuthAccountLabel"}},
+	{ID: "mcp_oauth", RPCs: []string{"StartMcpOAuthSignIn", "CompleteMcpOAuth", "DisconnectMcpOAuth"}},
 	{ID: "automations", RPCs: []string{"GetSidecars", "GetSidecarEvents", "ManageSidecar", "ResolveSidecarConfig"}},
 	{ID: "context_meter", RPCs: []string{"GetCascadeTrajectoryGeneratorMetadata"}},
 	{ID: "live_summaries", RPCs: []string{"JetboxSubscribeToSummaries"}}, // 网关自带轮询兜底，缺失不影响列表功能
 	{ID: "context_mentions", RPCs: []string{"GetMatchingContextScopeItems"}},
 	{ID: "worktree_fork", RPCs: []string{"ForkConversation", "CreateWorktree", "CheckoutWorktree", "GetWorktreeDiff", "DeleteWorktree", "CloneGitHubRepo"}},
+	{ID: "worktree_pr", RPCs: []string{"UpdatePRForWorktree"}},
 	{ID: "permissions", RPCs: []string{"GetPermissionSettings", "UpdatePermissionSettings"}},
 	{ID: "terminals", RPCs: []string{"ListTerminals", "CreateTerminal", "StreamTerminalOutput", "SendTerminalInput", "CloseTerminal", "SendStepsToBackground"}},
 	{ID: "subagent_collab", RPCs: []string{"SendAgentMessage", "GetAgentTeamMetadata", "SkipBrowserSubagent"}},
@@ -70,6 +74,10 @@ var Features = []Feature{
 	{ID: "memories_rules", RPCs: []string{"GetAllRules", "GetCascadeMemories", "DeleteCascadeMemory"}},
 	{ID: "git_discard", RPCs: []string{"DiscardFileChanges"}},
 	{ID: "workspace_trust", RPCs: []string{"GetProjectTrustStatus", "SetWorkspaceTrust"}},
+	{ID: "desktop_update", RPCs: []string{"GetUpdateStatus", "ApplyUpdate", "GetChangelog"}},
+	{ID: "code_search", RPCs: []string{"SearchCode", "SearchFiles"}},
+	{ID: "artifact_snapshots", RPCs: []string{"GetArtifactSnapshots"}},
+	{ID: "environments", RPCs: []string{"ListEnvironments"}},
 }
 
 // Compatibility is the result of comparing the running language_server with what the gateway needs.

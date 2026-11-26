@@ -729,6 +729,7 @@ async function markConversationAsRead(cascadeId) {
 }
 
 let showArchivedOnly = false;
+let showStarredOnly = false;
 const expandedBranchParentIds = new Set();
 const searchCollapsedBranchParentIds = new Set();
 const manuallyCollapsedActionBranchParentIds = new Set();
@@ -853,6 +854,10 @@ function renderConversationCardHtml(item, { isAttachedBranchChild = false, isLas
   const pinIconHtml = isPinned
     ? `<svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor" class="conv-pin-icon" title="${typeof t === "function" ? t("已置顶") : "已置顶"}" style="color: #f59e0b; margin-right: 4px; flex-shrink: 0;"><path d="M16 12V4h1V2H7v2h1v8l-2 2v2h5.2v6h1.6v-6H18v-2l-2-2z"/></svg>`
     : "";
+  const isStarred = Boolean(item.annotations?.starred);
+  const starIconHtml = isStarred
+    ? `<span class="conv-star-icon" title="${typeof t === "function" ? t("已星标") : "已星标"}" aria-label="${typeof t === "function" ? t("已星标") : "已星标"}">★</span>`
+    : "";
   const wsUri = item.workspaceUris?.[0] || item.workspaces?.[0]?.workspaceFolderAbsoluteUri || "";
   const wsName = item.workspaceName || wsUri.split("/").filter(Boolean).pop() || "Chat";
   const timeStr = formatRelativeTime(item.lastModifiedTime);
@@ -936,7 +941,7 @@ function renderConversationCardHtml(item, { isAttachedBranchChild = false, isLas
       ${actionsHtml}
       <div class="conv-card" data-id="${idEsc}" data-title="${escapeHtml(title)}">
         <div class="conv-card-top">
-          <div class="conv-title">${pinIconHtml}${swarmBeeHtml}${branchPillHtml}<span data-i18n-skip="1">${escapeHtml(title)}</span></div>
+          <div class="conv-title">${pinIconHtml}${starIconHtml}${swarmBeeHtml}${branchPillHtml}<span data-i18n-skip="1">${escapeHtml(title)}</span></div>
           ${badgeHtml}
         </div>
         <div class="conv-card-bottom">
@@ -1014,12 +1019,20 @@ function renderConversationList(summaries, { forceReorder = false } = {}) {
     .map(([id, info]) => ({ id, ...info }));
 
   const archivedCount = allNonSubagents.filter((it) => Boolean(it.annotations?.archived)).length;
+  const starredCount = allNonSubagents.filter((it) => !it.annotations?.archived && Boolean(it.annotations?.starred)).length;
   if (showArchivedOnly && archivedCount === 0) {
     showArchivedOnly = false;
   }
+  if (showStarredOnly && starredCount === 0) {
+    showStarredOnly = false;
+  }
 
   const sortedAll = allNonSubagents
-    .filter((it) => (showArchivedOnly ? Boolean(it.annotations?.archived) : !it.annotations?.archived))
+    .filter((it) => {
+      if (showArchivedOnly) return Boolean(it.annotations?.archived);
+      if (showStarredOnly) return !it.annotations?.archived && Boolean(it.annotations?.starred);
+      return !it.annotations?.archived;
+    })
     .sort((a, b) => {
       const aAction = isConversationNeedsAction(a);
       const bAction = isConversationNeedsAction(b);
@@ -1049,13 +1062,24 @@ function renderConversationList(summaries, { forceReorder = false } = {}) {
         <span style="font-weight:600;">已归档会话 (${archivedCount})</span>
         <button type="button" class="conv-exit-archived-btn" style="border:none;background:none;color:var(--accent,#6366f1);font-weight:600;cursor:pointer;font-size:12.5px;">返回全部</button>
       </div>`
-    : "";
+    : (showStarredOnly
+      ? `<div class="conv-archived-banner" style="display:flex;align-items:center;justify-content:space-between;padding:8px 12px;margin:0 0 8px;border-radius:12px;background:rgba(245,158,11,0.12);font-size:12.5px;">
+          <span style="font-weight:600;color:#f59e0b;">★ 已星标 (${starredCount})</span>
+          <button type="button" class="conv-exit-starred-btn" style="border:none;background:none;color:var(--accent,#6366f1);font-weight:600;cursor:pointer;font-size:12.5px;">返回全部</button>
+        </div>`
+      : "");
 
-  const archivedFooterHtml = !showArchivedOnly && !query && archivedCount > 0
-    ? `<button type="button" class="conv-open-archived-btn" style="display:flex;align-items:center;justify-content:center;gap:6px;width:100%;padding:10px 12px;margin-top:6px;border:none;background:transparent;color:var(--text-secondary,#8e8e93);font-size:12.5px;font-weight:500;cursor:pointer;">
-        已归档会话 (${archivedCount}) ›
+  const starredFooterHtml = !showArchivedOnly && !showStarredOnly && !query && starredCount > 0
+    ? `<button type="button" class="conv-open-starred-btn" style="display:flex;align-items:center;justify-content:center;gap:6px;width:100%;padding:8px 12px;margin-top:6px;border:none;background:transparent;color:#f59e0b;font-size:12.5px;font-weight:500;cursor:pointer;">
+        ★ 已星标 (${starredCount}) ›
       </button>`
     : "";
+
+  const archivedFooterHtml = starredFooterHtml + (!showArchivedOnly && !showStarredOnly && !query && archivedCount > 0
+    ? `<button type="button" class="conv-open-archived-btn" style="display:flex;align-items:center;justify-content:center;gap:6px;width:100%;padding:10px 12px;margin-top:2px;border:none;background:transparent;color:var(--text-secondary,#8e8e93);font-size:12.5px;font-weight:500;cursor:pointer;">
+        已归档会话 (${archivedCount}) ›
+      </button>`
+    : "");
 
   if (items.length === 0) {
     // 有内容命中（或正在搜索）时不显示「暂无匹配」，由下面的内容命中区承接
@@ -1158,7 +1182,11 @@ function initConversationCardDelegation() {
         activeTouchState.hasTriggeredLongPress = true;
         triggerHaptic("medium");
         const title = card.getAttribute("data-title") || "会话";
-        openRenameAlert(id, title);
+        if (window.Phase4?.openConvContextMenu) {
+          window.Phase4.openConvContextMenu(id, title);
+        } else {
+          openRenameAlert(id, title);
+        }
       }
     }, 450);
 
@@ -1306,10 +1334,26 @@ function initConversationCardDelegation() {
       }
       return;
     }
+    const openStarBtn = e.target.closest(".conv-open-starred-btn");
+    if (openStarBtn) {
+      e.stopPropagation();
+      showStarredOnly = true;
+      showArchivedOnly = false;
+      renderConversationList(currentTrajectories || {}, { forceReorder: true });
+      return;
+    }
+    const exitStarBtn = e.target.closest(".conv-exit-starred-btn");
+    if (exitStarBtn) {
+      e.stopPropagation();
+      showStarredOnly = false;
+      renderConversationList(currentTrajectories || {}, { forceReorder: true });
+      return;
+    }
     const openArchBtn = e.target.closest(".conv-open-archived-btn");
     if (openArchBtn) {
       e.stopPropagation();
       showArchivedOnly = true;
+      showStarredOnly = false;
       renderConversationList(currentTrajectories || {}, { forceReorder: true });
       return;
     }
@@ -1357,6 +1401,21 @@ function initConversationCardDelegation() {
     closeOtherCards();
     triggerHaptic("selection");
     navigateTo(`#c=${id}`);
+  });
+
+  listEl.addEventListener("contextmenu", (e) => {
+    const card = e.target.closest(".conv-card");
+    if (!card) return;
+    const wrapper = card.closest(".conv-card-wrapper");
+    const id = wrapper?.getAttribute("data-id");
+    if (!id) return;
+    e.preventDefault();
+    const title = card.getAttribute("data-title") || "会话";
+    if (window.Phase4?.openConvContextMenu) {
+      window.Phase4.openConvContextMenu(id, title);
+    } else {
+      openRenameAlert(id, title);
+    }
   });
 }
 

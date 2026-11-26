@@ -36,6 +36,7 @@ import com.antigravity.mobile.data.service.ApiClient
 import com.antigravity.mobile.data.service.gitCheckoutBranch
 import com.antigravity.mobile.data.service.gitDiscardFile
 import com.antigravity.mobile.data.service.gitListBranches
+import com.antigravity.mobile.data.service.updateWorktreePR
 import com.antigravity.mobile.ui.theme.AntigravityTheme
 import com.antigravity.mobile.ui.viewmodel.GitSheetState
 import kotlinx.coroutines.launch
@@ -67,6 +68,14 @@ fun GitCommitSheet(
     var branchesResp by remember { mutableStateOf<GitBranchesResponse?>(null) }
     var newBranchInput by remember { mutableStateOf("") }
     var discardTargetPath by remember { mutableStateOf<String?>(null) }
+    var showWorktreePrDialog by remember { mutableStateOf(false) }
+    var prTitle by remember { mutableStateOf("") }
+    var prBody by remember { mutableStateOf("") }
+    var prDraft by remember { mutableStateOf(false) }
+    var isUpdatingPr by remember { mutableStateOf(false) }
+    var prResultUrl by remember { mutableStateOf<String?>(null) }
+    var prError by remember { mutableStateOf<String?>(null) }
+    val uriHandler = LocalUriHandler.current
 
     // 以文件路径为键保存勾选；状态刷新后保留仍存在的勾选，新增文件默认勾选。
     var unchecked by remember { mutableStateOf(setOf<String>()) }
@@ -168,6 +177,20 @@ fun GitCommitSheet(
                     Spacer(Modifier.height(10.dp))
                     if (status.pullRequests.isNotEmpty()) {
                         PullRequestsSection(status.pullRequests)
+                        Spacer(Modifier.height(10.dp))
+                    }
+                    if (status.isWorktree && cascadeId.isNotBlank()) {
+                        OutlinedButton(
+                            onClick = {
+                                prResultUrl = null
+                                prError = null
+                                showWorktreePrDialog = true
+                            },
+                            modifier = Modifier.fillMaxWidth(),
+                            shape = RoundedCornerShape(10.dp)
+                        ) {
+                            Text("创建 / 更新 Worktree PR".loc, fontSize = 13.sp, fontWeight = FontWeight.Medium)
+                        }
                         Spacer(Modifier.height(10.dp))
                     }
                     if (status.clean) {
@@ -336,6 +359,77 @@ fun GitCommitSheet(
             },
             dismissButton = {
                 TextButton(onClick = { discardTargetPath = null }) { Text("取消".loc) }
+            }
+        )
+    }
+
+    if (showWorktreePrDialog && cascadeId.isNotBlank()) {
+        AlertDialog(
+            onDismissRequest = { showWorktreePrDialog = false },
+            containerColor = colors.surface,
+            title = { Text("创建 / 更新 Worktree PR".loc, fontSize = 16.sp, fontWeight = FontWeight.SemiBold) },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    OutlinedTextField(
+                        value = prTitle,
+                        onValueChange = { prTitle = it },
+                        label = { Text("PR 标题（可选，留空自动生成）".loc) },
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                    OutlinedTextField(
+                        value = prBody,
+                        onValueChange = { prBody = it },
+                        label = { Text("PR 说明（可选）".loc) },
+                        minLines = 2,
+                        maxLines = 4,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Checkbox(checked = prDraft, onCheckedChange = { prDraft = it })
+                        Text("标记为草稿 PR (Draft)".loc, fontSize = 13.sp, color = colors.textPrimary)
+                    }
+                    prResultUrl?.let { url ->
+                        Text(
+                            text = url,
+                            fontSize = 12.sp,
+                            color = colors.accentIndigo,
+                            modifier = Modifier.clickable { runCatching { uriHandler.openUri(url) } }
+                        )
+                    }
+                    prError?.let { Text(it, fontSize = 12.sp, color = colors.accentRed) }
+                }
+            },
+            confirmButton = {
+                Button(
+                    enabled = !isUpdatingPr,
+                    onClick = {
+                        isUpdatingPr = true
+                        prError = null
+                        scope.launch {
+                            ApiClient.defaultInstance?.updateWorktreePR(
+                                cascadeId = cascadeId,
+                                title = prTitle.trim().ifBlank { null },
+                                body = prBody.trim().ifBlank { null },
+                                draft = prDraft
+                            )?.onSuccess { resp ->
+                                if (resp.ok) {
+                                    prResultUrl = resp.prUrl
+                                    onRefreshGit?.invoke()
+                                    if (resp.prUrl.isNullOrBlank()) showWorktreePrDialog = false
+                                } else {
+                                    prError = resp.error ?: "创建或更新 PR 失败".loc
+                                }
+                            }?.onFailure { prError = it.message }
+                            isUpdatingPr = false
+                        }
+                    }
+                ) {
+                    Text(if (isUpdatingPr) "提交中...".loc else "同步到 PR".loc)
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showWorktreePrDialog = false }) { Text("关闭".loc) }
             }
         )
     }

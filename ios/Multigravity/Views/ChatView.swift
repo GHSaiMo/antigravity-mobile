@@ -360,28 +360,34 @@ public struct ChatView: View {
         }
 
         ToolbarItem(placement: .topBarTrailing) {
-            let isAutoPermission = viewModel.permissionState.preset == "auto"
+            let curMode = viewModel.permissionState.effectiveMode
+            let isTurboPermission = curMode == "turbo"
             let runningPermSuffix = viewModel.isRunning ? String(localized: " · 运行中，下轮生效") : ""
             Menu {
                 Section("全局权限放行模式 (\(viewModel.permissionState.localizedLabel))\(runningPermSuffix)") {
                     Button {
                         Task { await viewModel.updatePermissionPreset("strict") }
                     } label: {
-                        Label("严格审批", systemImage: viewModel.permissionState.preset == "strict" ? "checkmark" : "lock.shield")
+                        Label("严格审批", systemImage: curMode == "strict" ? "checkmark" : "lock.shield")
                     }
                     Button {
-                        Task { await viewModel.updatePermissionPreset("sandbox") }
+                        Task { await viewModel.updatePermissionPreset("default") }
                     } label: {
-                        Label("离席沙箱放行", systemImage: viewModel.permissionState.preset == "sandbox" ? "checkmark" : "shield.lefthalf.filled")
+                        Label("默认沙箱", systemImage: curMode == "default" ? "checkmark" : "shield.lefthalf.filled")
                     }
                     Button {
-                        if isAutoPermission {
-                            Task { await viewModel.updatePermissionPreset("auto") }
+                        Task { await viewModel.updatePermissionPreset("auto") }
+                    } label: {
+                        Label("智能自动 (沙箱)", systemImage: curMode == "auto" ? "checkmark" : "sparkles")
+                    }
+                    Button {
+                        if isTurboPermission {
+                            Task { await viewModel.updatePermissionPreset("turbo") }
                         } else {
                             showAutoPermissionConfirm = true
                         }
                     } label: {
-                        Label("全自动放行", systemImage: isAutoPermission ? "checkmark" : "bolt.shield")
+                        Label("全自动 (无沙箱)", systemImage: isTurboPermission ? "checkmark" : "bolt.shield")
                     }
                 }
                 Divider()
@@ -398,11 +404,11 @@ public struct ChatView: View {
             } label: {
                 let iconName: String = {
                     if viewModel.hasAnyBackgroundTasks { return "terminal" }
-                    return isAutoPermission ? "bolt.shield.fill" : "wrench.and.screwdriver"
+                    return isTurboPermission ? "bolt.shield.fill" : "wrench.and.screwdriver"
                 }()
                 Image(systemName: iconName)
                     .font(.system(size: 14, weight: .medium))
-                    .foregroundColor(isAutoPermission ? .orange : .indigo)
+                    .foregroundColor(isTurboPermission ? .orange : .indigo)
             } primaryAction: {
                 UIImpactFeedbackGenerator(style: .light).impactOccurred()
                 showMcpSkillsSheet = true
@@ -801,10 +807,10 @@ public struct ChatView: View {
             } message: {
                 Text("当前有正在运行的后台命令或子代理。立即发送将提前触发下一轮对话，可能会导致后台任务被中断或产生冲突。确定仍要立即发送吗？")
             }
-            .alert("开启全自动放行？", isPresented: $showAutoPermissionConfirm) {
+            .alert("开启全自动 (无沙箱)？", isPresented: $showAutoPermissionConfirm) {
                 Button("取消", role: .cancel) {}
                 Button("确认开启", role: .destructive) {
-                    Task { await viewModel.updatePermissionPreset("auto") }
+                    Task { await viewModel.updatePermissionPreset("turbo") }
                 }
             } message: {
                 Text("开启后 Agent 将自动执行终端命令并访问工作区外文件（同步作用于桌面端全部会话）。建议仅在可信或隔离环境中使用。")

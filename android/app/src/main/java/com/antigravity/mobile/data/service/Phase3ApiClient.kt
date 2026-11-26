@@ -298,8 +298,18 @@ suspend fun ApiClient.fetchPermissionSettings(): Result<PermissionStateResponse>
     }
 }
 
-suspend fun ApiClient.updatePermissionPreset(preset: String): Result<PermissionStateResponse> {
-    return p3PostJson("/gateway/permissions", buildJsonObject { put("preset", preset) }).mapCatching { body ->
+suspend fun ApiClient.updatePermissionPreset(modeOrPreset: String): Result<PermissionStateResponse> {
+    val normalized = modeOrPreset.trim().lowercase()
+    val legacyPreset = when (normalized) {
+        "strict" -> "strict"
+        "default", "sandbox" -> "sandbox"
+        "auto", "turbo" -> "auto"
+        else -> normalized
+    }
+    return p3PostJson("/gateway/permissions", buildJsonObject {
+        put("mode", normalized)
+        put("preset", legacyPreset)
+    }).mapCatching { body ->
         json.decodeFromString<PermissionStateResponse>(body)
     }
 }

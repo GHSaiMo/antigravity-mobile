@@ -240,6 +240,7 @@ public struct GitStatusResponse: Codable, Sendable {
     public let ahead: Int
     public let behind: Int
     public let detached: Bool
+    public let isWorktree: Bool?
     public let files: [GitFileStatus]
     public let clean: Bool
     public let githubTarget: GitHubBranchTarget?

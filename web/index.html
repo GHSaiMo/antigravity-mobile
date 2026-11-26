@@ -55,7 +55,7 @@
   <link rel="icon" type="image/png" sizes="192x192" href="/icons/icon-192.png?v=4" />
   <link rel="apple-touch-icon" href="/icons/apple-touch-icon.png?v=4" />
   <link rel="manifest" href="/manifest-en.json" />
-  <link rel="stylesheet" href="/style.css?v=65" />
+  <link rel="stylesheet" href="/style.css?v=66" />
 </head>
 <body>
   <div id="app">
@@ -548,8 +548,9 @@
               <span class="cell-label">Agent 权限模式</span>
               <select id="settings-permission-preset" class="settings-select" aria-label="Agent 权限模式">
                 <option value="strict">严格审批</option>
-                <option value="sandbox">离席沙箱放行</option>
-                <option value="auto">全自动 (Turbo)</option>
+                <option value="default">默认沙箱</option>
+                <option value="auto">智能自动 · 沙箱</option>
+                <option value="turbo">全自动 · 无沙箱</option>
               </select>
             </div>
             <button id="btn-settings-open-tools" class="ios-cell-button" type="button" onclick="window.Phase3?.openToolsBoard?.('mcp')">
@@ -647,6 +648,14 @@
               <span class="cell-label">版本</span>
               <span id="settings-app-version" class="cell-value">--</span>
             </div>
+            <button id="btn-settings-desktop-update" class="ios-cell-button between settings-nav-row" type="button">
+              <span class="cell-label">Antigravity 桌面端</span>
+              <span class="settings-nav-trailing">
+                <span id="settings-desktop-version" class="cell-value"></span>
+                <span id="settings-desktop-update-badge" class="p4-badge-warn hidden">有更新</span>
+                <svg class="settings-chevron" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"></polyline></svg>
+              </span>
+            </button>
           </div>
         </div>
         <div id="settings-sub-body" class="sheet-body hidden">
@@ -804,6 +813,11 @@
           <button id="btn-changes-back" class="sheet-header-btn hidden" type="button">‹ 返回</button>
           <h2 id="changes-title" class="sheet-title">本会话改动</h2>
           <button id="btn-changes-close" class="sheet-header-btn primary" type="button">完成</button>
+        </div>
+        <div id="changes-seg-bar" class="p4-seg-bar">
+          <button type="button" class="p4-seg-btn active" data-changes-tab="diff">本会话改动</button>
+          <button type="button" class="p4-seg-btn" data-changes-tab="code">搜索代码</button>
+          <button type="button" class="p4-seg-btn" data-changes-tab="files">搜索文件</button>
         </div>
         <div id="changes-body" class="sheet-body"></div>
       </div>
@@ -1016,6 +1030,9 @@
             <span id="md-viewer-subtitle" class="sheet-subtitle md-viewer-subtitle"></span>
           </div>
           <div class="md-viewer-header-actions">
+            <button id="btn-md-viewer-history" class="sheet-header-btn md-viewer-icon-btn hidden" type="button" aria-label="历史版本快照" title="历史版本快照">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"></circle><polyline points="12 7 12 12 15 14"></polyline></svg>
+            </button>
             <button id="btn-md-viewer-find" class="sheet-header-btn md-viewer-icon-btn hidden" type="button" aria-label="在文档中查找" title="在文档中查找">
               <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line></svg>
             </button>
@@ -1252,27 +1269,28 @@
     </div>
   </dialog>
 
-  <script defer src="/js/i18n.js?v=10"></script>
+  <script defer src="/js/i18n.js?v=11"></script>
   <script defer src="/js/e2ee.js?v=1"></script>
   <script defer src="/js/core.js?v=43"></script>
-  <script defer src="/js/nav.js?v=53"></script>
+  <script defer src="/js/nav.js?v=54"></script>
   <script defer src="/js/wechat_archive.js?v=1"></script>
   <script defer src="/js/chat.js?v=47"></script>
-  <script defer src="/js/actions.js?v=40"></script>
+  <script defer src="/js/actions.js?v=41"></script>
   <script defer src="/js/media.js?v=39"></script>
   <script defer src="/js/cockpit.js?v=37"></script>
   <script defer src="/js/scan.js?v=2"></script>
   <script defer src="/js/msgmenu.js?v=6"></script>
   <script defer src="/js/slash.js?v=3"></script>
   <script defer src="/js/workflows.js?v=2"></script>
-  <script defer src="/js/changes.js?v=2"></script>
-  <script defer src="/js/git.js?v=6"></script>
+  <script defer src="/js/changes.js?v=3"></script>
+  <script defer src="/js/git.js?v=7"></script>
   <script defer src="/js/models.js?v=3"></script>
   <script defer src="/js/subagents.js?v=6"></script>
   <script defer src="/js/swarm.js?v=6"></script>
   <script defer src="/js/egg.js?v=1"></script>
-  <script defer src="/js/phase3.js?v=7"></script>
+  <script defer src="/js/phase3.js?v=8"></script>
   <script defer src="/js/v233.js?v=7"></script>
+  <script defer src="/js/phase4.js?v=1"></script>
   <!-- init.js 必须最后加载：它在执行时就会调用 initApp()，依赖前面所有脚本里的函数 -->
   <script defer src="/js/init.js?v=48"></script>
 </body>

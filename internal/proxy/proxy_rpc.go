@@ -816,6 +816,17 @@ func (p *Proxy) handleGetAllCascadeTrajectories(w http.ResponseWriter, r *http.R
 			}
 		}
 
+		// Backfill starred state from disk .pbtxt when upstream omits the field.
+		if ann, ok := s["annotations"].(map[string]interface{}); !ok || ann == nil || ann["starred"] == nil {
+			if diskStarred, found := readAnnotationStarred(id); found && diskStarred {
+				if ann == nil {
+					ann = make(map[string]interface{})
+				}
+				ann["starred"] = true
+				s["annotations"] = ann
+			}
+		}
+
 		// Enrich missing title (authoritative sources first: annotations -> disk .pbtxt -> upstream summary;
 		// in-memory cascadeTitles is last-resort fallback so a prompt-derived fallback never shadows upstream summary).
 		hasTitle := false

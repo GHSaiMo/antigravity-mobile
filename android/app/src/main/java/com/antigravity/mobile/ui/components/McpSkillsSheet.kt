@@ -40,10 +40,19 @@ import com.antigravity.mobile.data.service.PreferencesManager
 import com.antigravity.mobile.data.service.createAutomation
 import com.antigravity.mobile.data.service.deleteAutomation
 import com.antigravity.mobile.data.service.deleteMemory
+import com.antigravity.mobile.data.service.deletePlugin
+import com.antigravity.mobile.data.service.disconnectMcpOAuth
+import com.antigravity.mobile.data.service.fetchMarketplaceFeatured
 import com.antigravity.mobile.data.service.fetchMemories
 import com.antigravity.mobile.data.service.refreshMcpServers
+import com.antigravity.mobile.data.service.searchMarketplace
+import com.antigravity.mobile.data.service.setDefaultPluginAuthAccount
+import com.antigravity.mobile.data.service.signOutPluginAuthProvider
+import com.antigravity.mobile.data.service.startMcpOAuthSignIn
+import com.antigravity.mobile.data.service.startPluginAuthSignIn
 import com.antigravity.mobile.data.service.toggleMcpServer
 import com.antigravity.mobile.data.service.upsertMemory
+import kotlinx.coroutines.delay
 import com.antigravity.mobile.ui.theme.AntigravityTheme
 import com.antigravity.mobile.ui.util.loc
 import com.antigravity.mobile.ui.util.rememberHaptic
@@ -121,6 +130,14 @@ fun McpSkillsSheet(
     var selectedAutomationId by remember { mutableStateOf<String?>(null) }
     var automationActionError by remember { mutableStateOf<String?>(null) }
     var isRefreshingMcp by remember { mutableStateOf(false) }
+
+    // Phase 4: Marketplace, Plugin Uninstall, Plugin & MCP OAuth Hybrid Closure
+    var marketplaceItems by remember { mutableStateOf<List<MarketplaceItem>>(emptyList()) }
+    var isLoadingMarketplace by remember { mutableStateOf(false) }
+    var pendingUninstallPlugin by remember { mutableStateOf<CascadePluginItem?>(null) }
+    var oauthDialogTitle by remember { mutableStateOf("") }
+    var oauthDialogResponse by remember { mutableStateOf<OAuthStartResponse?>(null) }
+    var oauthDialogMcpServer by remember { mutableStateOf<String?>(null) }
 
     var expandedLogTaskIds by remember { mutableStateOf<Set<String>>(emptySet()) }
     var taskLogs by remember { mutableStateOf<Map<String, String>>(emptyMap()) }
@@ -285,6 +302,24 @@ fun McpSkillsSheet(
 
     LaunchedEffect(Unit) {
         loadData()
+        isLoadingMarketplace = true
+        apiClient.fetchMarketplaceFeatured().onSuccess { resp ->
+            marketplaceItems = resp.items
+        }
+        isLoadingMarketplace = false
+    }
+
+    LaunchedEffect(selectedTab, searchText) {
+        if (selectedTab != McpSkillsTab.PLUGINS) return@LaunchedEffect
+        val q = searchText.trim()
+        delay(280)
+        isLoadingMarketplace = true
+        if (q.isEmpty()) {
+            apiClient.fetchMarketplaceFeatured().onSuccess { marketplaceItems = it.items }
+        } else {
+            apiClient.searchMarketplace(q).onSuccess { marketplaceItems = it.items }
+        }
+        isLoadingMarketplace = false
     }
 
     ModalBottomSheet(
@@ -513,6 +548,31 @@ fun McpSkillsSheet(
                                         apiClient.toggleMcpServer(server.spec.serverName, enabled)
                                         loadData()
                                     }
+                                },
+                                onStartOAuth = {
+                                    scope.launch {
+                                        apiClient.startMcpOAuthSignIn(server.spec.serverName)
+                                            .onSuccess { resp ->
+                                                if (resp.ok || !resp.authUrl.isNullOrBlank()) {
+                                                    oauthDialogTitle = "MCP OAuth · ${server.spec.serverName}"
+                                                    oauthDialogMcpServer = server.spec.serverName
+                                                    oauthDialogResponse = resp
+                                                } else {
+                                                    Toast.makeText(context, resp.error ?: "发起 OAuth 失败".loc, Toast.LENGTH_SHORT).show()
+                                                }
+                                            }
+                                            .onFailure {
+                                                Toast.makeText(context, it.message ?: "发起 OAuth 失败".loc, Toast.LENGTH_SHORT).show()
+                                            }
+                                    }
+                                },
+                                onDisconnectOAuth = {
+                                    scope.launch {
+                                        apiClient.disconnectMcpOAuth(server.spec.serverName).onSuccess {
+                                            Toast.makeText(context, "已断开 MCP OAuth 认证".loc, Toast.LENGTH_SHORT).show()
+                                            loadData()
+                                        }
+                                    }
                                 }
                             )
                         }
@@ -661,7 +721,7 @@ fun McpSkillsSheet(
                     }
                 }
 
-                if (filteredPlugins.isEmpty() && pluginProviders.isEmpty() && pluginPermissionGrants.isEmpty()) {
+                if (filteredPlugins.isEmpty() && pluginProviders.isEmpty() && pluginPermissionGrants.isEmpty() && marketplaceItems.isEmpty()) {
                     Box(
                         modifier = Modifier.fillMaxSize(),
                         contentAlignment = Alignment.Center
@@ -689,33 +749,109 @@ fun McpSkillsSheet(
                                 )
                             }
                             itemsIndexed(pluginProviders, key = { index, it -> "prov_${index}_${it.id}_${it.name}" }) { _, prov ->
-                                Row(
+                                Column(
                                     modifier = Modifier
                                         .fillMaxWidth()
                                         .clip(RoundedCornerShape(10.dp))
                                         .background(colors.surface)
                                         .border(0.5.dp, colors.border, RoundedCornerShape(10.dp))
                                         .padding(horizontal = 12.dp, vertical = 9.dp),
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.SpaceBetween
+                                    verticalArrangement = Arrangement.spacedBy(6.dp)
                                 ) {
-                                    Text(
-                                        text = prov.name.ifBlank { prov.id },
-                                        color = colors.textPrimary,
-                                        fontSize = 13.5.sp,
-                                        fontWeight = FontWeight.Medium,
-                                        maxLines = 1,
-                                        overflow = TextOverflow.Ellipsis,
-                                        modifier = Modifier.weight(1f).padding(end = 8.dp)
-                                    )
-                                    Text(
-                                        text = if (prov.signedIn) "已连接".loc else "未登录".loc,
-                                        color = if (prov.signedIn) colors.accentGreen else colors.textSecondary,
-                                        fontSize = 11.5.sp,
-                                        fontWeight = FontWeight.SemiBold,
-                                        maxLines = 1,
-                                        softWrap = false
-                                    )
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.SpaceBetween
+                                    ) {
+                                        Column(modifier = Modifier.weight(1f).padding(end = 8.dp)) {
+                                            Text(
+                                                text = prov.name.ifBlank { prov.effectiveProvider },
+                                                color = colors.textPrimary,
+                                                fontSize = 13.5.sp,
+                                                fontWeight = FontWeight.Medium,
+                                                maxLines = 1,
+                                                overflow = TextOverflow.Ellipsis
+                                            )
+                                            prov.identity?.takeIf { it.isNotBlank() }?.let { ident ->
+                                                Text(
+                                                    text = ident,
+                                                    color = colors.textSecondary,
+                                                    fontSize = 11.sp,
+                                                    maxLines = 1,
+                                                    overflow = TextOverflow.Ellipsis
+                                                )
+                                            }
+                                            prov.needsAuthReason?.takeIf { it.isNotBlank() }?.let { reason ->
+                                                Text(
+                                                    text = reason,
+                                                    color = colors.accentOrange,
+                                                    fontSize = 11.sp,
+                                                    maxLines = 2,
+                                                    overflow = TextOverflow.Ellipsis
+                                                )
+                                            }
+                                        }
+                                        Row(horizontalArrangement = Arrangement.spacedBy(4.dp), verticalAlignment = Alignment.CenterVertically) {
+                                            if (prov.signedIn) {
+                                                TextButton(
+                                                    onClick = {
+                                                        scope.launch {
+                                                            apiClient.signOutPluginAuthProvider(prov.effectivePlugin, prov.effectiveProvider)
+                                                                .onSuccess { loadData() }
+                                                        }
+                                                    },
+                                                    contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp)
+                                                ) {
+                                                    Text("退出登录".loc, color = colors.accentRed, fontSize = 11.5.sp)
+                                                }
+                                            } else {
+                                                FilledTonalButton(
+                                                    onClick = {
+                                                        scope.launch {
+                                                            apiClient.startPluginAuthSignIn(prov.effectivePlugin, prov.effectiveProvider)
+                                                                .onSuccess { resp ->
+                                                                    if (resp.ok || !resp.authUrl.isNullOrBlank()) {
+                                                                        oauthDialogTitle = "${prov.name.ifBlank { prov.effectiveProvider }} 登录"
+                                                                        oauthDialogMcpServer = null
+                                                                        oauthDialogResponse = resp
+                                                                    } else {
+                                                                        Toast.makeText(context, resp.error ?: "发起登录失败".loc, Toast.LENGTH_SHORT).show()
+                                                                    }
+                                                                }
+                                                                .onFailure {
+                                                                    Toast.makeText(context, it.message ?: "发起登录失败".loc, Toast.LENGTH_SHORT).show()
+                                                                }
+                                                        }
+                                                    },
+                                                    contentPadding = PaddingValues(horizontal = 10.dp, vertical = 2.dp),
+                                                    modifier = Modifier.height(28.dp)
+                                                ) {
+                                                    Text("登录".loc, fontSize = 11.5.sp)
+                                                }
+                                            }
+                                        }
+                                    }
+                                    if (prov.accounts.size > 1) {
+                                        Row(
+                                            modifier = Modifier.fillMaxWidth(),
+                                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                        ) {
+                                            prov.accounts.take(4).forEach { acc ->
+                                                FilterChip(
+                                                    selected = acc.isDefault,
+                                                    onClick = {
+                                                        if (!acc.isDefault) {
+                                                            scope.launch {
+                                                                apiClient.setDefaultPluginAuthAccount(prov.effectivePlugin, prov.effectiveProvider, acc.accountId)
+                                                                    .onSuccess { loadData() }
+                                                            }
+                                                        }
+                                                    },
+                                                    label = { Text(acc.displayLabel, fontSize = 11.sp, maxLines = 1) }
+                                                )
+                                            }
+                                        }
+                                    }
                                 }
                             }
                         }
@@ -845,8 +981,100 @@ fun McpSkillsSheet(
                                             onDismiss()
                                             onOpenSwarm()
                                         }
+                                    } else null,
+                                    onUninstall = if (plugin.installed) {
+                                        { pendingUninstallPlugin = plugin }
                                     } else null
                                 )
+                            }
+                        }
+
+                        if (marketplaceItems.isNotEmpty() || isLoadingMarketplace) {
+                            item(key = "marketplace_header") {
+                                Row(
+                                    modifier = Modifier.fillMaxWidth().padding(top = 8.dp, bottom = 2.dp),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Text(
+                                        text = if (query.isEmpty()) "精选插件市场".loc else "市场搜索结果 (%d)".loc(marketplaceItems.size),
+                                        fontSize = 12.sp,
+                                        fontWeight = FontWeight.SemiBold,
+                                        color = colors.textSecondary
+                                    )
+                                    if (isLoadingMarketplace) {
+                                        CircularProgressIndicator(modifier = Modifier.size(12.dp), strokeWidth = 1.5.dp, color = colors.accentIndigo)
+                                    }
+                                }
+                            }
+                            val installedIds = plugins.filter { it.installed }.mapTo(HashSet()) { it.effectiveId }
+                            itemsIndexed(marketplaceItems, key = { index, it -> "mkt_${index}_${it.id}" }) { _, item ->
+                                val alreadyInstalled = item.installed || installedIds.contains(item.id)
+                                val isInstalling = installingPluginIds.contains(item.id)
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .clip(RoundedCornerShape(10.dp))
+                                        .background(colors.surface)
+                                        .border(0.5.dp, colors.border, RoundedCornerShape(10.dp))
+                                        .padding(12.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(10.dp)
+                                ) {
+                                    Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                                        Text(
+                                            text = item.name.ifBlank { item.id },
+                                            color = colors.textPrimary,
+                                            fontSize = 14.sp,
+                                            fontWeight = FontWeight.Bold,
+                                            maxLines = 1,
+                                            overflow = TextOverflow.Ellipsis
+                                        )
+                                        item.description?.takeIf { it.isNotBlank() }?.let { desc ->
+                                            Text(
+                                                text = desc,
+                                                color = colors.textSecondary,
+                                                fontSize = 12.sp,
+                                                maxLines = 2,
+                                                overflow = TextOverflow.Ellipsis
+                                            )
+                                        }
+                                        val meta = listOfNotNull(
+                                            item.author?.takeIf { it.isNotBlank() },
+                                            item.version?.takeIf { it.isNotBlank() }?.let { "v$it" }
+                                        ).joinToString(" · ")
+                                        if (meta.isNotBlank()) {
+                                            Text(meta, color = colors.textMuted, fontSize = 10.5.sp, maxLines = 1)
+                                        }
+                                    }
+                                    if (alreadyInstalled) {
+                                        Text("已安装".loc, fontSize = 11.5.sp, color = colors.accentGreen, fontWeight = FontWeight.Medium)
+                                    } else {
+                                        FilledTonalButton(
+                                            enabled = !isInstalling,
+                                            onClick = {
+                                                scope.launch {
+                                                    installingPluginIds.add(item.id)
+                                                    apiClient.installPlugin(item.id, currentConversationId, autoResume = false)
+                                                    apiClient.fetchPluginsCatalog().onSuccess {
+                                                        plugins = it.plugins
+                                                        pluginProviders = it.providers
+                                                        pluginPermissionGrants = it.permissionGrants
+                                                    }
+                                                    installingPluginIds.remove(item.id)
+                                                }
+                                            },
+                                            contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp),
+                                            modifier = Modifier.height(28.dp)
+                                        ) {
+                                            if (isInstalling) {
+                                                CircularProgressIndicator(modifier = Modifier.size(12.dp), strokeWidth = 1.5.dp)
+                                            } else {
+                                                Text("安装".loc, fontSize = 11.5.sp)
+                                            }
+                                        }
+                                    }
+                                }
                             }
                         }
                     }
@@ -1580,6 +1808,48 @@ fun McpSkillsSheet(
             containerColor = colors.surface
         )
     }
+
+    pendingUninstallPlugin?.let { plugin ->
+        AlertDialog(
+            onDismissRequest = { pendingUninstallPlugin = null },
+            containerColor = colors.surface,
+            title = { Text("卸载插件".loc, fontWeight = FontWeight.Bold) },
+            text = { Text("确定卸载「%s」吗？卸载后将从桌面端移除该插件。".loc(plugin.name.ifBlank { plugin.effectiveId }), fontSize = 13.5.sp) },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        val pid = plugin.effectiveId
+                        pendingUninstallPlugin = null
+                        scope.launch {
+                            apiClient.deletePlugin(pid).onSuccess {
+                                Toast.makeText(context, "插件已卸载".loc, Toast.LENGTH_SHORT).show()
+                                loadData()
+                            }.onFailure {
+                                Toast.makeText(context, "卸载失败: ${it.message.orEmpty()}", Toast.LENGTH_SHORT).show()
+                            }
+                        }
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = colors.accentRed)
+                ) { Text("卸载".loc) }
+            },
+            dismissButton = {
+                TextButton(onClick = { pendingUninstallPlugin = null }) { Text("取消".loc, color = colors.textSecondary) }
+            }
+        )
+    }
+
+    oauthDialogResponse?.let { startResp ->
+        OAuthHybridDialog(
+            title = oauthDialogTitle,
+            startResponse = startResp,
+            mcpServerName = oauthDialogMcpServer,
+            onDismiss = {
+                oauthDialogResponse = null
+                oauthDialogMcpServer = null
+            },
+            onCompleted = { loadData() }
+        )
+    }
 }
 
 @Composable
@@ -1589,9 +1859,12 @@ private fun McpServerCard(
     onToggleExpand: () -> Unit,
     expandedTools: Set<String>,
     onToggleTool: (String) -> Unit,
-    onToggleEnabled: ((Boolean) -> Unit)? = null
+    onToggleEnabled: ((Boolean) -> Unit)? = null,
+    onStartOAuth: (() -> Unit)? = null,
+    onDisconnectOAuth: (() -> Unit)? = null
 ) {
     val colors = AntigravityTheme.colors
+    var showOverflow by remember { mutableStateOf(false) }
     Column(
         modifier = Modifier
             .fillMaxWidth()
@@ -1657,6 +1930,36 @@ private fun McpServerCard(
                     onCheckedChange = { onToggleEnabled(it) },
                     modifier = Modifier.padding(end = 4.dp)
                 )
+            }
+            if (onStartOAuth != null || onDisconnectOAuth != null) {
+                Box {
+                    IconButton(onClick = { showOverflow = true }, modifier = Modifier.size(26.dp)) {
+                        Icon(
+                            imageVector = Icons.Default.MoreVert,
+                            contentDescription = "更多操作".loc,
+                            tint = colors.textMuted,
+                            modifier = Modifier.size(16.dp)
+                        )
+                    }
+                    DropdownMenu(
+                        expanded = showOverflow,
+                        onDismissRequest = { showOverflow = false },
+                        containerColor = colors.surface
+                    ) {
+                        if (onStartOAuth != null) {
+                            DropdownMenuItem(
+                                text = { Text("OAuth 登录认证".loc, fontSize = 13.5.sp) },
+                                onClick = { showOverflow = false; onStartOAuth() }
+                            )
+                        }
+                        if (onDisconnectOAuth != null) {
+                            DropdownMenuItem(
+                                text = { Text("断开 OAuth 认证".loc, fontSize = 13.5.sp, color = colors.accentRed) },
+                                onClick = { showOverflow = false; onDisconnectOAuth() }
+                            )
+                        }
+                    }
+                }
             }
             Icon(
                 imageVector = if (isExpanded) Icons.Default.KeyboardArrowUp else Icons.Default.KeyboardArrowDown,
@@ -2218,7 +2521,8 @@ private fun PluginCard(
     plugin: CascadePluginItem,
     isInstalling: Boolean,
     onInstall: () -> Unit,
-    onOpenSwarm: (() -> Unit)? = null
+    onOpenSwarm: (() -> Unit)? = null,
+    onUninstall: (() -> Unit)? = null
 ) {
     val colors = AntigravityTheme.colors
 
@@ -2283,12 +2587,23 @@ private fun PluginCard(
                     }
                 }
             } else if (onOpenSwarm != null) {
-                Button(
-                    onClick = onOpenSwarm,
-                    contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp),
-                    modifier = Modifier.height(28.dp)
-                ) {
-                    Text("打开看板".loc, fontSize = 11.5.sp, maxLines = 1, softWrap = false)
+                Row(horizontalArrangement = Arrangement.spacedBy(4.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Button(
+                        onClick = onOpenSwarm,
+                        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp),
+                        modifier = Modifier.height(28.dp)
+                    ) {
+                        Text("打开看板".loc, fontSize = 11.5.sp, maxLines = 1, softWrap = false)
+                    }
+                    if (onUninstall != null) {
+                        IconButton(onClick = onUninstall, modifier = Modifier.size(28.dp)) {
+                            Icon(Icons.Default.DeleteOutline, contentDescription = "卸载插件".loc, tint = colors.accentRed, modifier = Modifier.size(17.dp))
+                        }
+                    }
+                }
+            } else if (onUninstall != null) {
+                IconButton(onClick = onUninstall, modifier = Modifier.size(28.dp)) {
+                    Icon(Icons.Default.DeleteOutline, contentDescription = "卸载插件".loc, tint = colors.accentRed, modifier = Modifier.size(17.dp))
                 }
             }
         }

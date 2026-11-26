@@ -19,6 +19,7 @@ import com.antigravity.mobile.data.service.CacheManager
 import com.antigravity.mobile.data.service.ConnectionManager
 import com.antigravity.mobile.data.service.ConversationEventsClient
 import com.antigravity.mobile.data.service.PreferencesManager
+import com.antigravity.mobile.data.service.setCascadeStarred
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -51,12 +52,14 @@ sealed interface ConversationListUiState {
 
 sealed interface WorkspaceFilter {
     data object Chat : WorkspaceFilter
+    data object Starred : WorkspaceFilter
     data class Workspace(val name: String) : WorkspaceFilter
     data object Archived : WorkspaceFilter
 
     val displayName: String
         get() = when (this) {
             is Chat -> "Chat"
+            is Starred -> "已星标".loc
             is Workspace -> name
             is Archived -> "已归档".loc
         }
@@ -64,11 +67,15 @@ sealed interface WorkspaceFilter {
     val isPureChat: Boolean
         get() = this is Chat
 
+    val isStarred: Boolean
+        get() = this is Starred
+
     val isArchived: Boolean
         get() = this is Archived
 
     fun matches(item: ConversationItem): Boolean = when (this) {
         is Chat -> !item.isArchived && item.isPureChat
+        is Starred -> !item.isArchived && item.isStarred
         is Workspace -> !item.isArchived && !item.isPureChat && item.workspaceName == name
         is Archived -> item.isArchived
     }
@@ -980,6 +987,30 @@ class ConversationListViewModel(
         }
     }
 
+    fun toggleStarConversation(cascadeId: String) {
+        val current = rawConversations.find { it.id == cascadeId } ?: return
+        if (current.isDraft) return
+        val willStar = !current.isStarred
+        rawConversations = rawConversations.map { item ->
+            if (item.id == cascadeId) item.copy(isStarred = willStar) else item
+        }
+        if (!willStar && _selectedWorkspaceFilter.value == WorkspaceFilter.Starred && rawConversations.none { !it.isSubagent && !it.isArchived && it.isStarred }) {
+            _selectedWorkspaceFilter.value = null
+        }
+        persistConversationsToCache(rawConversations)
+        applyFilter()
+
+        viewModelScope.launch {
+            apiClient.setCascadeStarred(cascadeId, willStar).onFailure {
+                rawConversations = rawConversations.map { item ->
+                    if (item.id == cascadeId) item.copy(isStarred = !willStar) else item
+                }
+                persistConversationsToCache(rawConversations)
+                applyFilter()
+            }
+        }
+    }
+
     fun toggleArchiveConversation(cascadeId: String) {
         val current = rawConversations.find { it.id == cascadeId } ?: return
         if (current.isDraft) return
@@ -1227,6 +1258,7 @@ class ConversationListViewModel(
     fun resolveProjectForFilter(filter: WorkspaceFilter): ProjectItem? {
         return when (filter) {
             is WorkspaceFilter.Chat -> ProjectItem.PURE_CHAT
+            is WorkspaceFilter.Starred -> null
             is WorkspaceFilter.Archived -> null
             is WorkspaceFilter.Workspace -> {
                 _projects.value.firstOrNull { !it.isPureChat && (it.name == filter.name || it.displayName == filter.name) }
@@ -1265,6 +1297,11 @@ class ConversationListViewModel(
         }
 
         val options = mutableListOf<WorkspaceFilterOption>()
+        val starred = visible.filter { it.isStarred }
+        if (starred.isNotEmpty()) {
+            val latestStarred = starred.maxOfOrNull { it.lastModifiedEpochMs } ?: 0L
+            options.add(WorkspaceFilterOption(WorkspaceFilter.Starred, starred.size, latestStarred))
+        }
         if (chatCount > 0) {
             options.add(WorkspaceFilterOption(WorkspaceFilter.Chat, chatCount, chatLatest))
         }

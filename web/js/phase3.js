@@ -52,12 +52,23 @@
       } catch (_) {}
     },
 
-    async setPermissionPreset(preset) {
+    async setPermissionPreset(modeOrPreset) {
+      const normalized = String(modeOrPreset || "strict").trim().toLowerCase();
+      if (normalized === "turbo") {
+        const msg = typeof t === "function"
+          ? t("开启「全自动 · 无沙箱」后 Agent 将自动执行终端命令并访问工作区外文件（同步作用于桌面端全部会话）。确定开启吗？")
+          : "开启「全自动 · 无沙箱」后 Agent 将自动执行终端命令并访问工作区外文件（同步作用于桌面端全部会话）。确定开启吗？";
+        if (!confirm(msg)) {
+          this.applyPermissionState(this.permissionState);
+          return;
+        }
+      }
+      const legacyPreset = normalized === "strict" ? "strict" : (normalized === "default" || normalized === "sandbox" ? "sandbox" : "auto");
       try {
         const res = await fetch("/gateway/permissions", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ preset }),
+          body: JSON.stringify({ mode: normalized, preset: legacyPreset }),
         });
         const st = await res.json();
         if (!res.ok || st.ok === false) throw new Error(st.error || "切换失败");
@@ -69,17 +80,27 @@
       }
     },
 
+    effectivePermissionMode(st) {
+      const m = String(st?.mode || "").trim().toLowerCase();
+      if (m === "strict" || m === "default" || m === "auto" || m === "turbo") return m;
+      const p = String(st?.preset || "strict").trim().toLowerCase();
+      if (p === "sandbox") return "default";
+      if (p === "auto") return "turbo";
+      return "strict";
+    },
+
     applyPermissionState(st) {
       if (!st) return;
       this.permissionState = st;
+      const mode = this.effectivePermissionMode(st);
       const dot = document.getElementById("btn-tools-perm-dot");
-      if (dot) dot.classList.toggle("hidden", !st.isUnlocked);
+      if (dot) dot.classList.toggle("hidden", !st.isUnlocked && mode === "strict");
       const toolsBtn = document.getElementById("btn-chat-tools");
       if (toolsBtn) {
         toolsBtn.title = `工具与任务 (${st.label || "严格审批"}，长按/右键快切权限)`;
       }
       const sel = document.getElementById("settings-permission-preset");
-      if (sel && st.preset) sel.value = st.preset;
+      if (sel) sel.value = mode;
     },
 
     bindPermissionsSettings() {
@@ -100,11 +121,12 @@
       const openPermMenu = (anchorRect) => {
         const menu = document.getElementById("phase3-perm-menu");
         if (!menu) return;
-        const cur = this.permissionState?.preset || "strict";
+        const cur = this.effectivePermissionMode(this.permissionState);
         const presets = [
           { id: "strict", title: "严格审批", sub: "命令/非工作区文件每次确认" },
-          { id: "sandbox", title: "离席沙箱放行", sub: "沙箱内安全命令自动执行" },
-          { id: "auto", title: "全自动 (Turbo)", sub: "允许自动执行与跨区文件写入" },
+          { id: "default", title: "默认沙箱", sub: "沙箱内基础安全操作自动放行" },
+          { id: "auto", title: "智能自动 · 沙箱", sub: "Antigravity 2.35 沙箱内智能放行" },
+          { id: "turbo", title: "全自动 · 无沙箱", sub: "允许自动执行与跨区文件写入" },
         ];
         const isTurnRunning = typeof isCascadeRunning === "function" && activeCascadeId && isCascadeRunning(activeCascadeId);
         const runningHint = isTurnRunning ? `<div style="font-size:11px;color:#f59e0b;margin-top:2px;font-weight:500;">运行中 · 切换下轮生效</div>` : "";
@@ -311,9 +333,34 @@
                 <div class="p3-row-title">${escapeHtml(name)}</div>
                 <div class="p3-row-sub">${escapeHtml(status || (enabled ? "已启用" : "已停用"))}${toolsCount ? ` · ${toolsCount} 个工具` : ""}</div>
               </div>
-              <label class="wf-switch"><input type="checkbox" data-mcp-toggle="${escapeHtml(name)}" ${enabled ? "checked" : ""}><span class="wf-switch-slider"></span></label>
+              <div class="p3-row-actions">
+                <button type="button" class="p3-mini-btn" data-mcp-oauth="${escapeHtml(name)}">OAuth</button>
+                <label class="wf-switch"><input type="checkbox" data-mcp-toggle="${escapeHtml(name)}" ${enabled ? "checked" : ""}><span class="wf-switch-slider"></span></label>
+              </div>
             </div>`;
           }).join("") + `</div>`;
+          body.querySelectorAll("[data-mcp-oauth]").forEach((btn) => {
+            btn.addEventListener("click", async () => {
+              const serverName = btn.getAttribute("data-mcp-oauth");
+              if (!serverName) return;
+              const r = await fetch("/gateway/mcp/oauth/start", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ serverName }),
+              });
+              const d = await r.json().catch(() => ({}));
+              if (d.ok || d.authUrl) {
+                window.Phase4?.openOAuthHybrid?.({
+                  title: `MCP OAuth · ${serverName}`,
+                  startResponse: d,
+                  mcpServerName: serverName,
+                  onCompleted: () => this.renderToolsTab(true),
+                });
+              } else {
+                showToast?.(d.error || "该 MCP 服务无需或不支持 OAuth", 2600);
+              }
+            });
+          });
           body.querySelectorAll("[data-mcp-toggle]").forEach((cb) => {
             cb.addEventListener("change", async (e) => {
               const serverName = e.target.getAttribute("data-mcp-toggle");
@@ -447,6 +494,7 @@
           const res = await fetch("/gateway/plugins");
           const data = await res.json();
           const list = Array.isArray(data.plugins) ? data.plugins : (Array.isArray(data) ? data : []);
+          const providers = Array.isArray(data.providers) ? data.providers : [];
           const grants = Array.isArray(data.permissionGrants) ? data.permissionGrants : [];
           const scopeLabel = (g) => {
             if (g.scope === "PLUGIN_PERMISSION_GRANT_SCOPE_GLOBAL") return "全局";
@@ -454,6 +502,32 @@
             if (g.scope === "PLUGIN_PERMISSION_GRANT_SCOPE_DEFAULT") return "默认";
             return "已授权";
           };
+          const providersHtml = providers.length
+            ? `<div class="p3-section-header" style="margin-bottom:6px;"><span>插件账号与认证 (${providers.length})</span></div>
+               <div class="p3-list" style="margin-bottom:12px;">` +
+              providers.map((pv, idx) => {
+                const label = pv.name || pv.provider || pv.id || "";
+                const sub = pv.identity || pv.needsAuthReason || (pv.signedIn ? "已连接" : "未登录");
+                const accounts = Array.isArray(pv.accounts) ? pv.accounts : [];
+                const accChips = accounts.length > 1
+                  ? `<div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:6px;">` +
+                    accounts.map((acc) => `<button type="button" class="p3-mini-btn ${acc.isDefault ? "primary" : ""}" data-pv-acc="${idx}" data-acc-id="${escapeHtml(acc.accountId || "")}">${escapeHtml(acc.label || acc.identity || acc.alias || acc.accountId || "")}</button>`).join("") +
+                    `</div>`
+                  : "";
+                return `<div class="p3-row" style="flex-direction:column;align-items:stretch;">
+                  <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;">
+                    <div class="p3-row-main">
+                      <div class="p3-row-title">${escapeHtml(label)}</div>
+                      <div class="p3-row-sub">${escapeHtml(sub)}</div>
+                    </div>
+                    ${pv.signedIn
+                      ? `<button type="button" class="p3-mini-btn danger" data-pv-signout="${idx}">退出登录</button>`
+                      : `<button type="button" class="p3-mini-btn primary" data-pv-signin="${idx}">登录</button>`}
+                  </div>
+                  ${accChips}
+                </div>`;
+              }).join("") + `</div>`
+            : "";
           const grantsHtml = grants.length
             ? `<div class="p3-section-header" style="margin-bottom:6px;"><span>已授权插件权限 (${grants.length})</span></div>
                <div class="p3-list" style="margin-bottom:12px;">` +
@@ -470,14 +544,91 @@
               }).join("") +
               `</div>`
             : "";
-          body.innerHTML = grantsHtml + `<div class="p3-list">` + (list.map((pl) => `
+          body.innerHTML = providersHtml + grantsHtml + `<div class="p3-section-header" style="margin-bottom:6px;"><span>已安装插件 (${list.length})</span></div><div class="p3-list">` + (list.map((pl) => {
+            const pid = pl.id || pl.name || "";
+            return `
             <div class="p3-row">
               <div class="p3-row-main">
                 <div class="p3-row-title">${escapeHtml(pl.name || pl.id || "")}</div>
                 <div class="p3-row-sub">${escapeHtml(pl.description || pl.version || "")}</div>
               </div>
-              <span class="p3-badge">${pl.enabled === false ? "停用" : "启用"}</span>
-            </div>`).join("") || `<div class="p3-empty">暂无已安装插件</div>`) + `</div>`;
+              <div class="p3-row-actions">
+                <span class="p3-badge">${pl.enabled === false ? "停用" : "启用"}</span>
+                ${pl.installed !== false && pid ? `<button type="button" class="p3-mini-btn danger" data-plugin-del="${escapeHtml(pid)}">卸载</button>` : ""}
+              </div>
+            </div>`;
+          }).join("") || `<div class="p3-empty">暂无已安装插件</div>`) + `</div><div id="p4-marketplace-mount"></div>`;
+
+          body.querySelectorAll("[data-pv-signin]").forEach((btn) => {
+            btn.addEventListener("click", async () => {
+              const pv = providers[Number(btn.getAttribute("data-pv-signin"))];
+              if (!pv) return;
+              const plugin = pv.plugin || (pv.id || "").split(":")[0] || "";
+              const provider = pv.provider || ((pv.id || "").includes(":") ? pv.id.split(":").slice(1).join(":") : pv.id || pv.name);
+              const r = await fetch("/gateway/plugins/auth/start", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ plugin, provider }),
+              });
+              const d = await r.json().catch(() => ({}));
+              if (d.ok || d.authUrl) {
+                window.Phase4?.openOAuthHybrid?.({
+                  title: `${pv.name || provider} 登录`,
+                  startResponse: d,
+                  onCompleted: () => this.renderToolsTab(false),
+                });
+              } else {
+                showToast?.(d.error || "发起登录失败", 2600);
+              }
+            });
+          });
+          body.querySelectorAll("[data-pv-signout]").forEach((btn) => {
+            btn.addEventListener("click", async () => {
+              const pv = providers[Number(btn.getAttribute("data-pv-signout"))];
+              if (!pv) return;
+              const plugin = pv.plugin || (pv.id || "").split(":")[0] || "";
+              const provider = pv.provider || ((pv.id || "").includes(":") ? pv.id.split(":").slice(1).join(":") : pv.id || pv.name);
+              await fetch("/gateway/plugins/auth/signout", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ plugin, provider }),
+              });
+              showToast?.("已退出登录");
+              this.renderToolsTab(false);
+            });
+          });
+          body.querySelectorAll("[data-pv-acc]").forEach((btn) => {
+            btn.addEventListener("click", async () => {
+              const pv = providers[Number(btn.getAttribute("data-pv-acc"))];
+              const accountId = btn.getAttribute("data-acc-id");
+              if (!pv || !accountId) return;
+              const plugin = pv.plugin || (pv.id || "").split(":")[0] || "";
+              const provider = pv.provider || ((pv.id || "").includes(":") ? pv.id.split(":").slice(1).join(":") : pv.id || pv.name);
+              await fetch("/gateway/plugins/auth/default", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ plugin, provider, accountId }),
+              });
+              this.renderToolsTab(false);
+            });
+          });
+          body.querySelectorAll("[data-plugin-del]").forEach((btn) => {
+            btn.addEventListener("click", async () => {
+              const pluginId = btn.getAttribute("data-plugin-del");
+              if (!pluginId || !confirm(`确定卸载插件「${pluginId}」？`)) return;
+              const r = await fetch("/gateway/plugins/delete", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ pluginId }),
+              });
+              if (r.ok) {
+                showToast?.("插件已卸载");
+                this.renderToolsTab(false);
+              } else {
+                showToast?.("卸载失败");
+              }
+            });
+          });
           body.querySelectorAll("[data-revoke-grant]").forEach((btn) => {
             btn.addEventListener("click", async () => {
               const g = grants[Number(btn.getAttribute("data-revoke-grant"))];
@@ -498,6 +649,8 @@
               }
             });
           });
+          const installedIds = new Set(list.filter((pl) => pl.installed !== false).map((pl) => pl.id || pl.name));
+          window.Phase4?.renderMarketplaceSection?.(document.getElementById("p4-marketplace-mount"), installedIds, () => this.renderToolsTab(false));
           return;
         }
 
@@ -2262,23 +2415,27 @@
       sd.classList.remove("hidden");
 
       let browserHtml = "";
+      let browserUrlForLive = "";
       if (isBrowser) {
+        let bData = {};
         try {
           const bRes = await fetch(`/gateway/subagent/browser?cascadeId=${encodeURIComponent(cid)}`);
-          const bData = await bRes.json();
-          const imgSrc = bData.imageBase64
-            ? (bData.imageBase64.startsWith("data:") ? bData.imageBase64 : `data:image/png;base64,${bData.imageBase64}`)
-            : (bData.screenshotUri ? `/gateway/artifact-raw?uri=${encodeURIComponent(bData.screenshotUri)}` : "");
-          browserHtml = `
-            <div class="p3-browser-box">
-              ${bData.url ? `<div class="p3-row-sub monospaced">🌐 ${escapeHtml(bData.url)}</div>` : ""}
-              ${imgSrc ? `<img src="${escapeHtml(imgSrc)}" class="p3-browser-shot" alt="浏览器实时画面" />` : `<div class="p3-empty">暂无浏览器截图</div>`}
-              <div class="p3-form-actions">
-                ${bData.url ? `<button type="button" class="p3-mini-btn" id="btn-sa-whitelist" data-url="${escapeHtml(bData.url)}">加白名单</button>` : ""}
-                <button type="button" class="p3-mini-btn danger" id="btn-sa-skip">跳过此步</button>
-              </div>
-            </div>`;
+          bData = await bRes.json().catch(() => ({}));
         } catch (_) {}
+        browserUrlForLive = bData.url || "";
+        const imgSrc = bData.imageBase64
+          ? (bData.imageBase64.startsWith("data:") ? bData.imageBase64 : `data:image/png;base64,${bData.imageBase64}`)
+          : (bData.screenshotUri ? `/gateway/artifact-raw?uri=${encodeURIComponent(bData.screenshotUri)}` : "");
+        browserHtml = `
+          <div class="p3-browser-box">
+            ${bData.url ? `<div class="p3-row-sub monospaced">🌐 ${escapeHtml(bData.url)}</div>` : ""}
+            ${imgSrc ? `<img src="${escapeHtml(imgSrc)}" class="p3-browser-shot" alt="浏览器实时画面" />` : `<div class="p3-empty">暂无浏览器截图</div>`}
+            <div class="p3-form-actions">
+              <button type="button" class="p3-mini-btn primary" id="btn-sa-live-browser">实时接管浏览器</button>
+              ${bData.url ? `<button type="button" class="p3-mini-btn" id="btn-sa-whitelist" data-url="${escapeHtml(bData.url)}">加白名单</button>` : ""}
+              <button type="button" class="p3-mini-btn danger" id="btn-sa-skip">跳过此步</button>
+            </div>
+          </div>`;
       }
 
       const rtModel = (sub.runtimeModel || "").trim();
@@ -2323,6 +2480,10 @@
         } else {
           showToast?.("发送失败");
         }
+      });
+      document.getElementById("btn-sa-live-browser")?.addEventListener("click", () => {
+        sd.classList.add("hidden");
+        window.Phase4?.openBrowserViewer?.({ initialUrl: browserUrlForLive });
       });
       document.getElementById("btn-sa-skip")?.addEventListener("click", async () => {
         await fetch("/gateway/subagent/browser/skip", {

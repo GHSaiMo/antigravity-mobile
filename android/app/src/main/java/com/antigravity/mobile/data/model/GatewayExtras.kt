@@ -170,6 +170,7 @@ data class GitStatusResponse(
     val ahead: Int = 0,
     val behind: Int = 0,
     val detached: Boolean = false,
+    val isWorktree: Boolean = false,
     val files: List<GitFileStatus> = emptyList(),
     val clean: Boolean = false,
     val githubTarget: GitHubBranchTarget? = null,
@@ -1442,8 +1443,21 @@ data class CascadePluginItem(
 data class PluginAuthProviderItem(
     val id: String = "",
     val name: String = "",
-    val signedIn: Boolean = false
-)
+    val plugin: String = "",
+    val provider: String = "",
+    val signedIn: Boolean = false,
+    val identity: String? = null,
+    val needsAuth: Boolean = false,
+    val needsAuthReason: String? = null,
+    val lastSignInError: String? = null,
+    val setupUrl: String? = null,
+    val setupInstructions: String? = null,
+    val signInPending: Boolean = false,
+    val accounts: List<PluginAuthAccountInfo> = emptyList()
+) {
+    val effectivePlugin: String get() = plugin.ifBlank { id.substringBefore(":", "") }
+    val effectiveProvider: String get() = provider.ifBlank { if (id.contains(":")) id.substringAfter(":") else id.ifBlank { name } }
+}
 
 @Serializable
 data class PluginPermissionGrantItem(

@@ -14,12 +14,11 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.FileDownload
+import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.material3.*
-import androidx.compose.runtime.Composable
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -32,7 +31,10 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.content.FileProvider
+import com.antigravity.mobile.data.model.ArtifactSnapshotItem
 import com.antigravity.mobile.data.model.MarkdownFileViewerData
+import com.antigravity.mobile.data.service.ApiClient
+import com.antigravity.mobile.data.service.fetchArtifactSnapshots
 import com.antigravity.mobile.ui.theme.AntigravityTheme
 import com.antigravity.mobile.ui.util.rememberHaptic
 import kotlinx.coroutines.Dispatchers
@@ -56,6 +58,7 @@ fun MarkdownViewerSheet(
     onProceed: () -> Unit,
     onDismiss: () -> Unit,
     modifier: Modifier = Modifier,
+    cascadeId: String = "",
     urlResolver: ((String) -> String)? = null,
     onImageClick: ((String) -> Unit)? = null
 ) {
@@ -64,6 +67,20 @@ fun MarkdownViewerSheet(
     val haptic = rememberHaptic()
     val colors = AntigravityTheme.colors
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+
+    var snapshots by remember(cascadeId, data.uri) { mutableStateOf<List<ArtifactSnapshotItem>>(emptyList()) }
+    var activeSnapshot by remember(cascadeId, data.uri) { mutableStateOf<ArtifactSnapshotItem?>(null) }
+    var showSnapshotsDialog by remember { mutableStateOf(false) }
+
+    LaunchedEffect(cascadeId, data.uri) {
+        if (cascadeId.isNotBlank() && data.uri.isNotBlank()) {
+            ApiClient.defaultInstance?.fetchArtifactSnapshots(cascadeId, data.uri)?.onSuccess {
+                snapshots = it
+            }
+        }
+    }
+
+    val effectiveContent = activeSnapshot?.content ?: data.content
 
     val rawTitle = data.title.ifBlank { data.filename }
     val displayTitle = remember(rawTitle) {
@@ -130,16 +147,29 @@ fun MarkdownViewerSheet(
                     textAlign = TextAlign.Center
                 )
 
-                // Top-right: Apple native Share button
-                ApplePreviewCircleButton(
-                    icon = Icons.Default.Share,
-                    contentDescription = "分享Markdown".loc,
-                    colors = colors,
-                    onClick = {
-                        haptic.medium()
-                        shareMarkdown(context, displayFilename.ifBlank { "$displayTitle.md" }, data.content)
+                // Top-right: Artifact History button (only when >1 snapshots) + Apple native Share button
+                Row(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
+                    if (snapshots.size > 1) {
+                        ApplePreviewCircleButton(
+                            icon = Icons.Default.History,
+                            contentDescription = "历史版本快照".loc,
+                            colors = colors,
+                            onClick = {
+                                haptic.light()
+                                showSnapshotsDialog = true
+                            }
+                        )
                     }
-                )
+                    ApplePreviewCircleButton(
+                        icon = Icons.Default.Share,
+                        contentDescription = "分享Markdown".loc,
+                        colors = colors,
+                        onClick = {
+                            haptic.medium()
+                            shareMarkdown(context, displayFilename.ifBlank { "$displayTitle.md" }, effectiveContent)
+                        }
+                    )
+                }
             }
 
             HorizontalDivider(color = colors.separator.copy(alpha = 0.5f), thickness = 0.5.dp, modifier = Modifier.padding(vertical = 10.dp))
@@ -164,8 +194,28 @@ fun MarkdownViewerSheet(
                 ) {
 
                     // Markdown Document Content
+                    if (activeSnapshot != null) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(
+                                text = "正在查看历史快照 v${(activeSnapshot?.index ?: 0) + 1}".loc,
+                                fontSize = 12.sp,
+                                color = colors.accentOrange,
+                                fontWeight = FontWeight.Medium
+                            )
+                            TextButton(
+                                onClick = { activeSnapshot = null },
+                                contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp)
+                            ) {
+                                Text("返回最新版".loc, fontSize = 12.sp, color = colors.accentIndigo)
+                            }
+                        }
+                    }
                     MarkdownContentView(
-                        content = data.content,
+                        content = effectiveContent,
                         urlResolver = urlResolver,
                         onImageClick = onImageClick
                     )
@@ -239,6 +289,14 @@ fun MarkdownViewerSheet(
             }
         }
             }
+    }
+
+    if (showSnapshotsDialog && snapshots.size > 1) {
+        ArtifactSnapshotsDialog(
+            snapshots = snapshots,
+            onSelectSnapshot = { snap -> activeSnapshot = snap },
+            onDismiss = { showSnapshotsDialog = false }
+        )
     }
 }
 
