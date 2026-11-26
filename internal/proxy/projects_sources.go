@@ -373,7 +373,6 @@ func fetchProjectsFromGeminiConfig() []ProjectItem {
 
 	items := make([]ProjectItem, 0, 16)
 	seenIDs := make(map[string]bool)
-	seenURIs := make(map[string]bool)
 
 	for _, dir := range dirs {
 		cleanDir := filepath.Clean(dir)
@@ -429,7 +428,7 @@ func fetchProjectsFromGeminiConfig() []ProjectItem {
 			}
 
 			norm := normalizeURI(uri)
-			if norm == "" || seenURIs[norm] {
+			if norm == "" {
 				continue
 			}
 
@@ -459,7 +458,6 @@ func fetchProjectsFromGeminiConfig() []ProjectItem {
 
 			modTime := fi.ModTime()
 			seenIDs[prj.ID] = true
-			seenURIs[norm] = true
 
 			items = append(items, ProjectItem{
 				ID:          prj.ID,
@@ -684,11 +682,8 @@ func syncDiscoveredWorkspaceRootsFromReadProjectsJSON(raw []byte) {
 	syncDiscoveredWorkspaceRoots(paths)
 }
 
-// fetchOfficialProjects loads projectsOrder and calls upstream ReadProjects to get the exact 21 projects in order.
-func (p *Proxy) fetchOfficialProjects(port int, token string, sessionStats map[string]struct {
-	count      int
-	lastActive time.Time
-}) ([]ProjectItem, error) {
+// fetchOfficialProjects loads projectsOrder and calls upstream ReadProjects to get official projects in order.
+func (p *Proxy) fetchOfficialProjects(port int, token string, sessionStats map[string]projectSessionStat) ([]ProjectItem, error) {
 	var storageBytes []byte
 	for _, appStoragePath := range getAntigravityAppStoragePaths() {
 		if b, err := os.ReadFile(appStoragePath); err == nil && len(b) > 0 {
@@ -846,24 +841,15 @@ func (p *Proxy) fetchOfficialProjects(port int, token string, sessionStats map[s
 							if path == "" || isDriveRoot(path) {
 								continue
 							}
-							var lastActive *time.Time
-							sessionCount := 0
-							if stat, ok := sessionStats[norm]; ok {
-								sessionCount = stat.count
-								if !stat.lastActive.IsZero() {
-									t := stat.lastActive
-									lastActive = &t
-								}
-							}
-
+							// Leave per-project session counts and lastActive to buildProjectsList so
+							// multiple distinct projectIds sharing the same folderUri are aggregated
+							// independently by projectId without cross-project bleed.
 							orderedItems = append(orderedItems, ProjectItem{
-								ID:           pInfo.id,
-								Name:         pInfo.name,
-								URI:          norm,
-								Path:         path,
-								IsWorkspace:  pInfo.isWs,
-								SessionCount: sessionCount,
-								LastActive:   lastActive,
+								ID:          pInfo.id,
+								Name:        pInfo.name,
+								URI:         norm,
+								Path:        path,
+								IsWorkspace: pInfo.isWs,
 							})
 						}
 					}

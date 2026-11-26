@@ -88,17 +88,17 @@ func (p *Proxy) GetProjects() ([]ProjectItem, error) {
 	return cloneProjectItems(items), nil
 }
 
+type projectSessionStat struct {
+	count      int
+	lastActive time.Time
+}
+
 func (p *Proxy) buildProjectsList(port int, token string) ([]ProjectItem, error) {
 
 	// 1. Fetch active/historical sessions statistics if upstream is connected
-	sessionStats := make(map[string]struct {
-		count      int
-		lastActive time.Time
-	})
-	projectIDStats := make(map[string]struct {
-		count      int
-		lastActive time.Time
-	})
+	sessionStats := make(map[string]projectSessionStat)
+	unassignedURIStats := make(map[string]projectSessionStat)
+	projectIDStats := make(map[string]projectSessionStat)
 
 	if port > 0 {
 		trajectories, err := p.fetchTrajectoriesSummary(port, token)
@@ -134,8 +134,10 @@ func (p *Proxy) buildProjectsList(port int, token string) ([]ProjectItem, error)
 					}
 				}
 
+				pid := ""
 				if sum.TrajectoryMetadata != nil {
-					if pid := strings.TrimSpace(sum.TrajectoryMetadata.ProjectID); pid != "" && pid != "outside-of-project" {
+					if rawPID := strings.TrimSpace(sum.TrajectoryMetadata.ProjectID); rawPID != "" && rawPID != "outside-of-project" {
+						pid = rawPID
 						pstat := projectIDStats[pid]
 						pstat.count++
 						if activeTime.After(pstat.lastActive) {
@@ -145,24 +147,36 @@ func (p *Proxy) buildProjectsList(port int, token string) ([]ProjectItem, error)
 					}
 				}
 
+				seenNormURIs := make(map[string]bool, len(uris))
 				for _, u := range uris {
 					normalized := normalizeURI(u)
-					if normalized == "" {
+					if normalized == "" || seenNormURIs[normalized] {
 						continue
 					}
+					seenNormURIs[normalized] = true
 					stat := sessionStats[normalized]
 					stat.count++
 					if activeTime.After(stat.lastActive) {
 						stat.lastActive = activeTime
 					}
 					sessionStats[normalized] = stat
+					if pid == "" {
+						ustat := unassignedURIStats[normalized]
+						ustat.count++
+						if activeTime.After(ustat.lastActive) {
+							ustat.lastActive = activeTime
+						}
+						unassignedURIStats[normalized] = ustat
+					}
 				}
 			}
 		}
 	}
 
-	projectMap := make(map[string]*ProjectItem)
-	projectIDStatsApplied := make(map[string]bool)
+	collected := make([]*ProjectItem, 0, 16)
+	byID := make(map[string]*ProjectItem)
+	unnamedByURI := make(map[string]*ProjectItem)
+	uriItems := make(map[string][]*ProjectItem)
 
 	mergeProject := func(prj ProjectItem) {
 		norm := normalizeURI(prj.URI)
@@ -175,13 +189,70 @@ func (p *Proxy) buildProjectsList(port int, token string) ([]ProjectItem, error)
 		if prj.Name == "" || prj.Name == "/" || prj.Name == "\\" || prj.Name == "." {
 			return
 		}
-		if existing, exists := projectMap[norm]; exists {
-			if existing.ID == "" && prj.ID != "" {
-				existing.ID = prj.ID
+		pid := strings.TrimSpace(prj.ID)
+		if pid == "outside-of-project" {
+			pid = ""
+		}
+
+		if pid != "" {
+			// Antigravity 2.0 projects carry an explicit projectId and may legitimately share
+			// the same folderUri; deduplicate strictly by projectId rather than URI.
+			if existing, exists := byID[pid]; exists {
 				if prj.Name != "" {
 					existing.Name = prj.Name
 				}
-			} else if (existing.ID == prj.ID || existing.Name == "") && prj.Name != "" {
+				if prj.IsWorkspace {
+					existing.IsWorkspace = true
+				}
+				if prj.Path != "" && (existing.Path == "" || !filepath.IsAbs(existing.Path)) {
+					existing.Path = prj.Path
+				}
+				if prj.LastActive != nil && (existing.LastActive == nil || prj.LastActive.After(*existing.LastActive)) {
+					t := *prj.LastActive
+					existing.LastActive = &t
+				}
+				if prj.SessionCount > existing.SessionCount {
+					existing.SessionCount = prj.SessionCount
+				}
+				return
+			}
+			if existing, exists := unnamedByURI[norm]; exists {
+				existing.ID = pid
+				if prj.Name != "" {
+					existing.Name = prj.Name
+				}
+				if prj.IsWorkspace {
+					existing.IsWorkspace = true
+				}
+				if prj.Path != "" && (existing.Path == "" || !filepath.IsAbs(existing.Path)) {
+					existing.Path = prj.Path
+				}
+				if prj.LastActive != nil && (existing.LastActive == nil || prj.LastActive.After(*existing.LastActive)) {
+					t := *prj.LastActive
+					existing.LastActive = &t
+				}
+				delete(unnamedByURI, norm)
+				byID[pid] = existing
+				return
+			}
+
+			itemCopy := prj
+			itemCopy.ID = pid
+			itemCopy.URI = norm
+			if itemCopy.Path == "" {
+				itemCopy.Path = uriToPath(norm)
+			}
+			ptr := &itemCopy
+			collected = append(collected, ptr)
+			byID[pid] = ptr
+			uriItems[norm] = append(uriItems[norm], ptr)
+			return
+		}
+
+		// Legacy/unidentified workspace source (workspaceStorage / state.vscdb / trajectories):
+		// deduplicate by normalized URI and avoid duplicating folders already covered by ID'd projects.
+		if existing, exists := unnamedByURI[norm]; exists {
+			if existing.Name == "" && prj.Name != "" {
 				existing.Name = prj.Name
 			}
 			if prj.IsWorkspace {
@@ -191,41 +262,37 @@ func (p *Proxy) buildProjectsList(port int, token string) ([]ProjectItem, error)
 				existing.Path = prj.Path
 			}
 			if prj.LastActive != nil && (existing.LastActive == nil || prj.LastActive.After(*existing.LastActive)) {
-				existing.LastActive = prj.LastActive
+				t := *prj.LastActive
+				existing.LastActive = &t
 			}
 			if prj.SessionCount > existing.SessionCount {
 				existing.SessionCount = prj.SessionCount
 			}
 			return
 		}
+		if existingList := uriItems[norm]; len(existingList) > 0 {
+			if len(existingList) == 1 {
+				existing := existingList[0]
+				if prj.IsWorkspace {
+					existing.IsWorkspace = true
+				}
+				if prj.Path != "" && (existing.Path == "" || !filepath.IsAbs(existing.Path)) {
+					existing.Path = prj.Path
+				}
+			}
+			return
+		}
 
 		itemCopy := prj
+		itemCopy.ID = ""
 		itemCopy.URI = norm
 		if itemCopy.Path == "" {
 			itemCopy.Path = uriToPath(norm)
 		}
-		if stat, ok := sessionStats[norm]; ok {
-			itemCopy.SessionCount = stat.count
-			if !stat.lastActive.IsZero() && (itemCopy.LastActive == nil || stat.lastActive.After(*itemCopy.LastActive)) {
-				t := stat.lastActive
-				itemCopy.LastActive = &t
-			}
-		}
-		if itemCopy.ID != "" && !projectIDStatsApplied[itemCopy.ID] {
-			if pstat, ok := projectIDStats[itemCopy.ID]; ok {
-				// Apply the per-projectId aggregate only to the first item of that project,
-				// so multi-folder projects don't report the whole project's count on every folder.
-				projectIDStatsApplied[itemCopy.ID] = true
-				if pstat.count > itemCopy.SessionCount {
-					itemCopy.SessionCount = pstat.count
-				}
-				if !pstat.lastActive.IsZero() && (itemCopy.LastActive == nil || pstat.lastActive.After(*itemCopy.LastActive)) {
-					t := pstat.lastActive
-					itemCopy.LastActive = &t
-				}
-			}
-		}
-		projectMap[norm] = &itemCopy
+		ptr := &itemCopy
+		collected = append(collected, ptr)
+		unnamedByURI[norm] = ptr
+		uriItems[norm] = append(uriItems[norm], ptr)
 	}
 
 	// 2. Load Antigravity 2.0 projects directly from ~/.gemini/config/projects/
@@ -244,7 +311,7 @@ func (p *Proxy) buildProjectsList(port int, token string) ([]ProjectItem, error)
 	// Only fall back to local workspace caches (workspaceStorage / stateDB / trajectories)
 	// when no official projects are configured at all, or if MGY_INCLUDE_WORKSPACE_CACHE is explicitly enabled.
 	includeWorkspaceCache := strings.EqualFold(os.Getenv("MGY_INCLUDE_WORKSPACE_CACHE"), "true")
-	if len(projectMap) == 0 || includeWorkspaceCache {
+	if len(collected) == 0 || includeWorkspaceCache {
 		// 4. Load workspace projects from workspaceStorage (plain JSON, works on all OSes without SQLite/Python)
 		for _, prj := range fetchProjectsFromWorkspaceStorage() {
 			mergeProject(prj)
@@ -257,7 +324,7 @@ func (p *Proxy) buildProjectsList(port int, token string) ([]ProjectItem, error)
 
 		// 6. Load any remaining active workspace URIs from trajectories
 		for norm, stat := range sessionStats {
-			if _, exists := projectMap[norm]; !exists {
+			if len(uriItems[norm]) == 0 {
 				parsedPath := uriToPath(norm)
 				if parsedPath == "" || isDriveRoot(parsedPath) {
 					continue
@@ -295,9 +362,45 @@ func (p *Proxy) buildProjectsList(port int, token string) ([]ProjectItem, error)
 		}
 	}
 
-	result := make([]ProjectItem, 0, len(projectMap))
-	discoveredPaths := make([]string, 0, len(projectMap))
-	for _, prj := range projectMap {
+	// 7. Apply session counts & lastActive once the full project set (and per-URI multiplicity) is known.
+	// When multiple Antigravity 2.0 projects share the same folderUri, aggregate strictly by projectId
+	// to avoid cross-project count/timestamp bleed.
+	for _, prj := range collected {
+		if prj.ID != "" {
+			pstat := projectIDStats[prj.ID]
+			count := pstat.count
+			lastActive := pstat.lastActive
+
+			if len(uriItems[prj.URI]) == 1 {
+				if ustat, ok := unassignedURIStats[prj.URI]; ok {
+					count += ustat.count
+					if ustat.lastActive.After(lastActive) {
+						lastActive = ustat.lastActive
+					}
+				}
+			}
+
+			if count > prj.SessionCount {
+				prj.SessionCount = count
+			}
+			if !lastActive.IsZero() && (prj.LastActive == nil || lastActive.After(*prj.LastActive)) {
+				t := lastActive
+				prj.LastActive = &t
+			}
+		} else if stat, ok := sessionStats[prj.URI]; ok {
+			if stat.count > prj.SessionCount {
+				prj.SessionCount = stat.count
+			}
+			if !stat.lastActive.IsZero() && (prj.LastActive == nil || stat.lastActive.After(*prj.LastActive)) {
+				t := stat.lastActive
+				prj.LastActive = &t
+			}
+		}
+	}
+
+	result := make([]ProjectItem, 0, len(collected))
+	discoveredPaths := make([]string, 0, len(collected))
+	for _, prj := range collected {
 		result = append(result, *prj)
 		if !isRemoteURI(prj.URI) {
 			if prj.Path != "" {
@@ -311,18 +414,24 @@ func (p *Proxy) buildProjectsList(port int, token string) ([]ProjectItem, error)
 
 	sort.Slice(result, func(i, j int) bool {
 		if result[i].LastActive != nil && result[j].LastActive != nil {
-			return result[i].LastActive.After(*result[j].LastActive)
+			if !result[i].LastActive.Equal(*result[j].LastActive) {
+				return result[i].LastActive.After(*result[j].LastActive)
+			}
 		}
-		if result[i].LastActive != nil {
+		if result[i].LastActive != nil && result[j].LastActive == nil {
 			return true
 		}
-		if result[j].LastActive != nil {
+		if result[i].LastActive == nil && result[j].LastActive != nil {
 			return false
 		}
 		if result[i].SessionCount != result[j].SessionCount {
 			return result[i].SessionCount > result[j].SessionCount
 		}
-		return strings.ToLower(result[i].Name) < strings.ToLower(result[j].Name)
+		li, lj := strings.ToLower(result[i].Name), strings.ToLower(result[j].Name)
+		if li != lj {
+			return li < lj
+		}
+		return result[i].ID < result[j].ID
 	})
 
 	aliases := loadWorkspaceAliases()

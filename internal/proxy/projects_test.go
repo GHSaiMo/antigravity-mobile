@@ -1389,3 +1389,316 @@ func TestHandleCreateCascade_RegisteredExternalProjectOutsideHome(t *testing.T) 
 		t.Fatalf("Case C (unregistered external workspace) expected 403, got %d: %s", recC.Code, recC.Body.String())
 	}
 }
+
+func TestGetProjects_MultipleProjectsSameFolderURI(t *testing.T) {
+	tmpHome := t.TempDir()
+	t.Setenv("HOME", tmpHome)
+	t.Setenv("USERPROFILE", tmpHome)
+	t.Setenv("APPDATA", tmpHome)
+	t.Setenv("ANTIGRAVITY_APP_DATA_DIR", filepath.Join(tmpHome, ".gemini", "antigravity"))
+	t.Setenv("MULTIGRAVITY_DATA_DIR", filepath.Join(tmpHome, ".multigravity"))
+	t.Setenv("ALLOWED_WORKSPACE_ROOTS", tmpHome)
+	t.Setenv("MGY_INCLUDE_WORKSPACE_CACHE", "")
+	invalidateGeminiConfigCaches()
+	t.Cleanup(invalidateGeminiConfigCaches)
+
+	sharedDir := filepath.Join(tmpHome, "workspace")
+	if err := os.MkdirAll(sharedDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	sharedURI := filePathToURI(sharedDir)
+
+	projCfgDir := filepath.Join(tmpHome, ".gemini", "config", "projects")
+	if err := os.MkdirAll(projCfgDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	const (
+		idA = "11111111-1111-4111-8111-111111111111"
+		idB = "22222222-2222-4222-8222-222222222222"
+		idC = "33333333-3333-4333-8333-333333333333"
+	)
+
+	writeCfg := func(id, name string, mod time.Time) {
+		t.Helper()
+		p := filepath.Join(projCfgDir, id+".json")
+		body := fmt.Sprintf(`{
+			"id": %q,
+			"name": %q,
+			"projectResources": {"resources": [{"folderUri": %q}]}
+		}`, id, name, sharedURI)
+		if err := os.WriteFile(p, []byte(body), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Chtimes(p, mod, mod); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	baseMod := time.Date(2026, 11, 20, 8, 0, 0, 0, time.UTC)
+	writeCfg(idA, "ProjectA", baseMod)
+	writeCfg(idB, "ProjectB", baseMod)
+
+	// Also add an app_storage.json referencing idA, idB, and an RPC-only idC sharing the same folder.
+	appSupportDir := filepath.Join(tmpHome, "Antigravity")
+	if err := os.MkdirAll(appSupportDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	orderJSON, err := json.Marshal([]string{idA, idB, idC})
+	if err != nil {
+		t.Fatal(err)
+	}
+	appStorageJSON, err := json.Marshal(map[string]string{"projectsOrder": string(orderJSON)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(appSupportDir, "app_storage.json"), appStorageJSON, 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	// Add a legacy workspaceStorage entry for the exact same folder to verify MGY_INCLUDE_WORKSPACE_CACHE=true
+	// neither spawns a duplicate ID-less item nor pollutes per-project counts.
+	wsEntryDir := filepath.Join(tmpHome, "Antigravity", "User", "workspaceStorage", "shared-hash")
+	if err := os.MkdirAll(wsEntryDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(wsEntryDir, "workspace.json"), []byte(fmt.Sprintf(`{"folder":%q}`, sharedURI)), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	var lastStartPayload map[string]interface{}
+	mockUpstream := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch {
+		case strings.HasSuffix(r.URL.Path, "/ReadProjects"):
+			resp := fmt.Sprintf(`{
+				"projects": [
+					{"id": %q, "name": "ProjectA", "projectResources": {"resources": [{"folderUri": %q}]}},
+					{"id": %q, "name": "ProjectB", "projectResources": {"resources": [{"folderUri": %q}]}},
+					{"id": %q, "name": "ProjectC", "projectResources": {"resources": [{"folderUri": %q}]}}
+				]
+			}`, idA, sharedURI, idB, sharedURI, idC, sharedURI)
+			_, _ = w.Write([]byte(resp))
+		case strings.HasSuffix(r.URL.Path, "/GetAllCascadeTrajectories"):
+			resp := fmt.Sprintf(`{
+				"trajectorySummaries": {
+					"conv-a-1": {
+						"lastModifiedTime": "2026-11-26T10:00:00Z",
+						"trajectoryMetadata": {"projectId": %q, "workspaceUris": [%q]}
+					},
+					"conv-a-2": {
+						"lastModifiedTime": "2026-11-26T11:00:00Z",
+						"trajectoryMetadata": {"projectId": %q, "workspaceUris": [%q]}
+					},
+					"conv-b-1": {
+						"lastModifiedTime": "2026-11-26T12:00:00Z",
+						"trajectoryMetadata": {"projectId": %q, "workspaceUris": [%q]}
+					},
+					"conv-unassigned": {
+						"lastModifiedTime": "2026-11-26T13:00:00Z",
+						"trajectoryMetadata": {"workspaceUris": [%q]}
+					}
+				}
+			}`, idA, sharedURI, idA, sharedURI, idB, sharedURI, sharedURI)
+			_, _ = w.Write([]byte(resp))
+		case strings.HasSuffix(r.URL.Path, "/StartCascade"):
+			lastStartPayload = nil
+			_ = json.NewDecoder(r.Body).Decode(&lastStartPayload)
+			_, _ = w.Write([]byte(`{"cascadeId":"cascade-multi-proj-b"}`))
+		default:
+			_, _ = w.Write([]byte(`{}`))
+		}
+	}))
+	defer mockUpstream.Close()
+
+	// 1. fetchProjectsFromGeminiConfig must retain both disk projects sharing the same folderUri.
+	cfgItems := fetchProjectsFromGeminiConfig()
+	if len(cfgItems) != 2 {
+		t.Fatalf("expected 2 projects from gemini config, got %d: %+v", len(cfgItems), cfgItems)
+	}
+
+	port := mockUpstream.Listener.Addr().(*net.TCPAddr).Port
+	insp := inspector.NewInspector(5 * time.Second)
+	p := NewProxy(insp)
+	p.activePort = port
+	p.activeToken = "test-token"
+
+	assertProjects := func(label string, projects []ProjectItem) {
+		t.Helper()
+		if len(projects) != 3 {
+			t.Fatalf("%s: expected 3 distinct projects, got %d: %+v", label, len(projects), projects)
+		}
+		byID := make(map[string]ProjectItem, len(projects))
+		for _, item := range projects {
+			byID[item.ID] = item
+		}
+
+		pA, okA := byID[idA]
+		pB, okB := byID[idB]
+		pC, okC := byID[idC]
+		if !okA || !okB || !okC {
+			t.Fatalf("%s: missing expected projects in %+v", label, projects)
+		}
+		if pA.Name != "ProjectA" || pA.SessionCount != 2 {
+			t.Errorf("%s: ProjectA got Name=%q SessionCount=%d, want Name=ProjectA SessionCount=2", label, pA.Name, pA.SessionCount)
+		}
+		if pB.Name != "ProjectB" || pB.SessionCount != 1 {
+			t.Errorf("%s: ProjectB got Name=%q SessionCount=%d, want Name=ProjectB SessionCount=1", label, pB.Name, pB.SessionCount)
+		}
+		if pC.Name != "ProjectC" || pC.SessionCount != 0 {
+			t.Errorf("%s: ProjectC got Name=%q SessionCount=%d, want Name=ProjectC SessionCount=0", label, pC.Name, pC.SessionCount)
+		}
+
+		// Verify timestamps did not bleed across sibling projects: B (12:00) > A (11:00) > C (nil).
+		if pA.LastActive == nil || !pA.LastActive.Equal(time.Date(2026, 11, 26, 11, 0, 0, 0, time.UTC)) {
+			t.Errorf("%s: ProjectA LastActive = %v, want 2026-11-26T11:00:00Z", label, pA.LastActive)
+		}
+		if pB.LastActive == nil || !pB.LastActive.Equal(time.Date(2026, 11, 26, 12, 0, 0, 0, time.UTC)) {
+			t.Errorf("%s: ProjectB LastActive = %v, want 2026-11-26T12:00:00Z", label, pB.LastActive)
+		}
+		if pC.LastActive != nil {
+			t.Errorf("%s: ProjectC LastActive = %v, want nil (no sessions, RPC-only)", label, pC.LastActive)
+		}
+		if projects[0].ID != idB || projects[1].ID != idA || projects[2].ID != idC {
+			t.Errorf("%s: expected order [ProjectB, ProjectA, ProjectC], got [%s, %s, %s]",
+				label, projects[0].Name, projects[1].Name, projects[2].Name)
+		}
+	}
+
+	// 2. GET /gateway/projects returns all 3 projects with isolated per-projectId session counts.
+	rec := httptest.NewRecorder()
+	p.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/gateway/projects", nil))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("GET /gateway/projects returned %d: %s", rec.Code, rec.Body.String())
+	}
+	var gotProjects []ProjectItem
+	if err := json.Unmarshal(rec.Body.Bytes(), &gotProjects); err != nil {
+		t.Fatalf("decode /gateway/projects: %v", err)
+	}
+	assertProjects("default", gotProjects)
+
+	// 3. Even with MGY_INCLUDE_WORKSPACE_CACHE=true, legacy workspaceStorage does not duplicate the shared folder.
+	t.Setenv("MGY_INCLUDE_WORKSPACE_CACHE", "true")
+	p.invalidateProjectsCache()
+	gotWithCache, err := p.GetProjects()
+	if err != nil {
+		t.Fatalf("GetProjects(cache=true) failed: %v", err)
+	}
+	assertProjects("with-workspace-cache", gotWithCache)
+
+	// 4. Workspace resolver maps each projectId to its own project name despite sharing folderUri.
+	resolve := p.BuildWorkspaceResolver()
+	if resA := resolve(idA, []string{sharedURI}, nil); resA.ProjectID != idA || resA.WorkspaceName != "ProjectA" {
+		t.Errorf("resolve(idA) = %+v, want (idA, ProjectA)", resA)
+	}
+	if resB := resolve(idB, []string{sharedURI}, nil); resB.ProjectID != idB || resB.WorkspaceName != "ProjectB" {
+		t.Errorf("resolve(idB) = %+v, want (idB, ProjectB)", resB)
+	}
+
+	// 5. Creating a new cascade targeting ProjectB forwards ProjectB's projectId accurately.
+	createBody, _ := json.Marshal(CreateCascadeRequest{
+		WorkspaceURI: sharedURI,
+		ProjectID:    idB,
+		Prompt:       "hello project B",
+	})
+	recCreate := httptest.NewRecorder()
+	p.HandleCreateCascade(recCreate, httptest.NewRequest(http.MethodPost, "/gateway/cascade/new", bytes.NewReader(createBody)))
+	if recCreate.Code != http.StatusOK {
+		t.Fatalf("HandleCreateCascade returned %d: %s", recCreate.Code, recCreate.Body.String())
+	}
+	envCfg, _ := lastStartPayload["projectEnvConfig"].(map[string]interface{})
+	if envCfg["projectId"] != idB {
+		t.Fatalf("expected StartCascade projectId %q, got %+v", idB, lastStartPayload)
+	}
+}
+
+func TestGetProjects_SingleProjectFoldsLegacyUnassignedSessions(t *testing.T) {
+	tmpHome := t.TempDir()
+	t.Setenv("HOME", tmpHome)
+	t.Setenv("USERPROFILE", tmpHome)
+	t.Setenv("APPDATA", tmpHome)
+	t.Setenv("ANTIGRAVITY_APP_DATA_DIR", filepath.Join(tmpHome, ".gemini", "antigravity"))
+	t.Setenv("MULTIGRAVITY_DATA_DIR", filepath.Join(tmpHome, ".multigravity"))
+	t.Setenv("MGY_INCLUDE_WORKSPACE_CACHE", "")
+	invalidateGeminiConfigCaches()
+	t.Cleanup(invalidateGeminiConfigCaches)
+
+	repoDir := filepath.Join(tmpHome, "solo-repo")
+	if err := os.MkdirAll(repoDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	repoURI := filePathToURI(repoDir)
+
+	cfgRoot := filepath.Join(tmpHome, ".gemini", "config")
+	projCfgDir := filepath.Join(cfgRoot, "projects")
+	if err := os.MkdirAll(projCfgDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	const (
+		soloID    = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"
+		sidecarID = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb"
+	)
+
+	if err := os.WriteFile(filepath.Join(cfgRoot, "config.json"),
+		[]byte(fmt.Sprintf(`{"sidecars":{"nightly-job":{"enabled":true,"projectId":%q}}}`, sidecarID)), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	soloCfg := fmt.Sprintf(`{"id":%q,"name":"SoloRepo","projectResources":{"resources":[{"folderUri":%q}]}}`, soloID, repoURI)
+	soloCfgPath := filepath.Join(projCfgDir, soloID+".json")
+	if err := os.WriteFile(soloCfgPath, []byte(soloCfg), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	baseMod := time.Date(2026, 11, 20, 8, 0, 0, 0, time.UTC)
+	if err := os.Chtimes(soloCfgPath, baseMod, baseMod); err != nil {
+		t.Fatal(err)
+	}
+
+	mockUpstream := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		if strings.HasSuffix(r.URL.Path, "/GetAllCascadeTrajectories") {
+			resp := fmt.Sprintf(`{
+				"trajectorySummaries": {
+					"conv-new": {
+						"lastModifiedTime": "2026-11-26T09:00:00Z",
+						"trajectoryMetadata": {"projectId": %q, "workspaceUris": [%q]}
+					},
+					"conv-legacy": {
+						"lastModifiedTime": "2026-11-26T10:00:00Z",
+						"trajectoryMetadata": {"workspaceUris": [%q]}
+					},
+					"conv-sidecar": {
+						"lastModifiedTime": "2026-11-26T11:00:00Z",
+						"trajectoryMetadata": {"projectId": %q, "workspaceUris": [%q]}
+					}
+				}
+			}`, soloID, repoURI, repoURI, sidecarID, repoURI)
+			_, _ = w.Write([]byte(resp))
+			return
+		}
+		_, _ = w.Write([]byte(`{}`))
+	}))
+	defer mockUpstream.Close()
+
+	port := mockUpstream.Listener.Addr().(*net.TCPAddr).Port
+	insp := inspector.NewInspector(5 * time.Second)
+	p := NewProxy(insp)
+	p.activePort = port
+	p.activeToken = "test-token"
+
+	projects, err := p.GetProjects()
+	if err != nil {
+		t.Fatalf("GetProjects failed: %v", err)
+	}
+	if len(projects) != 1 {
+		t.Fatalf("expected 1 project, got %d: %+v", len(projects), projects)
+	}
+	// Should fold conv-new (by soloID) + conv-legacy (unassigned URI) = 2, while excluding conv-sidecar.
+	if projects[0].SessionCount != 2 {
+		t.Errorf("expected SessionCount=2 (1 projectId + 1 legacy unassigned, excluding sidecar), got %d", projects[0].SessionCount)
+	}
+	wantActive := time.Date(2026, 11, 26, 10, 0, 0, 0, time.UTC)
+	if projects[0].LastActive == nil || !projects[0].LastActive.Equal(wantActive) {
+		t.Errorf("expected LastActive=%v, got %v", wantActive, projects[0].LastActive)
+	}
+}
