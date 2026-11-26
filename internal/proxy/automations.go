@@ -838,12 +838,11 @@ func (p *Proxy) HandleGetAutomationLogs(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	home, err := os.UserHomeDir()
-	if err != nil || home == "" {
+	logsDir := resolveAntigravitySubPath("sidecar_data", sid, "logs")
+	if logsDir == "" {
 		writeJSONError(w, "cannot determine user home", http.StatusInternalServerError)
 		return
 	}
-	logsDir := filepath.Join(home, ".gemini", "antigravity", "sidecar_data", sid, "logs")
 
 	var files []string
 	if entries, err := os.ReadDir(logsDir); err == nil {
@@ -1018,15 +1017,13 @@ func readLocalSidecars() map[string]*AutomationSchedule {
 	return result
 }
 
-// readLocalSidecarEvents scans ~/.gemini/antigravity/sidecar_data/<sidecarID>/events/
+// readLocalSidecarEvents scans sidecar_data/<sidecarID>/events/ under the resolved Antigravity data dir.
 func readLocalSidecarEvents(sidecarID, displayName string, limit int) []AutomationEvent {
 	events := make([]AutomationEvent, 0)
-	home, err := os.UserHomeDir()
-	if err != nil || home == "" {
+	eventsDir := resolveAntigravitySubPath("sidecar_data", sidecarID, "events")
+	if eventsDir == "" {
 		return events
 	}
-
-	eventsDir := filepath.Join(home, ".gemini", "antigravity", "sidecar_data", sidecarID, "events")
 	entries, err := os.ReadDir(eventsDir)
 	if err != nil {
 		return events
@@ -1129,9 +1126,9 @@ func (p *Proxy) annotateAutomationEventsConversationExists(ctx context.Context, 
 	var agDir string
 	var diskConvIDs map[string]struct{}
 	var hasDiskConvDir bool
-	if home, err := os.UserHomeDir(); err == nil && home != "" {
-		agDir = filepath.Join(home, ".gemini", "antigravity")
-		diskConvIDs, hasDiskConvDir = loadCachedDiskConvIDs(filepath.Join(agDir, "conversations"))
+	if convDir := resolveAntigravitySubPath("conversations"); convDir != "" {
+		agDir = filepath.Dir(convDir)
+		diskConvIDs, hasDiskConvDir = loadCachedDiskConvIDs(convDir)
 	}
 
 	var idx *allTrajectoriesParsed
@@ -1249,12 +1246,10 @@ func extractNextRunFromLog(sidecarID string) string {
 }
 
 func extractNextRunFromLogTime(sidecarID string) (time.Time, bool) {
-	home, err := os.UserHomeDir()
-	if err != nil || home == "" {
+	logPath := resolveAntigravitySubPath("sidecar_data", sidecarID, "logs", "sidecar.log")
+	if logPath == "" {
 		return time.Time{}, false
 	}
-
-	logPath := filepath.Join(home, ".gemini", "antigravity", "sidecar_data", sidecarID, "logs", "sidecar.log")
 	tailStr, _, _, err := readLogFileTail(logPath, 128*1024)
 	if err != nil || tailStr == "" {
 		return time.Time{}, false

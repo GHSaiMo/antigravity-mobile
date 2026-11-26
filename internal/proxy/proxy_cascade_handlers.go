@@ -666,8 +666,7 @@ func (p *Proxy) handleDeleteCascadeTrajectory(w http.ResponseWriter, r *http.Req
 	// .user_uploaded subdir), leaving a half-deleted zombie in memory after already
 	// deleting the .db / summary / annotations. Clean the brain dir and retry once.
 	if isSafeCascadeID && rec.statusCode >= 500 && isBrainDirNotEmptyDeleteError(rec.body.Bytes(), reqData.CascadeID) {
-		if home, err := os.UserHomeDir(); err == nil {
-			brainDir := filepath.Join(home, ".gemini", "antigravity", "brain", reqData.CascadeID)
+		if brainDir := resolveAntigravitySubPath("brain", reqData.CascadeID); brainDir != "" {
 			if rmErr := os.RemoveAll(brainDir); rmErr == nil {
 				slog.Warn("[Proxy] DeleteCascadeTrajectory hit brain directory-not-empty; cleaned brain dir and retrying",
 					"cascadeId", shortCascadeID(reqData.CascadeID))
@@ -688,17 +687,17 @@ func (p *Proxy) handleDeleteCascadeTrajectory(w http.ResponseWriter, r *http.Req
 			ClearTrajectoryCache(reqData.CascadeID)
 			p.notifySideQuestionDeleted(reqData.CascadeID)
 			// Clean up local files only after upstream confirms deletion.
-			if home, err := os.UserHomeDir(); err == nil {
-				annPath := filepath.Join(home, ".gemini", "antigravity", "annotations", reqData.CascadeID+".pbtxt")
+			cockpit.ArchiveConversationTokens(reqData.CascadeID)
+			for _, agDir := range antigravityHomeCandidates() {
+				annPath := filepath.Join(agDir, "annotations", reqData.CascadeID+".pbtxt")
 				_ = os.Remove(annPath)
 
-				convDir := filepath.Join(home, ".gemini", "antigravity", "conversations")
+				convDir := filepath.Join(agDir, "conversations")
 				_ = os.Remove(filepath.Join(convDir, reqData.CascadeID+".db"))
 				_ = os.Remove(filepath.Join(convDir, reqData.CascadeID+".db-wal"))
 				_ = os.Remove(filepath.Join(convDir, reqData.CascadeID+".db-shm"))
 
-				cockpit.ArchiveConversationTokens(reqData.CascadeID)
-				brainDir := filepath.Join(home, ".gemini", "antigravity", "brain", reqData.CascadeID)
+				brainDir := filepath.Join(agDir, "brain", reqData.CascadeID)
 				_ = os.RemoveAll(brainDir)
 			}
 			slog.Info(fmt.Sprintf("[Proxy] 🗑️ 删除会话: %s", shortCascadeID(reqData.CascadeID)))

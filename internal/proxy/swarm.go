@@ -240,12 +240,15 @@ func resolveSwarmDir(cascadeID string) (string, string) {
 	if cascadeID == "" || !cascadeIDRe.MatchString(cascadeID) {
 		return "", ""
 	}
-	home, err := os.UserHomeDir()
-	if err != nil {
-		return "", ""
+	for _, agDir := range antigravityHomeCandidates() {
+		if dir, coordID := resolveSwarmDirInBase(filepath.Join(agDir, "brain"), cascadeID); dir != "" {
+			return dir, coordID
+		}
 	}
-	brainBase := filepath.Join(home, ".gemini", "antigravity", "brain")
+	return "", ""
+}
 
+func resolveSwarmDirInBase(brainBase, cascadeID string) (string, string) {
 	// 1. Direct check: is cascadeID the coordinator?
 	directDir := filepath.Join(brainBase, cascadeID, ".system_generated", "swarm")
 	if fi, err := os.Stat(filepath.Join(directDir, "members.json")); err == nil && !fi.IsDir() {
@@ -481,11 +484,7 @@ func GetSwarmSignature(cascadeID string) string {
 		pSize = fi.Size()
 	}
 
-	home, _ := os.UserHomeDir()
-	brainBase := ""
-	if home != "" {
-		brainBase = filepath.Join(home, ".gemini", "antigravity", "brain")
-	}
+	brainBase := swarmBrainBaseFromSwarmDir(swarmDir)
 
 	var tDigest uint64
 	if membersData, err := os.ReadFile(membersPath); err == nil {
@@ -568,6 +567,19 @@ func loadCachedSwarmMembers(cacheKey, membersPath string, fi os.FileInfo) (map[s
 	return raw.Members, nil
 }
 
+func swarmBrainBaseFromSwarmDir(swarmDir string) string {
+	if swarmDir != "" {
+		// swarmDir is <brainBase>/<coordID>/.system_generated/swarm
+		if base := filepath.Dir(filepath.Dir(filepath.Dir(swarmDir))); base != "" && base != "." {
+			return base
+		}
+	}
+	if agDir := resolveAntigravityHomeDir(); agDir != "" {
+		return filepath.Join(agDir, "brain")
+	}
+	return ""
+}
+
 // InspectSwarmCoordinatorForList inspects whether coordID owns a swarm session and summarizes
 // its active worker count and latest activity time for the conversation list.
 // Non-swarm conversations incur at most two stat syscalls and return nil.
@@ -579,18 +591,27 @@ func InspectSwarmCoordinatorForList(
 	if coordID == "" || !cascadeIDRe.MatchString(coordID) {
 		return nil
 	}
-	home, err := os.UserHomeDir()
-	if err != nil || home == "" {
-		return nil
-	}
-	brainBase := filepath.Join(home, ".gemini", "antigravity", "brain")
-	swarmDir := filepath.Join(brainBase, coordID, ".system_generated", "swarm")
-	membersPath := filepath.Join(swarmDir, "members.json")
 
-	fiMembers, mErr := os.Stat(membersPath)
-	if mErr != nil || fiMembers.IsDir() {
-		// Newly initialized swarm before members.json is flushed.
-		if fiSwarm, sErr := os.Stat(filepath.Join(swarmDir, "swarm.json")); sErr == nil && !fiSwarm.IsDir() {
+	var brainBase, swarmDir, membersPath string
+	var fiMembers os.FileInfo
+	hasInitOnlySwarm := false
+	for _, agDir := range antigravityHomeCandidates() {
+		candBase := filepath.Join(agDir, "brain")
+		candSwarm := filepath.Join(candBase, coordID, ".system_generated", "swarm")
+		candMembers := filepath.Join(candSwarm, "members.json")
+		if fi, err := os.Stat(candMembers); err == nil && !fi.IsDir() {
+			brainBase = candBase
+			swarmDir = candSwarm
+			membersPath = candMembers
+			fiMembers = fi
+			break
+		}
+		if fiSwarm, sErr := os.Stat(filepath.Join(candSwarm, "swarm.json")); sErr == nil && !fiSwarm.IsDir() {
+			hasInitOnlySwarm = true
+		}
+	}
+	if fiMembers == nil {
+		if hasInitOnlySwarm {
 			return &SwarmListSummary{HasSwarm: true}
 		}
 		return nil
@@ -755,11 +776,7 @@ func GetSwarmBrief(cascadeID string) *SwarmBrief {
 		return nil
 	}
 
-	home, _ := os.UserHomeDir()
-	brainBase := ""
-	if home != "" {
-		brainBase = filepath.Join(home, ".gemini", "antigravity", "brain")
-	}
+	brainBase := swarmBrainBaseFromSwarmDir(swarmDir)
 
 	total := len(rawMembers.Members)
 	working := 0
@@ -1165,11 +1182,7 @@ func GetSwarmSnapshotPaged(cascadeID string, afterSeq, beforeSeq, limit int, cli
 		return nil, false, err
 	}
 
-	home, _ := os.UserHomeDir()
-	brainBase := ""
-	if home != "" {
-		brainBase = filepath.Join(home, ".gemini", "antigravity", "brain")
-	}
+	brainBase := swarmBrainBaseFromSwarmDir(swarmDir)
 
 	viewPath, viewMod := resolveSwarmViewPath(brainBase, swarmDir, rawMembers.Members)
 	plan, planMod, planSize := readSwarmPlan(swarmDir)

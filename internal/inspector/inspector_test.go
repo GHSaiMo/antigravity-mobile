@@ -112,6 +112,11 @@ func TestDaemonDiscovery(t *testing.T) {
 }
 
 func TestClassifyLanguageServerCmdline(t *testing.T) {
+	t.Setenv("MGY_EXCLUDE_HEADLESS", "")
+	t.Setenv("MULTIGRAVITY_EXCLUDE_HEADLESS", "")
+	t.Setenv("MGY_EXCLUDE_PROCESS_PATTERNS", "")
+	t.Setenv("MULTIGRAVITY_EXCLUDE_PROCESS_PATTERNS", "")
+
 	desktopCmd := `/Applications/Antigravity.app/Contents/Resources/bin/language_server --standalone --override_ide_name antigravity --subclient_type hub --override_ide_version 2.31.0 --https_server_port 0 --csrf_token e98a623c-afc0-4805-a10f-dc563a14b882 --host_bridge_url=http://127.0.0.1:58221`
 	ok, prio := ClassifyLanguageServerCmdline(desktopCmd)
 	if !ok {
@@ -121,19 +126,152 @@ func TestClassifyLanguageServerCmdline(t *testing.T) {
 		t.Errorf("expected high priority for desktop GUI instance, got %d", prio)
 	}
 
-	groupchatCmd := `/Users/hal9000/Projects/groupchat-runtime/data/antigravity-ls/bin/language_server --standalone --headless --persistent_mode --http_server_port=50232 --enable_lsp --app_data_dir=antigravity`
-	if ok, _ := ClassifyLanguageServerCmdline(groupchatCmd); ok {
-		t.Errorf("expected groupchat-runtime headless language_server to be rejected")
+	// Headless language_server is accepted by default at lower priority than Desktop GUI,
+	// and can be excluded via MGY_EXCLUDE_HEADLESS or MGY_EXCLUDE_PROCESS_PATTERNS.
+	headlessCmd := `/usr/local/bin/language_server --standalone --headless --http_server_port=50005`
+	okHeadless, prioHeadless := ClassifyLanguageServerCmdline(headlessCmd)
+	if !okHeadless {
+		t.Errorf("expected standalone --headless language_server to be accepted by default")
+	}
+	if prioHeadless >= prio {
+		t.Errorf("expected headless priority (%d) < desktop priority (%d)", prioHeadless, prio)
 	}
 
-	headlessCmd := `/usr/local/bin/language_server --standalone --headless --http_server_port=50005`
-	if ok, _ := ClassifyLanguageServerCmdline(headlessCmd); ok {
-		t.Errorf("expected standalone --headless language_server to be rejected from ps fallback")
+	// Antigravity CLI (agy / antigravity-cli) with --csrf_token or remote-control serve.
+	agyRemoteCmd := `4210 /usr/local/bin/agy --csrf_token=5aacbcc0-cf40-4b94-8f17-986485a8d0d5 remote-control serve`
+	okAgy, prioAgy := ClassifyLanguageServerCmdline(agyRemoteCmd)
+	if !okAgy {
+		t.Fatalf("expected agy remote-control serve command line to be accepted")
+	}
+	if prioAgy >= prio {
+		t.Errorf("expected agy CLI priority (%d) < desktop priority (%d)", prioAgy, prio)
+	}
+
+	agyServeOnly := `/home/user/.local/bin/agy remote-control serve`
+	if ok, _ := ClassifyLanguageServerCmdline(agyServeOnly); !ok {
+		t.Errorf("expected agy remote-control serve without explicit csrf flag to be accepted")
+	}
+
+	antigravityCLICmd := `"/opt/my dir/antigravity-cli" --csrf_token 5aacbcc0-cf40-4b94-8f17-986485a8d0d5`
+	if ok, _ := ClassifyLanguageServerCmdline(antigravityCLICmd); !ok {
+		t.Errorf("expected quoted antigravity-cli with --csrf_token to be accepted")
+	}
+
+	winAgyCmd := `"C:\Program Files\Antigravity\agy.exe" --csrf_token=5aacbcc0-cf40-4b94-8f17-986485a8d0d5 remote-control serve`
+	if ok, _ := ClassifyLanguageServerCmdline(winAgyCmd); !ok {
+		t.Errorf("expected Windows agy.exe with --csrf_token to be accepted")
+	}
+
+	// Bare interactive agy or wrapper scripts must be rejected.
+	if ok, _ := ClassifyLanguageServerCmdline(`/usr/local/bin/agy --version`); ok {
+		t.Errorf("expected bare agy command without --csrf_token or remote-control serve to be rejected")
+	}
+	if ok, _ := ClassifyLanguageServerCmdline(`/usr/bin/python3 helper.py agy --csrf_token=5aacbcc0-cf40-4b94-8f17-986485a8d0d5`); ok {
+		t.Errorf("expected python wrapper containing agy to be rejected")
 	}
 
 	multicallCmd := `/Applications/Antigravity.app/Contents/Resources/bin/language_server multicall schedule 0 23 * * * agentapi new-conversation`
 	if ok, _ := ClassifyLanguageServerCmdline(multicallCmd); ok {
 		t.Errorf("expected multicall schedule helper to be rejected")
+	}
+
+	// Opt-in exclusion via MGY_EXCLUDE_HEADLESS.
+	t.Run("exclude_headless_env", func(t *testing.T) {
+		t.Setenv("MGY_EXCLUDE_HEADLESS", "1")
+		if ok, _ := ClassifyLanguageServerCmdline(headlessCmd); ok {
+			t.Errorf("expected --headless language_server to be rejected when MGY_EXCLUDE_HEADLESS=1")
+		}
+		if ok, _ := ClassifyLanguageServerCmdline(desktopCmd); !ok {
+			t.Errorf("expected desktop language_server to remain accepted when MGY_EXCLUDE_HEADLESS=1")
+		}
+	})
+
+	// Opt-in exclusion via MGY_EXCLUDE_PROCESS_PATTERNS (case-insensitive, comma-separated).
+	t.Run("exclude_patterns_env", func(t *testing.T) {
+		t.Setenv("MGY_EXCLUDE_PROCESS_PATTERNS", " custom-bot , isolated-worker ")
+		botCmd := `/srv/custom-bot/data/antigravity-ls/bin/language_server --standalone --persistent_mode --http_server_port=50232`
+		if ok, _ := ClassifyLanguageServerCmdline(botCmd); ok {
+			t.Errorf("expected process matching MGY_EXCLUDE_PROCESS_PATTERNS to be rejected")
+		}
+		if ok, _ := ClassifyLanguageServerCmdline(agyRemoteCmd); !ok {
+			t.Errorf("expected unrelated agy process to remain accepted")
+		}
+	})
+}
+
+func TestDaemonDiscoveryAntigravityCLIFallbackAndDedup(t *testing.T) {
+	okHandler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/exa.language_server_pb.LanguageServerService/GetStatus" {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusOK)
+			_, _ = w.Write([]byte("{}"))
+			return
+		}
+		http.NotFound(w, r)
+	})
+
+	cliSrv := httptest.NewTLSServer(okHandler)
+	defer cliSrv.Close()
+	cliURL, _ := url.Parse(cliSrv.URL)
+	cliPort, _ := strconv.Atoi(cliURL.Port())
+
+	tmpHome := t.TempDir()
+	t.Setenv("HOME", tmpHome)
+	t.Setenv("ANTIGRAVITY_APP_DATA_DIR", "")
+
+	cliDaemonDir := filepath.Join(tmpHome, ".gemini", "antigravity-cli", "daemon")
+	if err := os.MkdirAll(cliDaemonDir, 0700); err != nil {
+		t.Fatalf("mkdir cli daemon dir: %v", err)
+	}
+	cliJSON := fmt.Sprintf(`{"pid": 51001, "httpsPort": %d, "lsVersion": "2.40.0", "csrfToken": "cli-token"}`, cliPort)
+	if err := os.WriteFile(filepath.Join(cliDaemonDir, "ls_cli.json"), []byte(cliJSON), 0600); err != nil {
+		t.Fatalf("write cli discovery json: %v", err)
+	}
+
+	insp := NewInspector(10 * time.Second)
+	info := insp.Scan()
+	if info == nil {
+		t.Fatalf("expected discovery from ~/.gemini/antigravity-cli/daemon, got nil")
+	}
+	if info.PID != 51001 || info.Port != cliPort || info.CSRFToken != "cli-token" {
+		t.Fatalf("unexpected CLI discovery info: %+v", info)
+	}
+	wantAppDir := filepath.Join(tmpHome, ".gemini", "antigravity-cli")
+	if info.AppDataDir != wantAppDir {
+		t.Errorf("AppDataDir = %q, want %q", info.AppDataDir, wantAppDir)
+	}
+
+	// Symlink ~/.gemini/antigravity -> ~/.gemini/antigravity-cli must deduplicate dirs cleanly.
+	desktopDir := filepath.Join(tmpHome, ".gemini", "antigravity")
+	if err := os.Symlink(wantAppDir, desktopDir); err == nil {
+		dirs := DaemonDiscoveryDirs()
+		if len(dirs) != 1 {
+			t.Errorf("expected symlinked daemon dirs to deduplicate to 1 entry, got %v", dirs)
+		}
+		_ = os.Remove(desktopDir)
+	}
+
+	// When both Desktop and CLI daemon files are live, Desktop must take precedence.
+	desktopSrv := httptest.NewTLSServer(okHandler)
+	defer desktopSrv.Close()
+	desktopURL, _ := url.Parse(desktopSrv.URL)
+	desktopPort, _ := strconv.Atoi(desktopURL.Port())
+
+	desktopDaemonDir := filepath.Join(tmpHome, ".gemini", "antigravity", "daemon")
+	if err := os.MkdirAll(desktopDaemonDir, 0700); err != nil {
+		t.Fatalf("mkdir desktop daemon dir: %v", err)
+	}
+	desktopJSON := fmt.Sprintf(`{"pid": 52002, "httpsPort": %d, "lsVersion": "2.40.1", "csrfToken": "desktop-token"}`, desktopPort)
+	if err := os.WriteFile(filepath.Join(desktopDaemonDir, "hub_desktop.json"), []byte(desktopJSON), 0600); err != nil {
+		t.Fatalf("write desktop discovery json: %v", err)
+	}
+
+	info2 := insp.Scan()
+	if info2 == nil || info2.PID != 52002 || info2.Port != desktopPort {
+		t.Fatalf("expected Desktop daemon (PID 52002, port %d) to take precedence over CLI, got %+v", desktopPort, info2)
+	}
+	if info2.AppDataDir != filepath.Join(tmpHome, ".gemini", "antigravity") {
+		t.Errorf("AppDataDir = %q, want desktop dir", info2.AppDataDir)
 	}
 }
 

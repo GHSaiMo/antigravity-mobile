@@ -12,6 +12,8 @@ import (
 	"strings"
 	"syscall"
 	"time"
+
+	"antigravity-mobile/internal/inspector"
 )
 
 func runCmdTimeout(d time.Duration, name string, args ...string) ([]byte, error) {
@@ -68,7 +70,7 @@ func findLinuxAntigravityPIDs() []int {
 	seen := make(map[int]bool)
 	for _, rawLine := range strings.Split(string(out), "\n") {
 		line := strings.TrimSpace(rawLine)
-		if line == "" || strings.Contains(line, "<defunct>") || strings.Contains(line, "multicall") || strings.Contains(line, "groupchat-runtime") {
+		if inspector.ShouldExcludeProcessCmdline(line) {
 			continue
 		}
 		fields := strings.Fields(line)

@@ -1132,7 +1132,7 @@ func (p *Proxy) handleGetAllCascadeTrajectories(w http.ResponseWriter, r *http.R
 		// and walkthrough.md does not yet exist, add non-running uncached sessions to candidates
 		// so Step 3 verifies via detectProceed whether the plan is actually awaiting approval in the
 		// latest turn (Antigravity never clears requestFeedback in .metadata.json after Proceed).
-		if home, err := os.UserHomeDir(); err == nil && home != "" {
+		if resolveAntigravityHomeDir() != "" {
 			for cid, s := range summaries {
 				if s["needsInput"] == true || inspectedFresh[cid] {
 					continue
@@ -1140,7 +1140,7 @@ func (p *Proxy) handleGetAllCascadeTrajectories(w http.ResponseWriter, r *http.R
 				if status, _ := s["status"].(string); status == "CASCADE_RUN_STATUS_RUNNING" {
 					continue
 				}
-				walkthroughFile := filepath.Join(home, ".gemini/antigravity/brain", cid, "walkthrough.md")
+				walkthroughFile := resolveAntigravitySubPath("brain", cid, "walkthrough.md")
 				walkthroughStatKey := "stat:" + walkthroughFile
 				defaultTrajCache.metadataCacheMu.RLock()
 				statEntry, statCached := defaultTrajCache.metadataCache[walkthroughStatKey]
@@ -1161,7 +1161,7 @@ func (p *Proxy) handleGetAllCascadeTrajectories(w http.ResponseWriter, r *http.R
 				if walkthroughExists {
 					continue
 				}
-				metaFile := filepath.Join(home, ".gemini/antigravity/brain", cid, "implementation_plan.md.metadata.json")
+				metaFile := resolveAntigravitySubPath("brain", cid, "implementation_plan.md.metadata.json")
 				if readMetadataRequestFeedback(metaFile) {
 					candidates[cid] = true
 				}
@@ -1529,12 +1529,11 @@ func filterDeletedZombieSummaries(summaries map[string]map[string]interface{}) {
 	if len(summaries) == 0 {
 		return
 	}
-	home, err := os.UserHomeDir()
-	if err != nil || home == "" {
+	convDir := resolveAntigravitySubPath("conversations")
+	if convDir == "" {
 		return
 	}
-	agDir := filepath.Join(home, ".gemini", "antigravity")
-	convDir := filepath.Join(agDir, "conversations")
+	agDir := filepath.Dir(convDir)
 	diskConvIDs, ok := loadCachedDiskConvIDs(convDir)
 	if !ok {
 		return

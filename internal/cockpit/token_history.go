@@ -2417,25 +2417,36 @@ func ArchiveConversationTokens(cascadeID string) {
 		return
 	}
 
-	convDir := filepath.Join(home, ".gemini", "antigravity", "brain", cascadeID)
-	candidates := []string{
-		filepath.Join(convDir, ".system_generated", "logs", "transcript.jsonl"),
-		filepath.Join(convDir, "transcript.jsonl"),
+	type archiveSource struct {
+		subDir string
+		source string
 	}
-
-	var targetPath string
+	var targetPath, targetSource string
 	dbOnly := false
-	for _, p := range candidates {
-		if st, err := os.Stat(p); err == nil && !st.IsDir() {
-			targetPath = p
+	for _, src := range []archiveSource{
+		{subDir: "antigravity", source: "desktop"},
+		{subDir: "antigravity-cli", source: "cli"},
+	} {
+		convDir := filepath.Join(home, ".gemini", src.subDir, "brain", cascadeID)
+		for _, p := range []string{
+			filepath.Join(convDir, ".system_generated", "logs", "transcript.jsonl"),
+			filepath.Join(convDir, "transcript.jsonl"),
+		} {
+			if st, err := os.Stat(p); err == nil && !st.IsDir() {
+				targetPath = p
+				targetSource = src.source
+				break
+			}
+		}
+		if targetPath != "" {
 			break
 		}
-	}
-	if targetPath == "" {
-		dbPath := filepath.Join(home, ".gemini", "antigravity", "conversations", cascadeID+".db")
+		dbPath := filepath.Join(home, ".gemini", src.subDir, "conversations", cascadeID+".db")
 		if st, err := os.Stat(dbPath); err == nil && !st.IsDir() {
 			targetPath = dbPath
+			targetSource = src.source
 			dbOnly = true
+			break
 		}
 	}
 	if targetPath == "" {
@@ -2451,11 +2462,11 @@ func ArchiveConversationTokens(cascadeID string) {
 	}
 	ledger := getOrLoadTokenLedgerLocked(ledgerPath)
 	scanCache := newTokenHistoryScanCache(false)
-	scanCache.registerCandidateConvID("desktop", cascadeID)
+	scanCache.registerCandidateConvID(targetSource, cascadeID)
 	if upsertSessionFromFile(ledger, transcriptJob{
 		convID: cascadeID,
 		path:   targetPath,
-		source: "desktop",
+		source: targetSource,
 		dbOnly: dbOnly,
 	}, false, scanCache) {
 		if err := saveTokenHistoryLedger(ledgerPath, ledger); err != nil {

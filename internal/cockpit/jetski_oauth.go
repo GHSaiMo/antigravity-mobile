@@ -20,6 +20,7 @@ import (
 	"sync"
 	"time"
 
+	"antigravity-mobile/internal/inspector"
 	"antigravity-mobile/internal/localtls"
 )
 
@@ -27,7 +28,7 @@ var (
 	ya29RE     = regexp.MustCompile(`ya29\.[A-Za-z0-9._-]+`)
 	refreshRE  = regexp.MustCompile(`1//[A-Za-z0-9_-]+`)
 	jwtRE      = regexp.MustCompile(`eyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+`)
-	lsCSRFRE   = regexp.MustCompile(`--csrf_token\s+([0-9a-fA-F-]+)`)
+	lsCSRFRE   = regexp.MustCompile(`--csrf_token[=\s]+([0-9a-fA-F-]+)`)
 	lsListenRE = regexp.MustCompile(`127\.0\.0\.1:(\d+)`)
 )
 
@@ -614,32 +615,48 @@ func cacheFoundLS(port int, csrf string) {
 }
 
 func lookupLanguageServer() (int, string, error) {
-	// Fast path 1: check daemon discovery files (hub_*.json preferred, newest first, verified listening)
-	if home, err := os.UserHomeDir(); err == nil && home != "" {
-		daemonDir := filepath.Join(home, ".gemini", "antigravity", "daemon")
-		var files []string
-		for _, pattern := range []string{"hub_*.json", "ls_*.json"} {
-			if matches, err := filepath.Glob(filepath.Join(daemonDir, pattern)); err == nil {
-				files = append(files, matches...)
-			}
+	// Fast path 1: check daemon discovery files across ~/.gemini/antigravity/daemon and
+	// ~/.gemini/antigravity-cli/daemon (Desktop preferred, hub_*.json preferred, newest first, symlink-deduped).
+	if daemonDirs := inspector.DaemonDiscoveryDirs(); len(daemonDirs) > 0 {
+		type fileEntry struct {
+			path       string
+			sourceRank int
+			isHub      bool
+			modTime    time.Time
 		}
-		if len(files) > 0 {
-			type fileEntry struct {
-				path    string
-				isHub   bool
-				modTime time.Time
-			}
-			var entries []fileEntry
-			for _, f := range files {
-				if st, err := os.Stat(f); err == nil {
-					entries = append(entries, fileEntry{
-						path:    f,
-						isHub:   strings.HasPrefix(filepath.Base(f), "hub_"),
-						modTime: st.ModTime(),
-					})
+		seenFiles := make(map[string]struct{})
+		var entries []fileEntry
+		for rank, daemonDir := range daemonDirs {
+			for _, pattern := range []string{"hub_*.json", "ls_*.json"} {
+				matches, err := filepath.Glob(filepath.Join(daemonDir, pattern))
+				if err != nil {
+					continue
+				}
+				for _, f := range matches {
+					key := filepath.Clean(f)
+					if resolved, err := filepath.EvalSymlinks(f); err == nil && resolved != "" {
+						key = filepath.Clean(resolved)
+					}
+					if _, dup := seenFiles[key]; dup {
+						continue
+					}
+					seenFiles[key] = struct{}{}
+					if st, err := os.Stat(f); err == nil && !st.IsDir() {
+						entries = append(entries, fileEntry{
+							path:       f,
+							sourceRank: rank,
+							isHub:      strings.HasPrefix(filepath.Base(f), "hub_"),
+							modTime:    st.ModTime(),
+						})
+					}
 				}
 			}
+		}
+		if len(entries) > 0 {
 			sort.Slice(entries, func(a, b int) bool {
+				if entries[a].sourceRank != entries[b].sourceRank {
+					return entries[a].sourceRank < entries[b].sourceRank
+				}
 				if entries[a].isHub != entries[b].isHub {
 					return entries[a].isHub
 				}
@@ -675,7 +692,7 @@ func lookupLanguageServer() (int, string, error) {
 	}
 
 	if runtime.GOOS == "windows" {
-		psScript := `Get-CimInstance Win32_Process | Where-Object { $_.Name -like '*language_server*' } | Select-Object ProcessId,CommandLine | ConvertTo-Json -Compress`
+		psScript := `Get-CimInstance Win32_Process | Where-Object { $_.Name -like '*language_server*' -or $_.Name -eq 'agy.exe' -or $_.Name -eq 'antigravity-cli.exe' } | Select-Object ProcessId,CommandLine | ConvertTo-Json -Compress`
 		out, err := runCmdTimeout(5*time.Second, "powershell.exe", "-NoProfile", "-NonInteractive", "-Command", psScript)
 		if err != nil {
 			return 0, "", err
@@ -697,17 +714,21 @@ func lookupLanguageServer() (int, string, error) {
 				procs = append(procs, s)
 			}
 		}
-		var pid int
+		var pid, bestPriority int
 		var csrf string
 		for _, p := range procs {
-			if strings.Contains(p.CommandLine, "language_server") &&
-				!strings.Contains(p.CommandLine, "--headless") &&
-				!strings.Contains(p.CommandLine, "groupchat-runtime") {
+			ok, prio := inspector.ClassifyLanguageServerCmdline(p.CommandLine)
+			if !ok || p.ProcessID <= 0 {
+				continue
+			}
+			var candCSRF string
+			if m := lsCSRFRE.FindStringSubmatch(p.CommandLine); len(m) > 1 {
+				candCSRF = m[1]
+			}
+			if prio > bestPriority || (prio == bestPriority && p.ProcessID > pid) {
 				pid = p.ProcessID
-				if m := lsCSRFRE.FindStringSubmatch(p.CommandLine); len(m) > 1 {
-					csrf = m[1]
-				}
-				break
+				csrf = candCSRF
+				bestPriority = prio
 			}
 		}
 		if pid == 0 {
@@ -747,52 +768,101 @@ func lookupLanguageServer() (int, string, error) {
 		lsLookupMu.Unlock()
 		return 0, "", err
 	}
-	var pid, csrf string
+	var bestPID, bestPriority int
+	var csrf string
 	for _, line := range strings.Split(string(out), "\n") {
-		if !strings.Contains(line, "language_server") {
-			continue
-		}
-		if strings.Contains(line, "multicall") || strings.Contains(line, "--headless") || strings.Contains(line, "groupchat-runtime") {
+		line = strings.TrimSpace(line)
+		ok, prio := inspector.ClassifyLanguageServerCmdline(line)
+		if !ok {
 			continue
 		}
 		fields := strings.Fields(line)
-		if len(fields) == 0 {
+		if len(fields) < 2 {
 			continue
 		}
-		pid = fields[0]
-		if m := lsCSRFRE.FindStringSubmatch(line); len(m) > 1 {
-			csrf = m[1]
+		pNum, convErr := strconv.Atoi(fields[0])
+		if convErr != nil || pNum <= 0 {
+			continue
 		}
-		break
+		if !inspector.IsAntigravityProcessBase(inspector.ExtractCmdExecutableBase(line)) {
+			continue
+		}
+		var candCSRF string
+		if m := lsCSRFRE.FindStringSubmatch(line); len(m) > 1 {
+			candCSRF = m[1]
+		}
+		if prio > bestPriority || (prio == bestPriority && pNum > bestPID) {
+			bestPID = pNum
+			csrf = candCSRF
+			bestPriority = prio
+		}
 	}
-	if pid == "" {
+	if bestPID == 0 {
 		lsLookupMu.Lock()
 		lastLSFailScan = time.Now()
 		lsLookupMu.Unlock()
 		return 0, "", fmt.Errorf("language_server not found")
 	}
-	lsof, err := runCmdTimeout(5*time.Second, "lsof", "-nP", "-p", pid, "-a", "-iTCP", "-sTCP:LISTEN")
-	if err != nil {
-		lsLookupMu.Lock()
-		lastLSFailScan = time.Now()
-		lsLookupMu.Unlock()
-		return 0, "", fmt.Errorf("lsof language_server: %w", err)
-	}
+	pid := strconv.Itoa(bestPID)
 	var ports []int
-	for _, line := range strings.Split(string(lsof), "\n") {
-		m := lsListenRE.FindStringSubmatch(line)
-		if len(m) < 2 {
-			continue
+	seenPorts := make(map[int]bool)
+	tryLsof := func() error {
+		lsof, err := runCmdTimeout(5*time.Second, "lsof", "-nP", "-p", pid, "-a", "-iTCP", "-sTCP:LISTEN")
+		if err != nil {
+			return err
 		}
-		p, convErr := strconv.Atoi(m[1])
-		if convErr == nil {
-			ports = append(ports, p)
+		for _, line := range strings.Split(string(lsof), "\n") {
+			m := lsListenRE.FindStringSubmatch(line)
+			if len(m) < 2 {
+				continue
+			}
+			if p, convErr := strconv.Atoi(m[1]); convErr == nil && p > 0 && !seenPorts[p] {
+				seenPorts[p] = true
+				ports = append(ports, p)
+			}
+		}
+		return nil
+	}
+	trySS := func() {
+		ssOut, ssErr := runCmdTimeout(5*time.Second, "ss", "-H", "-tlnp")
+		if ssErr != nil {
+			return
+		}
+		pidMarkerComma := fmt.Sprintf("pid=%d,", bestPID)
+		pidMarkerClose := fmt.Sprintf("pid=%d)", bestPID)
+		for _, line := range strings.Split(string(ssOut), "\n") {
+			if !strings.Contains(line, pidMarkerComma) && !strings.Contains(line, pidMarkerClose) {
+				continue
+			}
+			for _, f := range strings.Fields(line) {
+				if idx := strings.LastIndex(f, ":"); idx != -1 {
+					if p, convErr := strconv.Atoi(f[idx+1:]); convErr == nil && p > 0 && !seenPorts[p] {
+						seenPorts[p] = true
+						ports = append(ports, p)
+					}
+				}
+			}
+		}
+	}
+	var lsofErr error
+	if runtime.GOOS == "linux" {
+		trySS()
+		if len(ports) == 0 {
+			lsofErr = tryLsof()
+		}
+	} else {
+		lsofErr = tryLsof()
+		if len(ports) == 0 {
+			trySS()
 		}
 	}
 	if len(ports) == 0 {
 		lsLookupMu.Lock()
 		lastLSFailScan = time.Now()
 		lsLookupMu.Unlock()
+		if lsofErr != nil {
+			return 0, "", fmt.Errorf("lsof language_server: %w", lsofErr)
+		}
 		return 0, "", fmt.Errorf("language_server has no listen port")
 	}
 	cacheFoundLS(ports[0], csrf)

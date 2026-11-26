@@ -223,11 +223,10 @@ func isValidCascade(cascadeID string) bool {
 	}
 	cascadeValidCacheMu.RUnlock()
 
-	home, err := os.UserHomeDir()
-	if err != nil {
+	brainDir := resolveAntigravitySubPath("brain", cascadeID)
+	if brainDir == "" {
 		return false
 	}
-	brainDir := filepath.Join(home, ".gemini", "antigravity", "brain", cascadeID)
 	fi, err := os.Stat(brainDir)
 	valid := err == nil && fi.IsDir()
 
@@ -307,13 +306,13 @@ func ClearNewestAnnotationCache() {
 
 // scanNewestValidAnnotation scans annotations directory for the latest non-ghost cascade with a 5s TTL cache.
 func scanNewestValidAnnotation() (string, string, time.Time) {
-	home, err := os.UserHomeDir()
-	if err != nil {
+	annDir := resolveAntigravitySubPath("annotations")
+	if annDir == "" {
 		return "", "", time.Time{}
 	}
 
 	newestAnnotationCacheMu.RLock()
-	if home == cachedHomeDir && time.Since(newestAnnotationFetched) < 5*time.Second {
+	if annDir == cachedHomeDir && time.Since(newestAnnotationFetched) < 5*time.Second {
 		id, title, vt := cachedNewestID, cachedNewestTitle, cachedNewestTime
 		newestAnnotationCacheMu.RUnlock()
 		if id == "" || isValidCascade(id) {
@@ -323,11 +322,10 @@ func scanNewestValidAnnotation() (string, string, time.Time) {
 		newestAnnotationCacheMu.RUnlock()
 	}
 
-	annDir := filepath.Join(home, ".gemini", "antigravity", "annotations")
 	entries, err := os.ReadDir(annDir)
 	if err != nil {
 		newestAnnotationCacheMu.Lock()
-		cachedHomeDir = home
+		cachedHomeDir = annDir
 		cachedNewestID = ""
 		cachedNewestTitle = ""
 		cachedNewestTime = time.Time{}
@@ -359,7 +357,7 @@ func scanNewestValidAnnotation() (string, string, time.Time) {
 	}
 
 	newestAnnotationCacheMu.Lock()
-	cachedHomeDir = home
+	cachedHomeDir = annDir
 	cachedNewestID = bestID
 	cachedNewestTitle = bestTitle
 	cachedNewestTime = bestTime
@@ -426,12 +424,10 @@ func (p *Proxy) StartDesktopFocusWatcher(ctx context.Context) {
 }
 
 func (p *Proxy) startDesktopFocusWatcherWithInterval(ctx context.Context, interval time.Duration) {
-	home, err := os.UserHomeDir()
-	if err != nil {
+	if _, err := os.UserHomeDir(); err != nil && strings.TrimSpace(os.Getenv("ANTIGRAVITY_APP_DATA_DIR")) == "" {
 		slog.Info("[Cursor] Cannot determine home directory for desktop watcher", "err", err)
 		return
 	}
-	annDir := filepath.Join(home, ".gemini", "antigravity", "annotations")
 
 	if interval <= 0 {
 		interval = 2 * time.Second
@@ -443,6 +439,10 @@ func (p *Proxy) startDesktopFocusWatcherWithInterval(ctx context.Context, interv
 
 	scanPass := func() {
 		if activeID, _ := p.ActiveStream(); activeID != "" {
+			return
+		}
+		annDir := resolveAntigravitySubPath("annotations")
+		if annDir == "" {
 			return
 		}
 		entries, err := os.ReadDir(annDir)

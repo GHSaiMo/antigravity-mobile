@@ -6,7 +6,6 @@ import (
 	"context"
 	"fmt"
 	"os/exec"
-	"path/filepath"
 	"runtime"
 	"strconv"
 	"strings"
@@ -46,10 +45,9 @@ func (i *Inspector) findProcess(ctx context.Context) (int, string, error) {
 			continue
 		}
 
-		// Verify the command actually executes language_server (not a shell wrapper or python script)
-		cmdPath := fields[1]
-		base := filepath.Base(cmdPath)
-		if !strings.Contains(base, "language_server") {
+		// Verify the command actually executes language_server or agy / antigravity-cli (not a shell wrapper or python script)
+		base := ExtractCmdExecutableBase(line)
+		if !IsAntigravityProcessBase(base) {
 			continue
 		}
 

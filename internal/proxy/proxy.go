@@ -430,6 +430,10 @@ func (p *Proxy) Shutdown() {
 }
 
 func (p *Proxy) updateUpstream(info inspector.InstanceInfo) {
+	if info.AppDataDir != "" {
+		setActiveAntigravityDataDir(info.AppDataDir)
+	}
+
 	p.mu.Lock()
 	defer p.mu.Unlock()
 

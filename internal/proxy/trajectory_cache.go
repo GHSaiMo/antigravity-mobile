@@ -426,11 +426,10 @@ func readAnnotationTitle(cascadeID string) string {
 	}
 	defaultTrajCache.annotationTitleCacheMu.RUnlock()
 
-	home, err := os.UserHomeDir()
-	if err != nil {
+	p := resolveAntigravitySubPath("annotations", cascadeID+".pbtxt")
+	if p == "" {
 		return ""
 	}
-	p := filepath.Join(home, ".gemini", "antigravity", "annotations", cascadeID+".pbtxt")
 	b, err := os.ReadFile(p)
 	title := ""
 	if err == nil {
@@ -466,13 +465,11 @@ func writeAnnotationTitle(cascadeID, title string) {
 	if cascadeID == "" || !cascadeIDRe.MatchString(cascadeID) || strings.TrimSpace(title) == "" || title == "未命名会话" {
 		return
 	}
-	home, err := os.UserHomeDir()
-	if err != nil {
+	p := resolveAntigravitySubPath("annotations", cascadeID+".pbtxt")
+	if p == "" {
 		return
 	}
-	dir := filepath.Join(home, ".gemini", "antigravity", "annotations")
-	_ = os.MkdirAll(dir, 0700)
-	p := filepath.Join(dir, cascadeID+".pbtxt")
+	_ = os.MkdirAll(filepath.Dir(p), 0700)
 	b, err := os.ReadFile(p)
 	if err != nil {
 		content := fmt.Sprintf("title: %q\n", title)
@@ -506,13 +503,11 @@ func writeAnnotationArchived(cascadeID string, archived bool) {
 	if cascadeID == "" || !cascadeIDRe.MatchString(cascadeID) {
 		return
 	}
-	home, err := os.UserHomeDir()
-	if err != nil {
+	p := resolveAntigravitySubPath("annotations", cascadeID+".pbtxt")
+	if p == "" {
 		return
 	}
-	dir := filepath.Join(home, ".gemini", "antigravity", "annotations")
-	_ = os.MkdirAll(dir, 0700)
-	p := filepath.Join(dir, cascadeID+".pbtxt")
+	_ = os.MkdirAll(filepath.Dir(p), 0700)
 	b, err := os.ReadFile(p)
 	archivedStr := fmt.Sprintf("archived:%t", archived)
 	if err != nil {
@@ -533,11 +528,11 @@ func readAnnotationArchived(cascadeID string) (bool, bool) {
 	if cascadeID == "" || !cascadeIDRe.MatchString(cascadeID) {
 		return false, false
 	}
-	home, err := os.UserHomeDir()
-	if err != nil {
+	p := resolveAntigravitySubPath("annotations", cascadeID+".pbtxt")
+	if p == "" {
 		return false, false
 	}
-	b, err := os.ReadFile(filepath.Join(home, ".gemini", "antigravity", "annotations", cascadeID+".pbtxt"))
+	b, err := os.ReadFile(p)
 	if err != nil {
 		return false, false
 	}
@@ -554,13 +549,11 @@ func writeAnnotationPinned(cascadeID string, pinned bool) {
 	if cascadeID == "" || !cascadeIDRe.MatchString(cascadeID) {
 		return
 	}
-	home, err := os.UserHomeDir()
-	if err != nil {
+	p := resolveAntigravitySubPath("annotations", cascadeID+".pbtxt")
+	if p == "" {
 		return
 	}
-	dir := filepath.Join(home, ".gemini", "antigravity", "annotations")
-	_ = os.MkdirAll(dir, 0700)
-	p := filepath.Join(dir, cascadeID+".pbtxt")
+	_ = os.MkdirAll(filepath.Dir(p), 0700)
 	b, err := os.ReadFile(p)
 	pinnedStr := fmt.Sprintf("pinned:%t", pinned)
 	if err != nil {
@@ -584,13 +577,11 @@ func writeAnnotationStarred(cascadeID string, starred bool) {
 	if cascadeID == "" || !cascadeIDRe.MatchString(cascadeID) {
 		return
 	}
-	home, err := os.UserHomeDir()
-	if err != nil {
+	p := resolveAntigravitySubPath("annotations", cascadeID+".pbtxt")
+	if p == "" {
 		return
 	}
-	dir := filepath.Join(home, ".gemini", "antigravity", "annotations")
-	_ = os.MkdirAll(dir, 0700)
-	p := filepath.Join(dir, cascadeID+".pbtxt")
+	_ = os.MkdirAll(filepath.Dir(p), 0700)
 	b, err := os.ReadFile(p)
 	starredStr := fmt.Sprintf("starred:%t", starred)
 	if err != nil {
@@ -611,11 +602,11 @@ func readAnnotationStarred(cascadeID string) (bool, bool) {
 	if cascadeID == "" || !cascadeIDRe.MatchString(cascadeID) {
 		return false, false
 	}
-	home, err := os.UserHomeDir()
-	if err != nil {
+	p := resolveAntigravitySubPath("annotations", cascadeID+".pbtxt")
+	if p == "" {
 		return false, false
 	}
-	b, err := os.ReadFile(filepath.Join(home, ".gemini", "antigravity", "annotations", cascadeID+".pbtxt"))
+	b, err := os.ReadFile(p)
 	if err != nil {
 		return false, false
 	}

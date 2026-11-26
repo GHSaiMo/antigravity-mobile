@@ -23,7 +23,7 @@ func (i *Inspector) findProcess(ctx context.Context) (int, string, error) {
 	cmdCtx, cancel := context.WithTimeout(ctx, 6*time.Second)
 	defer cancel()
 
-	psScript := `Get-CimInstance Win32_Process | Where-Object { $_.Name -like '*language_server*' } | Select-Object ProcessId,CommandLine | ConvertTo-Json -Compress`
+	psScript := `Get-CimInstance Win32_Process | Where-Object { $_.Name -like '*language_server*' -or $_.Name -eq 'agy.exe' -or $_.Name -eq 'antigravity-cli.exe' } | Select-Object ProcessId,CommandLine | ConvertTo-Json -Compress`
 	cmd := exec.CommandContext(cmdCtx, "powershell.exe", "-NoProfile", "-NonInteractive", "-Command", psScript)
 	out, err := cmd.Output()
 	if err != nil {

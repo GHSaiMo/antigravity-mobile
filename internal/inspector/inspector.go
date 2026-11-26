@@ -29,6 +29,9 @@ type InstanceInfo struct {
 	// Version is the Antigravity version when the discovery source reports it (daemon files); otherwise
 	// callers can look it up from the process with LookupProcessDetails.
 	Version string `json:"version,omitempty"`
+	// AppDataDir is the discovered Antigravity data directory (e.g. ~/.gemini/antigravity or
+	// ~/.gemini/antigravity-cli) when known from daemon discovery files. Never serialized to JSON.
+	AppDataDir string `json:"-"`
 }
 
 // UpstreamDiscoverer defines the contract for discovering and monitoring Antigravity language_server instances.
@@ -302,45 +305,117 @@ type daemonDiscoveryInfo struct {
 
 var daemonDirOverride string
 
-// findFromDaemon inspects ~/.gemini/antigravity/daemon/ls_*.json written by Antigravity daemon/headless modes.
-func (i *Inspector) findFromDaemon() *InstanceInfo {
-	var daemonDir string
+func isPathWithinDir(parent, child string) bool {
+	if parent == "" || child == "" {
+		return false
+	}
+	rel, err := filepath.Rel(filepath.Clean(parent), filepath.Clean(child))
+	if err != nil {
+		return false
+	}
+	return rel == "." || (rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator)))
+}
+
+// DaemonDiscoveryDirs returns the ordered, symlink-deduplicated list of daemon discovery directories
+// to scan for {hub,ls}_*.json files. Precedence:
+//  1. MGY_ANTIGRAVITY_DATA_DIR / MULTIGRAVITY_ANTIGRAVITY_DATA_DIR (explicit user override)
+//  2. ANTIGRAVITY_APP_DATA_DIR/daemon (when within the current $HOME)
+//  3. ~/.gemini/antigravity/daemon (Desktop / primary)
+//  4. ~/.gemini/antigravity-cli/daemon (Antigravity CLI / agy fallback)
+func DaemonDiscoveryDirs() []string {
 	if daemonDirOverride != "" {
-		daemonDir = daemonDirOverride
-	} else {
-		home, err := os.UserHomeDir()
-		if err != nil || home == "" {
-			return nil
-		}
-		daemonDir = filepath.Join(home, ".gemini", "antigravity", "daemon")
+		return []string{daemonDirOverride}
 	}
-	var files []string
-	for _, pattern := range []string{"hub_*.json", "ls_*.json"} {
-		if matches, err := filepath.Glob(filepath.Join(daemonDir, pattern)); err == nil {
-			files = append(files, matches...)
-		}
+
+	home, _ := os.UserHomeDir()
+	var candidates []string
+	if customDir := strings.TrimSpace(os.Getenv("MGY_ANTIGRAVITY_DATA_DIR")); customDir != "" {
+		candidates = append(candidates, filepath.Join(filepath.Clean(customDir), "daemon"))
+	} else if customDir := strings.TrimSpace(os.Getenv("MULTIGRAVITY_ANTIGRAVITY_DATA_DIR")); customDir != "" {
+		candidates = append(candidates, filepath.Join(filepath.Clean(customDir), "daemon"))
 	}
-	if len(files) == 0 {
+	if envDir := strings.TrimSpace(os.Getenv("ANTIGRAVITY_APP_DATA_DIR")); envDir != "" && (home == "" || isPathWithinDir(home, envDir)) {
+		candidates = append(candidates, filepath.Join(filepath.Clean(envDir), "daemon"))
+	}
+	if home != "" {
+		candidates = append(candidates,
+			filepath.Join(home, ".gemini", "antigravity", "daemon"),
+			filepath.Join(home, ".gemini", "antigravity-cli", "daemon"),
+		)
+	}
+
+	seen := make(map[string]struct{}, len(candidates))
+	dirs := make([]string, 0, len(candidates))
+	for _, dir := range candidates {
+		key := filepath.Clean(dir)
+		if resolved, err := filepath.EvalSymlinks(dir); err == nil && resolved != "" {
+			key = filepath.Clean(resolved)
+		}
+		if _, dup := seen[key]; dup {
+			continue
+		}
+		seen[key] = struct{}{}
+		dirs = append(dirs, dir)
+	}
+	return dirs
+}
+
+// findFromDaemon inspects {hub,ls}_*.json written under ~/.gemini/antigravity/daemon and
+// ~/.gemini/antigravity-cli/daemon by Antigravity Desktop, daemon, or CLI (agy) modes.
+func (i *Inspector) findFromDaemon() *InstanceInfo {
+	daemonDirs := DaemonDiscoveryDirs()
+	if len(daemonDirs) == 0 {
 		return nil
 	}
 
 	type fileEntry struct {
-		path    string
-		isHub   bool
-		modTime time.Time
+		path       string
+		dir        string
+		sourceRank int
+		isHub      bool
+		modTime    time.Time
 	}
+
+	seenFiles := make(map[string]struct{})
 	var entries []fileEntry
-	for _, f := range files {
-		st, err := os.Stat(f)
-		if err == nil {
-			entries = append(entries, fileEntry{
-				path:    f,
-				isHub:   strings.HasPrefix(filepath.Base(f), "hub_"),
-				modTime: st.ModTime(),
-			})
+	for rank, daemonDir := range daemonDirs {
+		for _, pattern := range []string{"hub_*.json", "ls_*.json"} {
+			matches, err := filepath.Glob(filepath.Join(daemonDir, pattern))
+			if err != nil {
+				continue
+			}
+			for _, f := range matches {
+				key := filepath.Clean(f)
+				if resolved, err := filepath.EvalSymlinks(f); err == nil && resolved != "" {
+					key = filepath.Clean(resolved)
+				}
+				if _, dup := seenFiles[key]; dup {
+					continue
+				}
+				seenFiles[key] = struct{}{}
+
+				st, err := os.Stat(f)
+				if err != nil || st.IsDir() {
+					continue
+				}
+				entries = append(entries, fileEntry{
+					path:       f,
+					dir:        daemonDir,
+					sourceRank: rank,
+					isHub:      strings.HasPrefix(filepath.Base(f), "hub_"),
+					modTime:    st.ModTime(),
+				})
+			}
 		}
 	}
+	if len(entries) == 0 {
+		return nil
+	}
+
 	sort.Slice(entries, func(a, b int) bool {
+		if entries[a].sourceRank != entries[b].sourceRank {
+			return entries[a].sourceRank < entries[b].sourceRank
+		}
 		if entries[a].isHub != entries[b].isHub {
 			return entries[a].isHub
 		}
@@ -357,6 +432,10 @@ func (i *Inspector) findFromDaemon() *InstanceInfo {
 			continue
 		}
 		if d.HTTPSPort > 0 && i.verifyPort(d.HTTPSPort, d.CSRFToken) {
+			appDataDir := ""
+			if daemonDirOverride == "" {
+				appDataDir = filepath.Dir(entry.dir)
+			}
 			return &InstanceInfo{
 				PID:          d.PID,
 				Port:         d.HTTPSPort,
@@ -364,6 +443,7 @@ func (i *Inspector) findFromDaemon() *InstanceInfo {
 				DiscoveredAt: time.Now(),
 				IsHealthy:    true,
 				Version:      d.LSVersion,
+				AppDataDir:   appDataDir,
 			}
 		}
 	}

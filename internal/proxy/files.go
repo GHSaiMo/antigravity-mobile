@@ -185,7 +185,7 @@ func resolveLocalFilePathExact(rawURI, cascadeID string) (string, error) {
 	// 1. Artifact static route: /static/artifacts/<cascadeId>/<filename>
 	if strings.HasPrefix(clean, "/static/artifacts/") {
 		sub := strings.TrimPrefix(clean, "/static/artifacts/")
-		return joinUnder(filepath.Join(home, ".gemini", "antigravity", "brain"), sub)
+		return resolveAntigravityBrainPath(home, sub)
 	}
 
 	// 2. file:// protocol
@@ -203,21 +203,32 @@ func resolveLocalFilePathExact(rawURI, cascadeID string) (string, error) {
 		}
 	}
 
-	// 3. Brain path detection: if it points to .gemini/antigravity/brain or /brain/
+	// 3. Brain path detection: if it points to .gemini/antigravity(-cli)/brain or /brain/
 	slashClean := filepath.ToSlash(clean)
 	if idx := strings.Index(slashClean, "/brain/"); idx != -1 {
 		sub := clean[idx+len("/brain/"):]
-		return joinUnder(filepath.Join(home, ".gemini", "antigravity", "brain"), sub)
+		lowerSlash := strings.ToLower(slashClean[:idx])
+		if strings.HasSuffix(lowerSlash, "/.gemini/antigravity-cli") {
+			if p, err := joinUnder(filepath.Join(home, ".gemini", "antigravity-cli", "brain"), sub); err != nil {
+				return "", err
+			} else if _, stErr := os.Stat(p); stErr == nil {
+				return p, nil
+			}
+		} else if strings.HasSuffix(lowerSlash, "/.gemini/antigravity") {
+			if p, err := joinUnder(filepath.Join(home, ".gemini", "antigravity", "brain"), sub); err != nil {
+				return "", err
+			} else if _, stErr := os.Stat(p); stErr == nil {
+				return p, nil
+			}
+		}
+		return resolveAntigravityBrainPath(home, sub)
 	}
 
 	// 4. Bare filename like "implementation_plan.md" or "walkthrough.md" with cascadeID
 	if !strings.ContainsAny(clean, "/\\") && cascadeID != "" {
-		planPath, err := joinUnder(filepath.Join(home, ".gemini", "antigravity", "brain"), filepath.Join(cascadeID, clean))
+		planPath, err := resolveAntigravityBrainPath(home, filepath.Join(cascadeID, clean))
 		if err != nil {
 			return "", err
-		}
-		if _, err := os.Stat(planPath); err == nil {
-			return planPath, nil
 		}
 		return planPath, nil
 	}
@@ -244,7 +255,7 @@ func resolveLocalFilePathExact(rawURI, cascadeID string) (string, error) {
 
 	// 7. If relative path and cascadeID is provided, check brain directory first
 	if cascadeID != "" {
-		planPath, err := joinUnder(filepath.Join(home, ".gemini", "antigravity", "brain"), filepath.Join(cascadeID, clean))
+		planPath, err := resolveAntigravityBrainPath(home, filepath.Join(cascadeID, clean))
 		if err == nil {
 			if _, err := os.Stat(planPath); err == nil {
 				if !IsSafeReadableFilePath(planPath) {
@@ -281,31 +292,34 @@ func resolveMovedInboxAttachment(home, cleanPath, cascadeID string) (string, boo
 	if base == "" || base == "." || base == ".." {
 		return "", false
 	}
-	brainRoot := filepath.Join(home, ".gemini", "antigravity", "brain")
 
-	if cascadeID != "" {
-		candidate, err := joinUnder(brainRoot, filepath.Join(cascadeID, ".user_uploaded", base))
-		if err == nil {
-			if st, err := os.Stat(candidate); err == nil && st.Mode().IsRegular() && IsSafeReadableFilePath(candidate) {
-				return candidate, true
-			}
-		}
-	}
+	for _, agRoot := range antigravityHomeCandidatesForHome(home) {
+		brainRoot := filepath.Join(agRoot, "brain")
 
-	// Fallback across brain sessions when base carries the unique 16-hex content prefix.
-	if len(base) > attachmentIDLen+1 && base[attachmentIDLen] == '-' && attachmentIDPattern.MatchString(base[:attachmentIDLen]) {
-		entries, err := os.ReadDir(brainRoot)
-		if err == nil {
-			for _, e := range entries {
-				if !e.IsDir() {
-					continue
-				}
-				candidate, err := joinUnder(brainRoot, filepath.Join(e.Name(), ".user_uploaded", base))
-				if err != nil {
-					continue
-				}
+		if cascadeID != "" {
+			candidate, err := joinUnder(brainRoot, filepath.Join(cascadeID, ".user_uploaded", base))
+			if err == nil {
 				if st, err := os.Stat(candidate); err == nil && st.Mode().IsRegular() && IsSafeReadableFilePath(candidate) {
 					return candidate, true
+				}
+			}
+		}
+
+		// Fallback across brain sessions when base carries the unique 16-hex content prefix.
+		if len(base) > attachmentIDLen+1 && base[attachmentIDLen] == '-' && attachmentIDPattern.MatchString(base[:attachmentIDLen]) {
+			entries, err := os.ReadDir(brainRoot)
+			if err == nil {
+				for _, e := range entries {
+					if !e.IsDir() {
+						continue
+					}
+					candidate, err := joinUnder(brainRoot, filepath.Join(e.Name(), ".user_uploaded", base))
+					if err != nil {
+						continue
+					}
+					if st, err := os.Stat(candidate); err == nil && st.Mode().IsRegular() && IsSafeReadableFilePath(candidate) {
+						return candidate, true
+					}
 				}
 			}
 		}
@@ -364,6 +378,7 @@ var sensitiveDirSubstrings = []string{
 	"/.cargo/", "/.gem/", "/.m2/", "/.gradle/", "/.config/pip/",
 	// Antigravity internal session connection & presence lock directories (contain LS port & CSRF token).
 	"/.gemini/antigravity/daemon/", "/.gemini/antigravity/presence/",
+	"/.gemini/antigravity-cli/daemon/", "/.gemini/antigravity-cli/presence/",
 }
 
 func hasSensitiveDirComponent(resolved string) bool {
@@ -641,6 +656,7 @@ func allowedWorkspaceRootsWithSeq() ([]string, uint64) {
 
 	var roots []string
 	roots = appendNormalizedRootPrefix(roots, filepath.Join(home, ".gemini", "antigravity"))
+	roots = appendNormalizedRootPrefix(roots, filepath.Join(home, ".gemini", "antigravity-cli"))
 	if extra != "" {
 		for _, raw := range filepath.SplitList(extra) {
 			raw = strings.TrimSpace(raw)
@@ -794,9 +810,14 @@ func isSafePathUnderRoots(path string, roots []string) bool {
 	for _, sf := range []string{
 		"/.gemini/settings.json",
 		"/.gemini/config/config.json",
+		"/.gemini/antigravity/settings.json",
 		"/.gemini/antigravity/mcp_config.json",
 		"/.gemini/antigravity/antigravity_state.pbtxt",
 		"/.gemini/antigravity/agyhub_summaries_proto.pb",
+		"/.gemini/antigravity-cli/settings.json",
+		"/.gemini/antigravity-cli/mcp_config.json",
+		"/.gemini/antigravity-cli/antigravity_state.pbtxt",
+		"/.gemini/antigravity-cli/agyhub_summaries_proto.pb",
 	} {
 		if strings.HasSuffix(slashPath, sf) {
 			return false
@@ -814,7 +835,7 @@ func isSafePathUnderRoots(path string, roots []string) bool {
 		".zshrc", ".zprofile", ".zshenv", ".bashrc", ".bash_profile", ".profile",
 		".pgpass", ".my.cnf", ".vault-token", ".s3cfg", ".boto", "credentials", "credentials.toml",
 		"hosts.yml", "secrets.json", "secrets.yml", "secrets.yaml", "service-account.json",
-		"oauth_creds.json", "jetski-standalone-oauth-token", "google_accounts.json", "mcp_config.json",
+		"oauth_creds.json", "jetski-standalone-oauth-token", "antigravity-oauth-token", "google_accounts.json", "mcp_config.json",
 		"auth_store.json", "credentials.db", "credentials.json",
 		"secure-account-storage.key", "cf_tunnel.json", "admin_token",
 		"server.key", "client.key", "ca.key", "tls.key", "ssl.key", "privkey.key",

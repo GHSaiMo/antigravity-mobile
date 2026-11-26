@@ -289,7 +289,9 @@ func allowedMemoryRoots(workspacePath string) []string {
 		filepath.Join(home, ".gemini", "GEMINI.md"),
 		filepath.Join(home, ".gemini", "config", "GEMINI.md"),
 		filepath.Join(home, ".agents", "rules"),
-		filepath.Join(home, ".gemini", "antigravity", "memories"),
+	}
+	for _, agDir := range antigravityHomeCandidatesForHome(home) {
+		roots = append(roots, filepath.Join(agDir, "memories"))
 	}
 	if workspacePath != "" {
 		roots = append(roots,
@@ -446,7 +448,7 @@ func (p *Proxy) HandleMemories(w http.ResponseWriter, r *http.Request) {
 			}
 			targetPath = filepath.Join(workspacePath, ".agents", "rules", slug+".md")
 		case "memory":
-			targetPath = filepath.Join(home, ".gemini", "antigravity", "memories", slug+".md")
+			targetPath = filepath.Join(resolveAntigravityHomeDirForHome(home), "memories", slug+".md")
 		default:
 			targetPath = filepath.Join(home, ".agents", "rules", slug+".md")
 		}
@@ -556,7 +558,9 @@ func collectLocalMemories(home, workspacePath string) []MemoryEntry {
 	}
 
 	scanRuleDir(filepath.Join(home, ".agents", "rules"), "global")
-	scanRuleDir(filepath.Join(home, ".gemini", "antigravity", "memories"), "memory")
+	for _, agDir := range antigravityHomeCandidatesForHome(home) {
+		scanRuleDir(filepath.Join(agDir, "memories"), "memory")
+	}
 	if workspacePath != "" {
 		addFile("项目指令 (GEMINI.md)", "workspace", filepath.Join(workspacePath, "GEMINI.md"))
 		scanRuleDir(filepath.Join(workspacePath, ".agents", "rules"), "workspace")

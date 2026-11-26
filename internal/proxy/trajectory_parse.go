@@ -691,6 +691,7 @@ func isBrainArtifactURI(uri string) bool {
 	}
 	return strings.Contains(lower, "/brain/") ||
 		strings.Contains(lower, ".gemini/antigravity/brain") ||
+		strings.Contains(lower, ".gemini/antigravity-cli/brain") ||
 		strings.Contains(lower, "/static/artifacts/")
 }
 
@@ -1297,6 +1298,7 @@ func detectProceed(rawResp *upstreamTrajectoryResp, steps []TrajectoryStep, last
 				isArtifact := (ca.IsArtifactFile ||
 					strings.Contains(uri, "/brain/") ||
 					strings.Contains(uri, ".gemini/antigravity/brain") ||
+					strings.Contains(uri, ".gemini/antigravity-cli/brain") ||
 					isPlan) && !isScratch
 
 				if isArtifact {
@@ -1326,8 +1328,7 @@ func detectProceed(rawResp *upstreamTrajectoryResp, steps []TrajectoryStep, last
 
 							// Fallback: ONLY check implementation_plan.md.metadata.json if this step actually targets implementation_plan.md
 							if !reqFeedback && isPlan && rawResp.Trajectory.CascadeID != "" {
-								if home, err := os.UserHomeDir(); err == nil && home != "" {
-									planMetaPath := filepath.Join(home, ".gemini/antigravity/brain", rawResp.Trajectory.CascadeID, "implementation_plan.md.metadata.json")
+								if planMetaPath := resolveAntigravitySubPath("brain", rawResp.Trajectory.CascadeID, "implementation_plan.md.metadata.json"); planMetaPath != "" {
 									if readMetadataRequestFeedback(planMetaPath) {
 										reqFeedback = true
 									}

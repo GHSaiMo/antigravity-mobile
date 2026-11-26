@@ -95,13 +95,13 @@ func sqliteDBStamp(dbPath string) string {
 	return fmt.Sprintf("%s|%d|%d|%d|%d", dbPath, fi.ModTime().UnixNano(), fi.Size(), walNano, walSize)
 }
 
-// getAntigravityDBPath returns the absolute path to conversation_summaries.db if it exists.
+// getAntigravityDBPath returns the absolute path to conversation_summaries.db if it exists,
+// checking ~/.gemini/antigravity first and falling back to ~/.gemini/antigravity-cli.
 func getAntigravityDBPath() string {
-	home, err := os.UserHomeDir()
-	if err != nil {
+	p := resolveAntigravitySubPath("conversation_summaries.db")
+	if p == "" {
 		return ""
 	}
-	p := filepath.Join(home, ".gemini", "antigravity", "conversation_summaries.db")
 	if fi, err := os.Stat(p); err == nil && !fi.IsDir() {
 		return p
 	}

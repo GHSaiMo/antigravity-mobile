@@ -1261,11 +1261,10 @@ func resolveDesktopSelectedModelIDAndName(raw string) (id, displayName string) {
 // with an optional statSkipTTL fast window (e.g. 1s on streaming hot paths) plus (mtime, size) caching
 // and zero-allocation bytes.Index scanning on file change.
 func readDesktopSelectedModelCached(statSkipTTL time.Duration) (id, displayName string) {
-	home, err := os.UserHomeDir()
-	if err != nil || home == "" {
+	statePath := resolveAntigravitySubPath("antigravity_state.pbtxt")
+	if statePath == "" {
 		return "", ""
 	}
-	statePath := filepath.Join(home, ".gemini", "antigravity", "antigravity_state.pbtxt")
 	now := time.Now()
 
 	if statSkipTTL > 0 {

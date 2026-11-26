@@ -10,7 +10,6 @@ import (
 	"math"
 	"net/http"
 	"os"
-	"path/filepath"
 	"sort"
 	"strconv"
 	"strings"
@@ -288,12 +287,10 @@ func (p *Proxy) SyncHistoricalTrajectories(port int, token string) error {
 		return nil
 	}
 
-	home, err := os.UserHomeDir()
-	if err != nil {
-		return err
+	convDir := resolveAntigravitySubPath("conversations")
+	if convDir == "" {
+		return fmt.Errorf("cannot resolve antigravity conversations directory")
 	}
-
-	convDir := filepath.Join(home, ".gemini", "antigravity", "conversations")
 	entries, err := os.ReadDir(convDir)
 	if err != nil {
 		return err
