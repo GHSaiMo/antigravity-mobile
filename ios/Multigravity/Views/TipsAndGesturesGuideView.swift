@@ -78,6 +78,15 @@ public struct TipsAndGesturesGuideView: View {
                     title: String(localized: "左滑归档会话"),
                     description: String(localized: "向左轻扫会话卡片可一键归档，保持列表清爽；在聚合模式下选择「已归档」，即可随时找到已归档的会话。")
                 )
+                TipRow(
+                    icon: "desktopcomputer",
+                    badgeColor: badgeColor(
+                        light: .indigo,
+                        dark: Color(red: 0.38, green: 0.44, blue: 0.62)
+                    ),
+                    title: String(localized: "多主机快捷切换"),
+                    description: String(localized: "长按顶部「Multigravity」标题并下滑可添加或切换多台电脑网关；绑定 2 台及以上主机后，左右轻扫标题可快速轮换，列表上滑收拢后轻点居中主机名也可一键展开切换面板。")
+                )
             }
 
             // 2. 对话与模型调度

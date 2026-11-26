@@ -304,6 +304,37 @@ public final class GatewayProfileStore {
         profiles.count > 1
     }
 
+    /// True when at least one non-active paired gateway currently reports pending user approvals.
+    public var hasInactivePendingAction: Bool {
+        guard profiles.count > 1 else { return false }
+        let currentActiveId = activeProfile?.id
+        return summaries.contains { profileId, snap in
+            profileId != currentActiveId && snap.actionCount > 0
+        }
+    }
+
+    /// 1-based `(index, total)` position of the active gateway in the stable profiles order.
+    public var activeProfileDisplayPosition: (index: Int, total: Int)? {
+        let total = profiles.count
+        guard total > 0 else { return nil }
+        guard let aid = activeProfile?.id,
+              let idx = profiles.firstIndex(where: { $0.id == aid }) else {
+            return (1, total)
+        }
+        return (idx + 1, total)
+    }
+
+    /// Returns the next (`step > 0`) or previous (`step < 0`) gateway in stable cyclic order.
+    public func adjacentProfile(step: Int) -> GatewayProfile? {
+        let count = profiles.count
+        guard count > 1, step != 0 else { return nil }
+        let currentIdx = activeProfile.flatMap { active in
+            profiles.firstIndex(where: { $0.id == active.id })
+        } ?? 0
+        let normalized = ((currentIdx + step) % count + count) % count
+        return profiles[normalized]
+    }
+
     private init() {
         loadFromDisk()
     }

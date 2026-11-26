@@ -29,11 +29,16 @@ public struct SettingsSheet: View {
         NavigationStack {
             Form {
                 // MARK: - 1. 设备配对与鉴权
+                let gwStore = GatewayProfileStore.shared
+                let showHostInSettings = settings.isPaired && !settings.isDemoMode && gwStore.hasMultipleGateways
+                let activeHostLabel = gwStore.activeProfile?.resolvedDisplayName ?? settings.gatewayPlatformDisplayName
                 Section(
                     header: Text("设备配对"),
                     footer: Text(settings.isDemoMode
                                  ? String(localized: "当前为演示模式，数据均为模拟，不会连接任何电脑。")
-                                 : String(localized: "管理当前设备与 \(settings.gatewayPlatformDisplayName) 的配对状态。"))
+                                 : (showHostInSettings
+                                    ? String(localized: "管理当前设备与「\(activeHostLabel)」的配对状态。")
+                                    : String(localized: "管理当前设备与 \(settings.gatewayPlatformDisplayName) 的配对状态。")))
                 ) {
                     HStack {
                         Text("配对状态")
@@ -43,8 +48,14 @@ public struct SettingsSheet: View {
                                 Image(systemName: "checkmark.circle.fill")
                                     .foregroundColor(.green)
                                     .font(.system(size: 14))
-                                Text(settings.isDemoMode ? String(localized: "演示模式") : String(localized: "已配对"))
+                                Text(settings.isDemoMode
+                                     ? String(localized: "演示模式")
+                                     : (showHostInSettings
+                                        ? String(localized: "已配对 · \(activeHostLabel)")
+                                        : String(localized: "已配对")))
                                     .foregroundColor(.secondary)
+                                    .lineLimit(1)
+                                    .truncationMode(.tail)
                             }
                         } else {
                             Text("未配对")

@@ -45,7 +45,10 @@ public struct ConversationListView: View {
     @State private var firstCardPeekOffset: CGFloat = 0
 
     @State private var gatewayPickerState = GatewaySlidePickerState()
+    @State private var gatewayStore = GatewayProfileStore.shared
     @State private var gatewaySwitcher = GatewaySwitcher.shared
+    @State private var isNavTitleCollapsed: Bool = false
+    @State private var scrollToTopToken: Int = 0
     @State private var gatewayToRename: GatewayProfile? = nil
     @State private var gatewayRenameText = ""
     @State private var showGatewayRenameAlert = false
@@ -382,6 +385,7 @@ public struct ConversationListView: View {
             navigationPath = []
             chatSessionStore.clearAll()
             viewModel.resetForGatewaySwitch()
+            scrollToTopToken += 1
             Task {
                 async let projects = ProjectCacheManager.shared.fetchAndCacheProjects()
                 async let workflows: Void = WorkflowTemplateStore.shared.refresh()
@@ -967,6 +971,50 @@ public struct ConversationListView: View {
         )
     }
 
+    private var shouldUseCollapsedHostHeader: Bool {
+        settings.isPaired && !settings.isDemoMode && gatewayStore.hasMultipleGateways
+    }
+
+    private var collapsedHostTitleView: some View {
+        let hostName = gatewayStore.activeProfile?.resolvedDisplayName ?? "Multigravity"
+        let hasPendingAction = gatewayStore.hasInactivePendingAction
+        return HStack(spacing: 4) {
+            Text(hostName)
+                .font(.system(size: 16.5, weight: .semibold))
+                .foregroundColor(.primary)
+                .lineLimit(1)
+                .truncationMode(.tail)
+            Image(systemName: "chevron.down")
+                .font(.system(size: 10.5, weight: .bold))
+                .foregroundColor(.secondary)
+                .rotationEffect(.degrees(gatewayPickerState.isPresented ? 180 : 0))
+                .animation(.spring(response: 0.25, dampingFraction: 0.82), value: gatewayPickerState.isPresented)
+                .fixedSize()
+            if hasPendingAction {
+                Circle()
+                    .fill(Color.orange)
+                    .frame(width: 5.5, height: 5.5)
+                    .fixedSize()
+            }
+        }
+        .padding(.horizontal, 8)
+        .padding(.vertical, 5)
+        .contentShape(Rectangle())
+        .opacity(isNavTitleCollapsed ? 1 : 0)
+        .offset(y: isNavTitleCollapsed ? 0 : 4)
+        .animation(.easeOut(duration: 0.16), value: isNavTitleCollapsed)
+        .allowsHitTesting(false)
+        .accessibilityElement(children: .combine)
+        .accessibilityAddTraits(.isButton)
+        .accessibilityHidden(!isNavTitleCollapsed)
+        .accessibilityLabel(
+            hasPendingAction
+                ? String(localized: "当前主机 \(hostName)，其他主机有待审批")
+                : String(localized: "当前主机 \(hostName)")
+        )
+        .accessibilityHint(String(localized: "轻点展开主机切换面板，左右轻扫快速切换主机"))
+    }
+
     /// The conversation list with its navigation chrome (title, search, toolbar).
     private var listWithChrome: some View {
         pairedContentView
@@ -998,6 +1046,11 @@ public struct ConversationListView: View {
                     .keyboardShortcut(",", modifiers: .command)
                     .help("设置")
                 }
+                if shouldUseCollapsedHostHeader {
+                    ToolbarItem(placement: .principal) {
+                        collapsedHostTitleView
+                    }
+                }
                 ToolbarItem(placement: .topBarTrailing) {
                     Button(action: handleNewConversationTapped) {
                         Image(systemName: "plus")
@@ -1009,14 +1062,35 @@ public struct ConversationListView: View {
             }
             .background(
                 NavigationBarTapHelper(
+                    scrollToTopToken: scrollToTopToken,
                     onTap: handleEasterEggTap,
+                    canOpenCollapsedDropdown: {
+                        AppSettings.shared.isPaired
+                            && !AppSettings.shared.isDemoMode
+                            && GatewayProfileStore.shared.hasMultipleGateways
+                    },
+                    onCollapsedTitleTap: { anchorRectInWindow, windowSize in
+                        if gatewayPickerState.isPresented {
+                            gatewayPickerState.dismiss()
+                            return
+                        }
+                        GatewayProfileStore.shared.updateActiveSummary(from: viewModel.conversations)
+                        gatewayPickerState.openInteractive(
+                            anchorRect: anchorRectInWindow,
+                            containerSize: windowSize,
+                            centered: true
+                        )
+                    },
                     canBeginLongPress: {
                         AppSettings.shared.isPaired && !AppSettings.shared.isDemoMode
                     },
-                    onLongPressBegan: { anchorRectInWindow, windowSize in
+                    onLongPressBegan: { anchorRectInWindow, windowSize, isCollapsedInline in
                         gatewayPickerState.containerSize = windowSize
                         GatewayProfileStore.shared.updateActiveSummary(from: viewModel.conversations)
-                        gatewayPickerState.open(anchorRect: anchorRectInWindow)
+                        gatewayPickerState.open(
+                            anchorRect: anchorRectInWindow,
+                            centered: isCollapsedInline
+                        )
                     },
                     onLongPressChanged: { pointInWindow in
                         gatewayPickerState.updateDrag(
@@ -1041,6 +1115,25 @@ public struct ConversationListView: View {
                     },
                     onLongPressCancelled: {
                         gatewayPickerState.dismiss()
+                    },
+                    canHorizontalSwipe: {
+                        AppSettings.shared.isPaired
+                            && !AppSettings.shared.isDemoMode
+                            && GatewayProfileStore.shared.hasMultipleGateways
+                            && !gatewayPickerState.isPresented
+                    },
+                    onHorizontalSwipe: { step in
+                        UIImpactFeedbackGenerator(style: .rigid).impactOccurred()
+                        _ = GatewaySwitcher.shared.cycle(
+                            step: step,
+                            currentConversations: viewModel.conversations,
+                            showToast: true
+                        )
+                    },
+                    onTitleCollapsedChanged: { collapsed in
+                        if isNavTitleCollapsed != collapsed {
+                            isNavTitleCollapsed = collapsed
+                        }
                     }
                 )
             )
@@ -1193,12 +1286,18 @@ public struct ConversationListView: View {
     }
     
     private func errorView(_ err: String) -> some View {
-        VStack(spacing: 14) {
+        let hasMultiple = !settings.isDemoMode && gatewayStore.hasMultipleGateways
+        let activeHostName = gatewayStore.activeProfile?.resolvedDisplayName ?? ""
+        return VStack(spacing: 14) {
             Image(systemName: "exclamationmark.triangle.fill")
                 .font(.system(size: 44))
                 .foregroundColor(.orange)
-            Text("无法连接网关")
+            Text(hasMultiple && !activeHostName.isEmpty
+                 ? String(localized: "无法连接「\(activeHostName)」")
+                 : String(localized: "无法连接网关"))
                 .font(.system(size: 17, weight: .semibold))
+                .multilineTextAlignment(.center)
+                .padding(.horizontal, 24)
             Text(err)
                 .font(.system(size: 13))
                 .foregroundColor(.secondary)
@@ -1223,11 +1322,29 @@ public struct ConversationListView: View {
                     .buttonStyle(.bordered)
                 }
                 
-                Button("打开设置") {
-                    showSettings = true
+                HStack(spacing: 20) {
+                    if hasMultiple {
+                        Button("切换其他主机") {
+                            let containerW = layoutGeometry.width > 0 ? layoutGeometry.width : 390
+                            let containerH = layoutGeometry.height > 0 ? layoutGeometry.height : 844
+                            let anchorCenterX = usesSplitLayout ? (splitColumnMetrics.sidebarWidth / 2) : (containerW / 2)
+                            let anchor = CGRect(x: anchorCenterX - 80, y: 104, width: 160, height: 32)
+                            gatewayPickerState.openInteractive(
+                                anchorRect: anchor,
+                                containerSize: CGSize(width: containerW, height: containerH),
+                                centered: true
+                            )
+                        }
+                        .font(.system(size: 14, weight: .medium))
+                        .foregroundColor(.indigo)
+                    }
+
+                    Button("打开设置") {
+                        showSettings = true
+                    }
+                    .font(.system(size: 14))
+                    .foregroundColor(.secondary)
                 }
-                .font(.system(size: 14))
-                .foregroundColor(.secondary)
                 .padding(.top, 4)
             }
             .padding(.top, 6)
@@ -2700,18 +2817,38 @@ private extension UIView {
         }
         return nil
     }
+
+    var nearestViewController: UIViewController? {
+        var responder: UIResponder? = self
+        while let next = responder?.next {
+            if let vc = next as? UIViewController {
+                return vc
+            }
+            responder = next
+        }
+        return nil
+    }
 }
 
 class NavigationBarTapGestureRecognizer: UITapGestureRecognizer {}
 class NavigationBarLongPressGestureRecognizer: UILongPressGestureRecognizer {}
+class NavigationBarHorizontalPanGestureRecognizer: UIPanGestureRecognizer {}
 
 private final class NavigationBarHookView: UIView {
     weak var coordinator: NavigationBarTapHelper.Coordinator?
+    private weak var observedNavBar: UINavigationBar?
+    private var boundsObservation: NSKeyValueObservation?
+    private var lastReportedCollapsed: Bool? = nil
+    var lastHandledScrollToTopToken: Int = 0
     
     override func didMoveToWindow() {
         super.didMoveToWindow()
         if window != nil {
             configure()
+        } else {
+            boundsObservation?.invalidate()
+            boundsObservation = nil
+            observedNavBar = nil
         }
     }
     
@@ -2721,6 +2858,10 @@ private final class NavigationBarHookView: UIView {
             configure()
         }
     }
+
+    deinit {
+        boundsObservation?.invalidate()
+    }
     
     func configure() {
         DispatchQueue.main.async { [weak self] in
@@ -2729,13 +2870,20 @@ private final class NavigationBarHookView: UIView {
             let navBar = nav.navigationBar
             let recognizers = navBar.gestureRecognizers ?? []
             guard let coordinator = self.coordinator else { return }
-            if !recognizers.contains(where: { $0 is NavigationBarTapGestureRecognizer }) {
+            coordinator.hookView = self
+            coordinator.navigationController = nav
+
+            let existingTap = recognizers.first(where: { $0 is NavigationBarTapGestureRecognizer })
+            if existingTap?.delegate !== coordinator {
+                if let old = existingTap { navBar.removeGestureRecognizer(old) }
                 let tap = NavigationBarTapGestureRecognizer(target: coordinator, action: #selector(NavigationBarTapHelper.Coordinator.handleTap))
                 tap.cancelsTouchesInView = false
                 tap.delegate = coordinator
                 navBar.addGestureRecognizer(tap)
             }
-            if !recognizers.contains(where: { $0 is NavigationBarLongPressGestureRecognizer }) {
+            let existingLP = recognizers.first(where: { $0 is NavigationBarLongPressGestureRecognizer })
+            if existingLP?.delegate !== coordinator {
+                if let old = existingLP { navBar.removeGestureRecognizer(old) }
                 let lp = NavigationBarLongPressGestureRecognizer(target: coordinator, action: #selector(NavigationBarTapHelper.Coordinator.handleLongPress))
                 lp.minimumPressDuration = 0.22
                 lp.allowableMovement = 12
@@ -2743,26 +2891,113 @@ private final class NavigationBarHookView: UIView {
                 lp.delegate = coordinator
                 navBar.addGestureRecognizer(lp)
             }
+            let existingPan = recognizers.first(where: { $0 is NavigationBarHorizontalPanGestureRecognizer })
+            if existingPan?.delegate !== coordinator {
+                if let old = existingPan { navBar.removeGestureRecognizer(old) }
+                let pan = NavigationBarHorizontalPanGestureRecognizer(target: coordinator, action: #selector(NavigationBarTapHelper.Coordinator.handleHorizontalPan))
+                pan.maximumNumberOfTouches = 1
+                pan.cancelsTouchesInView = true
+                pan.delegate = coordinator
+                navBar.addGestureRecognizer(pan)
+            }
+
+            if self.observedNavBar !== navBar {
+                self.boundsObservation?.invalidate()
+                self.observedNavBar = navBar
+                self.boundsObservation = navBar.observe(\.bounds, options: [.initial, .new]) { [weak self, weak nav] bar, _ in
+                    DispatchQueue.main.async {
+                        guard let self, let nav else { return }
+                        self.evaluateCollapsedState(nav: nav, navBar: bar)
+                    }
+                }
+            } else {
+                self.evaluateCollapsedState(nav: nav, navBar: navBar)
+            }
         }
+    }
+
+    func scrollListToTopIfNeeded(token: Int) {
+        guard token != lastHandledScrollToTopToken else { return }
+        lastHandledScrollToTopToken = token
+        DispatchQueue.main.async { [weak self] in
+            guard let self, let rootVC = self.nearestViewController else { return }
+            guard let scrollView = Self.findPrimaryScrollView(in: rootVC.view) else { return }
+            let targetY = -scrollView.adjustedContentInset.top
+            if scrollView.contentOffset.y > targetY + 1 {
+                scrollView.setContentOffset(CGPoint(x: scrollView.contentOffset.x, y: targetY), animated: false)
+            }
+        }
+    }
+
+    private func evaluateCollapsedState(nav: UINavigationController, navBar: UINavigationBar) {
+        guard self.window != nil else { return }
+        // Only track large-title collapse when the root list screen is the active top controller.
+        let isRootTop = nav.viewControllers.count <= 1 || nav.topViewController === self.nearestViewController
+        guard isRootTop else { return }
+
+        let height = navBar.bounds.height
+        guard height > 1 else { return }
+
+        // Hysteresis thresholds between inline bar (~44–54pt) and expanded large title (~96pt).
+        let nextCollapsed: Bool
+        if let prev = lastReportedCollapsed {
+            if prev {
+                nextCollapsed = height < 64
+            } else {
+                nextCollapsed = height <= 58
+            }
+        } else {
+            nextCollapsed = height <= 58
+        }
+
+        if nextCollapsed != lastReportedCollapsed {
+            lastReportedCollapsed = nextCollapsed
+            coordinator?.onTitleCollapsedChanged(nextCollapsed)
+        }
+    }
+
+    private static func findPrimaryScrollView(in view: UIView) -> UIScrollView? {
+        if let scroll = view as? UIScrollView,
+           scroll.isScrollEnabled,
+           scroll.bounds.height > 120 {
+            return scroll
+        }
+        for sub in view.subviews {
+            if let found = findPrimaryScrollView(in: sub) {
+                return found
+            }
+        }
+        return nil
     }
 }
 
 private struct NavigationBarTapHelper: UIViewRepresentable {
+    let scrollToTopToken: Int
     let onTap: () -> Void
+    let canOpenCollapsedDropdown: () -> Bool
+    let onCollapsedTitleTap: (CGRect, CGSize) -> Void
     let canBeginLongPress: () -> Bool
-    let onLongPressBegan: (CGRect, CGSize) -> Void
+    let onLongPressBegan: (CGRect, CGSize, Bool) -> Void
     let onLongPressChanged: (CGPoint) -> Void
     let onLongPressEnded: () -> Void
     let onLongPressCancelled: () -> Void
+    let canHorizontalSwipe: () -> Bool
+    let onHorizontalSwipe: (Int) -> Void
+    let onTitleCollapsedChanged: (Bool) -> Void
     
     func makeCoordinator() -> Coordinator {
         Coordinator(
             onTap: onTap,
+            canOpenCollapsedDropdown: canOpenCollapsedDropdown,
+            onCollapsedTitleTap: onCollapsedTitleTap,
             canBeginLongPress: canBeginLongPress,
             onLongPressBegan: onLongPressBegan,
             onLongPressChanged: onLongPressChanged,
             onLongPressEnded: onLongPressEnded,
-            onLongPressCancelled: onLongPressCancelled
+            onLongPressCancelled: onLongPressCancelled,
+            canHorizontalSwipe: canHorizontalSwipe,
+            onHorizontalSwipe: onHorizontalSwipe,
+            onTitleCollapsedChanged: onTitleCollapsedChanged
         )
     }
     
@@ -2771,43 +3006,81 @@ private struct NavigationBarTapHelper: UIViewRepresentable {
         view.isUserInteractionEnabled = false
         view.backgroundColor = .clear
         view.coordinator = context.coordinator
+        view.lastHandledScrollToTopToken = scrollToTopToken
         return view
     }
     
     func updateUIView(_ uiView: NavigationBarHookView, context: Context) {
         context.coordinator.onTap = onTap
+        context.coordinator.canOpenCollapsedDropdown = canOpenCollapsedDropdown
+        context.coordinator.onCollapsedTitleTap = onCollapsedTitleTap
         context.coordinator.canBeginLongPress = canBeginLongPress
         context.coordinator.onLongPressBegan = onLongPressBegan
         context.coordinator.onLongPressChanged = onLongPressChanged
         context.coordinator.onLongPressEnded = onLongPressEnded
         context.coordinator.onLongPressCancelled = onLongPressCancelled
+        context.coordinator.canHorizontalSwipe = canHorizontalSwipe
+        context.coordinator.onHorizontalSwipe = onHorizontalSwipe
+        context.coordinator.onTitleCollapsedChanged = onTitleCollapsedChanged
         uiView.coordinator = context.coordinator
         uiView.configure()
+        uiView.scrollListToTopIfNeeded(token: scrollToTopToken)
     }
     
     class Coordinator: NSObject, UIGestureRecognizerDelegate {
+        weak var hookView: NavigationBarHookView?
+        weak var navigationController: UINavigationController?
+
         var onTap: () -> Void
+        var canOpenCollapsedDropdown: () -> Bool
+        var onCollapsedTitleTap: (CGRect, CGSize) -> Void
         var canBeginLongPress: () -> Bool
-        var onLongPressBegan: (CGRect, CGSize) -> Void
+        var onLongPressBegan: (CGRect, CGSize, Bool) -> Void
         var onLongPressChanged: (CGPoint) -> Void
         var onLongPressEnded: () -> Void
         var onLongPressCancelled: () -> Void
+        var canHorizontalSwipe: () -> Bool
+        var onHorizontalSwipe: (Int) -> Void
+        var onTitleCollapsedChanged: (Bool) -> Void
+
         private var suppressNextTap = false
+        private var hasTriggeredHorizontalSwitch = false
 
         init(
             onTap: @escaping () -> Void,
+            canOpenCollapsedDropdown: @escaping () -> Bool,
+            onCollapsedTitleTap: @escaping (CGRect, CGSize) -> Void,
             canBeginLongPress: @escaping () -> Bool,
-            onLongPressBegan: @escaping (CGRect, CGSize) -> Void,
+            onLongPressBegan: @escaping (CGRect, CGSize, Bool) -> Void,
             onLongPressChanged: @escaping (CGPoint) -> Void,
             onLongPressEnded: @escaping () -> Void,
-            onLongPressCancelled: @escaping () -> Void
+            onLongPressCancelled: @escaping () -> Void,
+            canHorizontalSwipe: @escaping () -> Bool,
+            onHorizontalSwipe: @escaping (Int) -> Void,
+            onTitleCollapsedChanged: @escaping (Bool) -> Void
         ) {
             self.onTap = onTap
+            self.canOpenCollapsedDropdown = canOpenCollapsedDropdown
+            self.onCollapsedTitleTap = onCollapsedTitleTap
             self.canBeginLongPress = canBeginLongPress
             self.onLongPressBegan = onLongPressBegan
             self.onLongPressChanged = onLongPressChanged
             self.onLongPressEnded = onLongPressEnded
             self.onLongPressCancelled = onLongPressCancelled
+            self.canHorizontalSwipe = canHorizontalSwipe
+            self.onHorizontalSwipe = onHorizontalSwipe
+            self.onTitleCollapsedChanged = onTitleCollapsedChanged
+        }
+
+        private func isRootHomeVisible() -> Bool {
+            guard let hookView, hookView.window != nil,
+                  let nav = navigationController ?? hookView.nearestNavigationController else {
+                return false
+            }
+            if nav.viewControllers.count <= 1 {
+                return true
+            }
+            return nav.topViewController === hookView.nearestViewController
         }
         
         @objc func handleTap(_ gesture: UITapGestureRecognizer) {
@@ -2816,9 +3089,16 @@ private struct NavigationBarTapHelper: UIViewRepresentable {
                 suppressNextTap = false
                 return
             }
-            guard let navBar = gesture.view as? UINavigationBar else { return }
+            guard isRootHomeVisible(), let navBar = gesture.view as? UINavigationBar else { return }
             let point = gesture.location(in: navBar)
-            if titleRectInNavBar(for: point, in: navBar) != nil {
+            guard let hit = titleHitTarget(for: point, in: navBar) else { return }
+
+            if hit.isCollapsedInline && canOpenCollapsedDropdown() {
+                let window = navBar.window
+                let windowSize = window?.bounds.size ?? navBar.bounds.size
+                let anchorInWindow = navBar.convert(hit.rect, to: window)
+                onCollapsedTitleTap(anchorInWindow, windowSize)
+            } else {
                 onTap()
             }
         }
@@ -2832,15 +3112,16 @@ private struct NavigationBarTapHelper: UIViewRepresentable {
             switch gesture.state {
             case .began:
                 let pointInNav = gesture.location(in: navBar)
-                guard canBeginLongPress(),
-                      let titleRect = titleRectInNavBar(for: pointInNav, in: navBar) else {
+                guard isRootHomeVisible(),
+                      canBeginLongPress(),
+                      let hit = titleHitTarget(for: pointInNav, in: navBar) else {
                     gesture.isEnabled = false
                     gesture.isEnabled = true
                     return
                 }
                 suppressNextTap = true
-                let anchorInWindow = navBar.convert(titleRect, to: window)
-                onLongPressBegan(anchorInWindow, windowSize)
+                let anchorInWindow = navBar.convert(hit.rect, to: window)
+                onLongPressBegan(anchorInWindow, windowSize, hit.isCollapsedInline)
             case .changed:
                 onLongPressChanged(pointInWindow)
             case .ended:
@@ -2855,24 +3136,74 @@ private struct NavigationBarTapHelper: UIViewRepresentable {
                 break
             }
         }
+
+        @objc func handleHorizontalPan(_ gesture: UIPanGestureRecognizer) {
+            guard let navBar = gesture.view as? UINavigationBar else { return }
+            let tx = gesture.translation(in: navBar).x
+            let vx = gesture.velocity(in: navBar).x
+
+            switch gesture.state {
+            case .began:
+                hasTriggeredHorizontalSwitch = false
+                suppressNextTap = true
+            case .changed:
+                if !hasTriggeredHorizontalSwitch && abs(tx) >= 38 {
+                    hasTriggeredHorizontalSwitch = true
+                    onHorizontalSwipe(tx < 0 ? 1 : -1)
+                }
+            case .ended:
+                if !hasTriggeredHorizontalSwitch && abs(tx) >= 20 && abs(vx) >= 320 {
+                    hasTriggeredHorizontalSwitch = true
+                    onHorizontalSwipe(tx < 0 ? 1 : -1)
+                }
+                hasTriggeredHorizontalSwitch = false
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { [weak self] in
+                    self?.suppressNextTap = false
+                }
+            case .cancelled, .failed:
+                hasTriggeredHorizontalSwitch = false
+                suppressNextTap = false
+            default:
+                break
+            }
+        }
+
+        func gestureRecognizerShouldBegin(_ gestureRecognizer: UIGestureRecognizer) -> Bool {
+            guard isRootHomeVisible() else { return false }
+            if let pan = gestureRecognizer as? NavigationBarHorizontalPanGestureRecognizer {
+                guard canHorizontalSwipe(), let navBar = pan.view as? UINavigationBar else {
+                    return false
+                }
+                let vel = pan.velocity(in: navBar)
+                let trans = pan.translation(in: navBar)
+                let absVX = abs(vel.x)
+                let absVY = abs(vel.y)
+                if absVX > 10 || absVY > 10 {
+                    return absVX > absVY * 1.4
+                }
+                return abs(trans.x) > abs(trans.y) * 1.4 && abs(trans.x) > 4
+            }
+            return true
+        }
         
         func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer, shouldRecognizeSimultaneouslyWith otherGestureRecognizer: UIGestureRecognizer) -> Bool {
-            if gestureRecognizer is NavigationBarLongPressGestureRecognizer {
-                return false
-            }
-            if otherGestureRecognizer is NavigationBarLongPressGestureRecognizer {
+            if gestureRecognizer is NavigationBarLongPressGestureRecognizer
+                || otherGestureRecognizer is NavigationBarLongPressGestureRecognizer
+                || gestureRecognizer is NavigationBarHorizontalPanGestureRecognizer
+                || otherGestureRecognizer is NavigationBarHorizontalPanGestureRecognizer {
                 return false
             }
             return true
         }
         
         func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer, shouldReceive touch: UITouch) -> Bool {
-            guard let navBar = gestureRecognizer.view as? UINavigationBar else { return false }
+            guard isRootHomeVisible(), let navBar = gestureRecognizer.view as? UINavigationBar else {
+                return false
+            }
             if gestureRecognizer is NavigationBarLongPressGestureRecognizer, !canBeginLongPress() {
                 return false
             }
-            // Only active when the top item is the root Multigravity view
-            if let topTitle = navBar.topItem?.title, !topTitle.contains("Multigravity") {
+            if gestureRecognizer is NavigationBarHorizontalPanGestureRecognizer, !canHorizontalSwipe() {
                 return false
             }
             
@@ -2890,47 +3221,95 @@ private struct NavigationBarTapHelper: UIViewRepresentable {
             }
             
             let point = touch.location(in: navBar)
-            return titleRectInNavBar(for: point, in: navBar) != nil
+            return titleHitTarget(for: point, in: navBar) != nil
         }
-        
-        private func titleRectInNavBar(for point: CGPoint, in navBar: UINavigationBar) -> CGRect? {
-            // 1. Search for any visible label containing "Multigravity"
-            let labels = findTitleLabels(in: navBar)
-            for label in labels where !label.isHidden && label.alpha > 0.05 {
+
+        private func titleHitTarget(for point: CGPoint, in navBar: UINavigationBar) -> (rect: CGRect, isCollapsedInline: Bool)? {
+            let width = navBar.bounds.width
+            let height = navBar.bounds.height
+            let isCollapsed = height <= 60
+
+            if !isCollapsed {
+                // 1. Expanded large title: search for visible large title UILabel
+                let labels = findLargeTitleLabels(in: navBar)
+                for label in labels where !label.isHidden && label.alpha > 0.05 {
+                    let frameInNavBar = label.convert(label.bounds, to: navBar)
+                    guard frameInNavBar.minY >= 24 else { continue }
+                    let hitRect = frameInNavBar.insetBy(dx: -20, dy: -12)
+                    if hitRect.contains(point) {
+                        return (frameInNavBar, false)
+                    }
+                }
+                // 2. Fallback geometry for expanded large title area
+                let largeTitleRect = CGRect(x: 16, y: 36, width: min(280, width * 0.76), height: max(32, height - 40))
+                if largeTitleRect.insetBy(dx: -8, dy: -6).contains(point) {
+                    return (largeTitleRect, false)
+                }
+                return nil
+            }
+
+            // Collapsed inline title bar:
+            // 1. Prefer custom principal titleView (multi-gateway centered host header)
+            if let titleView = navBar.topItem?.titleView,
+               !titleView.isHidden,
+               titleView.alpha > 0.05,
+               titleView.bounds.width > 8 {
+                let frameInNavBar = titleView.convert(titleView.bounds, to: navBar)
+                let hitRect = frameInNavBar.insetBy(dx: -20, dy: -12)
+                if hitRect.contains(point) {
+                    return (frameInNavBar, true)
+                }
+            }
+
+            // 2. Search for visible inline UILabel (single-gateway "Multigravity" or host text)
+            let labels = findVisibleInlineLabels(in: navBar)
+            for label in labels {
                 let frameInNavBar = label.convert(label.bounds, to: navBar)
                 let hitRect = frameInNavBar.insetBy(dx: -20, dy: -12)
                 if hitRect.contains(point) {
-                    return frameInNavBar
+                    return (frameInNavBar, true)
                 }
             }
-            
-            // 2. Fallback geometry heuristic
-            let width = navBar.bounds.width
-            let height = navBar.bounds.height
-            if height > 54 {
-                // Large title expanded: located in leading area below top bar (y: 36..height, x: 12..width * 0.75)
-                let largeTitleRect = CGRect(x: 16, y: 36, width: min(240, width * 0.70), height: height - 40)
-                if largeTitleRect.insetBy(dx: -8, dy: -6).contains(point) {
-                    return largeTitleRect
-                }
-            } else {
-                // Inline title collapsed: centered in top bar (y: 0..44, x: center 50%)
-                let inlineTitleRect = CGRect(x: width * 0.22, y: 0, width: width * 0.56, height: 44)
-                if inlineTitleRect.contains(point) {
-                    return inlineTitleRect
-                }
+
+            // 3. Fallback centered inline zone (strictly clear of leading/trailing bar buttons)
+            let inlineTitleRect = CGRect(x: width * 0.22, y: 0, width: width * 0.56, height: height)
+            if inlineTitleRect.contains(point) {
+                return (inlineTitleRect, true)
             }
             return nil
         }
-        
-        private func findTitleLabels(in view: UIView) -> [UILabel] {
+
+        private func findLargeTitleLabels(in view: UIView) -> [UILabel] {
             var results: [UILabel] = []
             if let label = view as? UILabel, let text = label.text, text.contains("Multigravity") {
                 results.append(label)
             }
             for subview in view.subviews {
-                results.append(contentsOf: findTitleLabels(in: subview))
+                results.append(contentsOf: findLargeTitleLabels(in: subview))
             }
+            return results
+        }
+
+        private func findVisibleInlineLabels(in navBar: UINavigationBar) -> [UILabel] {
+            var results: [UILabel] = []
+            let barMidX = navBar.bounds.midX
+            let maxOffset = navBar.bounds.width * 0.26
+            func walk(_ view: UIView) {
+                if let label = view as? UILabel,
+                   !label.isHidden,
+                   label.alpha > 0.05,
+                   let text = label.text,
+                   !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                    let frame = label.convert(label.bounds, to: navBar)
+                    if frame.height > 8 && frame.height < 36 && abs(frame.midX - barMidX) <= maxOffset {
+                        results.append(label)
+                    }
+                }
+                for sub in view.subviews {
+                    walk(sub)
+                }
+            }
+            walk(navBar)
             return results
         }
     }

@@ -50,6 +50,7 @@ import androidx.compose.runtime.Stable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -89,6 +90,7 @@ class GatewaySlidePickerState {
     var isInteractiveTapMode by mutableStateOf(false)
     var anchorRect by mutableStateOf(Rect.Zero)
     var containerSize by mutableStateOf(IntSize.Zero)
+    var preferCenteredAnchor by mutableStateOf(false)
     /** 0..<profiles.size = host row, profiles.size = "+ 添加主机" row */
     var hoveredRowIndex by mutableStateOf<Int?>(null)
     var hasEnteredMenu by mutableStateOf(false)
@@ -106,11 +108,29 @@ class GatewaySlidePickerState {
         val bottomSafeMargin = 28.dp
     }
 
-    fun open(anchor: Rect) {
+    fun isCenteredAnchor(density: Density): Boolean = with(density) {
+        if (preferCenteredAnchor) return@with true
+        val containerW = containerSize.width.toFloat()
+        containerW > 0f
+            && abs(anchorRect.center.x - containerW / 2f) < 48.dp.toPx()
+            && anchorRect.left > 44.dp.toPx()
+    }
+
+    fun open(anchor: Rect, centered: Boolean = false) {
         anchorRect = anchor
+        preferCenteredAnchor = centered
         hoveredRowIndex = null
         hasEnteredMenu = false
         isInteractiveTapMode = false
+        isPresented = true
+    }
+
+    fun openInteractive(anchor: Rect, centered: Boolean = true) {
+        anchorRect = anchor
+        preferCenteredAnchor = centered
+        hoveredRowIndex = null
+        hasEnteredMenu = false
+        isInteractiveTapMode = true
         isPresented = true
     }
 
@@ -143,7 +163,7 @@ class GatewaySlidePickerState {
         val maxAvailH = if (containerH > 160.dp.toPx()) max(160.dp.toPx(), containerH - preferredY - bottomMarginPx) else 440.dp.toPx()
         val height = min(naturalHeight, maxAvailH)
 
-        val rawMinX = if (containerW > 0f && abs(anchorRect.center.x - containerW / 2f) < 48.dp.toPx() && anchorRect.left > 44.dp.toPx()) {
+        val rawMinX = if (isCenteredAnchor(density)) {
             anchorRect.center.x - width / 2f
         } else {
             max(hMargin, anchorRect.left - 2.dp.toPx())
@@ -244,9 +264,10 @@ class GatewaySlidePickerState {
 }
 
 /**
- * Attaches the mirrored Hero long-press (220ms) + slide-down gesture to a title composable while
- * preserving normal short taps (e.g. 10-tap Easter egg) and normal vertical list scrolling / pull-to-refresh.
+ * Attaches the mirrored Hero long-press (220ms) + slide-down gesture and optional horizontal swipe
+ * quick-cycling to a title composable while preserving short taps and normal vertical scrolling.
  */
+@Composable
 fun Modifier.heroGatewayLongPressGesture(
     enabled: Boolean,
     pickerState: GatewaySlidePickerState,
@@ -255,76 +276,144 @@ fun Modifier.heroGatewayLongPressGesture(
     profilesProvider: () -> List<GatewayProfile>,
     density: Density,
     haptic: HapticFeedback,
+    centeredAnchor: Boolean = false,
+    canHorizontalSwipe: () -> Boolean = { false },
+    onHorizontalDragOffsetChanged: ((Float) -> Unit)? = null,
+    onHorizontalSwipe: ((Int) -> Unit)? = null,
     onShortTap: () -> Unit,
     onLongPressOpened: () -> Unit,
     onSelectProfile: (GatewayProfile) -> Unit,
     onAddGateway: () -> Unit
-): Modifier = this.pointerInput(enabled) {
-    if (!enabled) return@pointerInput
-    val slopPx = with(density) { 12.dp.toPx() }
-    awaitEachGesture {
-        val down = awaitFirstDown(requireUnconsumed = false)
-        val downPos = down.position
-        var movedBeyondSlop = false
-        var releasedEarly = false
+): Modifier {
+    val latestAnchorRectProvider by rememberUpdatedState(anchorRectProvider)
+    val latestProfileCountProvider by rememberUpdatedState(profileCountProvider)
+    val latestProfilesProvider by rememberUpdatedState(profilesProvider)
+    val latestCenteredAnchor by rememberUpdatedState(centeredAnchor)
+    val latestCanHorizontalSwipe by rememberUpdatedState(canHorizontalSwipe)
+    val latestOnDragOffset by rememberUpdatedState(onHorizontalDragOffsetChanged)
+    val latestOnHorizontalSwipe by rememberUpdatedState(onHorizontalSwipe)
+    val latestOnShortTap by rememberUpdatedState(onShortTap)
+    val latestOnLongPressOpened by rememberUpdatedState(onLongPressOpened)
+    val latestOnSelectProfile by rememberUpdatedState(onSelectProfile)
+    val latestOnAddGateway by rememberUpdatedState(onAddGateway)
 
-        val holdOutcome = withTimeoutOrNull(220L) {
+    return this.pointerInput(enabled) {
+        if (!enabled) return@pointerInput
+        val slopPx = with(density) { 12.dp.toPx() }
+        val swipeTriggerPx = with(density) { 36.dp.toPx() }
+        val quickFlickPx = with(density) { 20.dp.toPx() }
+        val maxDampedPx = with(density) { 14.dp.toPx() }
+        awaitEachGesture {
+            val down = awaitFirstDown(requireUnconsumed = false)
+            val downPos = down.position
+            val downTimeMs = down.uptimeMillis
+            var movedBeyondSlop = false
+            var startedHorizontalSwipe = false
+            var firstHorizDx = 0f
+            var releasedEarly = false
+
+            val holdOutcome = withTimeoutOrNull(220L) {
+                while (true) {
+                    val event = awaitPointerEvent(PointerEventPass.Main)
+                    val change = event.changes.firstOrNull { it.id == down.id } ?: break
+                    if (!change.pressed) {
+                        releasedEarly = true
+                        break
+                    }
+                    val delta = change.position - downPos
+                    if (delta.getDistance() > slopPx) {
+                        movedBeyondSlop = true
+                        if (abs(delta.x) > abs(delta.y) * 1.35f && latestCanHorizontalSwipe() && !pickerState.isPresented) {
+                            startedHorizontalSwipe = true
+                            firstHorizDx = delta.x
+                            change.consume()
+                        }
+                        break
+                    }
+                }
+            }
+
+            if (startedHorizontalSwipe) {
+                var triggered = false
+                var lastDx = firstHorizDx
+                latestOnDragOffset?.invoke((firstHorizDx * 0.35f).coerceIn(-maxDampedPx, maxDampedPx))
+                if (abs(firstHorizDx) >= swipeTriggerPx) {
+                    triggered = true
+                    haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                    latestOnHorizontalSwipe?.invoke(if (firstHorizDx < 0f) 1 else -1)
+                }
+                try {
+                    while (true) {
+                        val event = awaitPointerEvent(PointerEventPass.Main)
+                        val change = event.changes.firstOrNull { it.id == down.id } ?: break
+                        val dx = change.position.x - downPos.x
+                        lastDx = dx
+                        if (!change.pressed) {
+                            change.consume()
+                            val elapsed = change.uptimeMillis - downTimeMs
+                            if (!triggered && abs(dx) >= quickFlickPx && elapsed <= 260L) {
+                                haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                                latestOnHorizontalSwipe?.invoke(if (dx < 0f) 1 else -1)
+                            }
+                            break
+                        }
+                        change.consume()
+                        latestOnDragOffset?.invoke((dx * 0.35f).coerceIn(-maxDampedPx, maxDampedPx))
+                        if (!triggered && abs(lastDx) >= swipeTriggerPx) {
+                            triggered = true
+                            haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                            latestOnHorizontalSwipe?.invoke(if (lastDx < 0f) 1 else -1)
+                        }
+                    }
+                } finally {
+                    latestOnDragOffset?.invoke(0f)
+                }
+                return@awaitEachGesture
+            }
+
+            if (releasedEarly) {
+                if (!movedBeyondSlop) {
+                    latestOnShortTap()
+                }
+                return@awaitEachGesture
+            }
+            if (movedBeyondSlop || holdOutcome != null) {
+                return@awaitEachGesture
+            }
+
+            // Long press triggered after 220ms hold!
+            val anchor = latestAnchorRectProvider()
+            if (anchor == Rect.Zero) return@awaitEachGesture
+            haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+            pickerState.open(anchor, centered = latestCenteredAnchor)
+            latestOnLongPressOpened()
+
+            // Track continuous slide-down movement until release or cancellation.
             while (true) {
                 val event = awaitPointerEvent(PointerEventPass.Main)
                 val change = event.changes.firstOrNull { it.id == down.id } ?: break
-                if (!change.pressed) {
-                    releasedEarly = true
-                    break
-                }
-                if ((change.position - downPos).getDistance() > slopPx) {
-                    movedBeyondSlop = true
-                    break
-                }
-            }
-        }
-
-        if (releasedEarly) {
-            if (!movedBeyondSlop) {
-                onShortTap()
-            }
-            return@awaitEachGesture
-        }
-        if (movedBeyondSlop || holdOutcome != null) {
-            return@awaitEachGesture
-        }
-
-        // Long press triggered after 220ms hold!
-        val anchor = anchorRectProvider()
-        if (anchor == Rect.Zero) return@awaitEachGesture
-        haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-        pickerState.open(anchor)
-        onLongPressOpened()
-
-        // Track continuous slide-down movement until release or cancellation.
-        while (true) {
-            val event = awaitPointerEvent(PointerEventPass.Main)
-            val change = event.changes.firstOrNull { it.id == down.id } ?: break
-            val pointInRoot = Offset(
-                x = anchor.left + change.position.x,
-                y = anchor.top + change.position.y
-            )
-            if (!change.pressed) {
-                change.consume()
-                pickerState.endDrag(
-                    profiles = profilesProvider(),
-                    haptic = haptic,
-                    onSelectProfile = onSelectProfile,
-                    onAddGateway = onAddGateway
+                val pointInRoot = Offset(
+                    x = anchor.left + change.position.x,
+                    y = anchor.top + change.position.y
                 )
-                break
+                if (!change.pressed) {
+                    change.consume()
+                    pickerState.endDrag(
+                        profiles = latestProfilesProvider(),
+                        haptic = haptic,
+                        onSelectProfile = latestOnSelectProfile,
+                        onAddGateway = latestOnAddGateway
+                    )
+                    break
+                }
+                change.consume()
+                pickerState.updateDrag(
+                    pointInRoot = pointInRoot,
+                    density = density,
+                    profileCount = latestProfileCountProvider(),
+                    haptic = haptic
+                )
             }
-            change.consume()
-            pickerState.updateDrag(
-                pointInRoot = pointInRoot,
-                density = density,
-                profileCount = profileCountProvider(),
-                haptic = haptic
-            )
         }
     }
 }
@@ -343,10 +432,15 @@ fun GatewaySlidePickerOverlay(
     val colors = AntigravityTheme.colors
     val density = LocalDensity.current
     val haptic = LocalHapticFeedback.current
+    val isCentered = state.isCenteredAnchor(density)
 
     AnimatedVisibility(
         visible = state.isPresented,
-        enter = fadeIn(animationSpec = spring(stiffness = Spring.StiffnessMedium)),
+        enter = fadeIn(animationSpec = spring(stiffness = Spring.StiffnessMedium)) + scaleIn(
+            initialScale = 0.94f,
+            transformOrigin = TransformOrigin(if (isCentered) 0.5f else 0.12f, 0f),
+            animationSpec = spring(stiffness = Spring.StiffnessMedium)
+        ),
         exit = fadeOut(animationSpec = spring(stiffness = Spring.StiffnessHigh)),
         modifier = Modifier
             .fillMaxSize()

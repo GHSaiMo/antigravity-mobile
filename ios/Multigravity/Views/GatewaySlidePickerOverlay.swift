@@ -10,6 +10,8 @@ public final class GatewaySlidePickerState {
     /// Anchor rect of the Hero title in the overlay's own coordinate space (top-left origin).
     public var anchorRect: CGRect = .zero
     public var containerSize: CGSize = .zero
+    /// Explicit alignment hint from caller (e.g. collapsed centered inline title, including iPad split sidebar).
+    public var preferCenteredAnchor: Bool = false
     /// 0..<profiles.count = host row, profiles.count = "+ 添加主机" row
     public var hoveredRowIndex: Int? = nil
     public var hasEnteredMenu: Bool = false
@@ -31,8 +33,18 @@ public final class GatewaySlidePickerState {
 
     public init() {}
 
-    public func open(anchorRect: CGRect) {
+    public var isCenteredAnchor: Bool {
+        if preferCenteredAnchor {
+            return true
+        }
+        return containerSize.width > 0
+            && abs(anchorRect.midX - containerSize.width / 2) < 48
+            && anchorRect.minX > 44
+    }
+
+    public func open(anchorRect: CGRect, centered: Bool = false) {
         self.anchorRect = anchorRect
+        self.preferCenteredAnchor = centered
         self.hoveredRowIndex = nil
         self.hasEnteredMenu = false
         self.isInteractiveTapMode = false
@@ -41,6 +53,22 @@ public final class GatewaySlidePickerState {
             self.isPresented = true
         }
         UIImpactFeedbackGenerator(style: .medium).impactOccurred()
+        GatewayProfileStore.shared.refreshInactiveSummaries(force: false, minInterval: 8.0)
+    }
+
+    public func openInteractive(anchorRect: CGRect, containerSize: CGSize? = nil, centered: Bool = true) {
+        if let containerSize, containerSize.width > 0, containerSize.height > 0 {
+            self.containerSize = containerSize
+        }
+        self.anchorRect = anchorRect
+        self.preferCenteredAnchor = centered
+        self.hoveredRowIndex = nil
+        self.hasEnteredMenu = false
+        self.isInteractiveTapMode = true
+        withAnimation(.spring(response: 0.22, dampingFraction: 0.85)) {
+            self.isPresented = true
+        }
+        UIImpactFeedbackGenerator(style: .light).impactOccurred()
         GatewayProfileStore.shared.refreshInactiveSummaries(force: false, minInterval: 8.0)
     }
 
@@ -76,7 +104,7 @@ public final class GatewaySlidePickerState {
         let height = cardHeight(profileCount: profileCount)
 
         let rawMinX: CGFloat
-        if containerSize.width > 0 && abs(anchorRect.midX - containerSize.width / 2) < 48 && anchorRect.minX > 44 {
+        if isCenteredAnchor {
             // Scrolled inline centered title: center the popover under the title
             rawMinX = anchorRect.midX - width / 2
         } else {
@@ -199,7 +227,9 @@ public struct GatewaySlidePickerOverlay: View {
                     .position(x: rect.midX, y: rect.midY)
                     .transition(
                         .asymmetric(
-                            insertion: .opacity.combined(with: .scale(scale: 0.94, anchor: .topLeading)),
+                            insertion: .opacity.combined(
+                                with: .scale(scale: 0.94, anchor: state.isCenteredAnchor ? .top : .topLeading)
+                            ),
                             removal: .opacity
                         )
                     )

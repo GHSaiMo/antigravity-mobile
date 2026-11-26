@@ -538,6 +538,15 @@ private fun MainSettingsContent(
         "linux" -> "Linux 网关".loc
         else -> "电脑网关".loc
     }
+    val gwStore = remember { com.antigravity.mobile.data.service.GatewayProfileStore.sharedOrNull() }
+    val emptyProfiles = remember { kotlinx.coroutines.flow.MutableStateFlow<List<com.antigravity.mobile.data.model.GatewayProfile>>(emptyList()) }
+    val emptyActiveId = remember { kotlinx.coroutines.flow.MutableStateFlow<String?>(null) }
+    val gwProfiles by (gwStore?.profilesFlow ?: emptyProfiles).collectAsState()
+    val gwActiveId by (gwStore?.activeProfileIdFlow ?: emptyActiveId).collectAsState()
+    val hasMultipleGateways = isPaired && gwProfiles.size > 1
+    val activeHostLabel = gwProfiles.firstOrNull { it.id == gwActiveId }?.resolvedDisplayName
+        ?: gwProfiles.firstOrNull()?.resolvedDisplayName
+        ?: gatewayDesc
 
     LaunchedEffect(Unit) {
         connectionManager.probeEndpoints(prefs)
@@ -554,7 +563,11 @@ private fun MainSettingsContent(
         // MARK: - 1. 设备配对与鉴权 (1:1 iOS 对齐)
         SettingsSection(
             title = "设备配对".loc,
-            footer = "管理当前设备与 %s的配对状态。".loc(gatewayDesc)
+            footer = if (hasMultipleGateways) {
+                "管理当前设备与「%s」的配对状态。".loc(activeHostLabel)
+            } else {
+                "管理当前设备与 %s的配对状态。".loc(gatewayDesc)
+            }
         ) {
             Column(
                 modifier = Modifier
@@ -572,9 +585,11 @@ private fun MainSettingsContent(
                     horizontalArrangement = Arrangement.SpaceBetween
                 ) {
                     Text(text = "配对状态".loc, color = colors.textPrimary, fontSize = 15.sp)
+                    Spacer(modifier = Modifier.width(12.dp))
                     Row(
                         verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(5.dp)
+                        horizontalArrangement = Arrangement.spacedBy(5.dp),
+                        modifier = Modifier.weight(1f, fill = false)
                     ) {
                         if (isPaired) {
                             Icon(
@@ -583,7 +598,13 @@ private fun MainSettingsContent(
                                 tint = colors.accentGreen,
                                 modifier = Modifier.size(16.dp)
                             )
-                            Text(text = "已配对".loc, color = colors.textSecondary, fontSize = 14.sp)
+                            Text(
+                                text = if (hasMultipleGateways) "已配对 · %s".loc(activeHostLabel) else "已配对".loc,
+                                color = colors.textSecondary,
+                                fontSize = 14.sp,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
                         } else {
                             Text(text = "未配对".loc, color = colors.textSecondary, fontSize = 14.sp)
                         }

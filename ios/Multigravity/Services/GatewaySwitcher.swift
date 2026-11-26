@@ -76,14 +76,40 @@ public final class GatewaySwitcher {
         PushNotificationManager.shared.syncAllTokensIfPaired(force: false)
 
         if showToast {
-            presentSwitchToast(for: target.resolvedDisplayName)
+            let pos = store.activeProfileDisplayPosition
+            presentSwitchToast(
+                for: target.resolvedDisplayName,
+                index: pos?.index,
+                total: pos?.total
+            )
         }
         return true
     }
 
-    public func presentSwitchToast(for gatewayName: String) {
+    /// Cycles to the next (`step > 0`) or previous (`step < 0`) paired gateway.
+    @discardableResult
+    public func cycle(
+        step: Int,
+        currentConversations: [ConversationItem]? = nil,
+        showToast: Bool = true
+    ) -> Bool {
+        guard let next = GatewayProfileStore.shared.adjacentProfile(step: step) else {
+            return false
+        }
+        return switchTo(
+            profileId: next.id,
+            currentConversations: currentConversations,
+            showToast: showToast
+        )
+    }
+
+    public func presentSwitchToast(for gatewayName: String, index: Int? = nil, total: Int? = nil) {
         bannerDismissTask?.cancel()
-        switchBannerText = String(localized: "已切换 · \(gatewayName)")
+        if let index, let total, total >= 3 {
+            switchBannerText = String(localized: "已切换 · \(gatewayName) (\(index)/\(total))")
+        } else {
+            switchBannerText = String(localized: "已切换 · \(gatewayName)")
+        }
         bannerDismissTask = Task { @MainActor [weak self] in
             try? await Task.sleep(nanoseconds: 1_500_000_000)
             guard !Task.isCancelled else { return }

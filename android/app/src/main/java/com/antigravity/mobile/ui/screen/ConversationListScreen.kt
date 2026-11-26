@@ -193,14 +193,47 @@ fun ConversationListScreen(
     val composeHaptic = LocalHapticFeedback.current
     var inlineTitleBounds by remember { mutableStateOf(Rect.Zero) }
     var largeTitleBounds by remember { mutableStateOf(Rect.Zero) }
+    var inlineTitleDragOffsetPx by remember { mutableFloatStateOf(0f) }
+    var largeTitleDragOffsetPx by remember { mutableFloatStateOf(0f) }
+    val animatedInlineDragX by animateFloatAsState(
+        targetValue = inlineTitleDragOffsetPx,
+        animationSpec = spring(dampingRatio = 0.72f, stiffness = Spring.StiffnessMedium),
+        label = "inlineTitleDragX"
+    )
+    val animatedLargeDragX by animateFloatAsState(
+        targetValue = largeTitleDragOffsetPx,
+        animationSpec = spring(dampingRatio = 0.72f, stiffness = Spring.StiffnessMedium),
+        label = "largeTitleDragX"
+    )
     var renamingGateway by remember { mutableStateOf<GatewayProfile?>(null) }
     var renameGatewayText by remember { mutableStateOf("") }
     var removingGateway by remember { mutableStateOf<GatewayProfile?>(null) }
+
+    val activeGateway = remember(gatewayProfiles, activeGatewayId) {
+        gatewayProfiles.firstOrNull { it.id == activeGatewayId } ?: gatewayProfiles.firstOrNull()
+    }
+    val hasMultipleGateways = gatewayProfiles.size > 1
+    val hasInactivePendingAction = remember(gatewayProfiles, activeGatewayId, gatewaySummaries) {
+        val aid = activeGateway?.id
+        gatewayProfiles.size > 1 && gatewaySummaries.any { (pid, snap) ->
+            pid != aid && snap.actionCount > 0
+        }
+    }
 
     val handleSelectGatewayProfile: (GatewayProfile) -> Unit = { profile ->
         val convs = (uiState as? ConversationListUiState.Success)?.conversations
         GatewaySwitcher.switchTo(
             profileId = profile.id,
+            currentConversations = convs,
+            showToast = true
+        )
+    }
+
+    val handleHorizontalCycleGateway: (Int) -> Unit = { step ->
+        swipedConversationId = null
+        val convs = (uiState as? ConversationListUiState.Success)?.conversations
+        GatewaySwitcher.cycle(
+            step = step,
             currentConversations = convs,
             showToast = true
         )
@@ -213,6 +246,28 @@ fun ConversationListScreen(
             gwStore?.updateActiveSummary(convs)
         }
         gwStore?.refreshInactiveSummaries(force = false, minIntervalMs = 8_000L)
+    }
+
+    val density = LocalDensity.current
+    val handleCollapsedTitleTap: () -> Unit = {
+        if (hasMultipleGateways && viewModel.prefs.isPaired()) {
+            if (gatewayPickerState.isPresented) {
+                gatewayPickerState.dismiss()
+            } else {
+                haptic.light()
+                handleHeroLongPressOpened()
+                val anchor = if (inlineTitleBounds != Rect.Zero) {
+                    inlineTitleBounds
+                } else {
+                    val cx = gatewayPickerState.containerSize.width / 2f
+                    val topPx = with(density) { 52.dp.toPx() }
+                    Rect(cx - 80f, topPx - 32f, cx + 80f, topPx)
+                }
+                gatewayPickerState.openInteractive(anchor, centered = true)
+            }
+        } else {
+            handleEasterEggTap()
+        }
     }
 
     var lastSeenDismissTrigger by remember { mutableIntStateOf(dismissModalsTrigger) }
@@ -286,6 +341,17 @@ fun ConversationListScreen(
         swipedConversationId = null
     }
 
+    var previousActiveGatewayId by rememberSaveable { mutableStateOf(activeGatewayId) }
+    LaunchedEffect(activeGatewayId) {
+        if (activeGatewayId != previousActiveGatewayId) {
+            val hadPrevious = previousActiveGatewayId != null
+            previousActiveGatewayId = activeGatewayId
+            if (hadPrevious && (listState.firstVisibleItemIndex > 0 || listState.firstVisibleItemScrollOffset > 0)) {
+                listState.scrollToItem(0)
+            }
+        }
+    }
+
     val lifecycleOwner = androidx.lifecycle.compose.LocalLifecycleOwner.current
     DisposableEffect(lifecycleOwner) {
         val observer = androidx.lifecycle.LifecycleEventObserver { _, event ->
@@ -317,7 +383,6 @@ fun ConversationListScreen(
 
 
 
-    val density = LocalDensity.current
     val statusBarTop = WindowInsets.statusBars.asPaddingValues().calculateTopPadding()
     val topBarHeight = statusBarTop + 52.dp
     val scrollThresholdPx = with(density) { 48.dp.toPx() }
@@ -412,10 +477,15 @@ fun ConversationListScreen(
                             )
                             Spacer(modifier = Modifier.height(12.dp))
                             Text(
-                                text = "无法连接网关".loc,
+                                text = if (hasMultipleGateways && activeGateway != null) {
+                                    "无法连接「%s」".loc(activeGateway.resolvedDisplayName)
+                                } else {
+                                    "无法连接网关".loc
+                                },
                                 color = colors.textPrimary,
                                 fontSize = 17.sp,
-                                fontWeight = FontWeight.SemiBold
+                                fontWeight = FontWeight.SemiBold,
+                                textAlign = TextAlign.Center
                             )
                             Spacer(modifier = Modifier.height(6.dp))
                             Text(
@@ -430,6 +500,26 @@ fun ConversationListScreen(
                                 colors = ButtonDefaults.buttonColors(containerColor = colors.accentIndigo)
                             ) {
                                 Text("重试连接".loc)
+                            }
+                            if (hasMultipleGateways) {
+                                Spacer(modifier = Modifier.height(6.dp))
+                                TextButton(
+                                    onClick = {
+                                        haptic.light()
+                                        handleHeroLongPressOpened()
+                                        val cx = gatewayPickerState.containerSize.width / 2f
+                                        val topPx = with(density) { (topBarHeight + 48.dp).toPx() }
+                                        val anchor = Rect(cx - 120f, topPx - 36f, cx + 120f, topPx)
+                                        gatewayPickerState.openInteractive(anchor, centered = true)
+                                    }
+                                ) {
+                                    Text(
+                                        text = "切换其他主机".loc,
+                                        color = colors.accentIndigo,
+                                        fontSize = 14.sp,
+                                        fontWeight = FontWeight.Medium
+                                    )
+                                }
                             }
                         }
                     }
@@ -510,12 +600,15 @@ fun ConversationListScreen(
                                 }
                             },
                             largeTitleAlpha = largeTitleAlpha,
+                            largeTitleDragOffsetX = animatedLargeDragX,
                             topPadding = topBarHeight,
                             onEasterEggTap = handleEasterEggTap,
                             gatewayPickerState = gatewayPickerState,
                             largeTitleBoundsProvider = { largeTitleBounds },
                             onLargeTitleBoundsChanged = { largeTitleBounds = it },
                             gatewayProfilesProvider = { gatewayProfiles },
+                            onLargeTitleHorizontalDragOffsetChanged = { largeTitleDragOffsetPx = it },
+                            onHorizontalCycleGateway = handleHorizontalCycleGateway,
                             onHeroLongPressOpened = handleHeroLongPressOpened,
                             onSelectGatewayProfile = handleSelectGatewayProfile,
                             onAddGateway = onAddGateway,
@@ -681,21 +774,23 @@ fun ConversationListScreen(
                 }
             }
 
-            // Centered Title (Transitions in when scrolling up)
-            Text(
-                text = "Multigravity",
-                fontWeight = FontWeight.Bold,
-                fontSize = 18.sp,
-                color = colors.textPrimary,
-                textAlign = TextAlign.Center,
+            // Centered Title (Transitions in when scrolling up; switches to [Host ▾] with 2+ gateways)
+            val chevronRotation by animateFloatAsState(
+                targetValue = if (gatewayPickerState.isPresented) 180f else 0f,
+                animationSpec = spring(dampingRatio = 0.82f, stiffness = Spring.StiffnessMediumLow),
+                label = "inlineHostChevronRotation"
+            )
+            Box(
                 modifier = Modifier
                     .align(Alignment.Center)
+                    .padding(horizontal = 66.dp)
                     .onGloballyPositioned { inlineTitleBounds = it.boundsInRoot() }
                     .graphicsLayer {
                         alpha = inlineTitleAlpha
+                        translationX = animatedInlineDragX
                         translationY = (1f - inlineTitleAlpha) * 8.dp.toPx()
                     }
-                    .clip(RoundedCornerShape(8.dp))
+                    .clip(RoundedCornerShape(10.dp))
                     .heroGatewayLongPressGesture(
                         enabled = inlineTitleAlpha > 0.5f && viewModel.prefs.isPaired(),
                         pickerState = gatewayPickerState,
@@ -704,12 +799,61 @@ fun ConversationListScreen(
                         profilesProvider = { gatewayProfiles },
                         density = density,
                         haptic = composeHaptic,
-                        onShortTap = handleEasterEggTap,
+                        centeredAnchor = true,
+                        canHorizontalSwipe = { gatewayProfiles.size > 1 && viewModel.prefs.isPaired() },
+                        onHorizontalDragOffsetChanged = { inlineTitleDragOffsetPx = it },
+                        onHorizontalSwipe = handleHorizontalCycleGateway,
+                        onShortTap = handleCollapsedTitleTap,
                         onLongPressOpened = handleHeroLongPressOpened,
                         onSelectProfile = handleSelectGatewayProfile,
                         onAddGateway = onAddGateway
                     )
-            )
+                    .padding(horizontal = 8.dp, vertical = 5.dp),
+                contentAlignment = Alignment.Center
+            ) {
+                if (hasMultipleGateways && activeGateway != null) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(3.dp)
+                    ) {
+                        Text(
+                            text = activeGateway.resolvedDisplayName,
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 17.sp,
+                            color = colors.textPrimary,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier.weight(1f, fill = false)
+                        )
+                        Icon(
+                            imageVector = Icons.Default.KeyboardArrowDown,
+                            contentDescription = "切换主机".loc,
+                            tint = colors.textSecondary,
+                            modifier = Modifier
+                                .size(17.dp)
+                                .graphicsLayer { rotationZ = chevronRotation }
+                        )
+                        if (hasInactivePendingAction) {
+                            Box(
+                                modifier = Modifier
+                                    .padding(start = 1.dp)
+                                    .size(5.5.dp)
+                                    .clip(CircleShape)
+                                    .background(colors.accentOrange)
+                            )
+                        }
+                    }
+                } else {
+                    Text(
+                        text = "Multigravity",
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 18.sp,
+                        color = colors.textPrimary,
+                        textAlign = TextAlign.Center,
+                        maxLines = 1
+                    )
+                }
+            }
 
             // New Conversation Button (Right)
             Box(
@@ -1281,12 +1425,15 @@ private fun ConversationListContent(
     isSearchingContent: Boolean,
     onSelectContentHit: (com.antigravity.mobile.data.model.ConversationSearchResult) -> Unit,
     largeTitleAlpha: Float,
+    largeTitleDragOffsetX: Float = 0f,
     topPadding: Dp,
     onEasterEggTap: () -> Unit,
     gatewayPickerState: GatewaySlidePickerState,
     largeTitleBoundsProvider: () -> Rect,
     onLargeTitleBoundsChanged: (Rect) -> Unit,
     gatewayProfilesProvider: () -> List<GatewayProfile>,
+    onLargeTitleHorizontalDragOffsetChanged: (Float) -> Unit = {},
+    onHorizontalCycleGateway: (Int) -> Unit = {},
     onHeroLongPressOpened: () -> Unit,
     onSelectGatewayProfile: (GatewayProfile) -> Unit,
     onAddGateway: () -> Unit,
@@ -1445,6 +1592,9 @@ private fun ConversationListContent(
                     color = colors.textPrimary,
                     modifier = Modifier
                         .onGloballyPositioned { onLargeTitleBoundsChanged(it.boundsInRoot()) }
+                        .graphicsLayer {
+                            translationX = largeTitleDragOffsetX
+                        }
                         .clip(RoundedCornerShape(8.dp))
                         .heroGatewayLongPressGesture(
                             enabled = largeTitleAlpha > 0.5f,
@@ -1454,6 +1604,10 @@ private fun ConversationListContent(
                             profilesProvider = gatewayProfilesProvider,
                             density = titleDensity,
                             haptic = titleHaptic,
+                            centeredAnchor = false,
+                            canHorizontalSwipe = { gatewayProfilesProvider().size > 1 },
+                            onHorizontalDragOffsetChanged = onLargeTitleHorizontalDragOffsetChanged,
+                            onHorizontalSwipe = onHorizontalCycleGateway,
                             onShortTap = onEasterEggTap,
                             onLongPressOpened = onHeroLongPressOpened,
                             onSelectProfile = onSelectGatewayProfile,

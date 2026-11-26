@@ -69,6 +69,38 @@ class GatewayProfileStore private constructor(
     val hasMultipleGateways: Boolean
         get() = _profilesFlow.value.size > 1
 
+    /** True when at least one non-active paired gateway currently reports pending approvals. */
+    val hasInactivePendingAction: Boolean
+        get() {
+            val list = _profilesFlow.value
+            if (list.size <= 1) return false
+            val currentActiveId = activeProfile?.id
+            return _summariesFlow.value.any { (profileId, snap) ->
+                profileId != currentActiveId && snap.actionCount > 0
+            }
+        }
+
+    /** 1-based `(index, total)` position of the active gateway in stable order. */
+    val activeProfileDisplayPosition: Pair<Int, Int>?
+        get() {
+            val list = _profilesFlow.value
+            if (list.isEmpty()) return null
+            val aid = activeProfile?.id
+            val idx = list.indexOfFirst { it.id == aid }.takeIf { it >= 0 } ?: 0
+            return (idx + 1) to list.size
+        }
+
+    /** Returns the next (`step > 0`) or previous (`step < 0`) gateway in stable cyclic order. */
+    fun adjacentProfile(step: Int): GatewayProfile? {
+        val list = _profilesFlow.value
+        val count = list.size
+        if (count <= 1 || step == 0) return null
+        val aid = activeProfile?.id
+        val currentIdx = list.indexOfFirst { it.id == aid }.takeIf { it >= 0 } ?: 0
+        val nextIdx = ((currentIdx + step) % count + count) % count
+        return list[nextIdx]
+    }
+
     init {
         loadOrMigrateFromDisk()
         prefs.onActiveProfileMutated = {

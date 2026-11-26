@@ -116,6 +116,16 @@ fun TipsAndGesturesSubpageContent() {
                 title = "左滑归档会话".loc,
                 desc = "向左轻扫会话卡片可一键归档，保持列表清爽；在聚合模式下选择「已归档」，即可随时找到已归档的会话。".loc
             )
+            GuideDivider()
+            GuideRow(
+                icon = Icons.Default.Computer,
+                badgeColor = badgeColor(
+                    light = Color(0xFF6366F1),
+                    dark = Color(0xFF61709E)
+                ),
+                title = "多主机快捷切换".loc,
+                desc = "长按顶部「Multigravity」标题并下滑可添加或切换多台电脑网关；绑定 2 台及以上主机后，左右轻扫标题可快速轮换，列表上滑收拢后轻点居中主机名也可一键展开切换面板。".loc
+            )
         }
 
         // Section 2

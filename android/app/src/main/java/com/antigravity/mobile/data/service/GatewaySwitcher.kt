@@ -99,14 +99,38 @@ object GatewaySwitcher {
         }
 
         if (showToast) {
-            presentSwitchToast(target.resolvedDisplayName)
+            val pos = store.activeProfileDisplayPosition
+            presentSwitchToast(
+                gatewayName = target.resolvedDisplayName,
+                index = pos?.first,
+                total = pos?.second
+            )
         }
         return true
     }
 
-    fun presentSwitchToast(gatewayName: String) {
+    /** Cycles to the next (`step > 0`) or previous (`step < 0`) paired gateway. */
+    fun cycle(
+        step: Int,
+        currentConversations: List<ConversationItem>? = null,
+        showToast: Boolean = true
+    ): Boolean {
+        val store = GatewayProfileStore.sharedOrNull() ?: return false
+        val next = store.adjacentProfile(step) ?: return false
+        return switchTo(
+            profileId = next.id,
+            currentConversations = currentConversations,
+            showToast = showToast
+        )
+    }
+
+    fun presentSwitchToast(gatewayName: String, index: Int? = null, total: Int? = null) {
         bannerJob?.cancel()
-        _switchBannerText.value = "已切换 · %s".loc(gatewayName)
+        _switchBannerText.value = if (index != null && total != null && total >= 3) {
+            "已切换 · %s (%d/%d)".loc(gatewayName, index, total)
+        } else {
+            "已切换 · %s".loc(gatewayName)
+        }
         bannerJob = scope.launch {
             delay(1500L)
             _switchBannerText.value = null
