@@ -13,12 +13,13 @@ import (
 	"time"
 )
 
-// AuthPolicy controls loopback-trust, LAN trust, and AUTH_DISABLED. Zero value preserves
-// historical local-dev behavior.
+// AuthPolicy controls loopback-trust, LAN trust, Hub inter-node auth, and AUTH_DISABLED.
+// Zero value preserves historical local-dev behavior.
 type AuthPolicy struct {
-	TunnelEnabled  bool
-	ListenLoopback bool
-	TrustLAN       bool
+	TunnelEnabled     bool
+	ListenLoopback    bool
+	TrustLAN          bool
+	HubTokenValidator func(token string) (string, bool)
 }
 
 type contextKey string
@@ -110,7 +111,8 @@ func IsWhitelistedPath(path string) bool {
 
 	// Auth and device management endpoints (handled by AuthHandler with its own permission checks)
 	if path == "/api/v1/auth/pair" || path == "/api/v1/auth/unpair" || path == "/api/v1/auth/logout" || path == "/api/v1/auth/session" || path == "/api/v1/auth/ws-ticket" || path == "/api/v1/auth/endpoints" ||
-		path == "/api/v1/devices" || path == "/api/v1/devices/" || strings.HasPrefix(path, "/api/v1/devices/") {
+		path == "/api/v1/devices" || path == "/api/v1/devices/" || strings.HasPrefix(path, "/api/v1/devices/") ||
+		path == "/api/v1/hub/register" {
 		return true
 	}
 
@@ -233,6 +235,27 @@ func AuthMiddlewareWithPolicy(store *AuthStore, next http.Handler, policy AuthPo
 
 		var device *PairedDevice
 		var ok bool
+
+		// Hub inter-node token authentication (validated in constant time via Hub/NodeAgent callback).
+		if policy.HubTokenValidator != nil {
+			hubTok := strings.TrimSpace(r.Header.Get("X-Mgy-Hub-Token"))
+			if hubTok == "" {
+				hubTok = BearerToken(r)
+			}
+			if hubTok != "" {
+				if hubID, valid := policy.HubTokenValidator(hubTok); valid {
+					device = &PairedDevice{
+						DeviceID:   hubID,
+						DeviceName: "Multigravity Hub",
+						Platform:   "hub",
+						CreatedAt:  time.Now(),
+						LastSeenAt: time.Now(),
+						LastSeenIP: ExtractClientIP(r),
+					}
+					ok = true
+				}
+			}
+		}
 
 		// S9: Support short-lived one-time ticket for WebSocket and raw file requests
 		// to avoid putting long-lived device tokens into URLs/query strings.

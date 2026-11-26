@@ -210,24 +210,30 @@ func (w *Watcher) dispatchAlert(fn func()) bool {
 	}
 }
 
-// dispatchLiveUpdate routes routine Live Activity updates to the per-cascade single-slot latest-wins coalescer.
+// dispatchLiveUpdate routes routine Live Activity updates to the per-cascade single-slot latest-wins coalescer
+// and any attached Hub relay hook.
 func (w *Watcher) dispatchLiveUpdate(details *proxy.TrajectoryDetails) {
-	if details == nil {
-		return
-	}
-	la := w.notifier.LiveActivity()
-	if la == nil {
+	if details == nil || w.notifier == nil {
 		return
 	}
 	w.mu.RLock()
 	ch := w.alertCh
 	w.mu.RUnlock()
+	la := w.notifier.LiveActivity()
 	if ch == nil {
 		snap := *details
-		la.SyncFromDetails(context.Background(), &snap)
+		if la != nil && la.IsActive() {
+			la.SyncFromDetails(context.Background(), &snap)
+		}
+		w.notifier.mu.RLock()
+		hook := w.notifier.hubLiveUpdate
+		w.notifier.mu.RUnlock()
+		if hook != nil {
+			hook(&snap)
+		}
 		return
 	}
-	la.EnqueueLatest(details)
+	w.notifier.EmitLiveUpdate(details)
 }
 
 // Start initiates the background monitoring loop in a separate goroutine.
@@ -733,10 +739,8 @@ func (w *Watcher) scanOnceWithMaxAge(summaryMaxAge time.Duration) int {
 						}
 					}
 					if hasLive {
-						if la := w.notifier.LiveActivity(); la != nil {
-							if !w.dispatchAlert(func() { la.EndSession(context.Background(), cid, dTitle, "COMPLETED", st) }) {
-								enqueued = false
-							}
+						if !w.dispatchAlert(func() { w.notifier.EmitLiveEnd(context.Background(), cid, dTitle, "COMPLETED", st) }) {
+							enqueued = false
 						}
 					}
 					if !enqueued {
@@ -774,10 +778,8 @@ func (w *Watcher) scanOnceWithMaxAge(summaryMaxAge time.Duration) int {
 						enqueued = false
 					}
 					if hasLive {
-						if la := w.notifier.LiveActivity(); la != nil {
-							if !w.dispatchAlert(func() { la.EndSession(context.Background(), cid, dTitle, "FAILED", totalSteps) }) {
-								enqueued = false
-							}
+						if !w.dispatchAlert(func() { w.notifier.EmitLiveEnd(context.Background(), cid, dTitle, "FAILED", totalSteps) }) {
+							enqueued = false
 						}
 					}
 				} else if (details.Status == "CASCADE_RUN_STATUS_COMPLETED" || details.Status == "CASCADE_RUN_STATUS_IDLE") && details.TotalSteps > 0 {
@@ -803,10 +805,8 @@ func (w *Watcher) scanOnceWithMaxAge(summaryMaxAge time.Duration) int {
 							enqueued = false
 						}
 						if hasLive {
-							if la := w.notifier.LiveActivity(); la != nil {
-								if !w.dispatchAlert(func() { la.EndSession(context.Background(), cid, dTitle, "COMPLETED", totalSteps) }) {
-									enqueued = false
-								}
+							if !w.dispatchAlert(func() { w.notifier.EmitLiveEnd(context.Background(), cid, dTitle, "COMPLETED", totalSteps) }) {
+								enqueued = false
 							}
 						}
 					}
@@ -868,10 +868,8 @@ func (w *Watcher) scanOnceWithMaxAge(summaryMaxAge time.Duration) int {
 							enqueued = false
 						}
 						if hasLive {
-							if la := w.notifier.LiveActivity(); la != nil {
-								if !w.dispatchAlert(func() { la.EndSession(context.Background(), cid, dTitle, "COMPLETED", totalSteps) }) {
-									enqueued = false
-								}
+							if !w.dispatchAlert(func() { w.notifier.EmitLiveEnd(context.Background(), cid, dTitle, "COMPLETED", totalSteps) }) {
+								enqueued = false
 							}
 						}
 					}

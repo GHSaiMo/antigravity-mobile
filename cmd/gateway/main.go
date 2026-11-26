@@ -25,6 +25,7 @@ import (
 	"antigravity-mobile/internal/cockpit"
 	"antigravity-mobile/internal/config"
 	"antigravity-mobile/internal/e2ee"
+	"antigravity-mobile/internal/hub"
 	"antigravity-mobile/internal/i18n"
 	"antigravity-mobile/internal/inspector"
 	"antigravity-mobile/internal/localtls"
@@ -131,6 +132,12 @@ func main() {
 		case "run":
 			runGatewayServer(args[1:])
 			return
+		case "hub":
+			runHubCmd(args[1:])
+			return
+		case "node":
+			runNodeCmd(args[1:])
+			return
 		default:
 			if strings.HasPrefix(args[0], "-") {
 				runGatewayServer(args)
@@ -143,6 +150,15 @@ func main() {
 	} else {
 		runGatewayServer(nil)
 	}
+}
+
+func firstNonEmptyEnv(keys ...string) string {
+	for _, k := range keys {
+		if v := strings.TrimSpace(os.Getenv(k)); v != "" {
+			return v
+		}
+	}
+	return ""
 }
 
 func defaultHost() string {
@@ -161,6 +177,10 @@ func defaultPort() int {
 }
 
 func runGatewayServer(args []string) {
+	runGatewayServerWithMode(modeStandalone, args)
+}
+
+func runGatewayServerWithMode(mode gatewayMode, args []string) {
 	// ==============================================================================
 	// 启动项配置参数定义与中文说明
 	// 1. host: 监听主机/IP 地址。默认 "" 监听本机所有 IPv4 接口；设为 127.0.0.1 则仅限本机访问
@@ -169,7 +189,13 @@ func runGatewayServer(args []string) {
 	// 2. port: 网关服务 HTTP/WebSocket 监听端口，默认 58900 (可通过 MULTIGRAVITY_PORT 环境变量覆盖)
 	defaultPort := defaultPort()
 
-	fs := flag.NewFlagSet("mgy", flag.ExitOnError)
+	fsName := "mgy"
+	if mode == modeHub {
+		fsName = "mgy hub"
+	} else if mode == modeNode {
+		fsName = "mgy node"
+	}
+	fs := flag.NewFlagSet(fsName, flag.ExitOnError)
 	host := fs.String("host", defaultHost, i18n.T("网关监听的主机/IP 地址（默认 \"\" 绑定所有 IPv4 网卡，设为 127.0.0.1 仅限本机访问）", "Gateway listening host/IP (default \"\" binds all IPv4 interfaces; 127.0.0.1 for local only)"))
 	port := fs.Int("port", defaultPort, i18n.T("网关 HTTP/WebSocket 监听端口（默认 58900）", "Gateway HTTP/WebSocket listening port (default 58900)"))
 	printQR := fs.Bool("qr", false, i18n.T("启动时是否输出配对二维码（默认: 未配对时自动输出，已配对时默认隐藏）", "Print pairing QR code on startup (default: auto for unpaired, hidden when paired)"))
@@ -179,7 +205,43 @@ func runGatewayServer(args []string) {
 	preventSleepDefault := !envDisabled("MGY_PREVENT_SLEEP") && !envDisabled("MULTIGRAVITY_PREVENT_SLEEP")
 	preventSleep := fs.Bool("prevent-sleep", preventSleepDefault, i18n.T("仅在有活跃 Antigravity 任务时自动阻止宿主机空闲休眠（默认开启，MGY_PREVENT_SLEEP=0 可关闭）", "Prevent host idle sleep only while Antigravity sessions are running (default: true, env: MGY_PREVENT_SLEEP=0 to disable)"))
 	langFlag := fs.String("lang", "", i18n.T("界面与终端语言 (zh/en/ja，默认自适应系统)", "Interface and terminal language (zh/en/ja, defaults to system locale)"))
+
+	// Hub / Node cluster flags
+	defaultHeadless := os.Getenv("MGY_HUB_HEADLESS") == "1" || strings.EqualFold(os.Getenv("MGY_HUB_HEADLESS"), "true")
+	defaultDiscPort := hub.DefaultDiscoveryPort
+	if v := strings.TrimSpace(os.Getenv("MGY_HUB_DISCOVERY_PORT")); v != "" {
+		if dp, err := strconv.Atoi(v); err == nil && dp > 0 {
+			defaultDiscPort = dp
+		}
+	}
+	hubHeadless := fs.Bool("headless", defaultHeadless, i18n.T("无头 Hub 模式（不依赖本机 Antigravity 实例，适合 NAS/服务器）", "Headless Hub mode (no local Antigravity LS required, ideal for NAS/server)"))
+	hubNameFlag := fs.String("name", firstNonEmptyEnv("MGY_NODE_NAME", "MGY_HUB_NAME"), i18n.T("Hub 或节点显示名称（用于会话/项目 [名称] 前缀）", "Hub or Node display name (used as [name] prefix in sessions/projects)"))
+	hubSecretFlag := fs.String("secret", os.Getenv("MGY_HUB_SECRET"), i18n.T("Hub 集群共享密钥（局域网同密钥节点自动免密加入）", "Shared Hub cluster secret for zero-touch LAN auto-join"))
+	hubNodesFlag := fs.String("nodes", os.Getenv("MGY_HUB_NODES"), i18n.T("逗号分隔静态节点列表，如 M1=http://192.168.50.12:58900", "Comma-separated static LAN nodes, e.g. M1=http://192.168.50.12:58900"))
+	hubURLFlag := fs.String("hub", os.Getenv("MGY_HUB_URL"), i18n.T("目标 Hub 局域网地址，如 http://192.168.50.10:58900", "Target Hub LAN URL, e.g. http://192.168.50.10:58900"))
+	hubCodeFlag := fs.String("code", os.Getenv("MGY_HUB_CODE"), i18n.T("加入 Hub 的 6 位加入码", "6-char Hub join code"))
+	discPortFlag := fs.Int("discovery-port", defaultDiscPort, i18n.T("局域网 UDP 发现端口（默认 58901）", "LAN UDP discovery port (default 58901)"))
+	noDiscFlag := fs.Bool("no-discovery", false, i18n.T("关闭局域网 UDP 自动发现", "Disable LAN UDP auto-discovery"))
 	_ = fs.Parse(args)
+
+	hubCfg := hubLaunchConfig{
+		Mode:             mode,
+		Headless:         mode == modeHub && *hubHeadless,
+		HubName:          strings.TrimSpace(*hubNameFlag),
+		NodeName:         strings.TrimSpace(*hubNameFlag),
+		Secret:           strings.TrimSpace(*hubSecretFlag),
+		JoinCode:         strings.TrimSpace(*hubCodeFlag),
+		HubURL:           strings.TrimSpace(*hubURLFlag),
+		DiscoveryPort:    *discPortFlag,
+		DisableDiscovery: *noDiscFlag,
+	}
+	if strings.TrimSpace(*hubNodesFlag) != "" {
+		hubCfg.StaticNodes = append(hubCfg.StaticNodes, strings.TrimSpace(*hubNodesFlag))
+	}
+	// If standalone mgy is explicitly launched with -hub / -code, enable node agent cleanly.
+	if hubCfg.Mode == modeStandalone && (hubCfg.HubURL != "" || hubCfg.JoinCode != "") {
+		hubCfg.Mode = modeNode
+	}
 
 	if *langFlag != "" {
 		i18n.SetLang(*langFlag)
@@ -215,10 +277,12 @@ func runGatewayServer(args []string) {
 		log.Fatalf("❌ Failed to initialize MULTIGRAVITY_ADMIN_TOKEN: %v", err)
 	}
 
-	// 1. Initialize Inspector
+	// 1. Initialize Inspector (skipped polling in headless Hub mode where no local LS runs)
 	insp := inspector.NewInspector(time.Duration(*pollSec) * time.Second)
-	insp.Start()
-	defer insp.Stop()
+	if !hubCfg.Headless {
+		insp.Start()
+		defer insp.Stop()
+	}
 
 	// 2. Initialize Reverse Proxy & WebSocket handler
 	p := proxy.NewProxy(insp)
@@ -250,6 +314,11 @@ func runGatewayServer(args []string) {
 	authHandler.SetEndpoints(netAddrs.LANIPv4, *ddnsHost)
 
 	gatewayName := config.DefaultGatewayName()
+	if hubCfg.Mode == modeHub && hubCfg.HubName != "" {
+		gatewayName = hubCfg.HubName
+	} else if hubCfg.Mode == modeNode && hubCfg.NodeName != "" {
+		gatewayName = hubCfg.NodeName
+	}
 	var gatewayID string
 	if e2eeID, eErr := e2ee.LoadOrCreateIdentity(config.GetDataDir()); eErr != nil {
 		slog.Warn(i18n.T("⚠️  初始化 E2EE 密钥失败，中继加密将不可用", "⚠️  Failed to initialize E2EE identity"), "err", eErr)
@@ -267,6 +336,10 @@ func runGatewayServer(args []string) {
 	// 3.5. Prepare public tunnel configuration (fast disk cache read now; dispatch & transport init run async after port bind)
 	tunnel.SetClientVersion(Version)
 	cfCfg := config.GetCloudflareConfig()
+	if hubCfg.Mode == modeNode && os.Getenv("MGY_NODE_ENABLE_TUNNEL") != "1" {
+		// In LAN node mode, the unified Hub owns public E2EE tunneling and mobile pairing.
+		cfCfg.Enabled = false
+	}
 	relayListener := relay.NewStreamListener()
 	var (
 		cfMu            sync.Mutex
@@ -335,7 +408,9 @@ func runGatewayServer(args []string) {
 	defer cancelWatcher()
 
 	// Start desktop focus watcher (annotations filesystem poller)
-	go p.StartDesktopFocusWatcher(watcherCtx)
+	if !hubCfg.Headless {
+		go p.StartDesktopFocusWatcher(watcherCtx)
+	}
 
 	// Periodically cleanup expired pairing sessions
 	go func() {
@@ -401,9 +476,63 @@ func runGatewayServer(args []string) {
 		}
 	}
 
+	// 4.5. Initialize Hub Manager (mgy hub) or Node Agent (mgy node) before Watcher & Router setup
+	lanAdvertiseURL := ""
+	if netAddrs.LANIPv4 != "" {
+		lanAdvertiseURL = fmt.Sprintf("http://%s:%d", netAddrs.LANIPv4, *port)
+	} else if *host != "" && *host != "0.0.0.0" && *host != "::" && *host != "[::]" {
+		lanAdvertiseURL = fmt.Sprintf("http://%s:%d", *host, *port)
+	}
+
+	var hubMgr *hub.Hub
+	var nodeAgent *hub.NodeAgent
+	if hubCfg.Mode == modeHub {
+		hm, hErr := hub.NewHub(hub.Options{
+			HubID:            gatewayID,
+			HubName:          gatewayName,
+			Headless:         hubCfg.Headless,
+			DataDir:          config.GetDataDir(),
+			Secret:           hubCfg.Secret,
+			StaticNodes:      hubCfg.StaticNodes,
+			DiscoveryPort:    hubCfg.DiscoveryPort,
+			DisableDiscovery: hubCfg.DisableDiscovery,
+			AdvertiseURL:     lanAdvertiseURL,
+			Proxy:            p,
+			Inspector:        insp,
+			Notifier:         notif,
+		})
+		if hErr != nil {
+			log.Fatalf("❌ Failed to initialize Hub manager: %v", hErr)
+		}
+		hubMgr = hm
+		defer hubMgr.Stop()
+	} else if hubCfg.Mode == modeNode {
+		na, nErr := hub.NewNodeAgent(hub.NodeAgentOptions{
+			DataDir:          config.GetDataDir(),
+			NodeName:         gatewayName,
+			HTTPPort:         *port,
+			AdvertiseBaseURL: lanAdvertiseURL,
+			Version:          Version,
+			HubURL:           hubCfg.HubURL,
+			HubSecret:        hubCfg.Secret,
+			JoinCode:         hubCfg.JoinCode,
+			DiscoveryPort:    hubCfg.DiscoveryPort,
+			DisableDiscovery: hubCfg.DisableDiscovery,
+			IsLSHealthy: func() bool {
+				cur := insp.Current()
+				return cur != nil && cur.IsHealthy && cur.Port > 0
+			},
+			Notifier: notif,
+		})
+		if nErr != nil {
+			log.Fatalf("❌ Failed to initialize Node agent: %v", nErr)
+		}
+		nodeAgent = na
+	}
+
 	var pushSummary string
 	var watcher *notifier.Watcher
-	if notif.IsEnabled() || notif.CanActivateDynamically() {
+	if !hubCfg.Headless && (notif.IsEnabled() || notif.CanActivateDynamically()) {
 		p.SetNotificationSink(notif)
 
 		watcher = notifier.NewWatcher(p, notif)
@@ -426,7 +555,7 @@ func runGatewayServer(args []string) {
 		if len(pushes) > 0 {
 			pushSummary = strings.Join(pushes, " + ")
 		}
-	} else if powerGuard != nil || notif.IsCacheMissMonitoringActive() {
+	} else if !hubCfg.Headless && (powerGuard != nil || notif.IsCacheMissMonitoringActive()) {
 		// Notifications disabled, still run lightweight watcher to drive sleep guard and/or shadow cache-miss audit.
 		p.SetNotificationSink(notif)
 		watcher = notifier.NewWatcher(p, notif)
@@ -435,8 +564,16 @@ func runGatewayServer(args []string) {
 		}
 		watcher.Start(watcherCtx)
 	}
+	if hubCfg.Headless {
+		// Headless Hub still uses notif to dispatch pushes relayed from LAN nodes.
+		p.SetNotificationSink(notif)
+	}
 	if pushSummary == "" {
-		pushSummary = i18n.T("未配置 (支持 APNs / FCM)", "Not configured (Supports APNs / FCM)")
+		if hubCfg.Mode == modeNode {
+			pushSummary = i18n.T("转发至统一 Hub 推送", "Relayed via Multigravity Hub")
+		} else {
+			pushSummary = i18n.T("未配置 (支持 APNs / FCM)", "Not configured (Supports APNs / FCM)")
+		}
 	}
 
 	// 5. Web frontend handler
@@ -451,15 +588,17 @@ func runGatewayServer(args []string) {
 	}
 
 	// Align Cockpit configuration to prevent switch failures (APP_PATH_NOT_FOUND)
-	if err := cockpit.EnsureCockpitAntigravityConfig(); err != nil {
-		slog.Info("[Cockpit] Note: EnsureCockpitAntigravityConfig", "err", err)
-	}
+	if !hubCfg.Headless {
+		if err := cockpit.EnsureCockpitAntigravityConfig(); err != nil {
+			slog.Info("[Cockpit] Note: EnsureCockpitAntigravityConfig", "err", err)
+		}
 
-	cockpit.StartQuotaAutoRefresher(watcherCtx, 10*time.Minute, cockpitAlertFn)
+		cockpit.StartQuotaAutoRefresher(watcherCtx, 10*time.Minute, cockpitAlertFn)
+	}
 
 	// Multi-bucket quota guardian: 5 buckets low-quota, official early bonus-reset, and rapid/idle anomaly alerts.
 	// Works with or without Cockpit Tools by polling FetchLiveQuota every 5 minutes (plus 30s Cockpit cache checks).
-	if notif != nil && !envDisabled("QUOTA_ALERT_ENABLED") {
+	if !hubCfg.Headless && notif != nil && !envDisabled("QUOTA_ALERT_ENABLED") {
 		alertCfg := cockpit.QuotaAlertConfigFromEnv()
 		alertCfg.StatePath = filepath.Join(config.GetDataDir(), "quota_alert_state.json")
 		alertCfg.LiveEmail = func() string {
@@ -512,6 +651,11 @@ func runGatewayServer(args []string) {
 		ListenLoopback: listenLoopback,
 		TrustLAN:       *trustLAN,
 	}
+	if hubMgr != nil {
+		authPolicy.HubTokenValidator = hubMgr.ValidateHubAuthToken
+	} else if nodeAgent != nil {
+		authPolicy.HubTokenValidator = nodeAgent.ValidateHubRequestToken
+	}
 	authHandler.SetAuthPolicy(authPolicy)
 
 	if auth.AuthDisabledRequested() && (authPolicy.TunnelEnabled || !authPolicy.ListenLoopback) {
@@ -524,7 +668,7 @@ func runGatewayServer(args []string) {
 		wsDialHost = h
 	}
 	localWSAddr := fmt.Sprintf("%s:%d", wsDialHost, *port)
-	router := buildRouterWithWSAddr(authStore, authHandler, p, insp, time.Now(), webHandler, authPolicy, func() string { return localWSAddr })
+	router := buildRouterWithHub(authStore, authHandler, p, insp, time.Now(), webHandler, authPolicy, func() string { return localWSAddr }, hubMgr)
 
 	server := &http.Server{
 		Addr:    fmt.Sprintf("%s:%d", *host, *port),
@@ -577,8 +721,18 @@ func runGatewayServer(args []string) {
 	// Brief pause to allow initial upstream detection
 	time.Sleep(100 * time.Millisecond)
 
+	// Start Hub discovery/probing or Node LAN advertisement & registration after listener is live
+	if hubMgr != nil {
+		hubMgr.Start(watcherCtx)
+	}
+	if nodeAgent != nil {
+		nodeAgent.Start(watcherCtx)
+	}
+
 	upstreamDesc := i18n.T("等待 Antigravity 启动...", "Waiting for Antigravity...")
-	if cur := insp.Current(); cur != nil && cur.IsHealthy {
+	if hubCfg.Headless {
+		upstreamDesc = i18n.T("无头 Hub 模式 (仅聚合局域网节点)", "Headless Hub mode (LAN nodes only)")
+	} else if cur := insp.Current(); cur != nil && cur.IsHealthy {
 		upstreamDesc = i18n.Sprintf("已连接 (PID %d, 端口 %d)", "Connected (PID %d, Port %d)", cur.PID, cur.Port)
 	}
 
@@ -640,11 +794,36 @@ func runGatewayServer(args []string) {
 		"  ➜  Remote Push:  %s\n", pushSummary))
 	fmt.Print(i18n.Sprintf("  ➜  已配设备:   %s\n",
 		"  ➜  Paired:       %s\n", deviceDesc))
+	if hubMgr != nil {
+		hubModeLabel := i18n.T("本机 + 局域网多机聚合", "Local + LAN Multi-Node")
+		if hubMgr.Headless() {
+			hubModeLabel = i18n.T("无头聚合 (Headless)", "Headless Aggregator")
+		}
+		fmt.Print(i18n.Sprintf("  ➜  Hub 模式:   %s (已存节点: %d | 加入码: %s)\n",
+			"  ➜  Hub Mode:     %s (Nodes: %d | Join Code: %s)\n",
+			hubModeLabel, len(hubMgr.Store().ListNodes()), hubMgr.JoinCode()))
+		joinTarget := lanURL
+		if joinTarget == "-" {
+			joinTarget = fmt.Sprintf("http://127.0.0.1:%d", *port)
+		}
+		fmt.Print(i18n.Sprintf("  ➜  节点接入:   mgy node -hub %s -code %s\n",
+			"  ➜  Join Node:    mgy node -hub %s -code %s\n", joinTarget, hubMgr.JoinCode()))
+	} else if nodeAgent != nil {
+		hubTarget := nodeAgent.HubURL()
+		if hubTarget == "" {
+			hubTarget = i18n.T("局域网自动发现中...", "LAN Auto-Discovering...")
+		}
+		fmt.Print(i18n.Sprintf("  ➜  节点模式:   %s (%s) -> Hub: %s\n",
+			"  ➜  Node Mode:    %s (%s) -> Hub: %s\n", nodeAgent.NodeName(), nodeAgent.NodeID(), hubTarget))
+	}
 	fmt.Println("  --------------------------------------------------")
 
 	shouldPrintQR := false
 	if qrExplicitlySet {
 		shouldPrintQR = *printQR
+	} else if hubCfg.Mode == modeNode {
+		// LAN nodes rely on the unified Hub for mobile QR pairing.
+		shouldPrintQR = false
 	} else {
 		// 未显式指定 -qr 时：未配对设备自动打印二维码；已有配对设备则保持界面清爽
 		shouldPrintQR = deviceCount == 0
@@ -931,6 +1110,9 @@ func runGatewayServer(args []string) {
 
 	// 1. Stop background watchers and inspector polling first to prevent new requests
 	cancelWatcher()
+	if hubMgr != nil {
+		hubMgr.Stop()
+	}
 	insp.Stop()
 	stopCFTunnel()
 
@@ -960,6 +1142,8 @@ func runHelpCmd() {
 
 常用子命令:
   run (默认)        启动网关服务 (局域网直连 + Cloudflare 专属 HTTPS 隧道)
+  hub               以统一 Hub 模式启动或管理多机集群 (支持 status/nodes/add/remove/filter/secret)
+  node              以局域网节点模式启动 mgy 并接入 Hub (支持 -hub/-code/-secret/-name)
   pair              向正在运行的网关申请并打印新配对二维码与链接 (支持 -copy / -uri)
   cockpit           交互式配置 Cockpit 报表服务与安全 Token (支持 status/token/restart)
   cloudflare (cf)   交互式配置 Cloudflare 专属穿透隧道与域名 (支持 status/reset/enable)
@@ -989,6 +1173,8 @@ Usage:
 
 Common Subcommands:
   run (default)     Start gateway service (Direct LAN + Cloudflare exclusive HTTPS tunnel)
+  hub               Start or manage unified Hub multi-host cluster (status/nodes/add/remove/filter/secret)
+  node              Start mgy as a LAN node and join a Hub (-hub/-code/-secret/-name)
   pair              Request and print a new pairing QR code and link (supports -copy / -uri)
   cockpit           Interactively configure Cockpit report service & token (supports status/token/restart)
   cloudflare (cf)   Interactively configure Cloudflare tunnel & domain (supports status/reset/enable)
@@ -1297,6 +1483,20 @@ func buildRouterWithWSAddr(
 	webHandler http.Handler,
 	authPolicy auth.AuthPolicy,
 	localWSAddr func() string,
+) http.Handler {
+	return buildRouterWithHub(authStore, authHandler, p, insp, startTime, webHandler, authPolicy, localWSAddr, nil)
+}
+
+func buildRouterWithHub(
+	authStore *auth.AuthStore,
+	authHandler *auth.AuthHandler,
+	p *proxy.Proxy,
+	insp inspector.UpstreamDiscoverer,
+	startTime time.Time,
+	webHandler http.Handler,
+	authPolicy auth.AuthPolicy,
+	localWSAddr func() string,
+	hubMgr *hub.Hub,
 ) http.Handler {
 	rootMux := http.NewServeMux()
 
@@ -1831,11 +2031,15 @@ func buildRouterWithWSAddr(
 	rootMux.Handle("/", adaptiveWebHandler)
 
 	// Inject managed cloud tunnel domain in response headers for authenticated client auto-discovery and healing
+	var innerHandler http.Handler = rootMux
+	if hubMgr != nil {
+		innerHandler = hubMgr.WrapHandler(rootMux)
+	}
 	endpointHeadersMiddleware := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if cloudURL := authHandler.CloudURLForRequest(r); cloudURL != "" && authHandler.RequestAuthorized(r) {
 			w.Header().Set("X-Antigravity-Cloud-URL", cloudURL)
 		}
-		rootMux.ServeHTTP(w, r)
+		innerHandler.ServeHTTP(w, r)
 	})
 
 	// Wrap with security headers, body size ceiling (64MB), and authentication policy

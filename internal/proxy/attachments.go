@@ -549,6 +549,20 @@ func attachmentLine(a Attachment) string {
 	return fmt.Sprintf("- %s (%s, %s)", a.Path, ext, humanSize(a.Size))
 }
 
+// FindAttachmentByID looks up an uploaded attachment in the local inbox by its 16-char ID.
+func FindAttachmentByID(id string) (Attachment, bool) {
+	inbox, err := AttachmentInboxDir()
+	if err != nil || inbox == "" {
+		return Attachment{}, false
+	}
+	return findAttachment(inbox, id)
+}
+
+// ExtractAttachmentIDsFromText returns canonical 16-char attachment IDs embedded in an attachment block.
+func ExtractAttachmentIDsFromText(text string) []string {
+	return extractAttachmentIDsFromText(text)
+}
+
 // stageNativeMediaForUpstream creates a per-send staged link/copy under <inbox>/.tmp/media-<rand>/<base>
 // so Antigravity Language Server can move media[].uri into brain/<cascadeID>/.user_uploaded/<base>
 // without removing the canonical file at <inbox>/<yyyy-MM>/<id16>-<name> referenced in the prompt text.
