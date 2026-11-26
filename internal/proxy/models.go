@@ -74,11 +74,11 @@ var preferredDefaults = map[string][]string{
 
 // fallbackModels is used until the first successful query, or when language_server is unreachable.
 var fallbackModels = []ModelOption{
-	{ID: "gemini-4-neon-xhigh", Name: "Gemini 4 Neon (Extra)", Provider: "gemini", Enum: "MODEL_PLACEHOLDER_M535", SupportsImages: true, Thinking: true, Tag: "New"},
+	{ID: "gemini-4-neon-xhigh", Name: "Gemini 4 Neon (XHigh)", Provider: "gemini", Enum: "MODEL_PLACEHOLDER_M535", SupportsImages: true, Thinking: true, Tag: "New"},
 	{ID: "gemini-4-neon-high", Name: "Gemini 4 Neon (High)", Provider: "gemini", Enum: "MODEL_PLACEHOLDER_M532", SupportsImages: true, Thinking: true, Tag: "New"},
 	{ID: "gemini-4-neon-medium", Name: "Gemini 4 Neon (Medium)", Provider: "gemini", Enum: "MODEL_PLACEHOLDER_M533", SupportsImages: true, Thinking: true, Tag: "New"},
 	{ID: "gemini-4-neon-low", Name: "Gemini 4 Neon (Low)", Provider: "gemini", Enum: "MODEL_PLACEHOLDER_M534", SupportsImages: true, Thinking: true, Tag: "New"},
-	{ID: "gemini-4-hydrogen-xhigh", Name: "Gemini 4 Hydrogen (Extra)", Provider: "gemini", Enum: "MODEL_PLACEHOLDER_M528", SupportsImages: true, Thinking: true, Tag: "New"},
+	{ID: "gemini-4-hydrogen-xhigh", Name: "Gemini 4 Hydrogen (XHigh)", Provider: "gemini", Enum: "MODEL_PLACEHOLDER_M528", SupportsImages: true, Thinking: true, Tag: "New"},
 	{ID: "gemini-4-hydrogen-high", Name: "Gemini 4 Hydrogen (High)", Provider: "gemini", Enum: "MODEL_PLACEHOLDER_M525", SupportsImages: true, Thinking: true, Tag: "New"},
 	{ID: "gemini-4-hydrogen-medium", Name: "Gemini 4 Hydrogen (Medium)", Provider: "gemini", Enum: "MODEL_PLACEHOLDER_M526", SupportsImages: true, Thinking: true, Tag: "New"},
 	{ID: "gemini-4-hydrogen-low", Name: "Gemini 4 Hydrogen (Low)", Provider: "gemini", Enum: "MODEL_PLACEHOLDER_M527", SupportsImages: true, Thinking: true, Tag: "New"},
@@ -233,7 +233,7 @@ func legacyRank(id string) int {
 
 var (
 	versionRe             = regexp.MustCompile(`\d+(?:\.\d+)*`)
-	extraHighSuffixRe     = regexp.MustCompile(`(?i)(\(|[\s,\-·/|:]\s*)(xhigh|extra[\s\-]+high)\)`)
+	extraHighSuffixRe     = regexp.MustCompile(`(?i)(\(|[\s,\-·/|:]\s*)(xhigh|extra(?:[\s\-]+high)?)\)`)
 	effortTokenInParen    = regexp.MustCompile(`(?i)(?:^|[\s,\-·/|:(])(extra[\s\-]+high|xhigh|extra|high|medium|med|low)\s*\)$`)
 	trailingEffortIDRe    = regexp.MustCompile(`(?i)-(low|medium|high|xhigh|extra-high|max)$`)
 	trailingParenEffortRe = regexp.MustCompile(`(?i)\s*\((extra[\s\-]+high|xhigh|extra|high|medium|med|low)\)\s*$`)
@@ -291,12 +291,12 @@ func lessVersionDesc(a, b []int) (less, decided bool) {
 }
 
 func normalizeModelDisplayName(name string) string {
-	// Align "(XHigh)" / "(Extra High)" (including combined parens like "(Neon, XHigh)") with "(Extra)".
+	// Align "(Extra)" / "(Extra High)" / "(XHigh)" (including combined parens like "(Neon, Extra High)") with "(XHigh)".
 	trimmed := strings.TrimSpace(name)
 	if trimmed == "" {
 		return name
 	}
-	return extraHighSuffixRe.ReplaceAllString(trimmed, "${1}Extra)")
+	return extraHighSuffixRe.ReplaceAllString(trimmed, "${1}XHigh)")
 }
 
 func isExcludedPickerModel(id string) bool {
@@ -861,9 +861,9 @@ func effortDisplayLabelFromSuffix(suffix string) string {
 	case "high":
 		return "High"
 	case "xhigh", "extra-high":
-		return "Extra"
+		return "XHigh"
 	case "max":
-		return "Extra"
+		return "XHigh"
 	default:
 		return ""
 	}

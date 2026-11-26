@@ -30316,46 +30316,68 @@
         }
       }
     },
-    "余量窗口": {
+    "余量面板": {
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Quota Window"
+            "value": "Quota Panel"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "残量ウィンドウ"
+            "value": "残量パネル"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "余量窗口"
+            "value": "余量面板"
           }
         }
       }
     },
-    "长按模型胶囊上滑时，在每个模型行右侧显示所属额度池（Gemini / Claude）的剩余百分比，低于 20% 标红。": {
+    "周": {
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "When you long-press the model chip and slide up, each model row shows the remaining percentage of its quota pool (Gemini / Claude) on the right; below 20% turns red."
+            "value": "7d"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "モデルチップを長押しして上にスライドすると、各モデル行の右側に所属クォータ（Gemini / Claude）の残り割合を表示します。20% 未満は赤色になります。"
+            "value": "週"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "长按模型胶囊上滑时，在每个模型行右侧显示所属额度池（Gemini / Claude）的剩余百分比，低于 20% 标红。"
+            "value": "周"
+          }
+        }
+      }
+    },
+    "长按模型胶囊上滑时，在右侧伴随面板同屏显示 Gemini 与 Claude 共享池的 5h 与周剩余额度，低于 20% 标红。": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "When you long-press the model chip and slide up, a companion panel on the right shows both 5h and weekly remaining quotas for Gemini and Claude pools; below 20% turns red."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "モデルチップを長押しして上にスライドすると、右側のパネルに Gemini / Claude 共有プールの 5h と週間残量を同時表示します。20% 未満は赤色になります。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "长按模型胶囊上滑时，在右侧伴随面板同屏显示 Gemini 与 Claude 共享池的 5h 与周剩余额度，低于 20% 标红。"
           }
         }
       }

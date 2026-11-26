@@ -37,7 +37,16 @@ public enum ModelEffortRank: Int, Comparable, Sendable {
         case .low: return "Low"
         case .medium: return "Medium"
         case .high: return "High"
-        case .extra: return "Extra"
+        case .extra: return "XHigh"
+        }
+    }
+
+    public var shortLabel: String {
+        switch self {
+        case .low: return "Low"
+        case .medium: return "Med"
+        case .high: return "High"
+        case .extra: return "XHigh"
         }
     }
 
@@ -338,7 +347,7 @@ public enum ModelDefaultsLogic {
 
     /// 内置/预设模型 ID → 统一展示名映射，避免离线、未拉取目录或切号过渡期露出小写裸 ID。
     public static let staticDisplayNameByID: [String: String] = [
-        "gemini-4-neon-xhigh": "Gemini 4 Neon (Extra)",
+        "gemini-4-neon-xhigh": "Gemini 4 Neon (XHigh)",
         "gemini-4-neon-high": "Gemini 4 Neon (High)",
         "gemini-4-neon-medium": "Gemini 4 Neon (Medium)",
         "gemini-4-neon-low": "Gemini 4 Neon (Low)",
@@ -350,7 +359,7 @@ public enum ModelDefaultsLogic {
         "gemini-4-argon-high": "Gemini 4 Argon (High)",
         "gemini-4-argon-medium": "Gemini 4 Argon (Medium)",
         "gemini-4-argon-low": "Gemini 4 Argon (Low)",
-        "gemini-4-hydrogen-xhigh": "Gemini 4 Hydrogen (Extra)",
+        "gemini-4-hydrogen-xhigh": "Gemini 4 Hydrogen (XHigh)",
         "gemini-4-hydrogen-high": "Gemini 4 Hydrogen (High)",
         "gemini-4-hydrogen-medium": "Gemini 4 Hydrogen (Medium)",
         "gemini-4-hydrogen-low": "Gemini 4 Hydrogen (Low)",
@@ -379,7 +388,7 @@ public enum ModelDefaultsLogic {
 
     /// 顶栏芯片紧凑展示名映射（如 `Gemini 4 Carbon (High)` → `Carbon · High`）。
     public static let staticCompactDisplayNameByID: [String: String] = [
-        "gemini-4-neon-xhigh": "Neon · Extra",
+        "gemini-4-neon-xhigh": "Neon · XHigh",
         "gemini-4-neon-high": "Neon · High",
         "gemini-4-neon-medium": "Neon · Med",
         "gemini-4-neon-low": "Neon · Low",
@@ -391,7 +400,7 @@ public enum ModelDefaultsLogic {
         "gemini-4-argon-high": "Argon · High",
         "gemini-4-argon-medium": "Argon · Med",
         "gemini-4-argon-low": "Argon · Low",
-        "gemini-4-hydrogen-xhigh": "Hydrogen · Extra",
+        "gemini-4-hydrogen-xhigh": "Hydrogen · XHigh",
         "gemini-4-hydrogen-high": "Hydrogen · High",
         "gemini-4-hydrogen-medium": "Hydrogen · Med",
         "gemini-4-hydrogen-low": "Hydrogen · Low",
@@ -432,13 +441,13 @@ public enum ModelDefaultsLogic {
         if core.count >= 2,
            core[core.count - 2].lowercased() == "extra",
            core[core.count - 1].lowercased() == "high" {
-            qualifier = "Extra"
+            qualifier = "XHigh"
             core.removeLast(2)
         } else {
             let trailingQualifiers: Set<String> = ["high", "medium", "low", "xhigh", "extra", "thinking"]
             if let last = core.last, trailingQualifiers.contains(last.lowercased()), core.count > 1 {
                 if last.lowercased() == "xhigh" || last.lowercased() == "extra" {
-                    qualifier = "Extra"
+                    qualifier = "XHigh"
                 } else {
                     qualifier = last.prefix(1).uppercased() + last.dropFirst().lowercased()
                 }
@@ -486,12 +495,12 @@ public enum ModelDefaultsLogic {
     private static func normalizeDisplayName(_ name: String) -> String {
         let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return name }
-        if let regex = try? NSRegularExpression(pattern: #"(\(|[\s,\-·/|:]\s*)(xhigh|extra[\s\-]+high)\)"#, options: [.caseInsensitive]) {
+        if let regex = try? NSRegularExpression(pattern: #"(\(|[\s,\-·/|:]\s*)(xhigh|extra(?:[\s\-]+high)?)\)"#, options: [.caseInsensitive]) {
             let range = NSRange(trimmed.startIndex..., in: trimmed)
-            return regex.stringByReplacingMatches(in: trimmed, range: range, withTemplate: "$1Extra)")
+            return regex.stringByReplacingMatches(in: trimmed, range: range, withTemplate: "$1XHigh)")
         }
-        if trimmed.hasSuffix("(XHigh)") {
-            return String(trimmed.dropLast("(XHigh)".count)) + "(Extra)"
+        if trimmed.hasSuffix("(Extra)") {
+            return String(trimmed.dropLast("(Extra)".count)) + "(XHigh)"
         }
         return trimmed
     }
@@ -617,6 +626,19 @@ public enum ModelDefaultsLogic {
         return "\(normalizedName) · \(tag)"
     }
 
+    public static func effortRank(forID id: String, options: [ModelOption] = []) -> ModelEffortRank? {
+        if let direct = ModelEffortRank.parse(id) {
+            return direct
+        }
+        let full = displayName(forID: id, options: options)
+        if let openParen = full.lastIndex(of: "("), full.hasSuffix(")"), openParen > full.startIndex {
+            let inside = String(full[full.index(after: openParen)..<full.index(before: full.endIndex)])
+            if let r = ModelEffortRank.parsePure(inside) { return r }
+            if let split = ModelEffortRank.extractTrailingEffort(from: inside) { return split.effort }
+        }
+        return nil
+    }
+
     public static func providerKind(forID id: String) -> ModelProviderKind {
         let lower = id.lowercased()
         if isClaude(lower) { return .claude }
@@ -673,8 +695,8 @@ public enum ModelDefaultsLogic {
                 variant = "Med"
             } else if vLower == "thinking" {
                 variant = "Think"
-            } else if vLower == "xhigh" || vLower == "extra high" || vLower == "extra-high" {
-                variant = "Extra"
+            } else if vLower == "xhigh" || vLower == "extra" || vLower == "extra high" || vLower == "extra-high" {
+                variant = "XHigh"
             }
             return "\(base) · \(variant)"
         }

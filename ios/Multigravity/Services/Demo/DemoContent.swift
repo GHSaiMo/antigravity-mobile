@@ -752,7 +752,7 @@ extension DemoGateway {
                     id: "c01-a2",
                     step: 2,
                     model: "gemini-4-neon-xhigh",
-                    modelName: "Gemini 4 Neon (Extra)",
+                    modelName: "Gemini 4 Neon (XHigh)",
                     text: Self.t(
                         """
                         已完成前后两端流式附件上传与 SHA-256 去重：
@@ -814,7 +814,7 @@ extension DemoGateway {
             unread: false,
             pinned: true,
             modelId: "gemini-4-neon-xhigh",
-            modelName: "Gemini 4 Neon (Extra)",
+            modelName: "Gemini 4 Neon (XHigh)",
             startedAt: isoAgo(minutes: 9),
             contextMeter: Self.meter(used: 186_400, maxTokens: 512_000, tps: 132.9, ttft: 7.4),
             swarm: nil,
@@ -1657,7 +1657,7 @@ extension DemoGateway {
                     id: "c05-a2",
                     step: 2,
                     model: "gemini-4-neon-xhigh",
-                    modelName: "Gemini 4 Neon (Extra)",
+                    modelName: "Gemini 4 Neon (XHigh)",
                     text: Self.t(
                         """
                         已完成基线审计并起草实施计划 [implementation_plan.md](file:///Users/demo/.gemini/antigravity/brain/demo-0005/implementation_plan.md)，核心灰度切流拓扑如下：
@@ -1738,7 +1738,7 @@ extension DemoGateway {
             unread: true,
             pinned: false,
             modelId: "gemini-4-neon-xhigh",
-            modelName: "Gemini 4 Neon (Extra)",
+            modelName: "Gemini 4 Neon (XHigh)",
             startedAt: isoAgo(minutes: 18),
             contextMeter: Self.meter(used: 156_200, maxTokens: 512_000, tps: 131.4, ttft: 7.2),
             swarm: nil,

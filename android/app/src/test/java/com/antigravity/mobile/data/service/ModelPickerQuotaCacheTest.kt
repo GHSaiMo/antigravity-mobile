@@ -71,7 +71,7 @@ class ModelPickerQuotaCacheTest {
     }
 
     @Test
-    fun geminiBackedOrchestratorsKeepGeminiAndArgonPools() {
+    fun geminiBackedOrchestratorsUseUnifiedGeminiPool() {
         assertEquals(
             88.0,
             ModelPickerQuotaCache.remainingPercent(
@@ -94,8 +94,9 @@ class ModelPickerQuotaCacheTest {
                 quotaPools = listOf("gemini")
             )
         )
+        // Argon dedicated quota is retired: Orch Argon & Gemini 4 Argon both share the unified Gemini pool
         assertEquals(
-            63.0,
+            88.0,
             ModelPickerQuotaCache.remainingPercent(
                 account = account,
                 providerKind = "orchestrator",
@@ -103,6 +104,23 @@ class ModelPickerQuotaCacheTest {
                 variantIds = listOf("gemini-pro-orchestrator-argon-high"),
                 weekly = false,
                 quotaPools = listOf("gemini")
+            )
+        )
+        assertEquals(
+            ModelQuotaPoolKind.GEMINI,
+            ModelPickerQuotaCache.quotaPool(
+                providerKind = "orchestrator",
+                title = "Orch Argon",
+                variantIds = listOf("gemini-pro-orchestrator-argon-high"),
+                quotaPools = listOf("gemini")
+            )
+        )
+        assertEquals(
+            ModelQuotaPoolKind.CLAUDE,
+            ModelPickerQuotaCache.quotaPool(
+                providerKind = "orchestrator",
+                title = "Orch Opus 5.5",
+                variantIds = listOf("gemini-pro-orchestrator-opus-5-5-high")
             )
         )
     }

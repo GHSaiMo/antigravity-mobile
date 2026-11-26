@@ -54,8 +54,8 @@ func TestV234_NeonAndOrchestratorModelMappings(t *testing.T) {
 	if res.Defaults["orchestrator"] != "gemini-pro-orchestrator-neon" {
 		t.Fatalf("orchestrator default = %q, want gemini-pro-orchestrator-neon", res.Defaults["orchestrator"])
 	}
-	if liveModels.displayName("gemini-4-neon-xhigh") != "Gemini 4 Neon (Extra)" {
-		t.Fatalf("xhigh displayName = %q, want Gemini 4 Neon (Extra)", liveModels.displayName("gemini-4-neon-xhigh"))
+	if liveModels.displayName("gemini-4-neon-xhigh") != "Gemini 4 Neon (XHigh)" {
+		t.Fatalf("xhigh displayName = %q, want Gemini 4 Neon (XHigh)", liveModels.displayName("gemini-4-neon-xhigh"))
 	}
 }
 

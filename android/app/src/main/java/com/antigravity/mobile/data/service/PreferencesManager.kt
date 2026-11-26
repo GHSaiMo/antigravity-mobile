@@ -275,12 +275,13 @@ class PreferencesManager(context: Context) {
         set(value) {
             prefs.edit().putBoolean(KEY_WEEKLY_PACE_CURSOR, value).apply()
             _weeklyPaceCursorFlow.value = value
+            ModelPickerQuotaCache.weeklyPaceCursorEnabled.value = value
         }
 
     private val _weeklyPaceCursorFlow = MutableStateFlow(weeklyPaceCursorEnabled)
     val weeklyPaceCursorFlow: StateFlow<Boolean> = _weeklyPaceCursorFlow.asStateFlow()
 
-    /** 长按模型选择器的行内是否显示对应额度池剩余百分比（默认开启） */
+    /** 长按模型选择器的右侧是否显示额度伴随面板（默认开启） */
     var modelPickerQuotaEnabled: Boolean
         get() = prefs.getBoolean(KEY_MODEL_PICKER_QUOTA_ENABLED, true)
         set(value) {
@@ -288,7 +289,7 @@ class PreferencesManager(context: Context) {
             ModelPickerQuotaCache.enabled.value = value
         }
 
-    /** 模型选择器余量窗口：false = 5h（默认），true = Weekly */
+    /** 模型选择器余量窗口（保留兼容存储） */
     var modelPickerQuotaWeekly: Boolean
         get() = prefs.getBoolean(KEY_MODEL_PICKER_QUOTA_WEEKLY, false)
         set(value) {
@@ -299,6 +300,7 @@ class PreferencesManager(context: Context) {
     private val modelPickerQuotaPrefsSynced: Unit = run {
         ModelPickerQuotaCache.enabled.value = modelPickerQuotaEnabled
         ModelPickerQuotaCache.weekly.value = modelPickerQuotaWeekly
+        ModelPickerQuotaCache.weeklyPaceCursorEnabled.value = weeklyPaceCursorEnabled
     }
 
     var selectedQuotaBucket: QuotaBucketKind

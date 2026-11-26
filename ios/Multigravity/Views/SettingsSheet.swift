@@ -738,14 +738,13 @@ public struct SettingsSheet: View {
     private var quotaDisplaySummary: String {
         let pace = settings.weeklyPaceCursorEnabled
         let picker = settings.modelPickerQuotaEnabled
-        let window = settings.modelPickerQuotaWeekly ? String(localized: "每周") : "5h"
         switch (pace, picker) {
         case (true, true):
-            return "\(String(localized: "匀速")) · \(window)"
+            return "\(String(localized: "匀速")) · \(String(localized: "余量"))"
         case (true, false):
             return String(localized: "匀速游标")
         case (false, true):
-            return "\(String(localized: "余量")) · \(window)"
+            return String(localized: "余量面板")
         case (false, false):
             return String(localized: "已关闭")
         }
@@ -1009,29 +1008,12 @@ private struct QuotaDisplaySettingsView: View {
 
             Section(
                 header: Text("模型选择器"),
-                footer: Text("长按模型胶囊上滑时，在每个模型行右侧显示所属额度池（Gemini / Claude）的剩余百分比，低于 20% 标红。")
+                footer: Text("长按模型胶囊上滑时，在右侧伴随面板同屏显示 Gemini 与 Claude 共享池的 5h 与周剩余额度，低于 20% 标红。")
             ) {
                 Toggle("显示余量", isOn: $settings.modelPickerQuotaEnabled)
                     .onChange(of: settings.modelPickerQuotaEnabled) { _, _ in
                         UIImpactFeedbackGenerator(style: .light).impactOccurred()
                     }
-
-                HStack {
-                    Text("余量窗口")
-                    Spacer()
-                    Picker("余量窗口", selection: $settings.modelPickerQuotaWeekly) {
-                        Text("5h").tag(false)
-                        Text("每周").tag(true)
-                    }
-                    .pickerStyle(.segmented)
-                    .labelsHidden()
-                    .frame(width: 140)
-                    .onChange(of: settings.modelPickerQuotaWeekly) { _, _ in
-                        UIImpactFeedbackGenerator(style: .light).impactOccurred()
-                    }
-                }
-                .disabled(!settings.modelPickerQuotaEnabled)
-                .opacity(settings.modelPickerQuotaEnabled ? 1.0 : 0.48)
             }
         }
         .navigationTitle("额度显示")

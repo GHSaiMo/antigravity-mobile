@@ -562,7 +562,7 @@ final class DemoGateway: @unchecked Sendable {
     func modelsPayload() -> Data {
         let options: [ModelOption] = [
             // Gemini 4 Neon (current flagship)
-            ModelOption(id: "gemini-4-neon-xhigh", name: "Gemini 4 Neon (Extra)", provider: "gemini", enum: "MODEL_PLACEHOLDER_M535", supportsImages: true, thinking: true, tag: "New"),
+            ModelOption(id: "gemini-4-neon-xhigh", name: "Gemini 4 Neon (XHigh)", provider: "gemini", enum: "MODEL_PLACEHOLDER_M535", supportsImages: true, thinking: true, tag: "New"),
             ModelOption(id: "gemini-4-neon-high", name: "Gemini 4 Neon (High)", provider: "gemini", enum: "MODEL_PLACEHOLDER_M532", supportsImages: true, thinking: true, tag: "New"),
             ModelOption(id: "gemini-4-neon-medium", name: "Gemini 4 Neon (Medium)", provider: "gemini", enum: "MODEL_PLACEHOLDER_M533", supportsImages: true, thinking: true, tag: "New"),
             ModelOption(id: "gemini-4-neon-low", name: "Gemini 4 Neon (Low)", provider: "gemini", enum: "MODEL_PLACEHOLDER_M534", supportsImages: true, thinking: true, tag: "New"),
@@ -575,7 +575,7 @@ final class DemoGateway: @unchecked Sendable {
             ModelOption(id: "gemini-4-argon-medium", name: "Gemini 4 Argon (Medium)", provider: "gemini", enum: "MODEL_PLACEHOLDER_M418", supportsImages: true, thinking: true, tag: "New"),
             ModelOption(id: "gemini-4-argon-low", name: "Gemini 4 Argon (Low)", provider: "gemini", enum: "MODEL_PLACEHOLDER_M419", supportsImages: true, thinking: true, tag: "New"),
             // Gemini 4 Hydrogen (fast worker / coding)
-            ModelOption(id: "gemini-4-hydrogen-xhigh", name: "Gemini 4 Hydrogen (Extra)", provider: "gemini", enum: "MODEL_PLACEHOLDER_M528", supportsImages: true, thinking: true, tag: "New"),
+            ModelOption(id: "gemini-4-hydrogen-xhigh", name: "Gemini 4 Hydrogen (XHigh)", provider: "gemini", enum: "MODEL_PLACEHOLDER_M528", supportsImages: true, thinking: true, tag: "New"),
             ModelOption(id: "gemini-4-hydrogen-high", name: "Gemini 4 Hydrogen (High)", provider: "gemini", enum: "MODEL_PLACEHOLDER_M525", supportsImages: true, thinking: true, tag: "New"),
             ModelOption(id: "gemini-4-hydrogen-medium", name: "Gemini 4 Hydrogen (Medium)", provider: "gemini", enum: "MODEL_PLACEHOLDER_M526", supportsImages: true, thinking: true, tag: "New"),
             ModelOption(id: "gemini-4-hydrogen-low", name: "Gemini 4 Hydrogen (Low)", provider: "gemini", enum: "MODEL_PLACEHOLDER_M527", supportsImages: true, thinking: true, tag: "New"),

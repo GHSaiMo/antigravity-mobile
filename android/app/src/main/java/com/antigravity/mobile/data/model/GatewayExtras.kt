@@ -267,11 +267,11 @@ data class ModelOption(
     val quotaPool: String? = null
 )
 
-enum class ModelEffortRank(val rank: Int, val displayLabel: String) {
-    LOW(0, "Low"),
-    MEDIUM(1, "Medium"),
-    HIGH(2, "High"),
-    EXTRA(3, "Extra");
+enum class ModelEffortRank(val rank: Int, val displayLabel: String, val shortLabel: String) {
+    LOW(0, "Low", "Low"),
+    MEDIUM(1, "Medium", "Med"),
+    HIGH(2, "High", "High"),
+    EXTRA(3, "XHigh", "XHigh");
 
     companion object {
         fun parsePure(raw: String): ModelEffortRank? = when (raw.trim().lowercase()) {
@@ -424,7 +424,7 @@ object ModelDefaults {
 
     /** 内置/预设模型 ID → 统一展示名映射，避免离线、未拉取目录或切号过渡期露出小写裸 ID。 */
     val STATIC_DISPLAY_NAME_BY_ID: Map<String, String> = mapOf(
-        "gemini-4-neon-xhigh" to "Gemini 4 Neon (Extra)",
+        "gemini-4-neon-xhigh" to "Gemini 4 Neon (XHigh)",
         "gemini-4-neon-high" to "Gemini 4 Neon (High)",
         "gemini-4-neon-medium" to "Gemini 4 Neon (Medium)",
         "gemini-4-neon-low" to "Gemini 4 Neon (Low)",
@@ -450,7 +450,7 @@ object ModelDefaults {
         "claude-opus-4-6-thinking" to "Claude Opus 4.6 (Thinking)",
         "claude-sonnet-4-6" to "Claude Sonnet 4.6 (Thinking)",
         "gemini-4-hydrogen-high" to "Gemini 4 Hydrogen (High)",
-        "gemini-4-hydrogen-xhigh" to "Gemini 4 Hydrogen (Extra)",
+        "gemini-4-hydrogen-xhigh" to "Gemini 4 Hydrogen (XHigh)",
         "gemini-4-hydrogen-medium" to "Gemini 4 Hydrogen (Medium)",
         "gemini-4-hydrogen-low" to "Gemini 4 Hydrogen (Low)",
         "gemini-pro-orchestrator-neon" to "Orchestrator (Neon)",
@@ -465,7 +465,7 @@ object ModelDefaults {
 
     /** 顶栏芯片紧凑展示名映射（如 `Gemini 4 Carbon (High)` → `Carbon · High`）。 */
     val STATIC_COMPACT_DISPLAY_NAME_BY_ID: Map<String, String> = mapOf(
-        "gemini-4-neon-xhigh" to "Neon · Extra",
+        "gemini-4-neon-xhigh" to "Neon · XHigh",
         "gemini-4-neon-high" to "Neon · High",
         "gemini-4-neon-medium" to "Neon · Med",
         "gemini-4-neon-low" to "Neon · Low",
@@ -477,7 +477,7 @@ object ModelDefaults {
         "gemini-4-argon-high" to "Argon · High",
         "gemini-4-argon-medium" to "Argon · Med",
         "gemini-4-argon-low" to "Argon · Low",
-        "gemini-4-hydrogen-xhigh" to "Hydrogen · Extra",
+        "gemini-4-hydrogen-xhigh" to "Hydrogen · XHigh",
         "gemini-4-hydrogen-high" to "Hydrogen · High",
         "gemini-4-hydrogen-medium" to "Hydrogen · Med",
         "gemini-4-hydrogen-low" to "Hydrogen · Low",
@@ -519,12 +519,12 @@ object ModelDefaults {
         ) {
             tokens.removeAt(tokens.lastIndex)
             tokens.removeAt(tokens.lastIndex)
-            qualifier = "Extra"
+            qualifier = "XHigh"
         } else {
             val qualifiers = setOf("high", "medium", "low", "xhigh", "extra", "thinking")
             if (tokens.size > 1 && tokens.last().lowercase() in qualifiers) {
                 val q = tokens.removeAt(tokens.lastIndex).lowercase()
-                qualifier = if (q == "xhigh" || q == "extra") "Extra" else q.replaceFirstChar { it.uppercase() }
+                qualifier = if (q == "xhigh" || q == "extra") "XHigh" else q.replaceFirstChar { it.uppercase() }
             }
         }
         val lowerTokens = tokens.map { it.lowercase() }
@@ -559,13 +559,13 @@ object ModelDefaults {
         return if (qualifier != null) "$base ($qualifier)" else base
     }
 
-    private val EXTRA_HIGH_IN_PAREN_REGEX = Regex("""(\(|[\s,\-·/|:]\s*)(xhigh|extra[\s\-]+high)\)""", RegexOption.IGNORE_CASE)
+    private val EXTRA_HIGH_IN_PAREN_REGEX = Regex("""(\(|[\s,\-·/|:]\s*)(xhigh|extra(?:[\s\-]+high)?)\)""", RegexOption.IGNORE_CASE)
     private val ORCH_TRIM_CHARS = charArrayOf(' ', '\t', '-', '·', ',', '/', ':', '|', '–', '—', '(', ')')
 
     private fun normalizeDisplayName(name: String): String {
         val trimmed = name.trim()
         if (trimmed.isEmpty()) return name
-        return EXTRA_HIGH_IN_PAREN_REGEX.replace(trimmed, "$1Extra)")
+        return EXTRA_HIGH_IN_PAREN_REGEX.replace(trimmed, "$1XHigh)")
     }
 
     private fun cleanOrchestratorModelPart(raw: String): String {
@@ -721,7 +721,7 @@ object ModelDefaults {
             when (variant.lowercase()) {
                 "medium" -> variant = "Med"
                 "thinking" -> variant = "Think"
-                "xhigh", "extra high", "extra-high" -> variant = "Extra"
+                "xhigh", "extra", "extra high", "extra-high" -> variant = "XHigh"
             }
             return "$base · $variant"
         }
@@ -734,6 +734,18 @@ object ModelDefaults {
             baseLower.startsWith("orchestrator") -> base = "Orch"
         }
         return base
+    }
+
+    fun effortRank(modelId: String, options: List<ModelOption> = emptyList()): ModelEffortRank? {
+        ModelEffortRank.parse(modelId)?.let { return it }
+        val full = displayName(modelId, options)
+        val openParen = full.lastIndexOf('(')
+        if (openParen > 0 && full.endsWith(')')) {
+            val inside = full.substring(openParen + 1, full.length - 1).trim()
+            ModelEffortRank.parsePure(inside)?.let { return it }
+            ModelEffortRank.extractTrailingEffort(inside)?.let { return it.second }
+        }
+        return null
     }
 
     fun providerKind(modelId: String): String {

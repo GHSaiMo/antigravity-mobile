@@ -1,5 +1,12 @@
 package com.antigravity.mobile.ui.components
 
+import android.animation.ValueAnimator
+import androidx.compose.animation.core.LinearEasing
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.tween
 import com.antigravity.mobile.ui.util.loc
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
@@ -21,10 +28,17 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Rect
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.drawscope.Stroke
+import kotlin.math.PI
+import kotlin.math.cos
+import kotlin.math.sin
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.boundsInRoot
 import androidx.compose.ui.layout.onGloballyPositioned
@@ -41,6 +55,7 @@ import androidx.compose.ui.window.Popup
 import androidx.compose.ui.window.PopupPositionProvider
 import androidx.compose.ui.window.PopupProperties
 import com.antigravity.mobile.data.model.ModelDefaults
+import com.antigravity.mobile.data.model.ModelEffortRank
 import com.antigravity.mobile.data.model.ModelsResponse
 import com.antigravity.mobile.data.model.SlashCommandOption
 import com.antigravity.mobile.data.model.WorkflowTemplateRecord
@@ -151,7 +166,29 @@ fun QuickActionChips(
             )
         }
 
-        // 2. Gemini / Claude / Orchestrator Model Switcher (Tap to cycle, Long-press + slide up/right for iOS-style picker)
+        // 2. Gemini / Claude / Orchestrator Model Switcher (Tap to cycle, Long-press + slide up & horizontal scrub)
+        val isXHighActive = remember(activeModel, modelCatalog) {
+            ModelDefaults.effortRank(activeModel, modelCatalog?.models.orEmpty()) == ModelEffortRank.EXTRA
+        }
+        val effortPalette = remember(providerKind, colors.isDark, chipTextColor) {
+            EffortStylePalette.forProvider(providerKind, colors.isDark, chipTextColor)
+        }
+        val xhighRimAngle: Float = if (isXHighActive && ValueAnimator.areAnimatorsEnabled()) {
+            val transition = rememberInfiniteTransition(label = "chip_xhigh_rim")
+            val a by transition.animateFloat(
+                initialValue = 0f,
+                targetValue = 360f,
+                animationSpec = infiniteRepeatable(
+                    animation = tween(durationMillis = 7200, easing = LinearEasing),
+                    repeatMode = RepeatMode.Restart
+                ),
+                label = "chip_rim_angle"
+            )
+            a
+        } else {
+            35f
+        }
+        val chipShape = RoundedCornerShape(10.dp)
         Box(contentAlignment = Alignment.TopStart) {
             Box(
                 modifier = Modifier
@@ -161,12 +198,65 @@ fun QuickActionChips(
                         chipBoundsInRoot = rect
                         modelSlidePickerState?.anchorRect = rect
                     }
-                    .clip(RoundedCornerShape(10.dp))
-                    .background(chipTextColor.copy(alpha = 0.12f))
-                    .border(
-                        1.dp,
-                        chipTextColor.copy(alpha = 0.35f),
-                        RoundedCornerShape(10.dp)
+                    .then(
+                        if (isXHighActive) {
+                            Modifier.shadow(
+                                elevation = 4.dp,
+                                shape = chipShape,
+                                ambientColor = effortPalette.glowColor,
+                                spotColor = effortPalette.glowColor
+                            )
+                        } else {
+                            Modifier
+                        }
+                    )
+                    .clip(chipShape)
+                    .then(
+                        if (isXHighActive) {
+                            Modifier.background(
+                                Brush.linearGradient(
+                                    colors = listOf(
+                                        effortPalette.cosmicColors.first().copy(alpha = if (colors.isDark) 0.34f else 0.14f),
+                                        effortPalette.glowColor.copy(alpha = if (colors.isDark) 0.22f else 0.12f)
+                                    )
+                                )
+                            )
+                        } else {
+                            Modifier.background(chipTextColor.copy(alpha = 0.12f))
+                        }
+                    )
+                    .then(
+                        if (isXHighActive) {
+                            Modifier.drawWithContent {
+                                drawContent()
+                                val strokePx = 1.35.dp.toPx()
+                                val radiusPx = 10.dp.toPx()
+                                val rad = xhighRimAngle * (PI / 180.0)
+                                val dx = (cos(rad) * size.width * 0.65).toFloat()
+                                val dy = (sin(rad) * size.height * 1.4).toFloat()
+                                val rimBrush = Brush.linearGradient(
+                                    colors = effortPalette.chipRimColors,
+                                    start = Offset(center.x - dx, center.y - dy),
+                                    end = Offset(center.x + dx, center.y + dy)
+                                )
+                                drawRoundRect(
+                                    brush = rimBrush,
+                                    topLeft = Offset(strokePx / 2f, strokePx / 2f),
+                                    size = androidx.compose.ui.geometry.Size(
+                                        size.width - strokePx,
+                                        size.height - strokePx
+                                    ),
+                                    cornerRadius = CornerRadius(radiusPx, radiusPx),
+                                    style = Stroke(width = strokePx)
+                                )
+                            }
+                        } else {
+                            Modifier.border(
+                                1.dp,
+                                chipTextColor.copy(alpha = 0.35f),
+                                chipShape
+                            )
+                        }
                     )
                     .clickable {
                         dismissTip()
@@ -212,7 +302,7 @@ fun QuickActionChips(
                     text = compactName,
                     color = chipTextColor,
                     fontSize = 13.sp,
-                    fontWeight = FontWeight.Medium
+                    fontWeight = if (isXHighActive) FontWeight.SemiBold else FontWeight.Medium
                 )
             }
 

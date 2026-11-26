@@ -336,10 +336,11 @@ function updateModelSwitchUI() {
   const kind = typeof modelProviderKind === "function" ? modelProviderKind(activeModel) : "gemini";
   const label = typeof compactModelDisplayName === "function" ? compactModelDisplayName(activeModel) : modelProviderLabel(activeModel);
   const name = modelDisplayName(activeModel);
+  const isXHigh = typeof modelEffortRank === "function" && modelEffortRank(activeModel) === 3;
   const chipClass = kind === "claude" ? "chip-claude" : (kind === "orchestrator" ? "chip-orchestrator" : (kind === "other" ? "chip-other" : "chip-gemini"));
-  btn.className = `chip-pill chip-model-switch ${chipClass}`;
+  btn.className = `chip-pill chip-model-switch ${chipClass}${isXHigh ? " chip-xhigh" : ""}`;
   text.textContent = label;
-  btn.title = `当前模型: ${name} · 短按快切首选/次选 · 长按/右键手选模型`;
+  btn.title = `当前模型: ${name} · 短按快切首选/次选 · 长按上滑/右键手选模型与强度`;
 }
 
 async function applySelectedModel(nextModelId) {

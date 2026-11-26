@@ -202,8 +202,8 @@ class ModelDefaultsTest {
         // Compact display names keep both Orch + model name and effort
         assertEquals("Orch Neon · High", ModelDefaults.compactDisplayName("gemini-pro-orchestrator-neon-high", options))
         assertEquals("Orch Carbon · Med", ModelDefaults.compactDisplayName("gemini-pro-orchestrator-carbon-medium", options))
-        assertEquals("Orch Neon · Extra", ModelDefaults.compactDisplayName("gemini-pro-orchestrator-neon-xhigh", options))
-        assertEquals("Orch Hydrogen · Extra", ModelDefaults.compactDisplayName("gemini-pro-orchestrator-hydrogen-xhigh", options))
+        assertEquals("Orch Neon · XHigh", ModelDefaults.compactDisplayName("gemini-pro-orchestrator-neon-xhigh", options))
+        assertEquals("Orch Hydrogen · XHigh", ModelDefaults.compactDisplayName("gemini-pro-orchestrator-hydrogen-xhigh", options))
     }
 
     @Test

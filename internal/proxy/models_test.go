@@ -877,11 +877,11 @@ func TestBuildModelTables_OrchestratorThinkingEffortsAndHighDefault(t *testing.T
 	for _, opt := range res.Models {
 		byID[opt.ID] = opt
 	}
-	if got := byID["gemini-pro-orchestrator-neon-xhigh"].Name; got != "Orchestrator (Neon) (Extra)" {
-		t.Errorf("xhigh display name = %q, want Orchestrator (Neon) (Extra)", got)
+	if got := byID["gemini-pro-orchestrator-neon-xhigh"].Name; got != "Orchestrator (Neon) (XHigh)" {
+		t.Errorf("xhigh display name = %q, want Orchestrator (Neon) (XHigh)", got)
 	}
-	if got := byID["gemini-pro-orchestrator-argon-xhigh"].Name; got != "Orchestrator (Argon, Extra)" {
-		t.Errorf("argon extra high display name = %q, want Orchestrator (Argon, Extra)", got)
+	if got := byID["gemini-pro-orchestrator-argon-xhigh"].Name; got != "Orchestrator (Argon, XHigh)" {
+		t.Errorf("argon extra high display name = %q, want Orchestrator (Argon, XHigh)", got)
 	}
 
 	// Unknown orchestrator slug without preferredDefaults hit still prefers High over Low/Extra
@@ -1002,7 +1002,7 @@ func TestHandleModels_ExpandsOrchestratorFromMendelRoles(t *testing.T) {
 			}
 		}
 	}
-	if got := byID["gemini-pro-orchestrator-neon-xhigh"].Name; got != "Orchestrator (Neon) (Extra)" {
+	if got := byID["gemini-pro-orchestrator-neon-xhigh"].Name; got != "Orchestrator (Neon) (XHigh)" {
 		t.Errorf("neon xhigh name = %q", got)
 	}
 	if got := byID["gemini-pro-orchestrator-neon-xhigh"].QuotaPool; got != "gemini" {
