@@ -21,6 +21,10 @@ const (
 	// HeaderHubNodeID optionally carries the originating node ID on internal callbacks.
 	HeaderHubNodeID = "X-Mgy-Hub-Node-Id"
 
+	// HeaderHubURL optionally carries the authenticated Hub's current LAN advertise URL
+	// so linked nodes can keep push/Live Activity event forwarding accurate across DHCP changes.
+	HeaderHubURL = "X-Mgy-Hub-URL"
+
 	// DefaultDiscoveryPort is the default IPv4 UDP port used for LAN node discovery.
 	DefaultDiscoveryPort = 58901
 
@@ -66,18 +70,20 @@ type NodeStatus struct {
 	Summary      *proxy.GatewaySummary `json:"summary,omitempty"`
 }
 
-// DiscoveredNode represents a LAN mgy node heard over UDP discovery that has not yet been approved.
+// DiscoveredNode represents a LAN mgy gateway heard over UDP discovery that has not yet been paired/approved.
 type DiscoveredNode struct {
-	NodeID         string    `json:"node_id"`
-	Name           string    `json:"name"`
-	OS             string    `json:"os,omitempty"`
-	BaseURL        string    `json:"base_url"`
-	Port           int       `json:"port"`
-	Version        string    `json:"version,omitempty"`
-	LSHealthy      bool      `json:"ls_healthy"`
-	ClusterHash    string    `json:"cluster_hash,omitempty"`
-	HasSecretMatch bool      `json:"has_secret_match"`
-	LastSeen       time.Time `json:"last_seen"`
+	NodeID           string    `json:"node_id"`
+	Name             string    `json:"name"`
+	OS               string    `json:"os,omitempty"`
+	Mode             string    `json:"mode,omitempty"` // "standalone" | "node"
+	BaseURL          string    `json:"base_url"`
+	Port             int       `json:"port"`
+	Version          string    `json:"version,omitempty"`
+	LSHealthy        bool      `json:"ls_healthy"`
+	ClusterHash      string    `json:"cluster_hash,omitempty"`
+	HasSecretMatch   bool      `json:"has_secret_match"`
+	RequiresPairCode bool      `json:"requires_pair_code"`
+	LastSeen         time.Time `json:"last_seen"`
 }
 
 // HubStatusResponse describes the aggregated runtime state of the Hub cluster.
@@ -146,11 +152,91 @@ type NodeEventPayload struct {
 	TotalSteps int                      `json:"total_steps,omitempty"`
 }
 
+// HubLink represents a Hub authorized on this machine via secondary confirmation code pairing.
+// Persisted on the target mgy host at ~/.multigravity/hub_links.json (0600).
+type HubLink struct {
+	HubID      string    `json:"hub_id"`
+	HubName    string    `json:"hub_name"`
+	HubURL     string    `json:"hub_url,omitempty"`
+	NodeToken  string    `json:"node_token"`
+	PairedAt   time.Time `json:"paired_at"`
+	LastSeenAt time.Time `json:"last_seen_at,omitempty"`
+}
+
+// HubLinkView is the token-redacted public view of HubLink returned by GET /api/v1/hub/links.
+type HubLinkView struct {
+	HubID      string    `json:"hub_id"`
+	HubName    string    `json:"hub_name"`
+	HubURL     string    `json:"hub_url,omitempty"`
+	PairedAt   time.Time `json:"paired_at"`
+	LastSeenAt time.Time `json:"last_seen_at,omitempty"`
+}
+
+// HubPairRequestPayload is sent by a LAN Hub to POST /api/v1/hub/pair-request on a target mgy host.
+type HubPairRequestPayload struct {
+	HubID   string `json:"hub_id"`
+	HubName string `json:"hub_name"`
+	HubURL  string `json:"hub_url,omitempty"`
+}
+
+// HubPairRequestResponse is returned by POST /api/v1/hub/pair-request (never includes the confirmation code).
+type HubPairRequestResponse struct {
+	Status      string `json:"status"`
+	ChallengeID string `json:"challenge_id"`
+	NodeID      string `json:"node_id"`
+	NodeName    string `json:"node_name"`
+	ExpiresIn   int    `json:"expires_in"`
+}
+
+// HubPairConfirmPayload is sent by a LAN Hub to POST /api/v1/hub/pair-confirm with the 6-char code.
+type HubPairConfirmPayload struct {
+	ChallengeID string `json:"challenge_id,omitempty"`
+	Code        string `json:"code"`
+	HubID       string `json:"hub_id"`
+	HubName     string `json:"hub_name"`
+	HubURL      string `json:"hub_url,omitempty"`
+}
+
+// HubPairConfirmResponse is returned by POST /api/v1/hub/pair-confirm upon successful code verification.
+type HubPairConfirmResponse struct {
+	Status    string `json:"status"`
+	NodeID    string `json:"node_id"`
+	NodeName  string `json:"node_name"`
+	NodeToken string `json:"node_token"`
+	OS        string `json:"os,omitempty"`
+	Version   string `json:"version,omitempty"`
+}
+
+// HubPairCodeResponse is returned locally to `mgy pair -hub` by POST /api/v1/hub/pair-code.
+type HubPairCodeResponse struct {
+	Code          string `json:"code"`
+	FormattedCode string `json:"formatted_code"`
+	NodeID        string `json:"node_id"`
+	NodeName      string `json:"node_name"`
+	LANURL        string `json:"lan_url,omitempty"`
+	ExpiresIn     int    `json:"expires_in"`
+}
+
+// HubVerifyRequest is sent by a Hub to POST /api/v1/hub/verify when verifying a registered node at a new LAN IP.
+// No token is ever sent on the wire; the node proves possession of nodeToken via HMAC-SHA256.
+type HubVerifyRequest struct {
+	HubID string `json:"hub_id"`
+	Nonce string `json:"nonce"`
+}
+
+// HubVerifyResponse carries the HMAC-SHA256 proof returned by POST /api/v1/hub/verify.
+type HubVerifyResponse struct {
+	NodeID   string `json:"node_id"`
+	NodeName string `json:"node_name"`
+	Proof    string `json:"proof"`
+}
+
 // Options configures a new Hub instance.
 type Options struct {
 	HubID            string
 	HubName          string
 	Headless         bool
+	LocalPort        int
 	DataDir          string
 	Secret           string
 	StaticNodes      []string // format: "http://ip:port", "name=http://ip:port", or "name=http://ip:port|token"

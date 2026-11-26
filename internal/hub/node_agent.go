@@ -17,37 +17,48 @@ import (
 	"antigravity-mobile/internal/proxy"
 )
 
-// NodeAgentOptions configures a LAN mgy node participating in a Multigravity Hub cluster.
+// NodeAgentOptions configures a LAN mgy gateway (standalone or dedicated `mgy node`) participating in Hub discovery/pairing.
 type NodeAgentOptions struct {
-	DataDir          string
-	NodeName         string
-	HTTPPort         int
-	AdvertiseBaseURL string // optional explicit LAN URL (e.g. "http://192.168.50.12:58900")
-	Version          string
-	HubURL           string // optional static Hub URL; if empty, auto-discovers via UDP
-	HubSecret        string
-	JoinCode         string
-	DiscoveryPort    int
-	DisableDiscovery bool
-	IsLSHealthy      func() bool
-	Notifier         *notifier.Notifier
+	DataDir           string
+	NodeName          string
+	HTTPPort          int
+	AdvertiseBaseURL  string // optional explicit LAN URL (e.g. "http://192.168.50.12:58900")
+	Version           string
+	HubURL            string // optional static Hub URL; if empty in node mode, auto-discovers via UDP
+	HubSecret         string
+	JoinCode          string
+	DiscoveryPort     int
+	DisableDiscovery  bool
+	ListenLoopback    bool // when true in PassiveStandalone mode, skip LAN UDP discovery
+	PassiveStandalone bool // true for ordinary `mgy`: passive discovery only, requires secondary pair code
+	IsLSHealthy       func() bool
+	Notifier          *notifier.Notifier
+	OnRelayActivated  func()                                   // optional hook invoked when Hub push relay is hot-enabled
+	OnPairPrompt      func(hubName, requesterIP, code string)  // optional override for terminal prompt (useful in tests)
 }
 
-// NodeAgent runs on a LAN mgy node: it authenticates incoming Hub requests via a dedicated node token,
-// advertises itself on the LAN, registers with a Hub, and relays local push/Live Activity events to the Hub.
+// NodeAgent runs on a LAN mgy gateway: it authenticates incoming Hub requests via dedicated node tokens,
+// responds to LAN discovery probes, supports secondary confirmation-code pairing from Hubs, and relays
+// local push/Live Activity events to authorized Hubs.
 type NodeAgent struct {
 	opts   NodeAgentOptions
 	client *http.Client
 
-	mu        sync.RWMutex
-	creds     NodeCredentials
-	hubURL    string
-	nodeToken string
-	hubName   string
-	joined    bool
+	mu           sync.RWMutex
+	creds        NodeCredentials
+	hubURL       string
+	nodeToken    string
+	hubName      string
+	joined       bool
+	links        map[string]HubLink
+	relayEnabled bool
+
+	pairMu      sync.Mutex
+	challenges  map[string]*hubPairChallenge
+	pairLimiter *slidingRateLimiter
 }
 
-// NewNodeAgent initializes a NodeAgent, loading or creating persistent node credentials.
+// NewNodeAgent initializes a NodeAgent, loading persistent node identity and any previously authorized Hub links.
 func NewNodeAgent(opts NodeAgentOptions) (*NodeAgent, error) {
 	creds, err := LoadOrCreateNodeCredentials(opts.DataDir, opts.NodeName)
 	if err != nil {
@@ -58,46 +69,80 @@ func NewNodeAgent(opts NodeAgentOptions) (*NodeAgent, error) {
 		creds.NodeName = name
 		changed = true
 	}
-	if hubURL := NormalizeBaseURL(opts.HubURL); hubURL != "" && creds.HubURL != hubURL {
-		creds.HubURL = hubURL
-		changed = true
-	}
-	if sec := strings.TrimSpace(opts.HubSecret); sec != "" {
-		if creds.HubSecret != sec {
-			creds.HubSecret = sec
+	if !opts.PassiveStandalone {
+		if hubURL := NormalizeBaseURL(opts.HubURL); hubURL != "" && creds.HubURL != hubURL {
+			creds.HubURL = hubURL
 			changed = true
 		}
-		derived := DeriveNodeToken(sec, creds.NodeID)
-		if creds.NodeToken == "" || creds.NodeToken != derived {
-			creds.NodeToken = derived
-			changed = true
+		if sec := strings.TrimSpace(opts.HubSecret); sec != "" {
+			if creds.HubSecret != sec {
+				creds.HubSecret = sec
+				changed = true
+			}
+			derived := DeriveNodeToken(sec, creds.NodeID)
+			if creds.NodeToken == "" || creds.NodeToken != derived {
+				creds.NodeToken = derived
+				changed = true
+			}
 		}
 	}
 	if changed {
 		_ = SaveNodeCredentials(opts.DataDir, creds)
 	}
 
-	a := &NodeAgent{
-		opts:      opts,
-		client:    &http.Client{Transport: newNodeTransport(), Timeout: 4 * time.Second},
-		creds:     creds,
-		hubURL:    creds.HubURL,
-		nodeToken: creds.NodeToken,
+	persistedLinks, err := LoadHubLinks(opts.DataDir)
+	if err != nil {
+		slog.Warn("[HubNode] Failed to load hub_links.json (starting with empty links)", "err", err)
+	}
+	linkMap := make(map[string]HubLink, len(persistedLinks))
+	for _, lk := range persistedLinks {
+		linkMap[lk.HubID] = lk
 	}
 
-	// Hook node's Notifier so alerts & Live Activities relay transparently to the Hub.
-	if opts.Notifier != nil {
-		opts.Notifier.EnableHubRelay(
-			&nodePushRelaySender{agent: a},
-			func(details *proxy.TrajectoryDetails) {
-				a.forwardLiveActivity(details)
-			},
-			func(cascadeID, title, state string, totalSteps int) {
-				a.forwardLiveActivityEnd(cascadeID, title, state, totalSteps)
-			},
-		)
+	a := &NodeAgent{
+		opts:        opts,
+		client:      &http.Client{Transport: newNodeTransport(), Timeout: 4 * time.Second},
+		creds:       creds,
+		links:       linkMap,
+		challenges:  make(map[string]*hubPairChallenge),
+		pairLimiter: newSlidingRateLimiter(),
+	}
+	if !opts.PassiveStandalone {
+		a.hubURL = creds.HubURL
+		a.nodeToken = creds.NodeToken
+	}
+
+	// Hook Notifier immediately for dedicated `mgy node` mode, or for standalone `mgy` that already has linked Hubs.
+	// Standalone hosts with zero Hub links hot-attach EnableHubRelay only once a Hub is authorized.
+	if !opts.PassiveStandalone || len(linkMap) > 0 {
+		a.ensureHubRelayEnabled()
 	}
 	return a, nil
+}
+
+func (a *NodeAgent) ensureHubRelayEnabled() {
+	a.mu.Lock()
+	if a.relayEnabled || a.opts.Notifier == nil {
+		a.mu.Unlock()
+		return
+	}
+	a.relayEnabled = true
+	notif := a.opts.Notifier
+	onActivated := a.opts.OnRelayActivated
+	a.mu.Unlock()
+
+	notif.EnableHubRelay(
+		&nodePushRelaySender{agent: a},
+		func(details *proxy.TrajectoryDetails) {
+			a.forwardLiveActivity(details)
+		},
+		func(cascadeID, title, state string, totalSteps int) {
+			a.forwardLiveActivityEnd(cascadeID, title, state, totalSteps)
+		},
+	)
+	if onActivated != nil {
+		onActivated()
+	}
 }
 
 // NodeID returns this node's stable cluster identifier.
@@ -114,37 +159,48 @@ func (a *NodeAgent) NodeName() string {
 	return a.creds.NodeName
 }
 
-// HubURL returns the currently configured or discovered Hub URL.
+// HubURL returns the currently configured or discovered Hub URL (used in `mgy node` mode).
 func (a *NodeAgent) HubURL() string {
 	a.mu.RLock()
 	defer a.mu.RUnlock()
 	return a.hubURL
 }
 
-// ValidateHubRequestToken checks whether an incoming token from a Hub matches this node's token.
+// ValidateHubRequestToken checks whether an incoming token from a Hub matches either
+// this node's dedicated node token (`mgy node`) or any authorized Hub link (`hub_links.json`).
 func (a *NodeAgent) ValidateHubRequestToken(token string) (string, bool) {
+	token = strings.TrimSpace(token)
+	if token == "" {
+		return "", false
+	}
 	a.mu.RLock()
 	want := a.nodeToken
 	nodeID := a.creds.NodeID
-	a.mu.RUnlock()
-	if want == "" || !ConstantTimeEquals(strings.TrimSpace(token), want) {
-		return "", false
+	for _, lk := range a.links {
+		if lk.NodeToken != "" && ConstantTimeEquals(token, lk.NodeToken) {
+			hubID := lk.HubID
+			a.mu.RUnlock()
+			return "hub-controller:" + hubID, true
+		}
 	}
-	return "hub-controller:" + nodeID, true
+	a.mu.RUnlock()
+	if want != "" && ConstantTimeEquals(token, want) {
+		return "hub-controller:" + nodeID, true
+	}
+	return "", false
 }
 
-// Start begins LAN discovery announcements and Hub registration/heartbeat loop.
+// Start begins LAN discovery responder and (for `mgy node` mode) Hub registration/heartbeat loop.
 func (a *NodeAgent) Start(ctx context.Context) {
-	if !a.opts.DisableDiscovery {
-		StartNodeDiscoveryResponder(ctx, NodeAnnouncerConfig{
-			NodeID:        a.NodeID(),
-			NodeName:      a.NodeName(),
-			HTTPPort:      a.opts.HTTPPort,
-			Version:       a.opts.Version,
-			DiscoveryPort: a.opts.DiscoveryPort,
-			ClusterSecret: a.opts.HubSecret,
-			IsLSHealthy:   a.opts.IsLSHealthy,
-			OnHubFound: func(hubURL, hubName string) {
+	if !a.opts.DisableDiscovery && !(a.opts.PassiveStandalone && a.opts.ListenLoopback) {
+		modeStr := "node"
+		var onHubFound func(hubURL, hubName string)
+		clusterSecret := a.opts.HubSecret
+		if a.opts.PassiveStandalone {
+			modeStr = "standalone"
+			clusterSecret = "" // standalone hosts require explicit secondary confirmation code; never auto-join
+		} else {
+			onHubFound = func(hubURL, hubName string) {
 				if hubURL == "" {
 					return
 				}
@@ -161,11 +217,28 @@ func (a *NodeAgent) Start(ctx context.Context) {
 						}
 					}()
 				}
-			},
+			}
+		}
+
+		StartNodeDiscoveryResponder(ctx, NodeAnnouncerConfig{
+			NodeID:        a.NodeID(),
+			NodeName:      a.NodeName(),
+			Mode:          modeStr,
+			HTTPPort:      a.opts.HTTPPort,
+			Version:       a.opts.Version,
+			DiscoveryPort: a.opts.DiscoveryPort,
+			ClusterSecret: clusterSecret,
+			PassiveOnly:   a.opts.PassiveStandalone,
+			IsLSHealthy:   a.opts.IsLSHealthy,
+			OnHubFound:    onHubFound,
 		})
 	}
 
-	// If an explicit or persisted Hub URL is configured, register immediately and retry periodically until joined.
+	if a.opts.PassiveStandalone {
+		return
+	}
+
+	// If an explicit or persisted Hub URL is configured in `mgy node` mode, register immediately and retry until joined.
 	go func() {
 		tryJoin := func() {
 			a.mu.RLock()
@@ -194,7 +267,7 @@ func (a *NodeAgent) Start(ctx context.Context) {
 	}()
 }
 
-// RegisterWithHub registers this node with the specified Hub URL using HubSecret or JoinCode.
+// RegisterWithHub registers this node with the specified Hub URL using HubSecret or JoinCode (`mgy node` mode).
 func (a *NodeAgent) RegisterWithHub(ctx context.Context, hubURL string) error {
 	hubURL = NormalizeBaseURL(hubURL)
 	if hubURL == "" {
@@ -277,15 +350,40 @@ func (a *NodeAgent) RegisterWithHub(ctx context.Context, hubURL string) error {
 	return nil
 }
 
-func (a *NodeAgent) postEvent(ctx context.Context, ev NodeEventPayload) error {
-	a.mu.RLock()
-	hubURL := a.hubURL
-	token := a.nodeToken
-	nodeID := a.creds.NodeID
-	nodeName := a.creds.NodeName
-	a.mu.RUnlock()
+type hubEventTarget struct {
+	hubURL string
+	token  string
+}
 
-	if hubURL == "" || token == "" {
+func (a *NodeAgent) eventTargets() (nodeID, nodeName string, targets []hubEventTarget) {
+	a.mu.RLock()
+	defer a.mu.RUnlock()
+	nodeID = a.creds.NodeID
+	nodeName = a.creds.NodeName
+	seen := make(map[string]bool)
+	add := func(u, tok string) {
+		u = NormalizeBaseURL(u)
+		tok = strings.TrimSpace(tok)
+		if u == "" || tok == "" {
+			return
+		}
+		key := u + "|" + tok
+		if seen[key] {
+			return
+		}
+		seen[key] = true
+		targets = append(targets, hubEventTarget{hubURL: u, token: tok})
+	}
+	add(a.hubURL, a.nodeToken)
+	for _, lk := range a.links {
+		add(lk.HubURL, lk.NodeToken)
+	}
+	return nodeID, nodeName, targets
+}
+
+func (a *NodeAgent) postEvent(ctx context.Context, ev NodeEventPayload) error {
+	nodeID, nodeName, targets := a.eventTargets()
+	if len(targets) == 0 {
 		return nil
 	}
 	ev.NodeID = nodeID
@@ -295,26 +393,37 @@ func (a *NodeAgent) postEvent(ctx context.Context, ev NodeEventPayload) error {
 	if err != nil {
 		return err
 	}
-	pctx, cancel := context.WithTimeout(ctx, 3*time.Second)
-	defer cancel()
-	req, err := http.NewRequestWithContext(pctx, http.MethodPost, hubURL+"/api/v1/hub/internal/event", bytes.NewReader(body))
-	if err != nil {
-		return err
-	}
-	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set(HeaderHubToken, token)
-	req.Header.Set("Authorization", "Bearer "+token)
 
-	resp, err := a.client.Do(req)
-	if err != nil {
-		return err
+	var firstErr error
+	for _, tgt := range targets {
+		pctx, cancel := context.WithTimeout(ctx, 3*time.Second)
+		req, err := http.NewRequestWithContext(pctx, http.MethodPost, tgt.hubURL+"/api/v1/hub/internal/event", bytes.NewReader(body))
+		if err != nil {
+			cancel()
+			if firstErr == nil {
+				firstErr = err
+			}
+			continue
+		}
+		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set(HeaderHubToken, tgt.token)
+		req.Header.Set("Authorization", "Bearer "+tgt.token)
+
+		resp, err := a.client.Do(req)
+		cancel()
+		if err != nil {
+			if firstErr == nil {
+				firstErr = err
+			}
+			continue
+		}
+		_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, 4096))
+		resp.Body.Close()
+		if (resp.StatusCode < 200 || resp.StatusCode >= 300) && firstErr == nil {
+			firstErr = fmt.Errorf("hub event relay HTTP %d", resp.StatusCode)
+		}
 	}
-	defer resp.Body.Close()
-	_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, 4096))
-	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return fmt.Errorf("hub event relay HTTP %d", resp.StatusCode)
-	}
-	return nil
+	return firstErr
 }
 
 func (a *NodeAgent) forwardLiveActivity(details *proxy.TrajectoryDetails) {

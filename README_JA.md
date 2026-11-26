@@ -178,18 +178,20 @@ mgy
 ## 🛠️ 主な CLI コマンドと設定
 
 ```bash
-mgy                # ゲートウェイをフォアグラウンド起動し、ペアリング用 QR コードを表示
-mgy pair           # 新しいペアリング用 QR コードを発行（有効期限 5 分）
-mgy cockpit        # Cockpit レポートサービスおよびトークンを設定
-mgy cloudflare     # Cloudflare トンネルを設定（エイリアス: mgy cf）
-mgy list           # ペアリング済みデバイス一覧を表示
-mgy clear all      # ペアリング済みデバイスをすべて失効（個別指定: mgy clear <dev_id>）
-mgy help           # 全コマンド一覧と起動オプションを表示
+mgy                  # ゲートウェイをフォアグラウンド起動し、ペアリング用 QR コードを表示
+mgy pair             # 新しいペアリング用 QR コードを発行（-hub で 6 桁の Hub 確認コードを発行）
+mgy hub              # マルチホスト集約 Hub を起動（LAN 内の mgy を自動スキャン、-headless 対応）
+mgy hub pair <name>  # 検出された LAN 内 mgy を 6 桁確認コードでペアリング接続
+mgy cockpit          # Cockpit レポートサービスおよびトークンを設定
+mgy cloudflare       # Cloudflare トンネルを設定（エイリアス: mgy cf）
+mgy list             # ペアリング済みデバイス一覧を表示
+mgy clear all        # ペアリング済みデバイスをすべて失効（個別指定: mgy clear <dev_id>）
+mgy help             # 全コマンド一覧と起動オプションを表示
 ```
 
 - **デフォルト設定パス**：`~/.multigravity/.env`（旧 `~/.antigravity-mobile/` からの自動マイグレーションに対応）。
 - **主な環境変数**：`MULTIGRAVITY_PORT` (`58900`)、`CF_TUNNEL_ENABLED` (`1`)、`APNS_ENABLED` (`1`)、`MGY_PREVENT_SLEEP` (`1` 稼働時スリープ防止)、`MGY_LANG` (`zh` / `en` / `ja` 自動判別)、`MULTIGRAVITY_LOG_LEVEL` (`info`)。
-- **詳細ドキュメント**：インストール検証やトラブルシューティングは [インストール＆運用テストガイド](docs/installation_and_testing_guide.md)、RPC プロトコル仕様は [language_server RPC 技術ノート](docs/ls_rpc_integration_notes.md) を参照してください。
+- **詳細ドキュメント**：複数 PC の LAN 集約は [マルチホスト Hub 接続ガイド](docs/hub_guide.md#english-guide)、インストール検証やトラブルシューティングは [インストール＆運用テストガイド](docs/installation_and_testing_guide.md)、RPC プロトコル仕様は [language_server RPC 技術ノート](docs/ls_rpc_integration_notes.md) を参照してください。
 
 <details>
 <summary>🗑️ ゲートウェイの完全アンインストールと設定削除</summary>

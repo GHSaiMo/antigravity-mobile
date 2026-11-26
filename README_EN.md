@@ -178,18 +178,20 @@ Mobile Clients (iOS / Android / PWA) ──[LAN / Tailscale / Zero-Knowledge E2E
 ## 🛠️ CLI Commands & Configuration
 
 ```bash
-mgy                # Start gateway in foreground and print pairing QR code
-mgy pair           # Generate a new pairing QR code (valid for 5 minutes)
-mgy cockpit        # Configure Cockpit reporting service and access token
-mgy cloudflare     # Configure Cloudflare tunnel (alias: mgy cf)
-mgy list           # List paired devices
-mgy clear all      # Revoke all paired devices (or: mgy clear <dev_id>)
-mgy help           # Show full command list and startup options
+mgy                  # Start gateway in foreground and print pairing QR code
+mgy pair             # Generate a new pairing QR code (add -hub for a 6-char Hub code)
+mgy hub              # Start multi-host Hub (auto-scans LAN mgy hosts; supports -headless)
+mgy hub pair <name>  # Pair a discovered LAN mgy host with a 6-char confirmation code
+mgy cockpit          # Configure Cockpit reporting service and access token
+mgy cloudflare       # Configure Cloudflare tunnel (alias: mgy cf)
+mgy list             # List paired devices
+mgy clear all        # Revoke all paired devices (or: mgy clear <dev_id>)
+mgy help             # Show full command list and startup options
 ```
 
 - **Default Config Path**: `~/.multigravity/.env` (automatically migrates legacy `~/.antigravity-mobile/`).
 - **Core Environment Variables**: `MULTIGRAVITY_PORT` (`58900`), `CF_TUNNEL_ENABLED` (`1`), `APNS_ENABLED` (`1`), `MGY_PREVENT_SLEEP` (`1` task-time idle-sleep guard), `MGY_LANG` (`zh` / `en` / `ja` auto-detect), `MULTIGRAVITY_LOG_LEVEL` (`info`).
-- **Advanced Documentation**: See [Installation & Testing Guide](docs/installation_and_testing_guide.md) for troubleshooting, and [language_server RPC Notes](docs/ls_rpc_integration_notes.md) for RPC protocol specifications.
+- **Advanced Documentation**: See [Multi-Host Hub Guide](docs/hub_guide.md#english-guide) for LAN aggregation, [Installation & Testing Guide](docs/installation_and_testing_guide.md) for troubleshooting, and [language_server RPC Notes](docs/ls_rpc_integration_notes.md) for RPC protocol specifications.
 
 <details>
 <summary>🗑️ Completely Uninstall Gateway & Clean Configurations</summary>

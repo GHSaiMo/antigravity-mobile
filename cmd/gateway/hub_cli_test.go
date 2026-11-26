@@ -99,3 +99,103 @@ func TestBuildRouterWithHubAuthAndRegistration(t *testing.T) {
 		t.Fatalf("expected 200 for node internal event with valid token, got %d: %s", evRec.Code, evRec.Body.String())
 	}
 }
+
+func TestBuildRouterWithStandalonePassiveNodePairing(t *testing.T) {
+	tmp := t.TempDir()
+	t.Setenv("HOME", tmp)
+
+	authStore, err := auth.NewAuthStore(filepath.Join(tmp, "devices.json"))
+	if err != nil {
+		t.Fatalf("NewAuthStore: %v", err)
+	}
+	defer authStore.Close()
+
+	insp := noopInspector{}
+	p := proxy.NewProxy(insp)
+	pairingMgr := auth.NewPairingManager()
+	authHandler := auth.NewAuthHandler(authStore, pairingMgr, "127.0.0.1", 58900, false)
+	defer authHandler.Close()
+
+	var issuedCode string
+	nodeAgent, err := hub.NewNodeAgent(hub.NodeAgentOptions{
+		DataDir:           tmp,
+		NodeName:          "StandaloneMac",
+		HTTPPort:          58900,
+		DisableDiscovery:  true,
+		PassiveStandalone: true,
+		OnPairPrompt: func(_, _, code string) {
+			issuedCode = code
+		},
+	})
+	if err != nil {
+		t.Fatalf("NewNodeAgent: %v", err)
+	}
+
+	policy := auth.AuthPolicy{
+		TrustLAN:          false,
+		ListenLoopback:    false,
+		HubTokenValidator: nodeAgent.ValidateHubRequestToken,
+	}
+	router := buildRouterWithOptions(authStore, authHandler, p, insp, time.Now(), web.Handler(), policy, routerOptions{
+		NodeAgent: nodeAgent,
+	})
+
+	// 1. Unauthenticated LAN access to /gateway/status is rejected with 401.
+	stReq := httptest.NewRequest(http.MethodGet, "/gateway/status", nil)
+	stReq.RemoteAddr = "192.168.50.10:51234"
+	stRec := httptest.NewRecorder()
+	router.ServeHTTP(stRec, stReq)
+	if stRec.Code != http.StatusUnauthorized {
+		t.Fatalf("expected 401 before pairing, got %d", stRec.Code)
+	}
+
+	// 2. Proxied pair-request is rejected with 403.
+	proxReq := httptest.NewRequest(http.MethodPost, "/api/v1/hub/pair-request", strings.NewReader(`{"hub_id":"hub-1","hub_name":"HomeHub"}`))
+	proxReq.RemoteAddr = "192.168.50.10:51234"
+	proxReq.Header.Set("X-Forwarded-For", "1.2.3.4")
+	proxRec := httptest.NewRecorder()
+	router.ServeHTTP(proxRec, proxReq)
+	if proxRec.Code != http.StatusForbidden {
+		t.Fatalf("expected 403 for proxied pair-request, got %d", proxRec.Code)
+	}
+
+	// 3. Direct LAN pair-request -> triggers 6-char code -> pair-confirm issues node_token -> immediate 200 on /gateway/status!
+	prReq := httptest.NewRequest(http.MethodPost, "/api/v1/hub/pair-request", strings.NewReader(`{"hub_id":"hub-1","hub_name":"HomeHub","hub_url":"http://192.168.50.10:58900"}`))
+	prReq.RemoteAddr = "192.168.50.10:51234"
+	prRec := httptest.NewRecorder()
+	router.ServeHTTP(prRec, prReq)
+	if prRec.Code != http.StatusOK || len(issuedCode) != 6 {
+		t.Fatalf("pair-request failed: code=%d issuedCode=%q body=%s", prRec.Code, issuedCode, prRec.Body.String())
+	}
+
+	confirmBody := `{"hub_id":"hub-1","hub_name":"HomeHub","hub_url":"http://192.168.50.10:58900","code":"` + issuedCode + `"}`
+	// Extract challenge_id from pair-request response for exact binding
+	if idx := strings.Index(prRec.Body.String(), `"challenge_id":"`); idx >= 0 {
+		rest := prRec.Body.String()[idx+len(`"challenge_id":"`):]
+		if end := strings.Index(rest, `"`); end > 0 {
+			cid := rest[:end]
+			confirmBody = `{"challenge_id":"` + cid + `","hub_id":"hub-1","hub_name":"HomeHub","hub_url":"http://192.168.50.10:58900","code":"` + issuedCode + `"}`
+		}
+	}
+	pcReq := httptest.NewRequest(http.MethodPost, "/api/v1/hub/pair-confirm", strings.NewReader(confirmBody))
+	pcReq.RemoteAddr = "192.168.50.10:51234"
+	pcRec := httptest.NewRecorder()
+	router.ServeHTTP(pcRec, pcReq)
+	if pcRec.Code != http.StatusOK || !strings.Contains(pcRec.Body.String(), `"node_token":"mgy_node_`) {
+		t.Fatalf("pair-confirm failed: %d %s", pcRec.Code, pcRec.Body.String())
+	}
+
+	// Extract token and hit /gateway/status immediately without restarting router.
+	tokIdx := strings.Index(pcRec.Body.String(), `"node_token":"`)
+	rest := pcRec.Body.String()[tokIdx+len(`"node_token":"`):]
+	nodeToken := rest[:strings.Index(rest, `"`)]
+
+	authedReq := httptest.NewRequest(http.MethodGet, "/gateway/status", nil)
+	authedReq.RemoteAddr = "192.168.50.10:51234"
+	authedReq.Header.Set(hub.HeaderHubToken, nodeToken)
+	authedRec := httptest.NewRecorder()
+	router.ServeHTTP(authedRec, authedReq)
+	if authedRec.Code != http.StatusOK {
+		t.Fatalf("expected 200 on /gateway/status after confirmation-code pairing, got %d: %s", authedRec.Code, authedRec.Body.String())
+	}
+}

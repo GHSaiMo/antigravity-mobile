@@ -25,6 +25,7 @@ type DiscoveryPacket struct {
 	HubID       string `json:"hub_id,omitempty"`
 	Name        string `json:"name,omitempty"`
 	OS          string `json:"os,omitempty"`
+	Mode        string `json:"mode,omitempty"` // "standalone" | "node"
 	Port        int    `json:"port,omitempty"`
 	Version     string `json:"version,omitempty"`
 	LSHealthy   bool   `json:"ls_healthy,omitempty"`
@@ -98,7 +99,7 @@ func lanBroadcastAddrs(port int) []*net.UDPAddr {
 	return out
 }
 
-// startHubDiscovery runs the Hub's UDP listener and periodic LAN discovery probes.
+// startHubDiscovery runs the Hub's UDP listener and periodic + on-demand LAN discovery probes.
 func (h *Hub) startHubDiscovery(ctx context.Context) {
 	if h.opts.DisableDiscovery {
 		return
@@ -109,10 +110,16 @@ func (h *Hub) startHubDiscovery(ctx context.Context) {
 	}
 
 	conn, err := net.ListenUDP("udp4", &net.UDPAddr{IP: net.IPv4zero, Port: port})
+	listeningOnDiscoveryPort := err == nil
 	if err != nil {
-		slog.Warn("[Hub] LAN UDP discovery listener unavailable (static nodes & POST /api/v1/hub/register still work)",
-			"port", port, "err", err)
-		return
+		// Fall back to an ephemeral UDP socket if another local mgy instance owns the discovery port,
+		// so active probes can still reach both LAN peers and same-host listeners on `port`.
+		conn, err = net.ListenUDP("udp4", &net.UDPAddr{IP: net.IPv4zero, Port: 0})
+		if err != nil {
+			slog.Warn("[Hub] LAN UDP discovery listener unavailable (static nodes & POST /api/v1/hub/register still work)",
+				"port", port, "err", err)
+			return
+		}
 	}
 
 	go func() {
@@ -120,27 +127,30 @@ func (h *Hub) startHubDiscovery(ctx context.Context) {
 		_ = conn.Close()
 	}()
 
-	// Periodic probe + hub announcement broadcaster
-	go func() {
-		sendProbe := func() {
-			pkt := DiscoveryPacket{
-				Type:        pktTypeHubProbe,
-				HubID:       h.hubID,
-				Name:        h.hubName,
-				OS:          runtime.GOOS,
-				ClusterHash: ClusterFingerprint(h.store.Secret()),
-				HubURL:      h.opts.AdvertiseURL,
-				TS:          time.Now().Unix(),
-			}
-			data, err := json.Marshal(pkt)
-			if err != nil {
-				return
-			}
-			for _, target := range lanBroadcastAddrs(port) {
-				_, _ = conn.WriteToUDP(data, target)
-			}
+	sendProbe := func() {
+		pkt := DiscoveryPacket{
+			Type:        pktTypeHubProbe,
+			HubID:       h.hubID,
+			Name:        h.hubName,
+			OS:          runtime.GOOS,
+			ClusterHash: ClusterFingerprint(h.store.Secret()),
+			HubURL:      h.opts.AdvertiseURL,
+			TS:          time.Now().Unix(),
 		}
+		data, err := json.Marshal(pkt)
+		if err != nil {
+			return
+		}
+		for _, target := range lanBroadcastAddrs(port) {
+			_, _ = conn.WriteToUDP(data, target)
+		}
+		if !listeningOnDiscoveryPort {
+			_, _ = conn.WriteToUDP(data, &net.UDPAddr{IP: net.IPv4(127, 0, 0, 1), Port: port})
+		}
+	}
 
+	// Periodic + on-demand probe broadcaster
+	go func() {
 		sendProbe()
 		ticker := time.NewTicker(15 * time.Second)
 		defer ticker.Stop()
@@ -148,6 +158,8 @@ func (h *Hub) startHubDiscovery(ctx context.Context) {
 			select {
 			case <-ctx.Done():
 				return
+			case <-h.probeTrigger:
+				sendProbe()
 			case <-ticker.C:
 				sendProbe()
 			}
@@ -174,6 +186,16 @@ func (h *Hub) startHubDiscovery(ctx context.Context) {
 	}()
 }
 
+func (h *Hub) triggerDiscoveryProbe() {
+	if h == nil || h.opts.DisableDiscovery || h.probeTrigger == nil {
+		return
+	}
+	select {
+	case h.probeTrigger <- struct{}{}:
+	default:
+	}
+}
+
 func (h *Hub) handleDiscoveryPacket(pkt DiscoveryPacket, remote *net.UDPAddr) {
 	if pkt.Type != pktTypeNodeAnnounce || remote == nil || remote.IP == nil {
 		return
@@ -189,27 +211,38 @@ func (h *Hub) handleDiscoveryPacket(pkt DiscoveryPacket, remote *net.UDPAddr) {
 	if ip == nil {
 		return
 	}
+	// Never discover ourselves on loopback when running a non-headless Hub.
+	if !h.opts.Headless && h.opts.LocalPort > 0 && ip.IsLoopback() && pkt.Port == h.opts.LocalPort {
+		return
+	}
+
 	baseURL := fmt.Sprintf("http://%s:%d", ip.String(), pkt.Port)
 	name := strings.TrimSpace(pkt.Name)
 	if name == "" {
 		name = nodeID
 	}
+	mode := strings.TrimSpace(pkt.Mode)
+	if mode == "" {
+		mode = "node"
+	}
 
 	wantHash := ClusterFingerprint(h.store.Secret())
-	secretMatch := wantHash != "" && pkt.ClusterHash != "" && ConstantTimeEquals(pkt.ClusterHash, wantHash)
+	secretMatch := mode != "standalone" && wantHash != "" && pkt.ClusterHash != "" && ConstantTimeEquals(pkt.ClusterHash, wantHash)
 
 	h.discMu.Lock()
 	h.discovered[nodeID] = DiscoveredNode{
-		NodeID:         nodeID,
-		Name:           name,
-		OS:             pkt.OS,
-		BaseURL:        baseURL,
-		Port:           pkt.Port,
-		Version:        pkt.Version,
-		LSHealthy:      pkt.LSHealthy,
-		ClusterHash:    pkt.ClusterHash,
-		HasSecretMatch: secretMatch,
-		LastSeen:       time.Now(),
+		NodeID:           nodeID,
+		Name:             name,
+		OS:               pkt.OS,
+		Mode:             mode,
+		BaseURL:          baseURL,
+		Port:             pkt.Port,
+		Version:          pkt.Version,
+		LSHealthy:        pkt.LSHealthy,
+		ClusterHash:      pkt.ClusterHash,
+		HasSecretMatch:   secretMatch,
+		RequiresPairCode: !secretMatch,
+		LastSeen:         time.Now(),
 	}
 	h.discMu.Unlock()
 
@@ -232,22 +265,31 @@ func (h *Hub) handleDiscoveryPacket(pkt DiscoveryPacket, remote *net.UDPAddr) {
 				go h.probeNodeAndRefresh(cfg)
 			}
 		}
+		return
+	}
+
+	// If an already-paired node (e.g. a standalone mgy bound via confirmation code) moved to a new DHCP IP,
+	// verify its identity via HMAC-SHA256 challenge-response before updating BaseURL — never send nodeToken to unverified IPs!
+	if existing, exists := h.store.GetNode(nodeID); exists && existing.Enabled && existing.Token != "" && existing.BaseURL != baseURL {
+		go h.verifyAndMigrateNodeIP(existing, baseURL, name)
 	}
 }
 
-// NodeAnnouncerConfig configures UDP discovery announcement for a LAN mgy node.
+// NodeAnnouncerConfig configures UDP discovery announcement/response for a LAN mgy gateway.
 type NodeAnnouncerConfig struct {
 	NodeID        string
 	NodeName      string
+	Mode          string // "standalone" | "node"
 	HTTPPort      int
 	Version       string
 	DiscoveryPort int
 	ClusterSecret string
+	PassiveOnly   bool // when true (standalone mgy), only reply to Hub probes; never broadcast unsolicited
 	IsLSHealthy   func() bool
 	OnHubFound    func(hubURL, hubName string)
 }
 
-// StartNodeDiscoveryResponder advertises this mgy node on the LAN via UDP and replies to Hub probes.
+// StartNodeDiscoveryResponder listens for LAN Hub probes and (unless PassiveOnly) periodically advertises this node.
 func StartNodeDiscoveryResponder(ctx context.Context, cfg NodeAnnouncerConfig) {
 	port := cfg.DiscoveryPort
 	if port <= 0 {
@@ -257,11 +299,15 @@ func StartNodeDiscoveryResponder(ctx context.Context, cfg NodeAnnouncerConfig) {
 		return
 	}
 
-	// Bind on the discovery port if available; if another local instance (e.g. a Hub on the same host)
-	// already owns the port, fall back to an ephemeral UDP socket so periodic announcements still work.
+	// Bind on the discovery port if available; if another local instance already owns the port,
+	// fall back to an ephemeral UDP socket (for active node announcements).
 	conn, err := net.ListenUDP("udp4", &net.UDPAddr{IP: net.IPv4zero, Port: port})
 	listeningOnDiscoveryPort := err == nil
 	if err != nil {
+		if cfg.PassiveOnly {
+			slog.Debug("[HubNode] Passive LAN discovery skipped (UDP port already in use)", "port", port, "err", err)
+			return
+		}
 		conn, err = net.ListenUDP("udp4", &net.UDPAddr{IP: net.IPv4zero, Port: 0})
 		if err != nil {
 			slog.Warn("[HubNode] UDP discovery unavailable", "err", err)
@@ -274,6 +320,15 @@ func StartNodeDiscoveryResponder(ctx context.Context, cfg NodeAnnouncerConfig) {
 		_ = conn.Close()
 	}()
 
+	mode := strings.TrimSpace(cfg.Mode)
+	if mode == "" {
+		if cfg.PassiveOnly {
+			mode = "standalone"
+		} else {
+			mode = "node"
+		}
+	}
+
 	buildPacket := func() []byte {
 		healthy := false
 		if cfg.IsLSHealthy != nil {
@@ -284,6 +339,7 @@ func StartNodeDiscoveryResponder(ctx context.Context, cfg NodeAnnouncerConfig) {
 			NodeID:      cfg.NodeID,
 			Name:        cfg.NodeName,
 			OS:          runtime.GOOS,
+			Mode:        mode,
 			Port:        cfg.HTTPPort,
 			Version:     cfg.Version,
 			LSHealthy:   healthy,
@@ -294,36 +350,38 @@ func StartNodeDiscoveryResponder(ctx context.Context, cfg NodeAnnouncerConfig) {
 		return data
 	}
 
-	broadcast := func() {
-		data := buildPacket()
-		if len(data) == 0 {
-			return
-		}
-		for _, target := range lanBroadcastAddrs(port) {
-			_, _ = conn.WriteToUDP(data, target)
-		}
-		if !listeningOnDiscoveryPort {
-			// Same-host Hub fallback
-			_, _ = conn.WriteToUDP(data, &net.UDPAddr{IP: net.IPv4(127, 0, 0, 1), Port: port})
-		}
-	}
-
-	// Periodic announcer
-	go func() {
-		broadcast()
-		ticker := time.NewTicker(10 * time.Second)
-		defer ticker.Stop()
-		for {
-			select {
-			case <-ctx.Done():
+	if !cfg.PassiveOnly {
+		broadcast := func() {
+			data := buildPacket()
+			if len(data) == 0 {
 				return
-			case <-ticker.C:
-				broadcast()
+			}
+			for _, target := range lanBroadcastAddrs(port) {
+				_, _ = conn.WriteToUDP(data, target)
+			}
+			if !listeningOnDiscoveryPort {
+				// Same-host Hub fallback
+				_, _ = conn.WriteToUDP(data, &net.UDPAddr{IP: net.IPv4(127, 0, 0, 1), Port: port})
 			}
 		}
-	}()
 
-	// Probe listener
+		// Periodic announcer for dedicated `mgy node` mode
+		go func() {
+			broadcast()
+			ticker := time.NewTicker(10 * time.Second)
+			defer ticker.Stop()
+			for {
+				select {
+				case <-ctx.Done():
+					return
+				case <-ticker.C:
+					broadcast()
+				}
+			}
+		}()
+	}
+
+	// Probe listener (shared by passive standalone mgy and active mgy node)
 	go func() {
 		buf := make([]byte, 2048)
 		wantHash := ClusterFingerprint(cfg.ClusterSecret)
@@ -343,7 +401,7 @@ func StartNodeDiscoveryResponder(ctx context.Context, cfg NodeAnnouncerConfig) {
 				if data := buildPacket(); len(data) > 0 && remote != nil {
 					_, _ = conn.WriteToUDP(data, remote)
 				}
-				if cfg.OnHubFound != nil && pkt.HubURL != "" {
+				if !cfg.PassiveOnly && cfg.OnHubFound != nil && pkt.HubURL != "" {
 					if wantHash == "" || (pkt.ClusterHash != "" && ConstantTimeEquals(pkt.ClusterHash, wantHash)) {
 						cfg.OnHubFound(NormalizeBaseURL(pkt.HubURL), pkt.Name)
 					}

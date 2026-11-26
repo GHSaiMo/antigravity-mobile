@@ -57,8 +57,12 @@ type Hub struct {
 	stateMu    sync.RWMutex
 	nodeStates map[string]NodeStatus
 
-	discMu     sync.RWMutex
-	discovered map[string]DiscoveredNode
+	discMu       sync.RWMutex
+	discovered   map[string]DiscoveredNode
+	probeTrigger chan struct{}
+
+	verifyMu       sync.Mutex
+	verifyCooldown map[string]time.Time
 
 	indexMu        sync.RWMutex
 	cascadeIndex   map[string]string            // cascadeID -> nodeID ("local" or remote node ID)
@@ -123,6 +127,8 @@ func NewHub(opts Options) (*Hub, error) {
 		listTimeout:    listTimeout,
 		nodeStates:     make(map[string]NodeStatus),
 		discovered:     make(map[string]DiscoveredNode),
+		probeTrigger:   make(chan struct{}, 1),
+		verifyCooldown: make(map[string]time.Time),
 		cascadeIndex:   make(map[string]string),
 		workspaceIndex: make(map[string]map[string]bool),
 		projectIDIndex: make(map[string]string),
@@ -608,6 +614,12 @@ func (h *Hub) WrapHandler(local http.Handler) http.Handler {
 		case path == "/gateway/hub/filter":
 			h.handleHubFilter(w, r)
 			return
+		case path == "/gateway/hub/pair/start":
+			h.handleHubPairStart(w, r)
+			return
+		case path == "/gateway/hub/pair/confirm":
+			h.handleHubPairConfirm(w, r)
+			return
 		}
 
 		// 2. Readiness probe: ready if local LS is healthy OR any remote node is healthy.
@@ -797,20 +809,7 @@ func (h *Hub) BuildStatusResponse(includeSecrets bool) HubStatusResponse {
 	}
 	h.stateMu.RUnlock()
 
-	h.discMu.RLock()
-	var disc []DiscoveredNode
-	cutoff := time.Now().Add(-2 * time.Minute)
-	for _, d := range h.discovered {
-		if d.LastSeen.Before(cutoff) {
-			continue
-		}
-		if _, already := h.store.GetNode(d.NodeID); already {
-			continue
-		}
-		disc = append(disc, d)
-	}
-	h.discMu.RUnlock()
-	sort.Slice(disc, func(i, j int) bool { return disc[i].Name < disc[j].Name })
+	disc := h.DiscoverableNodes()
 
 	filter := h.store.ActiveFilter()
 	if filter == "" {
@@ -843,6 +842,9 @@ func (h *Hub) handleHubStatus(w http.ResponseWriter, r *http.Request) {
 		writeJSONError(w, http.StatusMethodNotAllowed, "method not allowed")
 		return
 	}
+	if r.URL.Query().Get("scan") == "1" {
+		h.ScanLAN(r.Context(), 1200*time.Millisecond)
+	}
 	if r.URL.Query().Get("probe") == "1" {
 		h.ProbeAllNodes(r.Context())
 	}
@@ -852,6 +854,9 @@ func (h *Hub) handleHubStatus(w http.ResponseWriter, r *http.Request) {
 func (h *Hub) handleHubNodes(w http.ResponseWriter, r *http.Request) {
 	switch r.Method {
 	case http.MethodGet:
+		if r.URL.Query().Get("scan") == "1" {
+			h.ScanLAN(r.Context(), 1200*time.Millisecond)
+		}
 		if r.URL.Query().Get("probe") == "1" {
 			h.ProbeAllNodes(r.Context())
 		}

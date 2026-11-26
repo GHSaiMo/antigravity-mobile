@@ -54,6 +54,9 @@ func (h *Hub) applyNodeHeaders(dst http.Header, src http.Header, node NodeConfig
 		dst.Set(HeaderHubToken, node.Token)
 		dst.Set("Authorization", "Bearer "+node.Token)
 	}
+	if adv := NormalizeBaseURL(h.opts.AdvertiseURL); adv != "" {
+		dst.Set(HeaderHubURL, adv)
+	}
 }
 
 func isHopByHopHeader(k string) bool {

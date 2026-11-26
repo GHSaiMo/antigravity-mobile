@@ -504,13 +504,36 @@ func runGatewayServerWithMode(mode gatewayMode, args []string) {
 		}
 	}
 
-	// 4.5. Initialize Hub Manager (mgy hub) or Node Agent (mgy node) before Watcher & Router setup
+	// 4.5. Initialize Hub Manager (mgy hub) or Node Agent (mgy node / passive standalone mgy) before Watcher & Router setup
+	var watcherMu sync.Mutex
+	var watcher *notifier.Watcher
+	ensureWatcherStarted := func() {
+		if hubCfg.Headless {
+			return
+		}
+		watcherMu.Lock()
+		defer watcherMu.Unlock()
+		if watcher != nil {
+			return
+		}
+		p.SetNotificationSink(notif)
+		w := notifier.NewWatcher(p, notif)
+		if powerGuard != nil {
+			w.SetOnActivityChange(powerGuard.SetActive)
+		}
+		w.Start(watcherCtx)
+		watcher = w
+	}
+
 	lanAdvertiseURL := ""
 	if netAddrs.LANIPv4 != "" {
 		lanAdvertiseURL = fmt.Sprintf("http://%s:%d", netAddrs.LANIPv4, *port)
 	} else if *host != "" && *host != "0.0.0.0" && *host != "::" && *host != "[::]" {
 		lanAdvertiseURL = fmt.Sprintf("http://%s:%d", *host, *port)
 	}
+
+	listenLoopback := auth.IsListenAddrLoopback(*host)
+	disableDiscovery := hubCfg.DisableDiscovery || envDisabled("MGY_DISCOVERY") || os.Getenv("MGY_DISABLE_DISCOVERY") == "1" || strings.EqualFold(os.Getenv("MGY_DISABLE_DISCOVERY"), "true")
 
 	var hubMgr *hub.Hub
 	var nodeAgent *hub.NodeAgent
@@ -519,11 +542,12 @@ func runGatewayServerWithMode(mode gatewayMode, args []string) {
 			HubID:            gatewayID,
 			HubName:          gatewayName,
 			Headless:         hubCfg.Headless,
+			LocalPort:        *port,
 			DataDir:          config.GetDataDir(),
 			Secret:           hubCfg.Secret,
 			StaticNodes:      hubCfg.StaticNodes,
 			DiscoveryPort:    hubCfg.DiscoveryPort,
-			DisableDiscovery: hubCfg.DisableDiscovery,
+			DisableDiscovery: disableDiscovery,
 			AdvertiseURL:     lanAdvertiseURL,
 			Proxy:            p,
 			Inspector:        insp,
@@ -534,23 +558,27 @@ func runGatewayServerWithMode(mode gatewayMode, args []string) {
 		}
 		hubMgr = hm
 		defer hubMgr.Stop()
-	} else if hubCfg.Mode == modeNode {
+	} else {
+		passiveStandalone := hubCfg.Mode == modeStandalone
 		na, nErr := hub.NewNodeAgent(hub.NodeAgentOptions{
-			DataDir:          config.GetDataDir(),
-			NodeName:         gatewayName,
-			HTTPPort:         *port,
-			AdvertiseBaseURL: lanAdvertiseURL,
-			Version:          Version,
-			HubURL:           hubCfg.HubURL,
-			HubSecret:        hubCfg.Secret,
-			JoinCode:         hubCfg.JoinCode,
-			DiscoveryPort:    hubCfg.DiscoveryPort,
-			DisableDiscovery: hubCfg.DisableDiscovery,
+			DataDir:           config.GetDataDir(),
+			NodeName:          gatewayName,
+			HTTPPort:          *port,
+			AdvertiseBaseURL:  lanAdvertiseURL,
+			Version:           Version,
+			HubURL:            hubCfg.HubURL,
+			HubSecret:         hubCfg.Secret,
+			JoinCode:          hubCfg.JoinCode,
+			DiscoveryPort:     hubCfg.DiscoveryPort,
+			DisableDiscovery:  disableDiscovery,
+			ListenLoopback:    listenLoopback,
+			PassiveStandalone: passiveStandalone,
 			IsLSHealthy: func() bool {
 				cur := insp.Current()
 				return cur != nil && cur.IsHealthy && cur.Port > 0
 			},
-			Notifier: notif,
+			Notifier:         notif,
+			OnRelayActivated: ensureWatcherStarted,
 		})
 		if nErr != nil {
 			log.Fatalf("❌ Failed to initialize Node agent: %v", nErr)
@@ -559,15 +587,8 @@ func runGatewayServerWithMode(mode gatewayMode, args []string) {
 	}
 
 	var pushSummary string
-	var watcher *notifier.Watcher
 	if !hubCfg.Headless && (notif.IsEnabled() || notif.CanActivateDynamically()) {
-		p.SetNotificationSink(notif)
-
-		watcher = notifier.NewWatcher(p, notif)
-		if powerGuard != nil {
-			watcher.SetOnActivityChange(powerGuard.SetActive)
-		}
-		watcher.Start(watcherCtx)
+		ensureWatcherStarted()
 
 		var pushes []string
 		if apns := notif.APNsClient(); apns != nil {
@@ -585,12 +606,7 @@ func runGatewayServerWithMode(mode gatewayMode, args []string) {
 		}
 	} else if !hubCfg.Headless && (powerGuard != nil || notif.IsCacheMissMonitoringActive()) {
 		// Notifications disabled, still run lightweight watcher to drive sleep guard and/or shadow cache-miss audit.
-		p.SetNotificationSink(notif)
-		watcher = notifier.NewWatcher(p, notif)
-		if powerGuard != nil {
-			watcher.SetOnActivityChange(powerGuard.SetActive)
-		}
-		watcher.Start(watcherCtx)
+		ensureWatcherStarted()
 	}
 	if hubCfg.Headless {
 		// Headless Hub still uses notif to dispatch pushes relayed from LAN nodes.
@@ -674,7 +690,6 @@ func runGatewayServerWithMode(mode gatewayMode, args []string) {
 		cockpit.StartQuotaAlerter(watcherCtx, alertCfg)
 	}
 
-	listenLoopback := auth.IsListenAddrLoopback(*host)
 	// P1-5 Guardrail: Always preset TunnelEnabled from cfCfg.Enabled / customRelayCfg.Enabled (never from async cfTunnel != nil)
 	// so loopback admin/AUTH_DISABLED protections remain strictly enforced while the tunnel initializes.
 	authPolicy := auth.AuthPolicy{
@@ -720,6 +735,7 @@ func runGatewayServerWithMode(mode gatewayMode, args []string) {
 	router := buildRouterWithOptions(authStore, authHandler, p, insp, time.Now(), webHandler, authPolicy, routerOptions{
 		LocalWSAddr:     func() string { return localWSAddr },
 		HubMgr:          hubMgr,
+		NodeAgent:       nodeAgent,
 		RelayDisableWeb: relayDisableWeb,
 		StrictReplay:    strictReplay,
 	})
@@ -798,9 +814,15 @@ func runGatewayServerWithMode(mode gatewayMode, args []string) {
 	// Brief pause to allow initial upstream detection
 	time.Sleep(100 * time.Millisecond)
 
-	// Start Hub discovery/probing or Node LAN advertisement & registration after listener is live
+	// Start Hub discovery/probing or Node LAN responder & registration after listener is live
+	var startupDiscovered []hub.DiscoveredNode
 	if hubMgr != nil {
 		hubMgr.Start(watcherCtx)
+		if !disableDiscovery {
+			scanCtx, scanCancel := context.WithTimeout(watcherCtx, 1500*time.Millisecond)
+			startupDiscovered = hubMgr.ScanLAN(scanCtx, 1200*time.Millisecond)
+			scanCancel()
+		}
 	}
 	if nodeAgent != nil {
 		nodeAgent.Start(watcherCtx)
@@ -902,13 +924,31 @@ func runGatewayServerWithMode(mode gatewayMode, args []string) {
 		}
 		fmt.Print(i18n.Sprintf("  ➜  节点接入:   mgy node -hub %s -code %s\n",
 			"  ➜  Join Node:    mgy node -hub %s -code %s\n", joinTarget, hubMgr.JoinCode()))
-	} else if nodeAgent != nil {
+		if len(startupDiscovered) > 0 {
+			fmt.Print(i18n.Sprintf("  ➜  局域网发现: 扫到 %d 台待配对 mgy 设备（需 6 位确认码）:\n",
+				"  ➜  LAN Scan:     Found %d mgy host(s) awaiting pairing code:\n", len(startupDiscovered)))
+			for _, d := range startupDiscovered {
+				fmt.Printf("       • %s (%s)  [mgy hub pair %s]\n", d.Name, d.BaseURL, d.Name)
+			}
+		} else if !disableDiscovery {
+			fmt.Print(i18n.T("  ➜  局域网发现: 暂未发现新的局域网 mgy（其他电脑运行 mgy 后可执行 mgy hub scan 或 mgy hub pair <名称/IP>）\n",
+				"  ➜  LAN Scan:     No new LAN mgy hosts yet (run `mgy hub scan` or `mgy hub pair <name|IP>` anytime)\n"))
+		}
+	} else if hubCfg.Mode == modeNode && nodeAgent != nil {
 		hubTarget := nodeAgent.HubURL()
 		if hubTarget == "" {
 			hubTarget = i18n.T("局域网自动发现中...", "LAN Auto-Discovering...")
 		}
 		fmt.Print(i18n.Sprintf("  ➜  节点模式:   %s (%s) -> Hub: %s\n",
 			"  ➜  Node Mode:    %s (%s) -> Hub: %s\n", nodeAgent.NodeName(), nodeAgent.NodeID(), hubTarget))
+	} else if nodeAgent != nil && len(nodeAgent.ListHubLinks()) > 0 {
+		links := nodeAgent.ListHubLinks()
+		names := make([]string, 0, len(links))
+		for _, lk := range links {
+			names = append(names, lk.HubName)
+		}
+		fmt.Print(i18n.Sprintf("  ➜  已连 Hub:   %d 个 (%s | 可用 mgy hub links 管理)\n",
+			"  ➜  Linked Hubs:  %d (%s | manage via mgy hub links)\n", len(links), strings.Join(names, ", ")))
 	}
 	fmt.Println("  --------------------------------------------------")
 
@@ -1267,9 +1307,9 @@ func runHelpCmd() {
 
 常用子命令:
   run (默认)        启动网关服务 (局域网直连 + Cloudflare 专属 HTTPS 隧道)
-  hub               以统一 Hub 模式启动或管理多机集群 (支持 status/nodes/add/remove/filter/secret)
+  hub               以统一 Hub 模式启动或管理多机集群 (支持 scan/pair/status/nodes/links/unlink/add/remove/filter/secret)
   node              以局域网节点模式启动 mgy 并接入 Hub (支持 -hub/-code/-secret/-name)
-  pair              向正在运行的网关申请并打印新配对二维码与链接 (支持 -copy / -uri)
+  pair              向正在运行的网关申请配对二维码/链接 (支持 -copy / -uri / -hub 6位Hub接入码)
   cockpit           交互式配置 Cockpit 报表服务与安全 Token (支持 status/token/restart)
   cloudflare (cf)   交互式配置 Cloudflare 专属穿透隧道与域名 (支持 status/reset/enable)
   lan               交互式配置局域网安全配对策略 (支持 status/trust/pair)
@@ -1298,9 +1338,9 @@ Usage:
 
 Common Subcommands:
   run (default)     Start gateway service (Direct LAN + Cloudflare exclusive HTTPS tunnel)
-  hub               Start or manage unified Hub multi-host cluster (status/nodes/add/remove/filter/secret)
+  hub               Start or manage unified Hub multi-host cluster (scan/pair/status/nodes/links/unlink/add/remove/filter/secret)
   node              Start mgy as a LAN node and join a Hub (-hub/-code/-secret/-name)
-  pair              Request and print a new pairing QR code and link (supports -copy / -uri)
+  pair              Request a new pairing QR/link or 6-char Hub confirmation code (-copy / -uri / -hub)
   cockpit           Interactively configure Cockpit report service & token (supports status/token/restart)
   cloudflare (cf)   Interactively configure Cloudflare tunnel & domain (supports status/reset/enable)
   lan               Interactively configure LAN pairing security policy (supports status/trust/pair)
@@ -1331,6 +1371,7 @@ func runPairCmd(args []string) {
 	copyFlag := fs.Bool("copy", false, i18n.T("将生成的配对链接复制到系统剪贴板", "Copy the generated pairing URI to the system clipboard"))
 	copyShortFlag := fs.Bool("c", false, i18n.T("-copy 的简写", "Shorthand for -copy"))
 	uriOnlyFlag := fs.Bool("uri", false, i18n.T("仅输出纯净单行配对 URI（不打印二维码）", "Print only the raw single-line pairing URI without the QR code"))
+	hubFlag := fs.Bool("hub", false, i18n.T("签发 6 位局域网 Hub 二次确认码（用于将本机接入 mgy hub）", "Issue a 6-char LAN Hub confirmation code to pair this host with mgy hub"))
 	_ = fs.Parse(args)
 
 	targetPort := *portFlag
@@ -1349,6 +1390,60 @@ func runPairCmd(args []string) {
 	client := &http.Client{
 		Timeout:   3 * time.Second,
 		Transport: localtls.NewLoopbackTransport(), // SEC-AUDIT M-2: gate InsecureSkipVerify to loopback only
+	}
+
+	if *hubFlag {
+		u := fmt.Sprintf("http://127.0.0.1:%d/api/v1/hub/pair-code", targetPort)
+		req, err := http.NewRequest(http.MethodPost, u, nil)
+		if err != nil {
+			fmt.Fprint(os.Stderr, i18n.Sprintf("❌ 创建请求失败: %v\n", "❌ Failed to create request: %v\n", err))
+			os.Exit(1)
+		}
+		if adminToken != "" {
+			req.Header.Set("Authorization", "Bearer "+adminToken)
+		}
+		resp, err := client.Do(req)
+		if err != nil {
+			fmt.Fprint(os.Stderr, i18n.Sprintf("❌ 无法连接到网关 (端口 %d): %v\n", "❌ Unable to connect to gateway (port %d): %v\n", targetPort, err))
+			fmt.Fprint(os.Stderr, i18n.T("   请确认网关是否已在运行 (启动命令: mgy 或 mgy run)\n", "   Please make sure the gateway is running (start with: mgy or mgy run)\n"))
+			os.Exit(1)
+		}
+		defer resp.Body.Close()
+		body, _ := io.ReadAll(io.LimitReader(resp.Body, 64*1024))
+		if resp.StatusCode != http.StatusOK {
+			fmt.Fprint(os.Stderr, i18n.Sprintf("❌ 签发 Hub 确认码失败 (HTTP %d): %s\n", "❌ Failed to issue Hub confirmation code (HTTP %d): %s\n", resp.StatusCode, strings.TrimSpace(string(body))))
+			os.Exit(1)
+		}
+		var codeResp hub.HubPairCodeResponse
+		if err := json.Unmarshal(body, &codeResp); err != nil {
+			fmt.Fprint(os.Stderr, i18n.Sprintf("❌ 解析返回失败: %v\n", "❌ Failed to parse response: %v\n", err))
+			os.Exit(1)
+		}
+		target := codeResp.LANURL
+		if target == "" {
+			target = codeResp.NodeName
+		}
+		if uriOnly {
+			fmt.Println(codeResp.Code)
+		} else {
+			fmt.Println()
+			fmt.Println("  ==================================================================")
+			fmt.Print(i18n.Sprintf(
+				"    🔐 Hub 局域网接入确认码 (%s)\n    确认码:  %s   (%d 秒内有效，限试 3 次)\n    在 Hub 端运行:  mgy hub pair %s -code %s\n",
+				"    🔐 LAN Hub Confirmation Code (%s)\n    Code:  %s   (Valid %ds, max 3 tries)\n    Run on Hub:  mgy hub pair %s -code %s\n",
+				codeResp.NodeName, codeResp.FormattedCode, codeResp.ExpiresIn, target, codeResp.Code,
+			))
+			fmt.Println("  ==================================================================")
+			fmt.Println()
+		}
+		if shouldCopy {
+			if err := copyTextToClipboard(codeResp.Code); err != nil {
+				fmt.Fprintf(os.Stderr, i18n.T("  ⚠️  未能写入剪贴板: %v\n", "  ⚠️  Could not copy to clipboard: %v\n"), err)
+			} else {
+				fmt.Fprint(os.Stdout, i18n.T("  ✅ Hub 确认码已复制到剪贴板。\n\n", "  ✅ Hub confirmation code copied to clipboard.\n\n"))
+			}
+		}
+		return
 	}
 
 	u := fmt.Sprintf("http://127.0.0.1:%d/api/v1/auth/session", targetPort)
@@ -1615,6 +1710,7 @@ func buildRouterWithWSAddr(
 type routerOptions struct {
 	LocalWSAddr     func() string
 	HubMgr          *hub.Hub
+	NodeAgent       *hub.NodeAgent
 	RelayDisableWeb bool
 	StrictReplay    bool
 }
@@ -2271,6 +2367,8 @@ func buildRouterWithOptions(
 	var innerHandler http.Handler = rootMux
 	if hubMgr != nil {
 		innerHandler = hubMgr.WrapHandler(rootMux)
+	} else if opts.NodeAgent != nil {
+		innerHandler = opts.NodeAgent.WrapHandler(rootMux)
 	}
 	endpointHeadersMiddleware := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if cloudURL := authHandler.CloudURLForRequest(r); cloudURL != "" && authHandler.RequestAuthorized(r) {
