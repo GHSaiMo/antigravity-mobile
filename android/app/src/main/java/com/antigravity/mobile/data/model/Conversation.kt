@@ -59,6 +59,7 @@ data class TrajectorySummary(
     val backgroundTaskCount: Int? = null,
     /** Official project display name (alias or project.name) resolved by the gateway. */
     val workspaceName: String? = null,
+    val isScheduledTask: Boolean? = null,
     val currentBranch: String? = null,
     val pullRequest: GitPullRequestItem? = null,
     val isSideQuestion: Boolean? = null,
@@ -102,6 +103,7 @@ data class ConversationItem(
     val status: ConversationStatus = ConversationStatus.UNKNOWN,
     val stepCount: Int = 0,
     val workspaceName: String = "Chat",
+    val isScheduledTask: Boolean = false,
     val lastModifiedTime: String? = null,
     val isSubagent: Boolean = false,
     val isUnread: Boolean = false,
@@ -238,6 +240,7 @@ data class ConversationItem(
                 status = status,
                 stepCount = stepCount,
                 workspaceName = workspaceName,
+                isScheduledTask = summary.isScheduledTask == true,
                 lastModifiedTime = resolvedTime,
                 isSubagent = summary.isSubagent,
                 isUnread = unread,

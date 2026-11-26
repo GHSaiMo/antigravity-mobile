@@ -57,6 +57,14 @@ public final class ConversationListViewModel {
         public let filter: WorkspaceFilter
         public let count: Int
         public let latestModified: Date
+        public let isScheduledTask: Bool
+
+        public init(filter: WorkspaceFilter, count: Int, latestModified: Date, isScheduledTask: Bool = false) {
+            self.filter = filter
+            self.count = count
+            self.latestModified = latestModified
+            self.isScheduledTask = isScheduledTask
+        }
 
         public var id: String {
             switch filter {
@@ -301,7 +309,7 @@ public final class ConversationListViewModel {
     public var availableWorkspaceFilters: [WorkspaceFilterOption] {
         var chatCount = 0
         var chatLatest: Date = .distantPast
-        var workspaces: [String: (count: Int, latest: Date)] = [:]
+        var workspaces: [String: (count: Int, latest: Date, isScheduled: Bool)] = [:]
 
         for item in visibleConversations {
             let modified = item.effectiveLastModified
@@ -313,9 +321,10 @@ public final class ConversationListViewModel {
                 if var entry = workspaces[name] {
                     entry.count += 1
                     if modified > entry.latest { entry.latest = modified }
+                    if item.isScheduledTask { entry.isScheduled = true }
                     workspaces[name] = entry
                 } else {
-                    workspaces[name] = (1, modified)
+                    workspaces[name] = (1, modified, item.isScheduledTask)
                 }
             }
         }
@@ -330,7 +339,7 @@ public final class ConversationListViewModel {
             result.append(WorkspaceFilterOption(filter: .chat, count: chatCount, latestModified: chatLatest))
         }
         let sortedProjects = workspaces
-            .map { WorkspaceFilterOption(filter: .workspace($0.key), count: $0.value.count, latestModified: $0.value.latest) }
+            .map { WorkspaceFilterOption(filter: .workspace($0.key), count: $0.value.count, latestModified: $0.value.latest, isScheduledTask: $0.value.isScheduled) }
             .sorted { a, b in
                 if a.latestModified != b.latestModified {
                     return a.latestModified > b.latestModified
@@ -344,6 +353,11 @@ public final class ConversationListViewModel {
             result.append(WorkspaceFilterOption(filter: .archived, count: archived.count, latestModified: latestArchived))
         }
         return result
+    }
+
+    public func isScheduledWorkspaceFilter(_ filter: WorkspaceFilter) -> Bool {
+        guard case .workspace(let name) = filter else { return false }
+        return visibleConversations.contains { !$0.isPureChat && $0.workspaceName == name && $0.isScheduledTask }
     }
 
     // MARK: - 会话内容搜索（language_server SearchConversations）

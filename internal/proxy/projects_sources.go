@@ -85,13 +85,26 @@ type geminiProjectConfigFile struct {
 			} `json:"gitFolder"`
 		} `json:"resources"`
 	} `json:"projectResources"`
+	Sidecar *struct {
+		SidecarID string `json:"sidecarId"`
+	} `json:"sidecar,omitempty"`
+}
+
+// sidecarProjectInfo captures metadata for a shadow project auto-created for an Antigravity sidecar
+// (such as a scheduled task / automation or a UI plugin).
+type sidecarProjectInfo struct {
+	ProjectID    string
+	SidecarID    string
+	Name         string
+	IsAutomation bool
 }
 
 var (
 	geminiCfgCacheMu           sync.RWMutex
 	cachedSidecarProjStamp     string
 	cachedSidecarProjAt        time.Time
-	cachedSidecarProjIDs       map[string]bool
+	cachedSidecarProjByID      map[string]sidecarProjectInfo
+	cachedSidecarProjBySID     map[string]sidecarProjectInfo
 	cachedGeminiCfgProjStamp   string
 	cachedGeminiCfgProjAt      time.Time
 	cachedGeminiCfgProjects    []ProjectItem
@@ -106,7 +119,8 @@ var (
 func invalidateGeminiConfigCaches() {
 	geminiCfgCacheMu.Lock()
 	cachedSidecarProjStamp = ""
-	cachedSidecarProjIDs = nil
+	cachedSidecarProjByID = nil
+	cachedSidecarProjBySID = nil
 	cachedGeminiCfgProjStamp = ""
 	cachedGeminiCfgProjects = nil
 	cachedGeminiAutoRootStamp = ""
@@ -116,48 +130,105 @@ func invalidateGeminiConfigCaches() {
 	geminiCfgCacheMu.Unlock()
 }
 
-// fetchSidecarProjectIDs reads Antigravity 2.0 config.json files to identify shadow project IDs
-// automatically created for scheduled tasks / sidecars so they can be excluded from workspace lists.
-func fetchSidecarProjectIDs() map[string]bool {
+// isSidecarAutomationByID determines whether a sidecar is a scheduled task / automation
+// (mirroring Antigravity desktop's eS(): !hasWebUi && !strings.Contains(sidecarId, "/")).
+func isSidecarAutomationByID(configDir, sidecarID string) bool {
+	sid := strings.TrimSpace(sidecarID)
+	if sid == "" || strings.Contains(sid, "/") {
+		return false
+	}
+	if configDir != "" && isSafeSidecarID(sid) {
+		scPath := filepath.Join(configDir, "sidecars", sid, "sidecar.json")
+		if data, err := os.ReadFile(scPath); err == nil && len(data) > 0 {
+			var sc struct {
+				HasWebUI    bool            `json:"has_web_ui"`
+				HasWebUIAlt bool            `json:"hasWebUi"`
+				UIConfig    json.RawMessage `json:"ui_config"`
+				UIConfigAlt json.RawMessage `json:"uiConfig"`
+			}
+			if json.Unmarshal(data, &sc) == nil {
+				hasUI := sc.HasWebUI || sc.HasWebUIAlt ||
+					(len(sc.UIConfig) > 0 && string(sc.UIConfig) != "null") ||
+					(len(sc.UIConfigAlt) > 0 && string(sc.UIConfigAlt) != "null")
+				if hasUI {
+					return false
+				}
+			}
+		}
+	}
+	return true
+}
+
+// fetchSidecarProjectsInfo reads Antigravity 2.0 config.json and projects/*.json files to index
+// shadow projects created for sidecars (scheduled tasks / automations & UI plugins), returning
+// lookup maps keyed by projectId and sidecarId.
+func fetchSidecarProjectsInfo() (map[string]sidecarProjectInfo, map[string]sidecarProjectInfo) {
 	dirs := getGeminiConfigProjectsDirs()
-	var cfgFiles []string
-	seenFiles := make(map[string]bool, len(dirs))
+	type cfgRootEntry struct {
+		projDir   string
+		configDir string
+		cfgFile   string
+	}
+	var roots []cfgRootEntry
+	seenDirs := make(map[string]bool, len(dirs))
 	var stampBuf strings.Builder
-	for _, projDir := range dirs {
-		cfgFile := filepath.Clean(filepath.Join(filepath.Dir(projDir), "config.json"))
-		if seenFiles[cfgFile] {
+	for _, rawDir := range dirs {
+		projDir := filepath.Clean(rawDir)
+		if seenDirs[projDir] {
 			continue
 		}
-		seenFiles[cfgFile] = true
-		cfgFiles = append(cfgFiles, cfgFile)
+		seenDirs[projDir] = true
+		configDir := filepath.Dir(projDir)
+		cfgFile := filepath.Clean(filepath.Join(configDir, "config.json"))
+		roots = append(roots, cfgRootEntry{projDir: projDir, configDir: configDir, cfgFile: cfgFile})
+
 		stampBuf.WriteString(cfgFile)
 		if fi, err := os.Stat(cfgFile); err == nil {
 			fmt.Fprintf(&stampBuf, ":%d:%d|", fi.ModTime().UnixNano(), fi.Size())
 		} else {
 			stampBuf.WriteString(":missing|")
 		}
+		stampBuf.WriteString(projDir)
+		if fi, err := os.Stat(projDir); err == nil {
+			fmt.Fprintf(&stampBuf, ":%d|", fi.ModTime().UnixNano())
+		} else {
+			stampBuf.WriteString(":missing|")
+		}
+		sidecarsDir := filepath.Join(configDir, "sidecars")
+		if fi, err := os.Stat(sidecarsDir); err == nil {
+			fmt.Fprintf(&stampBuf, "sc:%d|", fi.ModTime().UnixNano())
+		} else {
+			stampBuf.WriteString("sc:missing|")
+		}
 	}
 	stamp := stampBuf.String()
 	now := time.Now()
 
 	geminiCfgCacheMu.RLock()
-	if cachedSidecarProjIDs != nil && cachedSidecarProjStamp == stamp && now.Sub(cachedSidecarProjAt) < 5*time.Second {
-		cp := make(map[string]bool, len(cachedSidecarProjIDs))
-		for k, v := range cachedSidecarProjIDs {
-			cp[k] = v
+	if cachedSidecarProjByID != nil && cachedSidecarProjStamp == stamp && now.Sub(cachedSidecarProjAt) < 5*time.Second {
+		cpByID := make(map[string]sidecarProjectInfo, len(cachedSidecarProjByID))
+		for k, v := range cachedSidecarProjByID {
+			cpByID[k] = v
+		}
+		cpBySID := make(map[string]sidecarProjectInfo, len(cachedSidecarProjBySID))
+		for k, v := range cachedSidecarProjBySID {
+			cpBySID[k] = v
 		}
 		geminiCfgCacheMu.RUnlock()
-		return cp
+		return cpByID, cpBySID
 	}
 	geminiCfgCacheMu.RUnlock()
 
-	ids := make(map[string]bool)
-	for _, cfgFile := range cfgFiles {
-		data, err := os.ReadFile(cfgFile)
+	byID := make(map[string]sidecarProjectInfo)
+	bySID := make(map[string]sidecarProjectInfo)
+	configDirByPID := make(map[string]string)
+
+	// 1. Seed from config.json sidecars registry (sidecarId -> projectId).
+	for _, root := range roots {
+		data, err := os.ReadFile(root.cfgFile)
 		if err != nil || len(data) == 0 {
 			continue
 		}
-
 		var cfg struct {
 			Sidecars map[string]struct {
 				ProjectID string `json:"projectId"`
@@ -166,10 +237,82 @@ func fetchSidecarProjectIDs() map[string]bool {
 		if err := json.Unmarshal(data, &cfg); err != nil {
 			continue
 		}
+		for rawSID, sc := range cfg.Sidecars {
+			sid := strings.TrimSpace(rawSID)
+			pid := strings.TrimSpace(sc.ProjectID)
+			if pid == "" {
+				continue
+			}
+			isAuto := isSidecarAutomationByID(root.configDir, sid)
+			info := sidecarProjectInfo{
+				ProjectID:    pid,
+				SidecarID:    sid,
+				Name:         sid,
+				IsAutomation: isAuto,
+			}
+			if _, exists := byID[pid]; !exists {
+				byID[pid] = info
+				configDirByPID[pid] = root.configDir
+			}
+			if sid != "" {
+				if _, exists := bySID[sid]; !exists {
+					bySID[sid] = info
+				}
+			}
+		}
+	}
 
-		for _, sc := range cfg.Sidecars {
-			if pid := strings.TrimSpace(sc.ProjectID); pid != "" {
-				ids[pid] = true
+	// 2. Enrich names & catch any sidecar projects declared via `sidecar.sidecarId` in projects/*.json.
+	for _, root := range roots {
+		entries, err := os.ReadDir(root.projDir)
+		if err != nil {
+			continue
+		}
+		for _, entry := range entries {
+			if entry.IsDir() || !strings.HasSuffix(strings.ToLower(entry.Name()), ".json") {
+				continue
+			}
+			if strings.EqualFold(entry.Name(), "outside-of-project.json") {
+				continue
+			}
+			data, err := os.ReadFile(filepath.Join(root.projDir, entry.Name()))
+			if err != nil || len(data) == 0 {
+				continue
+			}
+			var prj geminiProjectConfigFile
+			if err := json.Unmarshal(data, &prj); err != nil || prj.ID == "" || prj.ID == "outside-of-project" {
+				continue
+			}
+			existing, known := byID[prj.ID]
+			fileSID := ""
+			if prj.Sidecar != nil {
+				fileSID = strings.TrimSpace(prj.Sidecar.SidecarID)
+			}
+			if !known && fileSID == "" {
+				continue
+			}
+			sid := existing.SidecarID
+			if sid == "" {
+				sid = fileSID
+			}
+			cfgDir := configDirByPID[prj.ID]
+			if cfgDir == "" {
+				cfgDir = root.configDir
+			}
+			name := strings.TrimSpace(prj.Name)
+			if name == "" {
+				name = sid
+			}
+			isAuto := isSidecarAutomationByID(cfgDir, sid)
+			info := sidecarProjectInfo{
+				ProjectID:    prj.ID,
+				SidecarID:    sid,
+				Name:         name,
+				IsAutomation: isAuto,
+			}
+			byID[prj.ID] = info
+			if sid != "" {
+				bySID[sid] = info
 			}
 		}
 	}
@@ -177,12 +320,27 @@ func fetchSidecarProjectIDs() map[string]bool {
 	geminiCfgCacheMu.Lock()
 	cachedSidecarProjStamp = stamp
 	cachedSidecarProjAt = now
-	cachedSidecarProjIDs = make(map[string]bool, len(ids))
-	for k, v := range ids {
-		cachedSidecarProjIDs[k] = v
+	cachedSidecarProjByID = make(map[string]sidecarProjectInfo, len(byID))
+	for k, v := range byID {
+		cachedSidecarProjByID[k] = v
+	}
+	cachedSidecarProjBySID = make(map[string]sidecarProjectInfo, len(bySID))
+	for k, v := range bySID {
+		cachedSidecarProjBySID[k] = v
 	}
 	geminiCfgCacheMu.Unlock()
 
+	return byID, bySID
+}
+
+// fetchSidecarProjectIDs returns shadow project IDs automatically created for scheduled tasks /
+// sidecars so they can be excluded from the New Conversation workspace picker.
+func fetchSidecarProjectIDs() map[string]bool {
+	byID, _ := fetchSidecarProjectsInfo()
+	ids := make(map[string]bool, len(byID))
+	for pid := range byID {
+		ids[pid] = true
+	}
 	return ids
 }
 

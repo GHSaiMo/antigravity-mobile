@@ -13,6 +13,13 @@ function formatConversationTitle(annotations, summary, fallback = "未命名会�
   return firstLine;
 }
 
+function renderScheduledAlarmIconHtml() {
+  const label = typeof t === "function" ? t("定时任务") : "定时任务";
+  const labelEsc = escapeHtml(label);
+  return `<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="ws-schedule-icon" title="${labelEsc}" aria-label="${labelEsc}"><circle cx="12" cy="13" r="8"></circle><path d="M12 9v4l2 2"></path><path d="M5 3 2 6"></path><path d="m22 6-3-3"></path><path d="M6.38 18.7 4 21"></path><path d="M17.64 18.67 20 21"></path></svg>`;
+}
+window.renderScheduledAlarmIconHtml = renderScheduledAlarmIconHtml;
+
 function navigateTo(hash) {
   window.location.hash = hash;
   renderRoute();
@@ -86,7 +93,17 @@ function renderRoute() {
     const wsName = summary?.workspaceName || wsUri.split("/").filter(Boolean).pop() || "";
 
     if (titleText) titleText.textContent = title;
-    if (wsText) wsText.textContent = wsName ? `📁 ${wsName}` : "";
+    if (wsText) {
+      if (wsName) {
+        if (summary?.isScheduledTask && wsName !== "Chat") {
+          wsText.innerHTML = `📁 ${escapeHtml(wsName)}${renderScheduledAlarmIconHtml()}`;
+        } else {
+          wsText.textContent = `📁 ${wsName}`;
+        }
+      } else {
+        wsText.textContent = "";
+      }
+    }
 
     if (changed) {
       document.getElementById("btn-commit-push")?.classList.add("hidden");
@@ -923,6 +940,7 @@ function renderConversationCardHtml(item, { isAttachedBranchChild = false, isLas
   const branchPillHtml = isSideQuestion
     ? `<span class="conv-branch-tag">⑂ ${typeof t === "function" ? t("旁路") : "旁路"}</span>`
     : "";
+  const scheduledIconHtml = item.isScheduledTask && wsName !== "Chat" ? renderScheduledAlarmIconHtml() : "";
   const subMetaHtml = isSideQuestion && item.branchParentTitle
     ? `<span class="ws-name">${typeof t === "function" ? t("来自") : "来自"}「<span data-i18n-skip="1">${escapeHtml(item.branchParentTitle)}</span>」</span>`
     : `${wsName === "Chat"
@@ -932,7 +950,7 @@ function renderConversationCardHtml(item, { isAttachedBranchChild = false, isLas
         : `<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
             <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path>
           </svg>`}
-      <span class="ws-name" data-i18n-skip="1">${escapeHtml(wsName)}</span>${formatConvPrBadge(item)}`;
+      <span class="ws-name" data-i18n-skip="1">${escapeHtml(wsName)}</span>${scheduledIconHtml}${formatConvPrBadge(item)}`;
   const rightMetaHtml = isSideQuestion ? escapeHtml(timeStr) : `${stepCount} ${stepLabel} • ${timeStr}`;
 
   return `
@@ -1983,7 +2001,11 @@ function renderContentHits() {
         const metaParts = [];
         if (isSide) metaParts.push("↳ /btw");
         if (h.workspaceName) metaParts.push(h.workspaceName);
-        const ws = metaParts.length ? `<div class="content-hit-ws">${escapeHtml(metaParts.join(" · "))}</div>` : "";
+        const hitSummary = currentTrajectories?.[h.cascadeId];
+        const hitSchedIcon = hitSummary?.isScheduledTask && h.workspaceName && h.workspaceName !== "Chat"
+          ? renderScheduledAlarmIconHtml()
+          : "";
+        const ws = metaParts.length ? `<div class="content-hit-ws">${escapeHtml(metaParts.join(" · "))}${hitSchedIcon}</div>` : "";
         const snippet = h.snippet ? `<div class="content-hit-snippet">${highlightSnippetHtml(h.snippet, h.snippetMatchRanges)}</div>` : "";
         return `<button type="button" class="content-hit-card" data-id="${escapeHtml(h.cascadeId)}" data-parent-id="${escapeHtml(parentId)}" data-is-side-question="${isSide ? "1" : ""}">
           <div class="content-hit-title">${escapeHtml(title)}</div>${snippet}${ws}

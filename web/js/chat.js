@@ -1228,7 +1228,11 @@ function updateChatControls(isRunning, wsUri, hasAction = false) {
         if (summaryUris.includes(norm(wsUri))) resolvedName = activeSummary.workspaceName;
       }
       const wsName = resolvedName || wsUri.split("/").filter(Boolean).pop() || "Chat";
-      wsText.textContent = wsName;
+      if (activeSummary?.isScheduledTask && wsName !== "Chat" && typeof window.renderScheduledAlarmIconHtml === "function") {
+        wsText.innerHTML = `${escapeHtml(wsName)}${window.renderScheduledAlarmIconHtml()}`;
+      } else {
+        wsText.textContent = wsName;
+      }
       wsText.title = wsUri;
     } else {
       wsText.textContent = "Chat";

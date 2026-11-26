@@ -27,6 +27,7 @@ public struct TrajectorySummary: Codable, Sendable {
     public let notFullyIdle: Bool?
     public let backgroundTaskCount: Int?
     public let workspaceName: String?
+    public let isScheduledTask: Bool?
     public let currentBranch: String?
     public let pullRequest: GitPullRequestItem?
     public let isSideQuestion: Bool?
@@ -150,6 +151,7 @@ public struct ConversationItem: Identifiable, Hashable, Sendable, Codable {
     public let status: ConversationStatus
     public let stepCount: Int
     public let workspaceName: String
+    public let isScheduledTask: Bool
     public let lastModified: Date?
     public let isSubagent: Bool
     public let isUnread: Bool
@@ -193,6 +195,7 @@ public struct ConversationItem: Identifiable, Hashable, Sendable, Codable {
         case status
         case stepCount
         case workspaceName
+        case isScheduledTask
         case lastModified
         case isSubagent
         case isUnread
@@ -222,6 +225,7 @@ public struct ConversationItem: Identifiable, Hashable, Sendable, Codable {
         self.status = try container.decodeIfPresent(ConversationStatus.self, forKey: .status) ?? .unknown
         self.stepCount = try container.decodeIfPresent(Int.self, forKey: .stepCount) ?? 0
         self.workspaceName = try container.decodeIfPresent(String.self, forKey: .workspaceName) ?? "Chat"
+        self.isScheduledTask = try container.decodeIfPresent(Bool.self, forKey: .isScheduledTask) ?? false
         self.lastModified = try container.decodeIfPresent(Date.self, forKey: .lastModified)
         self.isSubagent = try container.decodeIfPresent(Bool.self, forKey: .isSubagent) ?? false
         self.isUnread = try container.decodeIfPresent(Bool.self, forKey: .isUnread) ?? false
@@ -251,6 +255,7 @@ public struct ConversationItem: Identifiable, Hashable, Sendable, Codable {
         try container.encode(status, forKey: .status)
         try container.encode(stepCount, forKey: .stepCount)
         try container.encode(workspaceName, forKey: .workspaceName)
+        if isScheduledTask { try container.encode(isScheduledTask, forKey: .isScheduledTask) }
         try container.encodeIfPresent(lastModified, forKey: .lastModified)
         try container.encode(isSubagent, forKey: .isSubagent)
         try container.encode(isUnread, forKey: .isUnread)
@@ -300,6 +305,7 @@ public struct ConversationItem: Identifiable, Hashable, Sendable, Codable {
             status: self.status,
             stepCount: self.stepCount,
             workspaceName: self.workspaceName,
+            isScheduledTask: self.isScheduledTask,
             lastModified: self.lastModified,
             isSubagent: self.isSubagent,
             isUnread: self.isUnread,
@@ -330,6 +336,7 @@ public struct ConversationItem: Identifiable, Hashable, Sendable, Codable {
             status: self.status,
             stepCount: self.stepCount,
             workspaceName: self.workspaceName,
+            isScheduledTask: self.isScheduledTask,
             lastModified: self.lastModified,
             isSubagent: self.isSubagent,
             isUnread: self.isUnread,
@@ -360,6 +367,7 @@ public struct ConversationItem: Identifiable, Hashable, Sendable, Codable {
             status: self.status,
             stepCount: self.stepCount,
             workspaceName: self.workspaceName,
+            isScheduledTask: self.isScheduledTask,
             lastModified: self.lastModified,
             isSubagent: self.isSubagent,
             isUnread: archived ? false : self.isUnread,
@@ -390,6 +398,7 @@ public struct ConversationItem: Identifiable, Hashable, Sendable, Codable {
             status: self.status,
             stepCount: self.stepCount,
             workspaceName: self.workspaceName,
+            isScheduledTask: self.isScheduledTask,
             lastModified: self.lastModified,
             isSubagent: self.isSubagent,
             isUnread: self.isUnread,
@@ -481,6 +490,7 @@ public struct ConversationItem: Identifiable, Hashable, Sendable, Codable {
         } else {
             self.workspaceName = parts.last.map(String.init) ?? "Chat"
         }
+        self.isScheduledTask = summary.isScheduledTask == true
         
         if let timeStr = summary.lastModifiedTime {
             let formatter = ISO8601DateFormatter()
@@ -538,6 +548,7 @@ public struct ConversationItem: Identifiable, Hashable, Sendable, Codable {
         status: ConversationStatus = .idle,
         stepCount: Int = 0,
         workspaceName: String = "workspace",
+        isScheduledTask: Bool = false,
         lastModified: Date? = Date(),
         isSubagent: Bool = false,
         isUnread: Bool = false,
@@ -564,6 +575,7 @@ public struct ConversationItem: Identifiable, Hashable, Sendable, Codable {
         self.status = status
         self.stepCount = stepCount
         self.workspaceName = workspaceName
+        self.isScheduledTask = isScheduledTask
         self.lastModified = lastModified
         self.isSubagent = isSubagent
         self.isUnread = isUnread

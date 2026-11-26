@@ -916,7 +916,7 @@ public struct ConversationListView: View {
                             HStack {
                                 Label(
                                     "\(opt.filter.displayName) (\(opt.count))",
-                                    systemImage: opt.filter.isArchived ? "archivebox" : (opt.filter.isStarred ? "star" : (opt.filter.isPureChat ? "bubble.left" : "folder"))
+                                    systemImage: opt.filter.isArchived ? "archivebox" : (opt.filter.isStarred ? "star" : (opt.filter.isPureChat ? "bubble.left" : (opt.isScheduledTask ? "alarm" : "folder")))
                                 )
                                 if opt.filter == filter {
                                     Image(systemName: "checkmark")
@@ -934,6 +934,13 @@ public struct ConversationListView: View {
                         .font(.system(size: 12.5, weight: .semibold, design: (filter.isPureChat || filter.isArchived || filter.isStarred) ? .default : .monospaced))
                         .foregroundColor(.primary)
                         .lineLimit(1)
+                    if viewModel.isScheduledWorkspaceFilter(filter) {
+                        Image(systemName: "alarm")
+                            .font(.system(size: 11, weight: .semibold))
+                            .foregroundColor(.secondary)
+                            .fixedSize()
+                            .accessibilityLabel(String(localized: "定时任务"))
+                    }
                     Image(systemName: "chevron.down")
                         .font(.system(size: 9.5, weight: .bold))
                         .foregroundColor(.secondary)
@@ -1735,10 +1742,19 @@ public struct ConversationListView: View {
                 }
             }()
             if !metaText.isEmpty {
-                Text(metaText)
-                    .font(.system(size: 11.5))
-                    .foregroundColor(.secondary.opacity(0.8))
-                    .lineLimit(1)
+                HStack(spacing: 4) {
+                    Text(metaText)
+                        .font(.system(size: 11.5))
+                        .foregroundColor(.secondary.opacity(0.8))
+                        .lineLimit(1)
+                    if hit.item.isScheduledTask && !hit.item.isPureChat {
+                        Image(systemName: "alarm")
+                            .font(.system(size: 10, weight: .medium))
+                            .foregroundColor(.secondary.opacity(0.8))
+                            .fixedSize()
+                            .accessibilityLabel(String(localized: "定时任务"))
+                    }
+                }
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -2564,10 +2580,19 @@ public struct ConversationListView: View {
                         .foregroundColor(.secondary)
                         .lineLimit(1)
                 } else {
-                    Text(item.isPureChat ? String(localized: "Chat") : item.workspaceName)
-                        .font(.system(size: 11.5, design: item.isPureChat ? .default : .monospaced))
-                        .foregroundColor(.secondary)
-                        .lineLimit(1)
+                    HStack(spacing: 4) {
+                        Text(item.isPureChat ? String(localized: "Chat") : item.workspaceName)
+                            .font(.system(size: 11.5, design: item.isPureChat ? .default : .monospaced))
+                            .foregroundColor(.secondary)
+                            .lineLimit(1)
+                        if item.isScheduledTask && !item.isPureChat {
+                            Image(systemName: "alarm")
+                                .font(.system(size: 10, weight: .medium))
+                                .foregroundColor(.secondary)
+                                .fixedSize()
+                                .accessibilityLabel(String(localized: "定时任务"))
+                        }
+                    }
                 }
 
                 Spacer(minLength: 4)
@@ -2754,6 +2779,14 @@ public struct ConversationListView: View {
                         .font(.system(size: 12, design: item.isPureChat ? .default : .monospaced))
                         .lineLimit(1)
                         .allowsHitTesting(false)
+
+                    if item.isScheduledTask && !item.isPureChat {
+                        Image(systemName: "alarm")
+                            .font(.system(size: 10.5, weight: .medium))
+                            .fixedSize()
+                            .allowsHitTesting(false)
+                            .accessibilityLabel(String(localized: "定时任务"))
+                    }
 
                     if let pr = item.pullRequest {
                         GitHubPRPillBadge(item: pr, compact: true)

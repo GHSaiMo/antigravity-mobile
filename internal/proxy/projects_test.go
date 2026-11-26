@@ -1067,17 +1067,225 @@ func TestBuildWorkspaceDisplayNameResolver(t *testing.T) {
 		t.Fatalf("expected (proj-alias, 别名项目), got (%q, %q)", pid, disp)
 	}
 
-	// 4. Sidecar shadow projects must never be resolved or back-filled
-	for _, inputPID := range []string{"", "proj-sidecar", "outside-of-project"} {
+	// 4. Sidecar shadow projects must never be back-filled onto regular conversations by folder URI,
+	// while explicit scheduled-task sidecar projectIds retain their own task display name and flag.
+	for _, inputPID := range []string{"", "outside-of-project"} {
 		if pid, disp := resolve(inputPID, []string{fileURI(sidecarDir)}); pid != "" || disp != "" {
-			t.Fatalf("input %q: expected sidecar workspace to stay unresolved, got (%q, %q)", inputPID, pid, disp)
+			t.Fatalf("input %q: expected sidecar workspace to stay unresolved for regular conversation, got (%q, %q)", inputPID, pid, disp)
 		}
+	}
+	fullResolve := p.BuildWorkspaceResolver()
+	if res := fullResolve("proj-sidecar", []string{fileURI(sidecarDir)}, nil); res.ProjectID != "proj-sidecar" || res.WorkspaceName != "Scheduled Task" || !res.IsScheduledTask {
+		t.Fatalf("expected scheduled task sidecar to resolve to (proj-sidecar, Scheduled Task, true), got %+v", res)
 	}
 
 	// 5. A known-but-unregistered projectId must not borrow another project's name via its folder
 	if pid, disp := resolve("proj-unknown", []string{fileURI(repoDir)}); pid != "proj-unknown" || disp == "Truck9000" {
 		t.Fatalf("expected (proj-unknown, not Truck9000), got (%q, %q)", pid, disp)
 	}
+}
+
+func TestScheduledTasksPreserveIndependentFolderNames(t *testing.T) {
+	tmpHome := t.TempDir()
+	t.Setenv("HOME", tmpHome)
+	t.Setenv("USERPROFILE", tmpHome)
+	t.Setenv("APPDATA", "")
+	t.Setenv("ANTIGRAVITY_APP_DATA_DIR", filepath.Join(tmpHome, ".gemini", "antigravity"))
+	t.Setenv("MULTIGRAVITY_DATA_DIR", filepath.Join(tmpHome, ".multigravity"))
+	invalidateGeminiConfigCaches()
+	t.Cleanup(invalidateGeminiConfigCaches)
+
+	cfgDir := filepath.Join(tmpHome, ".gemini", "config")
+	projDir := filepath.Join(cfgDir, "projects")
+	sidecarsDir := filepath.Join(cfgDir, "sidecars")
+	repoDir := filepath.Join(tmpHome, "Projects", "antigravity-mobile")
+	for _, d := range []string{projDir, repoDir, filepath.Join(sidecarsDir, "x-golden-slot-outreach"), filepath.Join(sidecarsDir, "non-x-channel-outreach")} {
+		if err := os.MkdirAll(d, 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	wsURI := "file://" + filepath.ToSlash(repoDir)
+
+	const (
+		realPID     = "6e8f5d1a-90eb-41d0-8480-be82d3ee635a"
+		taskXPID    = "17985f0b-c095-4af3-b70e-0b475c9377f5"
+		taskNonXPID = "4c96ad73-ff50-433c-970f-f3b5b61172f6"
+		pluginPID   = "b7bfdd49-a721-4b43-83b6-95d2de6dd32e"
+	)
+
+	writeFile := func(path, content string) {
+		t.Helper()
+		if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	writeFile(filepath.Join(cfgDir, "config.json"), fmt.Sprintf(`{
+		"sidecars": {
+			"x-golden-slot-outreach": {"enabled": true, "projectId": %q},
+			"non-x-channel-outreach": {"enabled": true, "projectId": %q},
+			"swarm/swarm_board": {"enabled": true, "projectId": %q}
+		}
+	}`, taskXPID, taskNonXPID, pluginPID))
+
+	writeFile(filepath.Join(projDir, realPID+".json"), fmt.Sprintf(`{
+		"id": %q,
+		"name": "antigravity-mobile",
+		"projectResources": {"resources": [{"gitFolder": {"folderUri": %q}}]}
+	}`, realPID, wsURI))
+	writeFile(filepath.Join(projDir, taskXPID+".json"), fmt.Sprintf(`{
+		"id": %q,
+		"name": "x-golden-slot-outreach",
+		"projectResources": {"resources": [{"folderUri": %q}]},
+		"sidecar": {"sidecarId": "x-golden-slot-outreach"}
+	}`, taskXPID, wsURI))
+	writeFile(filepath.Join(projDir, taskNonXPID+".json"), fmt.Sprintf(`{
+		"id": %q,
+		"name": "non-x-channel-outreach",
+		"projectResources": {"resources": [{"folderUri": %q}]},
+		"sidecar": {"sidecarId": "non-x-channel-outreach"}
+	}`, taskNonXPID, wsURI))
+	writeFile(filepath.Join(projDir, pluginPID+".json"), fmt.Sprintf(`{
+		"id": %q,
+		"name": "swarm/swarm_board",
+		"projectResources": {},
+		"sidecar": {"sidecarId": "swarm/swarm_board"}
+	}`, pluginPID))
+
+	writeFile(filepath.Join(sidecarsDir, "x-golden-slot-outreach", "sidecar.json"), `{"builtin":"schedule","display_name":"X Golden Slot Outreach & Review"}`)
+	writeFile(filepath.Join(sidecarsDir, "non-x-channel-outreach", "sidecar.json"), `{"builtin":"schedule","display_name":"Non-X Channel Outreach & Review"}`)
+
+	mockUpstream := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		if strings.HasSuffix(r.URL.Path, "/GetAllCascadeTrajectories") {
+			resp := fmt.Sprintf(`{
+				"trajectorySummaries": {
+					"conv-normal": {
+						"summary": "Regular feature work",
+						"stepCount": 5,
+						"status": "CASCADE_RUN_STATUS_IDLE",
+						"trajectoryMetadata": {
+							"projectId": %q,
+							"workspaceUris": [%q]
+						}
+					},
+					"conv-task-x": {
+						"summary": "X patrol run",
+						"stepCount": 12,
+						"status": "CASCADE_RUN_STATUS_IDLE",
+						"trajectoryMetadata": {
+							"projectId": %q,
+							"workspaceUris": [%q],
+							"sourceMetadata": {
+								"sidecar": {
+									"sidecarId": "x-golden-slot-outreach",
+									"config": {"builtin": "schedule", "displayName": "X Golden Slot Outreach & Review"}
+								}
+							}
+						}
+					},
+					"conv-task-nonx": {
+						"summary": "Non-X outreach run",
+						"stepCount": 8,
+						"status": "CASCADE_RUN_STATUS_IDLE",
+						"trajectoryMetadata": {
+							"projectId": %q,
+							"workspaceUris": [%q]
+						}
+					},
+					"conv-source-only": {
+						"summary": "Ad-hoc scheduled task without local project json",
+						"stepCount": 4,
+						"status": "CASCADE_RUN_STATUS_IDLE",
+						"trajectoryMetadata": {
+							"projectId": "outside-of-project",
+							"workspaceUris": [%q],
+							"sourceMetadata": {
+								"sidecar": {
+									"sidecarId": "mgy-community-daily-voc",
+									"config": {"builtin": "schedule"}
+								}
+							}
+						}
+					},
+					"conv-plugin": {
+						"summary": "Plugin sidecar conversation",
+						"stepCount": 3,
+						"status": "CASCADE_RUN_STATUS_IDLE",
+						"trajectoryMetadata": {
+							"projectId": %q,
+							"workspaceUris": [%q],
+							"sourceMetadata": {
+								"sidecar": {
+									"sidecarId": "swarm/swarm_board",
+									"config": {"hasWebUi": true}
+								}
+							}
+						}
+					}
+				}
+			}`, realPID, wsURI, taskXPID, wsURI, taskNonXPID, wsURI, wsURI, pluginPID, wsURI)
+			_, _ = w.Write([]byte(resp))
+			return
+		}
+		_, _ = w.Write([]byte(`{}`))
+	}))
+	defer mockUpstream.Close()
+
+	port := mockUpstream.Listener.Addr().(*net.TCPAddr).Port
+	insp := inspector.NewInspector(5 * time.Second)
+	p := NewProxy(insp)
+	p.activePort = port
+	p.activeToken = "test-token"
+
+	// 1. GetProjects must still expose only the real project (never pollute New Conversation picker with sidecars).
+	projects, err := p.GetProjects()
+	if err != nil {
+		t.Fatalf("GetProjects failed: %v", err)
+	}
+	if len(projects) != 1 || projects[0].ID != realPID || projects[0].Name != "antigravity-mobile" {
+		t.Fatalf("expected only real project antigravity-mobile in GetProjects, got %+v", projects)
+	}
+
+	// 2. GetAllCascadeTrajectories must give each scheduled task its independent folder name, preserve its projectId, and set isScheduledTask=true.
+	req := httptest.NewRequest(http.MethodPost, "/api/exa.language_server_pb.LanguageServerService/GetAllCascadeTrajectories", strings.NewReader(`{}`))
+	rec := httptest.NewRecorder()
+	p.handleGetAllCascadeTrajectories(rec, req, port, "test-token")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
+	}
+
+	var out struct {
+		TrajectorySummaries map[string]struct {
+			WorkspaceName      string `json:"workspaceName"`
+			IsScheduledTask    bool   `json:"isScheduledTask"`
+			TrajectoryMetadata struct {
+				ProjectID string `json:"projectId"`
+			} `json:"trajectoryMetadata"`
+		} `json:"trajectorySummaries"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &out); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+
+	check := func(id, wantWS, wantPID string, wantSched bool) {
+		t.Helper()
+		got, ok := out.TrajectorySummaries[id]
+		if !ok {
+			t.Fatalf("missing trajectory %s", id)
+		}
+		if got.WorkspaceName != wantWS || got.IsScheduledTask != wantSched || got.TrajectoryMetadata.ProjectID != wantPID {
+			t.Errorf("%s: got (ws=%q, pid=%q, sched=%v), want (ws=%q, pid=%q, sched=%v)",
+				id, got.WorkspaceName, got.TrajectoryMetadata.ProjectID, got.IsScheduledTask,
+				wantWS, wantPID, wantSched)
+		}
+	}
+
+	check("conv-normal", "antigravity-mobile", realPID, false)
+	check("conv-task-x", "x-golden-slot-outreach", taskXPID, true)
+	check("conv-task-nonx", "non-x-channel-outreach", taskNonXPID, true)
+	check("conv-source-only", "mgy-community-daily-voc", "outside-of-project", true)
+	check("conv-plugin", "antigravity-mobile", realPID, false)
 }
 
 func TestHandleCreateCascade_RegisteredExternalProjectOutsideHome(t *testing.T) {

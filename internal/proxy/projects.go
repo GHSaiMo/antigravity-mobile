@@ -341,19 +341,135 @@ func (p *Proxy) buildProjectsList(port int, token string) ([]ProjectItem, error)
 	return result, nil
 }
 
-// BuildWorkspaceDisplayNameResolver returns a fast lookup closure that resolves
-// a trajectory's projectID and official project display name (Alias or Name)
-// from its projectId and/or workspaceURIs without per-trajectory RPC calls.
+// resolvedWorkspaceInfo holds the resolved project ID, display name, and scheduled-task flag
+// for a conversation trajectory.
+type resolvedWorkspaceInfo struct {
+	ProjectID       string
+	WorkspaceName   string
+	IsScheduledTask bool
+}
+
+// extractSidecarSourceInfo inspects trajectoryMetadata.sourceMetadata (Connect ProtoJSON or
+// JS-style payload wrapper) and mirrors Antigravity desktop's eS() classification:
+// an automation / scheduled task is a sidecar with !hasWebUi and no "/" in its sidecarId.
+func extractSidecarSourceInfo(sourceMeta map[string]interface{}) (sidecarID string, isAutomation bool, isSidecar bool) {
+	if len(sourceMeta) == 0 {
+		return "", false, false
+	}
+	var sc map[string]interface{}
+	if direct, ok := sourceMeta["sidecar"].(map[string]interface{}); ok && direct != nil {
+		sc = direct
+	} else if payload, ok := sourceMeta["payload"].(map[string]interface{}); ok && payload != nil {
+		if nested, ok := payload["sidecar"].(map[string]interface{}); ok && nested != nil {
+			sc = nested
+		} else if c, _ := payload["case"].(string); c == "sidecar" {
+			if val, ok := payload["value"].(map[string]interface{}); ok && val != nil {
+				sc = val
+			}
+		}
+	}
+	if sc == nil {
+		return "", false, false
+	}
+	if s, ok := sc["sidecarId"].(string); ok {
+		sidecarID = strings.TrimSpace(s)
+	}
+	if sidecarID == "" {
+		if s, ok := sc["sidecar_id"].(string); ok {
+			sidecarID = strings.TrimSpace(s)
+		}
+	}
+	if sidecarID == "" {
+		return "", false, false
+	}
+	hasWebUI := false
+	if cfg, ok := sc["config"].(map[string]interface{}); ok && cfg != nil {
+		if v, ok := cfg["hasWebUi"].(bool); ok && v {
+			hasWebUI = true
+		}
+		if v, ok := cfg["has_web_ui"].(bool); ok && v {
+			hasWebUI = true
+		}
+		if uiCfg, ok := cfg["uiConfig"].(map[string]interface{}); ok && len(uiCfg) > 0 {
+			hasWebUI = true
+		}
+		if uiCfg, ok := cfg["ui_config"].(map[string]interface{}); ok && len(uiCfg) > 0 {
+			hasWebUI = true
+		}
+	}
+	isAutomation = !hasWebUI && !strings.Contains(sidecarID, "/")
+	return sidecarID, isAutomation, true
+}
+
+// BuildWorkspaceResolver returns a fast lookup closure that resolves a trajectory's projectID,
+// display name (official project Alias/Name or scheduled-task name), and IsScheduledTask flag
+// without per-trajectory RPC calls.
 //
-// Sidecar shadow projects (scheduled tasks etc.) are never registered, and a
-// sidecar / outside-of-project input ID is treated as missing, so the resolver
-// can never back-fill a sidecar projectId. When the caller passes a valid
-// projectId, workspace-URI matches that belong to a *different* project are
-// ignored to avoid pairing one project's ID with another project's name.
-func (p *Proxy) BuildWorkspaceDisplayNameResolver() func(projectID string, workspaceURIs []string) (string, string) {
+// Sidecar shadow projects are never registered into URI/path reverse indexes, so ordinary
+// conversations with a missing or outside-of-project ID will never be assigned to a sidecar.
+// Conversations that explicitly belong to a scheduled-task sidecar (via projectId or
+// trajectoryMetadata.sourceMetadata) retain their independent task folder name and projectId
+// (matching Antigravity desktop) with IsScheduledTask=true so mobile clients can filter them
+// independently and display a trailing alarm indicator.
+func (p *Proxy) BuildWorkspaceResolver() func(projectID string, workspaceURIs []string, sourceMetadata map[string]interface{}) resolvedWorkspaceInfo {
 	cfgProjects := fetchProjectsFromGeminiConfig()
 	aliases := loadWorkspaceAliases()
-	sidecarIDs := fetchSidecarProjectIDs()
+	sidecarByID, sidecarBySID := fetchSidecarProjectsInfo()
+	sidecarIDs := make(map[string]bool, len(sidecarByID))
+	for pid := range sidecarByID {
+		sidecarIDs[pid] = true
+	}
+
+	p.projectsCacheMu.RLock()
+	cachedReadResp := p.lastReadProjectsResp
+	p.projectsCacheMu.RUnlock()
+
+	var readProjects []geminiProjectConfigFile
+	if len(cachedReadResp) > 0 {
+		var readResp struct {
+			Projects []geminiProjectConfigFile `json:"projects"`
+		}
+		if err := json.Unmarshal(cachedReadResp, &readResp); err == nil {
+			readProjects = readResp.Projects
+		}
+	}
+
+	// Enrich sidecar shadow project names from ReadProjects cache (and catch any sidecars
+	// not yet present on disk).
+	for _, prj := range readProjects {
+		pid := strings.TrimSpace(prj.ID)
+		if pid == "" || pid == "outside-of-project" {
+			continue
+		}
+		scIDFromPrj := ""
+		if prj.Sidecar != nil {
+			scIDFromPrj = strings.TrimSpace(prj.Sidecar.SidecarID)
+		}
+		info, known := sidecarByID[pid]
+		if !known && scIDFromPrj == "" {
+			continue
+		}
+		if !known {
+			info = sidecarProjectInfo{
+				ProjectID:    pid,
+				SidecarID:    scIDFromPrj,
+				IsAutomation: !strings.Contains(scIDFromPrj, "/"),
+			}
+		} else if info.SidecarID == "" && scIDFromPrj != "" {
+			info.SidecarID = scIDFromPrj
+		}
+		if name := strings.TrimSpace(prj.Name); name != "" {
+			info.Name = name
+		} else if info.Name == "" {
+			info.Name = info.SidecarID
+		}
+		sidecarByID[pid] = info
+		sidecarIDs[pid] = true
+		if info.SidecarID != "" {
+			sidecarBySID[info.SidecarID] = info
+		}
+	}
+
 	isPlaceholderID := func(id string) bool {
 		return id == "" || id == "outside-of-project" || sidecarIDs[id]
 	}
@@ -414,44 +530,78 @@ func (p *Proxy) BuildWorkspaceDisplayNameResolver() func(projectID string, works
 		register(prj.ID, prj.Name, prj.URI, prj.Path)
 	}
 
-	p.projectsCacheMu.RLock()
-	cachedReadResp := p.lastReadProjectsResp
-	p.projectsCacheMu.RUnlock()
-	if len(cachedReadResp) > 0 {
-		var readResp struct {
-			Projects []geminiProjectConfigFile `json:"projects"`
+	for _, prj := range readProjects {
+		if isPlaceholderID(prj.ID) {
+			continue
 		}
-		if err := json.Unmarshal(cachedReadResp, &readResp); err == nil {
-			for _, prj := range readResp.Projects {
-				if isPlaceholderID(prj.ID) {
-					continue
+		if prj.ProjectResources != nil {
+			for _, r := range prj.ProjectResources.Resources {
+				u := r.FolderURI
+				if u == "" && r.GitFolder != nil {
+					u = r.GitFolder.FolderURI
 				}
-				if prj.ProjectResources != nil {
-					for _, r := range prj.ProjectResources.Resources {
-						u := r.FolderURI
-						if u == "" && r.GitFolder != nil {
-							u = r.GitFolder.FolderURI
-						}
-						if u != "" {
-							register(prj.ID, prj.Name, u, "")
-						}
-					}
-				} else if prj.Name != "" {
-					register(prj.ID, prj.Name, "", "")
+				if u != "" {
+					register(prj.ID, prj.Name, u, "")
 				}
 			}
+		} else if prj.Name != "" {
+			register(prj.ID, prj.Name, "", "")
 		}
 	}
 
-	return func(projectID string, workspaceURIs []string) (string, string) {
-		resolvedID := strings.TrimSpace(projectID)
+	return func(projectID string, workspaceURIs []string, sourceMetadata map[string]interface{}) resolvedWorkspaceInfo {
+		rawPID := strings.TrimSpace(projectID)
+		srcSID, srcIsAuto, srcIsSidecar := extractSidecarSourceInfo(sourceMetadata)
+		scByPID, hasSCByPID := sidecarByID[rawPID]
+
+		// Scheduled task / automation trajectory: keep its independent task name & projectId
+		// instead of collapsing it into the underlying repository's regular project name.
+		isScheduled := srcIsAuto || (hasSCByPID && scByPID.IsAutomation && !(srcIsSidecar && !srcIsAuto))
+		if isScheduled {
+			resolvedPID := rawPID
+			if resolvedPID == "outside-of-project" {
+				resolvedPID = ""
+			}
+			var scBySID sidecarProjectInfo
+			var hasSCBySID bool
+			if srcSID != "" {
+				scBySID, hasSCBySID = sidecarBySID[srcSID]
+			}
+			if resolvedPID == "" && hasSCBySID && scBySID.ProjectID != "" {
+				resolvedPID = scBySID.ProjectID
+			}
+			resolvedName := ""
+			if hasSCByPID && scByPID.Name != "" {
+				resolvedName = scByPID.Name
+			} else if resolvedPID != "" {
+				if info, ok := sidecarByID[resolvedPID]; ok && info.Name != "" {
+					resolvedName = info.Name
+				}
+			}
+			if resolvedName == "" && hasSCBySID && scBySID.Name != "" {
+				resolvedName = scBySID.Name
+			}
+			if resolvedName == "" && srcSID != "" {
+				resolvedName = srcSID
+			}
+			if resolvedName == "" && hasSCByPID && scByPID.SidecarID != "" {
+				resolvedName = scByPID.SidecarID
+			}
+			return resolvedWorkspaceInfo{
+				ProjectID:       resolvedPID,
+				WorkspaceName:   resolvedName,
+				IsScheduledTask: true,
+			}
+		}
+
+		resolvedID := rawPID
 		if isPlaceholderID(resolvedID) {
 			resolvedID = ""
 		}
 		hasKnownID := resolvedID != ""
 		if hasKnownID {
 			if disp, ok := byID[resolvedID]; ok && disp != "" {
-				return resolvedID, disp
+				return resolvedWorkspaceInfo{ProjectID: resolvedID, WorkspaceName: disp}
 			}
 		}
 		// accept reports whether a URI/path match may be used for this trajectory.
@@ -467,7 +617,7 @@ func (p *Proxy) BuildWorkspaceDisplayNameResolver() func(projectID string, works
 				if resolvedID == "" {
 					resolvedID = e.id
 				}
-				return resolvedID, e.name
+				return resolvedWorkspaceInfo{ProjectID: resolvedID, WorkspaceName: e.name}
 			}
 			if tPath := uriToPath(norm); tPath != "" {
 				cleanT := filepath.Clean(tPath)
@@ -475,21 +625,32 @@ func (p *Proxy) BuildWorkspaceDisplayNameResolver() func(projectID string, works
 					if resolvedID == "" {
 						resolvedID = e.id
 					}
-					return resolvedID, e.name
+					return resolvedWorkspaceInfo{ProjectID: resolvedID, WorkspaceName: e.name}
 				}
 				if len(aliases) > 0 {
 					if a, ok := aliases[normalizeWorkspaceKey(cleanT)]; ok && a != "" {
-						return resolvedID, a
+						return resolvedWorkspaceInfo{ProjectID: resolvedID, WorkspaceName: a}
 					}
 				}
 			}
 			if len(aliases) > 0 && norm != "" {
 				if a, ok := aliases[normalizeWorkspaceKey(norm)]; ok && a != "" {
-					return resolvedID, a
+					return resolvedWorkspaceInfo{ProjectID: resolvedID, WorkspaceName: a}
 				}
 			}
 		}
-		return resolvedID, ""
+		return resolvedWorkspaceInfo{ProjectID: resolvedID}
+	}
+}
+
+// BuildWorkspaceDisplayNameResolver returns a fast lookup closure that resolves
+// a trajectory's projectID and official project display name (Alias or Name)
+// from its projectId and/or workspaceURIs without per-trajectory RPC calls.
+func (p *Proxy) BuildWorkspaceDisplayNameResolver() func(projectID string, workspaceURIs []string) (string, string) {
+	resolve := p.BuildWorkspaceResolver()
+	return func(projectID string, workspaceURIs []string) (string, string) {
+		res := resolve(projectID, workspaceURIs, nil)
+		return res.ProjectID, res.WorkspaceName
 	}
 }
 

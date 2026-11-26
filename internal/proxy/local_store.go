@@ -175,7 +175,7 @@ func searchConversationsViaSQLiteCLI(ctx context.Context, dbPath, query string, 
 		hexMatch := hex.EncodeToString([]byte(matchExpr))
 		hexStart := hex.EncodeToString([]byte(ftsMarkerStart))
 		hexEnd := hex.EncodeToString([]byte(ftsMarkerEnd))
-		sqlQuery := fmt.Sprintf(`SELECT f.conversation_id AS cid, COALESCE(NULLIF(c.title, ''), COALESCE(f.title, '')) AS title, COALESCE(f.workspace, '') AS ws, COALESCE(snippet(conversations_fts, 13, CAST(X'%s' AS TEXT), CAST(X'%s' AS TEXT), '...', 12), '') AS snip, COALESCE(f.chunk_first_step, 0) AS step_idx, COALESCE(CAST(c.last_modified_time AS TEXT), '') AS mod_time FROM conversations_fts f LEFT JOIN conversation_summaries c ON f.conversation_id = c.conversation_id WHERE conversations_fts MATCH CAST(X'%s' AS TEXT) ORDER BY rank LIMIT %d`,
+		sqlQuery := fmt.Sprintf(`SELECT f.conversation_id AS cid, COALESCE(NULLIF(c.title, ''), COALESCE(f.title, '')) AS title, COALESCE(NULLIF(f.project, ''), COALESCE(f.workspace, '')) AS ws, COALESCE(snippet(conversations_fts, 13, CAST(X'%s' AS TEXT), CAST(X'%s' AS TEXT), '...', 12), '') AS snip, COALESCE(f.chunk_first_step, 0) AS step_idx, COALESCE(CAST(c.last_modified_time AS TEXT), '') AS mod_time FROM conversations_fts f LEFT JOIN conversation_summaries c ON f.conversation_id = c.conversation_id WHERE conversations_fts MATCH CAST(X'%s' AS TEXT) ORDER BY rank LIMIT %d`,
 			hexStart, hexEnd, hexMatch, limit)
 
 		execCtx, cancel := context.WithTimeout(ctx, 3*time.Second)
@@ -343,7 +343,7 @@ def open_db(path):
 conn = open_db(db_path)
 cur = conn.cursor()
 sql = '''
-SELECT f.conversation_id, COALESCE(NULLIF(c.title, ''), f.title), f.workspace, 
+SELECT f.conversation_id, COALESCE(NULLIF(c.title, ''), f.title), COALESCE(NULLIF(f.project, ''), f.workspace), 
        snippet(conversations_fts, 13, '<b>', '</b>', '...', 12),
        f.chunk_first_step, c.last_modified_time
 FROM conversations_fts f

@@ -84,7 +84,8 @@ sealed interface WorkspaceFilter {
 data class WorkspaceFilterOption(
     val filter: WorkspaceFilter,
     val count: Int,
-    val latestModifiedMs: Long
+    val latestModifiedMs: Long,
+    val isScheduledTask: Boolean = false
 )
 
 data class BranchGroup(
@@ -581,16 +582,23 @@ class ConversationListViewModel(
                 else -> local?.status ?: ConversationStatus.IDLE
             }
             val resolvedSteps = maxOf(serverItem.stepCount, local?.stepCount ?: 0)
-            val resolvedWorkspace = if (serverItem.workspaceName == "Chat" && local?.workspaceName != "Chat" && !local?.workspaceName.isNullOrBlank()) {
-                local.workspaceName
+            val useLocalWorkspace = serverItem.workspaceName == "Chat" && local?.workspaceName != "Chat" && !local?.workspaceName.isNullOrBlank()
+            val resolvedWorkspace = if (useLocalWorkspace) {
+                local!!.workspaceName
             } else {
                 serverItem.workspaceName
+            }
+            val resolvedScheduled = if (useLocalWorkspace) {
+                local!!.isScheduledTask
+            } else {
+                serverItem.isScheduledTask
             }
             serverItem.copy(
                 title = resolvedTitle,
                 status = resolvedStatus,
                 stepCount = resolvedSteps,
-                workspaceName = resolvedWorkspace
+                workspaceName = resolvedWorkspace,
+                isScheduledTask = resolvedScheduled
             )
         }
 
@@ -905,6 +913,7 @@ class ConversationListViewModel(
                 status = if (item.status != ConversationStatus.UNKNOWN) item.status else old.status,
                 stepCount = maxOf(old.stepCount, item.stepCount),
                 workspaceName = if (item.workspaceName.isNotBlank() && item.workspaceName != "Chat") item.workspaceName else old.workspaceName,
+                isScheduledTask = if (item.workspaceName.isNotBlank() && item.workspaceName != "Chat") (item.isScheduledTask || (item.workspaceName == old.workspaceName && old.isScheduledTask)) else old.isScheduledTask,
                 lastModifiedTime = old.lastModifiedTime,
                 isUnread = item.isUnread,
                 hasSwarm = item.hasSwarm || old.hasSwarm,
@@ -1279,7 +1288,7 @@ class ConversationListViewModel(
 
         var chatCount = 0
         var chatLatest = 0L
-        val workspaces = LinkedHashMap<String, Pair<Int, Long>>()
+        val workspaces = LinkedHashMap<String, Triple<Int, Long, Boolean>>()
 
         for (item in visible) {
             val modified = item.lastModifiedEpochMs
@@ -1289,9 +1298,13 @@ class ConversationListViewModel(
             } else {
                 val existing = workspaces[item.workspaceName]
                 if (existing != null) {
-                    workspaces[item.workspaceName] = Pair(existing.first + 1, maxOf(existing.second, modified))
+                    workspaces[item.workspaceName] = Triple(
+                        existing.first + 1,
+                        maxOf(existing.second, modified),
+                        existing.third || item.isScheduledTask
+                    )
                 } else {
-                    workspaces[item.workspaceName] = Pair(1, modified)
+                    workspaces[item.workspaceName] = Triple(1, modified, item.isScheduledTask)
                 }
             }
         }
@@ -1306,7 +1319,14 @@ class ConversationListViewModel(
             options.add(WorkspaceFilterOption(WorkspaceFilter.Chat, chatCount, chatLatest))
         }
         val sortedProjects = workspaces
-            .map { (name, stats) -> WorkspaceFilterOption(WorkspaceFilter.Workspace(name), stats.first, stats.second) }
+            .map { (name, stats) ->
+                WorkspaceFilterOption(
+                    filter = WorkspaceFilter.Workspace(name),
+                    count = stats.first,
+                    latestModifiedMs = stats.second,
+                    isScheduledTask = stats.third
+                )
+            }
             .sortedWith(
                 compareByDescending<WorkspaceFilterOption> { it.latestModifiedMs }
                     .thenBy { it.filter.displayName.lowercase(Locale.getDefault()) }

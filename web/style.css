@@ -739,12 +739,25 @@ html, body {
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
-  max-width: 140px;
+  max-width: 180px;
 }
 
 .conv-meta svg {
   color: var(--ios-secondary-label);
   flex-shrink: 0;
+}
+
+.ws-schedule-icon {
+  display: inline-block;
+  vertical-align: -1.5px;
+  margin-left: 3px;
+  flex-shrink: 0;
+  opacity: 0.85;
+}
+
+.conv-meta .ws-schedule-icon {
+  margin-left: 0;
+  vertical-align: middle;
 }
 
 .conv-steps-time {

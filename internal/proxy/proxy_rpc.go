@@ -682,7 +682,7 @@ func (p *Proxy) handleGetAllCascadeTrajectories(w http.ResponseWriter, r *http.R
 	runningSubagentParents := make(map[string]bool)
 	subagentLatestModTime := make(map[string]time.Time)
 	sidecarProjectIDs := fetchSidecarProjectIDs()
-	resolveWorkspace := p.BuildWorkspaceDisplayNameResolver()
+	resolveWorkspace := p.BuildWorkspaceResolver()
 	var (
 		fallbackProjectsLoaded bool
 		fallbackProjects       []ProjectItem
@@ -890,10 +890,16 @@ func (p *Proxy) handleGetAllCascadeTrajectories(w http.ResponseWriter, r *http.R
 			}
 		}
 
-		// Backfill projectId if missing, outside-of-project, or a sidecar shadow projectId,
-		// and enrich official project display name (workspaceName).
+		// Resolve projectId and display name (workspaceName).
+		// Scheduled-task trajectories retain their own independent task folder name & projectId
+		// (matching Antigravity desktop) and are tagged with isScheduledTask=true.
+		// Regular conversations backfill missing / outside-of-project projectIds from workspaceUris.
 		meta, _ := s["trajectoryMetadata"].(map[string]interface{})
 		curPID, _ := meta["projectId"].(string)
+		var sourceMeta map[string]interface{}
+		if meta != nil {
+			sourceMeta, _ = meta["sourceMetadata"].(map[string]interface{})
+		}
 		var wsURIs []string
 		if meta != nil {
 			if uris, ok := meta["workspaceUris"].([]interface{}); ok {
@@ -915,28 +921,39 @@ func (p *Proxy) handleGetAllCascadeTrajectories(w http.ResponseWriter, r *http.R
 				}
 			}
 		}
-		lookupPID := curPID
-		if lookupPID == "outside-of-project" || sidecarProjectIDs[lookupPID] {
-			lookupPID = ""
-		}
-		resolvedPID, resolvedWSName := resolveWorkspace(lookupPID, wsURIs)
-		if (curPID == "" || curPID == "outside-of-project" || sidecarProjectIDs[curPID]) && len(wsURIs) > 0 {
-			if resolvedPID == "" {
-				resolvedPID = lazyMatchProjectID(wsURIs)
-				if resolvedPID != "" && resolvedWSName == "" {
-					_, resolvedWSName = resolveWorkspace(resolvedPID, wsURIs)
-				}
-			}
-			if resolvedPID != "" {
+		wsRes := resolveWorkspace(curPID, wsURIs, sourceMeta)
+		if wsRes.IsScheduledTask {
+			s["isScheduledTask"] = true
+			if (curPID == "" || curPID == "outside-of-project") && wsRes.ProjectID != "" {
 				if meta == nil {
 					meta = make(map[string]interface{})
 				}
-				meta["projectId"] = resolvedPID
+				meta["projectId"] = wsRes.ProjectID
 				s["trajectoryMetadata"] = meta
 			}
-		}
-		if resolvedWSName != "" {
-			s["workspaceName"] = resolvedWSName
+			if wsRes.WorkspaceName != "" {
+				s["workspaceName"] = wsRes.WorkspaceName
+			}
+		} else {
+			resolvedPID, resolvedWSName := wsRes.ProjectID, wsRes.WorkspaceName
+			if (curPID == "" || curPID == "outside-of-project" || sidecarProjectIDs[curPID]) && len(wsURIs) > 0 {
+				if resolvedPID == "" {
+					resolvedPID = lazyMatchProjectID(wsURIs)
+					if resolvedPID != "" && resolvedWSName == "" {
+						resolvedWSName = resolveWorkspace(resolvedPID, wsURIs, nil).WorkspaceName
+					}
+				}
+				if resolvedPID != "" {
+					if meta == nil {
+						meta = make(map[string]interface{})
+					}
+					meta["projectId"] = resolvedPID
+					s["trajectoryMetadata"] = meta
+				}
+			}
+			if resolvedWSName != "" {
+				s["workspaceName"] = resolvedWSName
+			}
 		}
 		if len(wsURIs) > 0 {
 			br, pr, repoRoot, needsWarmup := cachedWorkspacePullRequest(wsURIs, port)
@@ -1001,6 +1018,11 @@ func (p *Proxy) handleGetAllCascadeTrajectories(w http.ResponseWriter, r *http.R
 		if pws, ok := parent["workspaceName"].(string); ok && pws != "" {
 			if cur, _ := s["workspaceName"].(string); cur == "" {
 				s["workspaceName"] = pws
+			}
+		}
+		if pSched, ok := parent["isScheduledTask"].(bool); ok && pSched {
+			if _, exists := s["isScheduledTask"]; !exists {
+				s["isScheduledTask"] = true
 			}
 		}
 		if pMeta, ok := parent["trajectoryMetadata"].(map[string]interface{}); ok && pMeta != nil {
@@ -1305,6 +1327,7 @@ func compactSummariesForWidget(summaries map[string]map[string]interface{}) map[
 		"lastModifiedTime",
 		"status",
 		"workspaceName",
+		"isScheduledTask",
 		"workspaces",
 		"needsInput",
 		"hasError",

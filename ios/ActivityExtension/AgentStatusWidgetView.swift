@@ -172,6 +172,11 @@ private struct AgentStatusSmallView: View {
                             Text(top.displayWorkspace)
                                 .font(.system(size: 10.5, weight: .semibold))
                                 .lineLimit(1)
+                            if top.isScheduledTask && top.displayWorkspace != "Chat" {
+                                Image(systemName: "alarm")
+                                    .font(.system(size: 9, weight: .semibold))
+                                    .fixedSize()
+                            }
                         }
                         .foregroundStyle(.secondary)
                         .padding(.horizontal, 6)
@@ -357,11 +362,19 @@ private struct CompactMediumConversationRow: View {
                     .foregroundStyle(.primary)
                     .lineLimit(1)
 
-                Text(item.displayWorkspace)
-                    .font(.system(size: 10, weight: .medium))
-                    .foregroundStyle(.secondary)
-                    .lineLimit(1)
-                    .layoutPriority(-1)
+                HStack(spacing: 3) {
+                    Text(item.displayWorkspace)
+                        .font(.system(size: 10, weight: .medium))
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                    if item.isScheduledTask && item.displayWorkspace != "Chat" {
+                        Image(systemName: "alarm")
+                            .font(.system(size: 9, weight: .medium))
+                            .foregroundStyle(.secondary)
+                            .fixedSize()
+                    }
+                }
+                .layoutPriority(-1)
 
                 Spacer(minLength: 4)
 

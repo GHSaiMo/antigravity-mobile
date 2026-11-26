@@ -239,8 +239,9 @@ func (p *Proxy) lookupConversationMetaForTasks(ctx context.Context, port int, to
 		TrajectorySummaries map[string]struct {
 			Summary            string `json:"summary"`
 			TrajectoryMetadata *struct {
-				ProjectID     string   `json:"projectId"`
-				WorkspaceUris []string `json:"workspaceUris"`
+				ProjectID      string                 `json:"projectId"`
+				WorkspaceUris  []string               `json:"workspaceUris"`
+				SourceMetadata map[string]interface{} `json:"sourceMetadata"`
 			} `json:"trajectoryMetadata"`
 			Workspaces []struct {
 				WorkspaceFolderAbsoluteUri string `json:"workspaceFolderAbsoluteUri"`
@@ -251,11 +252,12 @@ func (p *Proxy) lookupConversationMetaForTasks(ctx context.Context, port int, to
 		return out
 	}
 
-	resolveWorkspace := p.BuildWorkspaceDisplayNameResolver()
+	resolveWorkspace := p.BuildWorkspaceResolver()
 	for cid, s := range env.TrajectorySummaries {
 		// Keep the historical priority: live workspaces[] first, then trajectoryMetadata.workspaceUris.
 		var wsURIs []string
 		var pid string
+		var sourceMeta map[string]interface{}
 		for _, w := range s.Workspaces {
 			if trimmed := strings.TrimSpace(w.WorkspaceFolderAbsoluteUri); trimmed != "" {
 				wsURIs = append(wsURIs, trimmed)
@@ -263,6 +265,7 @@ func (p *Proxy) lookupConversationMetaForTasks(ctx context.Context, port int, to
 		}
 		if s.TrajectoryMetadata != nil {
 			pid = strings.TrimSpace(s.TrajectoryMetadata.ProjectID)
+			sourceMeta = s.TrajectoryMetadata.SourceMetadata
 			if len(wsURIs) == 0 {
 				for _, u := range s.TrajectoryMetadata.WorkspaceUris {
 					if trimmed := strings.TrimSpace(u); trimmed != "" {
@@ -271,7 +274,7 @@ func (p *Proxy) lookupConversationMetaForTasks(ctx context.Context, port int, to
 				}
 			}
 		}
-		_, wsName := resolveWorkspace(pid, wsURIs)
+		wsName := resolveWorkspace(pid, wsURIs, sourceMeta).WorkspaceName
 		if wsName == "" && len(wsURIs) > 0 {
 			localPath := uriToPath(wsURIs[0])
 			if localPath != "" && !isDriveRoot(localPath) {

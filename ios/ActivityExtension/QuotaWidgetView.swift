@@ -1489,6 +1489,13 @@ struct WidgetConversationRow: View {
                             .foregroundStyle(.secondary)
                             .lineLimit(1)
 
+                        if item.isScheduledTask && item.displayWorkspace != "Chat" {
+                            Image(systemName: "alarm")
+                                .font(.system(size: 9, weight: .medium))
+                                .foregroundStyle(.secondary)
+                                .fixedSize()
+                        }
+
                         if showStepCount && item.stepCount > 0 {
                             Text("·")
                                 .font(.system(size: 10))

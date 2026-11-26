@@ -440,6 +440,7 @@ nonisolated public struct AgentWidgetConversationItem: Codable, Hashable, Identi
     public let id: String
     public let title: String
     public let workspaceName: String
+    public let isScheduledTask: Bool
     public let status: AgentWidgetConversationStatus
     public let stepCount: Int
     public let lastModified: Date?
@@ -451,6 +452,7 @@ nonisolated public struct AgentWidgetConversationItem: Codable, Hashable, Identi
         id: String,
         title: String,
         workspaceName: String,
+        isScheduledTask: Bool = false,
         status: AgentWidgetConversationStatus,
         stepCount: Int,
         lastModified: Date?,
@@ -461,12 +463,31 @@ nonisolated public struct AgentWidgetConversationItem: Codable, Hashable, Identi
         self.id = id
         self.title = title
         self.workspaceName = workspaceName
+        self.isScheduledTask = isScheduledTask
         self.status = status
         self.stepCount = stepCount
         self.lastModified = lastModified
         self.isUnread = isUnread
         self.hasRunningTasks = hasRunningTasks
         self.isPinned = isPinned
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case id, title, workspaceName, isScheduledTask, status, stepCount, lastModified, isUnread, hasRunningTasks, isPinned
+    }
+
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        id = try c.decode(String.self, forKey: .id)
+        title = try c.decode(String.self, forKey: .title)
+        workspaceName = try c.decode(String.self, forKey: .workspaceName)
+        isScheduledTask = try c.decodeIfPresent(Bool.self, forKey: .isScheduledTask) ?? false
+        status = try c.decode(AgentWidgetConversationStatus.self, forKey: .status)
+        stepCount = try c.decode(Int.self, forKey: .stepCount)
+        lastModified = try c.decodeIfPresent(Date.self, forKey: .lastModified)
+        isUnread = try c.decode(Bool.self, forKey: .isUnread)
+        hasRunningTasks = try c.decode(Bool.self, forKey: .hasRunningTasks)
+        isPinned = try c.decode(Bool.self, forKey: .isPinned)
     }
 
     public var isWorking: Bool {
@@ -542,6 +563,7 @@ nonisolated public struct AgentConversationsWidgetSnapshot: Codable, Hashable, S
             if lhs.id != rhs.id
                 || lhs.title != rhs.title
                 || lhs.workspaceName != rhs.workspaceName
+                || lhs.isScheduledTask != rhs.isScheduledTask
                 || lhs.status != rhs.status
                 || lhs.isUnread != rhs.isUnread
                 || lhs.hasRunningTasks != rhs.hasRunningTasks {
@@ -760,6 +782,7 @@ nonisolated private struct TrajectoryWireSummary: Decodable, Sendable {
     let notFullyIdle: Bool?
     let backgroundTaskCount: Int?
     let workspaceName: String?
+    let isScheduledTask: Bool?
 
     var isSubagent: Bool {
         if let parent = parentConversationId?.trimmingCharacters(in: .whitespacesAndNewlines), !parent.isEmpty {
@@ -1387,6 +1410,7 @@ nonisolated public final class QuotaWidgetStore: Sendable {
                     id: id,
                     title: resolvedTitle,
                     workspaceName: workspaceName,
+                    isScheduledTask: summary.isScheduledTask == true,
                     status: status,
                     stepCount: summary.stepCount ?? 0,
                     lastModified: parseResetDate(summary.lastModifiedTime),
@@ -1529,6 +1553,7 @@ nonisolated public final class QuotaWidgetStore: Sendable {
                 id: item.id,
                 title: item.title,
                 workspaceName: item.workspaceName,
+                isScheduledTask: item.isScheduledTask,
                 status: mappedStatus,
                 stepCount: item.stepCount,
                 lastModified: item.lastModified,

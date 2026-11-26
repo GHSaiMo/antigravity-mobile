@@ -2190,6 +2190,7 @@ private fun WorkspaceFilterCapsule(
 ) {
     val colors = AntigravityTheme.colors
     var menuExpanded by remember { mutableStateOf(false) }
+    val isActiveScheduled = options.firstOrNull { it.filter == activeFilter }?.isScheduledTask == true
 
     Row(
         modifier = modifier
@@ -2234,6 +2235,14 @@ private fun WorkspaceFilterCapsule(
                     overflow = TextOverflow.Ellipsis,
                     modifier = Modifier.weight(1f, fill = false)
                 )
+                if (isActiveScheduled) {
+                    Icon(
+                        imageVector = Icons.Default.Alarm,
+                        contentDescription = "定时任务".loc,
+                        tint = colors.textSecondary,
+                        modifier = Modifier.size(13.dp)
+                    )
+                }
                 Icon(
                     imageVector = Icons.Default.KeyboardArrowDown,
                     contentDescription = "切换工作区".loc,
@@ -2274,14 +2283,28 @@ private fun WorkspaceFilterCapsule(
                         val isCurrent = opt.filter == activeFilter
                         DropdownMenuItem(
                             text = {
-                                Text(
-                                    text = "${opt.filter.displayName} (${opt.count})",
-                                    color = if (isCurrent) colors.accentIndigo else colors.textPrimary,
-                                    fontWeight = if (isCurrent) FontWeight.SemiBold else FontWeight.Normal,
-                                    fontSize = 14.sp,
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis
-                                )
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(5.dp)
+                                ) {
+                                    Text(
+                                        text = "${opt.filter.displayName} (${opt.count})",
+                                        color = if (isCurrent) colors.accentIndigo else colors.textPrimary,
+                                        fontWeight = if (isCurrent) FontWeight.SemiBold else FontWeight.Normal,
+                                        fontSize = 14.sp,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis,
+                                        modifier = Modifier.weight(1f, fill = false)
+                                    )
+                                    if (opt.isScheduledTask) {
+                                        Icon(
+                                            imageVector = Icons.Default.Alarm,
+                                            contentDescription = "定时任务".loc,
+                                            tint = if (isCurrent) colors.accentIndigo else colors.textMuted,
+                                            modifier = Modifier.size(14.dp)
+                                        )
+                                    }
+                                }
                             },
                             leadingIcon = {
                                 Icon(
@@ -3073,15 +3096,29 @@ fun ConversationCard(
                     } else {
                         conversation.workspaceName
                     }
-                    Text(
-                        text = subLabel,
-                        color = colors.textSecondary,
-                        fontSize = 11.5.sp,
-                        fontFamily = FontFamily.Default,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(4.dp),
                         modifier = Modifier.weight(1f, fill = false)
-                    )
+                    ) {
+                        Text(
+                            text = subLabel,
+                            color = colors.textSecondary,
+                            fontSize = 11.5.sp,
+                            fontFamily = FontFamily.Default,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier.weight(1f, fill = false)
+                        )
+                        if (conversation.branchParentTitle.isNullOrBlank() && conversation.isScheduledTask && !conversation.isPureChat) {
+                            Icon(
+                                imageVector = Icons.Default.Alarm,
+                                contentDescription = "定时任务".loc,
+                                tint = colors.textMuted,
+                                modifier = Modifier.size(12.dp)
+                            )
+                        }
+                    }
                     val timeStr = conversation.relativeTimeString
                     if (timeStr.isNotBlank()) {
                         Text(
@@ -3228,8 +3265,17 @@ fun ConversationCard(
                             fontSize = 12.sp,
                             fontFamily = FontFamily.Monospace,
                             maxLines = 1,
-                            overflow = TextOverflow.Ellipsis
+                            overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier.weight(1f, fill = false)
                         )
+                        if (conversation.isScheduledTask && !conversation.isPureChat) {
+                            Icon(
+                                imageVector = Icons.Default.Alarm,
+                                contentDescription = "定时任务".loc,
+                                tint = colors.textMuted,
+                                modifier = Modifier.size(12.5.dp)
+                            )
+                        }
                     }
                     conversation.pullRequest?.let { pr ->
                         GitHubPRPillBadge(item = pr, compact = true)
