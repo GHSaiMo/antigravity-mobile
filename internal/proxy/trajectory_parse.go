@@ -1,6 +1,7 @@
 package proxy
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -53,7 +54,7 @@ func (p *Proxy) ParseTrajectoryDetails(rawResp *upstreamTrajectoryResp) Trajecto
 	taskProgress := extractLatestTaskProgress(steps, lastUserInputIdx)
 	activePlan, activeFocus, activeFocusStartedAt := extractActiveTurnPlanAndFocus(steps, lastUserInputIdx)
 
-	return TrajectoryDetails{
+	details := TrajectoryDetails{
 		CascadeID:          rawResp.Trajectory.CascadeID,
 		Title:              title,
 		Status:             finalStatus,
@@ -86,6 +87,198 @@ func (p *Proxy) ParseTrajectoryDetails(rawResp *upstreamTrajectoryResp) Trajecto
 		ActiveFocus:        activeFocus,
 		ActiveFocusStarted: activeFocusStartedAt,
 		ActivePlan:         activePlan,
+	}
+	if parentID == "" {
+		if p.isScheduledFromTrajectoryMetadata(rawResp) {
+			setCachedCascadeScheduled(rawResp.Trajectory.CascadeID, true)
+			applyScheduledTaskFlag(&details, true)
+		} else if cached, ok := getCachedCascadeScheduled(rawResp.Trajectory.CascadeID); ok && cached {
+			applyScheduledTaskFlag(&details, true)
+		}
+	}
+	return details
+}
+
+func (p *Proxy) isScheduledFromTrajectoryMetadata(rawResp *upstreamTrajectoryResp) bool {
+	if rawResp == nil || rawResp.Trajectory.Metadata == nil {
+		return false
+	}
+	meta := rawResp.Trajectory.Metadata
+	if strings.TrimSpace(meta.ParentConversationID) != "" || meta.SubagentSpec != nil {
+		return false
+	}
+	if strings.TrimSpace(meta.ProjectID) == "" && len(meta.SourceMetadata) == 0 {
+		return false
+	}
+	return p.BuildWorkspaceResolver()(meta.ProjectID, rawResp.Trajectory.WorkspaceUris, meta.SourceMetadata).IsScheduledTask
+}
+
+// resolveCascadeScheduledTask reports whether cascadeID belongs to a scheduled-task automation.
+// It avoids extra upstream RPCs on the hot path by checking direct trajectory metadata, the
+// cached scheduled-task map populated by GetAllCascadeTrajectories, and the shared 1s list snapshot.
+func (p *Proxy) resolveCascadeScheduledTask(ctx context.Context, cascadeID string, rawResp *upstreamTrajectoryResp, parentBranchID string, port int, token string) bool {
+	if cascadeID == "" {
+		return false
+	}
+	if rawResp != nil && rawResp.Trajectory.Metadata != nil {
+		meta := rawResp.Trajectory.Metadata
+		if strings.TrimSpace(meta.ParentConversationID) != "" || meta.SubagentSpec != nil {
+			return false
+		}
+		if p.isScheduledFromTrajectoryMetadata(rawResp) {
+			setCachedCascadeScheduled(cascadeID, true)
+			return true
+		}
+	}
+	if cached, ok := getCachedCascadeScheduled(cascadeID); ok {
+		return cached
+	}
+
+	lookupSummaryEntry := func(targetID string) (json.RawMessage, bool) {
+		if targetID == "" {
+			return nil, false
+		}
+		s := &p.allTrajectories
+		s.mu.Lock()
+		raw := s.entries[targetID]
+		s.mu.Unlock()
+		if len(raw) > 0 {
+			return raw, true
+		}
+		if port > 0 {
+			subCtx, cancel := context.WithTimeout(ctx, 1500*time.Millisecond)
+			defer cancel()
+			if _, err := p.fetchAllTrajectoriesRaw(subCtx, port, token); err == nil {
+				s.mu.Lock()
+				raw = s.entries[targetID]
+				s.mu.Unlock()
+				if len(raw) > 0 {
+					return raw, true
+				}
+			}
+		}
+		return nil, false
+	}
+
+	classifySummaryRaw := func(raw json.RawMessage) (isScheduled bool, isSubagent bool) {
+		var entry struct {
+			TrajectoryMetadata *struct {
+				ProjectID            string                 `json:"projectId"`
+				WorkspaceUris        []string               `json:"workspaceUris"`
+				SourceMetadata       map[string]interface{} `json:"sourceMetadata"`
+				ParentConversationID string                 `json:"parentConversationId"`
+			} `json:"trajectoryMetadata"`
+			Workspaces []struct {
+				WorkspaceFolderAbsoluteUri string `json:"workspaceFolderAbsoluteUri"`
+			} `json:"workspaces"`
+		}
+		if err := json.Unmarshal(raw, &entry); err != nil {
+			return false, false
+		}
+		if entry.TrajectoryMetadata != nil && strings.TrimSpace(entry.TrajectoryMetadata.ParentConversationID) != "" {
+			return false, true
+		}
+		var pid string
+		var wsURIs []string
+		var sourceMeta map[string]interface{}
+		if entry.TrajectoryMetadata != nil {
+			pid = strings.TrimSpace(entry.TrajectoryMetadata.ProjectID)
+			wsURIs = append(wsURIs, entry.TrajectoryMetadata.WorkspaceUris...)
+			sourceMeta = entry.TrajectoryMetadata.SourceMetadata
+		}
+		if len(wsURIs) == 0 {
+			for _, w := range entry.Workspaces {
+				if u := strings.TrimSpace(w.WorkspaceFolderAbsoluteUri); u != "" {
+					wsURIs = append(wsURIs, u)
+				}
+			}
+		}
+		return p.BuildWorkspaceResolver()(pid, wsURIs, sourceMeta).IsScheduledTask, false
+	}
+
+	if raw, ok := lookupSummaryEntry(cascadeID); ok {
+		isSched, isSub := classifySummaryRaw(raw)
+		if isSub {
+			setCachedCascadeScheduled(cascadeID, false)
+			return false
+		}
+		if isSched {
+			setCachedCascadeScheduled(cascadeID, true)
+			return true
+		}
+		if parentBranchID != "" && parentBranchID != cascadeID {
+			if pCached, pOK := getCachedCascadeScheduled(parentBranchID); pOK {
+				setCachedCascadeScheduled(cascadeID, pCached)
+				return pCached
+			}
+			if pRaw, pOK := lookupSummaryEntry(parentBranchID); pOK {
+				pSched, _ := classifySummaryRaw(pRaw)
+				setCachedCascadeScheduled(parentBranchID, pSched)
+				setCachedCascadeScheduled(cascadeID, pSched)
+				return pSched
+			}
+		}
+		setCachedCascadeScheduled(cascadeID, false)
+		return false
+	}
+	return false
+}
+
+// applyScheduledTaskFlag marks the conversation as a scheduled task and tags ONLY its initial
+// automated prompt user bubble (never manual follow-up turns, subagents, voice bubbles, or
+// /btw side questions). Clones slices before mutating so shared cached TrajectoryDetails stay immutable.
+func applyScheduledTaskFlag(details *TrajectoryDetails, isScheduled bool) {
+	if !isScheduled || details == nil || details.ParentConversation != "" {
+		return
+	}
+	details.IsScheduledTask = true
+
+	firstUserIdx := -1
+	for i := range details.AllMessages {
+		m := &details.AllMessages[i]
+		if m.Type == "user" || m.Role == "user" {
+			firstUserIdx = i
+			break
+		}
+	}
+	if firstUserIdx < 0 {
+		return
+	}
+	firstMsg := details.AllMessages[firstUserIdx]
+	if details.BranchOrigin != nil && details.BranchOrigin.IsSideQuestion {
+		if firstMsg.StepIndex != nil && *firstMsg.StepIndex >= details.BranchOrigin.ForkStepIndex {
+			return
+		}
+	}
+	rawText := firstMsg.Text
+	if rawText == "" {
+		rawText = firstMsg.Content
+	}
+	body, fileNames := splitAttachmentBlock(rawText)
+	if isVoiceTurnMessage(body, fileNames) || strings.TrimSpace(body) == "" {
+		return
+	}
+
+	if !firstMsg.IsScheduledTask {
+		clonedMsgs := make([]CascadeMessageItem, len(details.AllMessages))
+		copy(clonedMsgs, details.AllMessages)
+		clonedMsgs[firstUserIdx].IsScheduledTask = true
+		details.AllMessages = clonedMsgs
+	}
+
+	if len(details.TurnOutline) > 0 {
+		targetID := details.AllMessages[firstUserIdx].ID
+		for i := range details.TurnOutline {
+			if details.TurnOutline[i].FirstMessageID == targetID {
+				if !details.TurnOutline[i].IsScheduledTask {
+					clonedOutline := make([]TurnOutlineItem, len(details.TurnOutline))
+					copy(clonedOutline, details.TurnOutline)
+					clonedOutline[i].IsScheduledTask = true
+					details.TurnOutline = clonedOutline
+				}
+				break
+			}
+		}
 	}
 }
 
@@ -698,6 +891,7 @@ func isBrainArtifactURI(uri string) bool {
 // extractArtifactsFromStep parses any artifact files created/edited in a trajectory step.
 func extractArtifactsFromStep(s TrajectoryStep) []ArtifactItem {
 	var results []ArtifactItem
+	seen := make(map[string]bool)
 
 	addArtifact := func(uri, summary string, reqFeedback, userFacing bool, isExplicitArtifact bool) {
 		uri = strings.TrimSpace(uri)
@@ -707,13 +901,17 @@ func extractArtifactsFromStep(s TrajectoryStep) []ArtifactItem {
 		if !strings.HasPrefix(uri, "file://") && filepath.IsAbs(uri) {
 			uri = "file://" + uri
 		}
+		if seen[uri] {
+			return
+		}
 		lower := strings.ToLower(uri)
 		if strings.Contains(lower, "/scratch/") {
 			return
 		}
 
 		isMd := strings.HasSuffix(lower, ".md") || strings.HasSuffix(lower, ".markdown")
-		if !isMd {
+		isHTML := strings.HasSuffix(lower, ".html") || strings.HasSuffix(lower, ".htm")
+		if !isMd && !isHTML {
 			return
 		}
 
@@ -754,6 +952,7 @@ func extractArtifactsFromStep(s TrajectoryStep) []ArtifactItem {
 		if title == "" {
 			return
 		}
+		seen[uri] = true
 		results = append(results, ArtifactItem{
 			URI:             uri,
 			Title:           title,
@@ -804,30 +1003,37 @@ func extractArtifactsFromStep(s TrajectoryStep) []ArtifactItem {
 		tcArgs = s.Metadata.ToolCall.ArgumentsJson
 	}
 
-	if (tcName == "write_to_file" || tcName == "replace_file_content") && tcArgs != "" {
+	if (tcName == "write_to_file" || tcName == "replace_file_content" || tcName == "write_file" || tcName == "edit_file") && tcArgs != "" {
 		var args struct {
 			TargetFile       string `json:"TargetFile"`
+			Path             string `json:"Path"`
 			ArtifactMetadata *struct {
 				Summary         string `json:"Summary"`
 				RequestFeedback bool   `json:"RequestFeedback"`
 				UserFacing      *bool  `json:"UserFacing"`
 			} `json:"ArtifactMetadata"`
 		}
-		if err := json.Unmarshal([]byte(tcArgs), &args); err == nil && args.TargetFile != "" {
-			summary := ""
-			userFacing := true
-			reqFeedback := false
-			hasExplicitMeta := false
-			if args.ArtifactMetadata != nil {
-				hasExplicitMeta = true
-				summary = strings.TrimSpace(args.ArtifactMetadata.Summary)
-				if args.ArtifactMetadata.UserFacing != nil {
-					userFacing = *args.ArtifactMetadata.UserFacing
-				}
-				reqFeedback = args.ArtifactMetadata.RequestFeedback
+		if err := json.Unmarshal([]byte(tcArgs), &args); err == nil {
+			target := strings.TrimSpace(args.TargetFile)
+			if target == "" {
+				target = strings.TrimSpace(args.Path)
 			}
-			if hasExplicitMeta || isBrainArtifactURI(args.TargetFile) {
-				addArtifact(args.TargetFile, summary, reqFeedback, userFacing, hasExplicitMeta)
+			if target != "" {
+				summary := ""
+				userFacing := true
+				reqFeedback := false
+				hasExplicitMeta := false
+				if args.ArtifactMetadata != nil {
+					hasExplicitMeta = true
+					summary = strings.TrimSpace(args.ArtifactMetadata.Summary)
+					if args.ArtifactMetadata.UserFacing != nil {
+						userFacing = *args.ArtifactMetadata.UserFacing
+					}
+					reqFeedback = args.ArtifactMetadata.RequestFeedback
+				}
+				if hasExplicitMeta || isBrainArtifactURI(target) {
+					addArtifact(target, summary, reqFeedback, userFacing, hasExplicitMeta)
+				}
 			}
 		}
 	}

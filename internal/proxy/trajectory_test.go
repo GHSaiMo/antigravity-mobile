@@ -1552,6 +1552,116 @@ func TestParseTrajectoryDetails_WorkspaceDocsExcludedFromArtifacts(t *testing.T)
 	}
 }
 
+// TestParseTrajectoryDetails_UserFacingHTMLArtifactIncluded verifies that interactive HTML artifacts
+// created in the brain directory with UserFacing=true are extracted as artifact preview cards (supporting
+// both CodeAction and write_file ToolCall payloads), while regular workspace HTML files and non-user-facing
+// HTML artifacts remain excluded.
+func TestParseTrajectoryDetails_UserFacingHTMLArtifactIncluded(t *testing.T) {
+	rawJSON := `{
+		"status": "CASCADE_RUN_STATUS_IDLE",
+		"trajectory": {
+			"cascadeId": "test-html-artifact",
+			"trajectoryId": "traj-html-1",
+			"steps": [
+				{
+					"type": "CORTEX_STEP_TYPE_USER_INPUT",
+					"status": "CORTEX_STEP_STATUS_DONE",
+					"userInput": { "userResponse": "generate relay dashboard" }
+				},
+				{
+					"type": "CORTEX_STEP_TYPE_CODE_ACTION",
+					"status": "CORTEX_STEP_STATUS_DONE",
+					"codeAction": {
+						"isArtifactFile": true,
+						"artifactMetadata": {
+							"summary": "Multigravity 全球中继节点实时监控总面板",
+							"requestFeedback": false,
+							"userFacing": true
+						},
+						"actionResult": {
+							"edit": {
+								"absoluteUri": "file:///path/to/.gemini/antigravity/brain/test-html-artifact/relay_node_dashboard_20261127_0701.html",
+								"createFile": true
+							}
+						}
+					},
+					"metadata": {
+						"toolCall": {
+							"name": "write_file",
+							"argumentsJson": "{\"Path\":\"/path/to/.gemini/antigravity/brain/test-html-artifact/relay_node_dashboard_20261127_0701.html\",\"ArtifactMetadata\":{\"Summary\":\"Multigravity 全球中继节点实时监控总面板\",\"UserFacing\":true,\"RequestFeedback\":false}}"
+						}
+					}
+				},
+				{
+					"type": "CORTEX_STEP_TYPE_CODE_ACTION",
+					"status": "CORTEX_STEP_STATUS_DONE",
+					"codeAction": {
+						"isArtifactFile": false,
+						"actionResult": {
+							"edit": {
+								"absoluteUri": "file:///Users/hal9000/Projects/antigravity-mobile/web/index.html"
+							}
+						}
+					}
+				},
+				{
+					"type": "CORTEX_STEP_TYPE_CODE_ACTION",
+					"status": "CORTEX_STEP_STATUS_DONE",
+					"codeAction": {
+						"isArtifactFile": true,
+						"artifactMetadata": {
+							"summary": "Hidden internal HTML",
+							"userFacing": false
+						},
+						"actionResult": {
+							"edit": {
+								"absoluteUri": "file:///path/to/.gemini/antigravity/brain/test-html-artifact/internal_preview.html"
+							}
+						}
+					}
+				},
+				{
+					"type": "CORTEX_STEP_TYPE_PLANNER_RESPONSE",
+					"status": "CORTEX_STEP_STATUS_DONE",
+					"plannerResponse": {
+						"response": "已完成本轮巡检。"
+					}
+				}
+			]
+		}
+	}`
+
+	var rawResp upstreamTrajectoryResp
+	if err := json.Unmarshal([]byte(rawJSON), &rawResp); err != nil {
+		t.Fatalf("failed to unmarshal test JSON: %v", err)
+	}
+
+	p := &Proxy{}
+	details := p.ParseTrajectoryDetails(&rawResp)
+
+	var agentMsg *CascadeMessageItem
+	for i := range details.AllMessages {
+		if details.AllMessages[i].Type == "agent" {
+			agentMsg = &details.AllMessages[i]
+			break
+		}
+	}
+
+	if agentMsg == nil {
+		t.Fatalf("expected agent message, none found")
+	}
+	if len(agentMsg.Artifacts) != 1 {
+		t.Fatalf("expected exactly 1 HTML artifact (deduplicated, workspace/hidden excluded), got %d: %+v", len(agentMsg.Artifacts), agentMsg.Artifacts)
+	}
+	art := agentMsg.Artifacts[0]
+	if art.URI != "file:///path/to/.gemini/antigravity/brain/test-html-artifact/relay_node_dashboard_20261127_0701.html" {
+		t.Errorf("unexpected artifact URI: %q", art.URI)
+	}
+	if art.Summary != "Multigravity 全球中继节点实时监控总面板" {
+		t.Errorf("unexpected artifact summary: %q", art.Summary)
+	}
+}
+
 // TestParseTrajectoryDetails_NonUserFacingArtifactsExcluded verifies that artifacts marked with
 // UserFacing = false (e.g. scratch scripts or internal intermediate files) are excluded from cards.
 func TestParseTrajectoryDetails_NonUserFacingArtifactsExcluded(t *testing.T) {
