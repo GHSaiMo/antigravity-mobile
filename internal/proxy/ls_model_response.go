@@ -26,6 +26,14 @@ var preferredAIAssistModels = []AIAssistModelInfo{
 	{ID: "gemini-4-hydrogen-low", Enum: "MODEL_PLACEHOLDER_M527", Name: "Gemini 4 Hydrogen (Low)"},
 }
 
+// preferredAIAssistFallbackModels orders stronger non-Lite fallback models used when a Flash Lite
+// model echoes untranslated source text or returns malformed batch JSON.
+var preferredAIAssistFallbackModels = []AIAssistModelInfo{
+	{ID: "gemini-4-hydrogen-low", Enum: "MODEL_PLACEHOLDER_M527", Name: "Gemini 4 Hydrogen (Low)"},
+	{ID: "gemini-3.8-flash-low", Enum: "MODEL_PLACEHOLDER_M320", Name: "Gemini 3.8 Flash (Low)"},
+	{ID: "gemini-3-flash", Enum: "MODEL_PLACEHOLDER_M18", Name: "Gemini 3 Flash"},
+}
+
 var (
 	// Bound concurrent stateless GetModelResponse calls so bursts never saturate the local language_server.
 	lsModelResponseSem = make(chan struct{}, 2)
@@ -103,6 +111,41 @@ func (p *Proxy) ResolveAIAssistModel(ctx context.Context) AIAssistModelInfo {
 		}
 	}
 	return preferredAIAssistModels[0]
+}
+
+// ResolveAIAssistFallbackModel picks a stronger non-Lite model (distinct from excludeEnum) for
+// automatic retry when the primary Flash Lite model echoes untranslated input or outputs bad JSON.
+func (p *Proxy) ResolveAIAssistFallbackModel(ctx context.Context, excludeEnum string) *AIAssistModelInfo {
+	liveModels.mu.RLock()
+	defer liveModels.mu.RUnlock()
+	if len(liveModels.byID) > 0 {
+		for _, cand := range preferredAIAssistFallbackModels {
+			if cand.Enum == excludeEnum {
+				continue
+			}
+			if opt, ok := liveModels.byID[strings.ToLower(cand.ID)]; ok && strings.TrimSpace(opt.Enum) != "" {
+				if isUnavailableModelTag(opt.Tag) || opt.Enum == excludeEnum {
+					continue
+				}
+				name := strings.TrimSpace(opt.Name)
+				if name == "" {
+					name = cand.Name
+				}
+				return &AIAssistModelInfo{
+					ID:   opt.ID,
+					Enum: opt.Enum,
+					Name: name,
+				}
+			}
+		}
+	}
+	for _, cand := range preferredAIAssistFallbackModels {
+		if cand.Enum != excludeEnum {
+			cp := cand
+			return &cp
+		}
+	}
+	return nil
 }
 
 // IsAIAssistAvailable reports whether the connected language_server supports GetModelResponse.

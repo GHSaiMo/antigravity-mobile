@@ -385,25 +385,27 @@ func buildStepPlanBatchTranslatePrompt(items []string, targetLang, targetLangNam
 		}
 	}
 	rawJSON, _ := json.Marshal(arr)
-	return fmt.Sprintf(`Translate each short task checklist item into concise, natural %s (%s) imperative phrasing for a mobile progress card.
+	return fmt.Sprintf(`You are a precise UI translator. Translate EVERY short task checklist item in the Input JSON into concise, natural %s (%s) imperative phrasing for a mobile progress card.
 Rules:
-- Keep proper nouns, code identifiers, filenames, model names, device/host names, acronyms, and technical terms as-is (e.g. iOS, Android, Web, HUD, API, RPC, Git, Xcode, Docker, mgy).
-- If an item is already naturally written in %s, return it unchanged.
+- You MUST translate all non-%s words into %s. Do NOT leave English items untranslated.
+- Keep only specific proper nouns, code identifiers, filenames, model names, device/host names, acronyms, and technical terms as-is (e.g. iOS, Android, Web, HUD, API, RPC, Git, Xcode, Docker, mgy).
+- Only return an item unchanged if it is ALREADY written in %s.
 - Keep each item concise and clean (no numbering, no bullet prefix, no quotes, no trailing period).
 - Return ONLY a valid JSON object mapping each id string to its translated text. No markdown code fences, no commentary.
 
 Input JSON:
-%s`, targetLangName, targetLang, targetLangName, string(rawJSON))
+%s`, targetLangName, targetLang, targetLangName, targetLangName, targetLangName, string(rawJSON))
 }
 
 func buildFocusTranslatePrompt(focus, targetLang, targetLangName string) string {
-	return fmt.Sprintf(`Translate this short live progress status phrase into concise, natural %s (%s) for a mobile status bar and Dynamic Island.
+	return fmt.Sprintf(`You are a precise UI translator. Translate this short live progress status phrase into concise, natural %s (%s) for a mobile status bar and Dynamic Island.
 Rules:
-- Keep proper nouns, code identifiers, filenames, model names, device/host names, acronyms, and technical terms as-is (e.g. iOS, Android, Web, HUD, API, RPC, Git, Xcode, mgy).
-- If the phrase is already naturally written in %s, return it unchanged.
+- You MUST translate all non-%s words into %s. Do NOT leave English phrases untranslated.
+- Keep only specific proper nouns, code identifiers, filenames, model names, device/host names, acronyms, and technical terms as-is (e.g. iOS, Android, Web, HUD, API, RPC, Git, Xcode, mgy).
+- Only return the phrase unchanged if it is ALREADY written in %s.
 - Output ONLY the translated status phrase with no quotes, no markdown, no trailing period, and no commentary.
 
-Status: %s`, targetLangName, targetLang, targetLangName, redactSensitiveForAI(focus))
+Status: %s`, targetLangName, targetLang, targetLangName, targetLangName, targetLangName, redactSensitiveForAI(focus))
 }
 
 func cleanLiveTranslatedOutput(raw string, maxRunes int) string {
@@ -691,7 +693,7 @@ func (p *Proxy) scheduleStepPlanTranslationBatch(cascadeID string, items []strin
 		defer cancel()
 
 		prompt := buildStepPlanBatchTranslatePrompt(toTranslate, targetLang, targetLangName)
-		rawResp, _, err := p.CallLSModelResponse(ctx, prompt, nil)
+		rawResp, usedModel, err := p.CallLSModelResponse(ctx, prompt, nil)
 		if err != nil {
 			slog.Debug("[LiveTextTranslate] step batch failed", "cascade_id", shortCascadeID(cascadeID), "count", len(toTranslate), "err", err)
 			lt.mu.Lock()
@@ -703,38 +705,65 @@ func (p *Proxy) scheduleStepPlanTranslationBatch(cascadeID string, items []strin
 			return
 		}
 
-		parsed, parseErr := parseBatchTitleJSON(rawResp)
-		updated := false
-		lt.mu.Lock()
-		if parseErr != nil {
-			if len(toTranslate) == 1 {
-				if cleaned := cleanLiveTranslatedOutput(rawResp, liveTextMaxStepOutputRunes); cleaned != "" {
-					lt.putLocked(toKeys[0], cleaned)
-					updated = true
-				} else {
-					lt.failBackoff[toKeys[0]] = time.Now().Add(liveTextFailBackoff)
+		accepted := make(map[int]string, len(toTranslate))
+		extractBatch := func(resp string, indices []int) {
+			parsed, parseErr := parseBatchTitleJSON(resp)
+			if parseErr != nil {
+				if len(indices) == 1 {
+					idx := indices[0]
+					if cleaned := cleanLiveTranslatedOutput(resp, liveTextMaxStepOutputRunes); isTranslationAcceptable(toTranslate[idx], cleaned, targetLang) {
+						accepted[idx] = cleaned
+					}
 				}
-			} else {
-				backoffUntil := time.Now().Add(liveTextFailBackoff)
-				for _, k := range toKeys {
-					lt.failBackoff[k] = backoffUntil
+				return
+			}
+			for pos, idx := range indices {
+				val, ok := parsed[strconv.Itoa(pos+1)]
+				if !ok {
+					continue
+				}
+				if cleaned := cleanLiveTranslatedOutput(val, liveTextMaxStepOutputRunes); isTranslationAcceptable(toTranslate[idx], cleaned, targetLang) {
+					accepted[idx] = cleaned
 				}
 			}
-		} else {
-			backoffUntil := time.Now().Add(liveTextFailBackoff)
-			for i, k := range toKeys {
-				val, ok := parsed[strconv.Itoa(i+1)]
-				if !ok {
-					lt.failBackoff[k] = backoffUntil
-					continue
+		}
+
+		allIdx := make([]int, len(toTranslate))
+		for i := range toTranslate {
+			allIdx[i] = i
+		}
+		extractBatch(rawResp, allIdx)
+
+		var missingIdx []int
+		for i := range toTranslate {
+			if _, ok := accepted[i]; !ok {
+				missingIdx = append(missingIdx, i)
+			}
+		}
+		if len(missingIdx) > 0 {
+			if fbModel := p.ResolveAIAssistFallbackModel(ctx, usedModel.Enum); fbModel != nil {
+				subItems := make([]string, len(missingIdx))
+				for j, idx := range missingIdx {
+					subItems[j] = toTranslate[idx]
 				}
-				cleaned := cleanLiveTranslatedOutput(val, liveTextMaxStepOutputRunes)
-				if cleaned == "" {
-					lt.failBackoff[k] = backoffUntil
-					continue
+				fbCtx, fbCancel := context.WithTimeout(context.Background(), liveTextBatchTimeout)
+				fbResp, _, fbErr := p.CallLSModelResponse(fbCtx, buildStepPlanBatchTranslatePrompt(subItems, targetLang, targetLangName), fbModel)
+				fbCancel()
+				if fbErr == nil {
+					extractBatch(fbResp, missingIdx)
 				}
+			}
+		}
+
+		updated := false
+		lt.mu.Lock()
+		backoffUntil := time.Now().Add(liveTextFailBackoff)
+		for i, k := range toKeys {
+			if cleaned, ok := accepted[i]; ok && cleaned != "" {
 				lt.putLocked(k, cleaned)
 				updated = true
+			} else {
+				lt.failBackoff[k] = backoffUntil
 			}
 		}
 		if updated {
@@ -792,7 +821,7 @@ func (p *Proxy) scheduleFocusTranslation(cascadeID, focus, targetLang, targetLan
 		defer cancel()
 
 		prompt := buildFocusTranslatePrompt(orig, targetLang, targetLangName)
-		rawResp, _, err := p.CallLSModelResponse(ctx, prompt, nil)
+		rawResp, usedModel, err := p.CallLSModelResponse(ctx, prompt, nil)
 		if err != nil {
 			slog.Debug("[LiveTextTranslate] focus failed", "cascade_id", shortCascadeID(cascadeID), "err", err)
 			lt.mu.Lock()
@@ -801,6 +830,19 @@ func (p *Proxy) scheduleFocusTranslation(cascadeID, focus, targetLang, targetLan
 			return
 		}
 		cleaned := cleanLiveTranslatedOutput(rawResp, liveTextMaxFocusOutputRunes)
+		if !isTranslationAcceptable(orig, cleaned, targetLang) {
+			cleaned = ""
+			if fbModel := p.ResolveAIAssistFallbackModel(ctx, usedModel.Enum); fbModel != nil {
+				fbCtx, fbCancel := context.WithTimeout(context.Background(), liveTextSingleTimeout)
+				fbResp, _, fbErr := p.CallLSModelResponse(fbCtx, prompt, fbModel)
+				fbCancel()
+				if fbErr == nil {
+					if fbClean := cleanLiveTranslatedOutput(fbResp, liveTextMaxFocusOutputRunes); isTranslationAcceptable(orig, fbClean, targetLang) {
+						cleaned = fbClean
+					}
+				}
+			}
+		}
 		lt.mu.Lock()
 		if cleaned != "" {
 			lt.putLocked(key, cleaned)

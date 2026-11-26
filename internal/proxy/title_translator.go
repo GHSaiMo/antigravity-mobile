@@ -69,6 +69,7 @@ type titleTranslatorState struct {
 	ledger       map[string]titleTranslationRecord
 	failBackoff  map[string]time.Time
 	pendingAuto  map[string]titleCandidate
+	inFlightAuto map[string]bool
 	debounceTmr  *time.Timer
 	autoRunning  bool
 	batchRunning bool
@@ -91,6 +92,9 @@ func (ts *titleTranslatorState) ensureLoadedLocked() {
 	}
 	if ts.pendingAuto == nil {
 		ts.pendingAuto = make(map[string]titleCandidate)
+	}
+	if ts.inFlightAuto == nil {
+		ts.inFlightAuto = make(map[string]bool)
 	}
 	ts.loaded = true
 
@@ -273,6 +277,123 @@ func isPlaceholderOrRawPromptTitle(title string) bool {
 	return false
 }
 
+type scriptCounts struct {
+	han      int
+	kana     int
+	hangul   int
+	latin    int
+	cyrillic int
+	arabic   int
+	thai     int
+	hebrew   int
+}
+
+func countScripts(s string) scriptCounts {
+	var c scriptCounts
+	for _, r := range s {
+		switch {
+		case unicode.Is(unicode.Han, r):
+			c.han++
+		case (r >= 0x3040 && r <= 0x30ff) || (r >= 0x31f0 && r <= 0x31ff):
+			c.kana++
+		case unicode.Is(unicode.Hangul, r):
+			c.hangul++
+		case unicode.Is(unicode.Cyrillic, r):
+			c.cyrillic++
+		case unicode.Is(unicode.Arabic, r):
+			c.arabic++
+		case unicode.Is(unicode.Thai, r):
+			c.thai++
+		case unicode.Is(unicode.Hebrew, r):
+			c.hebrew++
+		case (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z'):
+			c.latin++
+		}
+	}
+	return c
+}
+
+func isTruncatedEcho(source, translated string) bool {
+	src := strings.TrimSpace(source)
+	tr := strings.TrimSpace(translated)
+	if src == "" || tr == "" {
+		return false
+	}
+	for _, suffix := range []string{"...", "…"} {
+		if strings.HasSuffix(tr, suffix) && !strings.HasSuffix(src, suffix) {
+			prefix := strings.TrimSpace(strings.TrimSuffix(tr, suffix))
+			if utf8.RuneCountInString(prefix) >= 8 && strings.HasPrefix(strings.ToLower(src), strings.ToLower(prefix)) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// isTranslationAcceptable verifies that a model translation actually produced text in targetLang
+// rather than echoing or truncating the untranslated source text.
+func isTranslationAcceptable(source, translated, targetLang string) bool {
+	src := strings.TrimSpace(source)
+	tr := strings.TrimSpace(translated)
+	if tr == "" {
+		return false
+	}
+	if isTruncatedEcho(src, tr) {
+		return false
+	}
+
+	lower := strings.ToLower(strings.TrimSpace(targetLang))
+	baseLang := lower
+	if idx := strings.IndexByte(lower, '-'); idx > 0 {
+		baseLang = lower[:idx]
+	}
+
+	srcC := countScripts(src)
+	trC := countScripts(tr)
+
+	switch baseLang {
+	case "en":
+		nonLatinSrc := srcC.han + srcC.kana + srcC.hangul + srcC.cyrillic + srcC.arabic + srcC.thai + srcC.hebrew
+		nonLatinTr := trC.han + trC.kana + trC.hangul + trC.cyrillic + trC.arabic + trC.thai + trC.hebrew
+		if nonLatinSrc > 0 && trC.latin == 0 && nonLatinTr > 0 {
+			return false
+		}
+		return true
+	case "zh":
+		if trC.kana > 0 || trC.han == 0 {
+			return false
+		}
+		if strings.EqualFold(src, tr) && srcC.latin >= 3 {
+			return false
+		}
+		if srcC.han > 0 && trC.han <= srcC.han && trC.latin >= srcC.latin && srcC.latin >= 4 {
+			return false
+		}
+		return true
+	case "ja":
+		if trC.kana >= 1 {
+			return true
+		}
+		if srcC.han == 0 && trC.han >= 2 {
+			return true
+		}
+		return false
+	case "ko":
+		return trC.hangul >= 1
+	case "ru", "uk", "bg", "sr":
+		return trC.cyrillic >= 1
+	case "ar", "fa":
+		return trC.arabic >= 1
+	case "th":
+		return trC.thai >= 1
+	case "he", "iw":
+		return trC.hebrew >= 1
+	default:
+		// Latin-script target languages (pt, es, fr, de, ...): already-localized input may return unchanged.
+		return true
+	}
+}
+
 // titleNeedsTranslation determines whether title should be sent to the model for targetLang.
 // For non-Latin scripts (Chinese, Japanese, Korean, Cyrillic, Arabic, Thai, Hebrew), fast Unicode script
 // checks skip titles that are already in the target language with zero model calls.
@@ -284,27 +405,9 @@ func titleNeedsTranslation(title, targetLang string) bool {
 		return false
 	}
 
-	var hanCount, kanaCount, hangulCount, latinCount, cyrillicCount, arabicCount, thaiCount, hebrewCount int
-	for _, r := range t {
-		switch {
-		case unicode.Is(unicode.Han, r):
-			hanCount++
-		case (r >= 0x3040 && r <= 0x30ff) || (r >= 0x31f0 && r <= 0x31ff):
-			kanaCount++
-		case unicode.Is(unicode.Hangul, r):
-			hangulCount++
-		case unicode.Is(unicode.Cyrillic, r):
-			cyrillicCount++
-		case unicode.Is(unicode.Arabic, r):
-			arabicCount++
-		case unicode.Is(unicode.Thai, r):
-			thaiCount++
-		case unicode.Is(unicode.Hebrew, r):
-			hebrewCount++
-		case (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z'):
-			latinCount++
-		}
-	}
+	c := countScripts(t)
+	hanCount, kanaCount, hangulCount, latinCount := c.han, c.kana, c.hangul, c.latin
+	cyrillicCount, arabicCount, thaiCount, hebrewCount := c.cyrillic, c.arabic, c.thai, c.hebrew
 
 	lower := strings.ToLower(strings.TrimSpace(targetLang))
 	baseLang := lower
@@ -320,7 +423,7 @@ func titleNeedsTranslation(title, targetLang string) bool {
 		if kanaCount > 0 {
 			return true
 		}
-		if hanCount >= 2 && (latinCount == 0 || hanCount*5 >= (hanCount+latinCount)) {
+		if hanCount >= 2 && (latinCount == 0 || hanCount*5 >= (hanCount+latinCount) || (hanCount >= 4 && !hasCommonEnglishGlueWord(t))) {
 			return false
 		}
 		return latinCount >= 3 || hangulCount > 0 || cyrillicCount > 0 || arabicCount > 0 || thaiCount > 0
@@ -415,14 +518,17 @@ func extractTitleCandidate(id string, s map[string]interface{}, ledger map[strin
 	}
 
 	// Determine the clean original title to translate from (avoid double-translation across language switches).
+	// Also self-heal stale ledger entries from earlier runs where a model echoed/truncated untranslated English.
 	sourceTitle := effectiveTitle
 	if hasRec && rec.OriginalTitle != "" && rec.TranslatedTitle == effectiveTitle {
-		if strings.EqualFold(rec.TargetLang, targetLang) {
-			return titleCandidate{}, false // already processed for this target language
+		if strings.EqualFold(rec.TargetLang, targetLang) && isTranslationAcceptable(rec.OriginalTitle, rec.TranslatedTitle, targetLang) {
+			return titleCandidate{}, false // already validly translated for this target language
 		}
 		sourceTitle = rec.OriginalTitle
 	} else if hasRec && rec.OriginalTitle == effectiveTitle && strings.EqualFold(rec.TargetLang, targetLang) {
-		return titleCandidate{}, false // idempotent skip (e.g. proper noun unchanged after translation)
+		if isTranslationAcceptable(rec.OriginalTitle, effectiveTitle, targetLang) {
+			return titleCandidate{}, false // idempotent skip (e.g. already-localized Latin-script title)
+		}
 	}
 
 	if !titleNeedsTranslation(sourceTitle, targetLang) {
@@ -482,6 +588,9 @@ func (p *Proxy) MaybeAutoTranslateSummaries(summaries map[string]map[string]inte
 		if _, queued := ts.pendingAuto[id]; queued {
 			continue
 		}
+		if ts.inFlightAuto[id] {
+			continue
+		}
 		cand, ok := extractTitleCandidate(id, s, ts.ledger, targetLang, false)
 		if !ok {
 			continue
@@ -509,6 +618,7 @@ func (p *Proxy) MaybeAutoTranslateSummaries(summaries map[string]map[string]inte
 func (p *Proxy) drainAutoTitleQueue(targetLang, targetLangName string) {
 	ts := &p.titleTranslator
 	ts.mu.Lock()
+	ts.ensureLoadedLocked()
 	if ts.autoRunning || len(ts.pendingAuto) == 0 {
 		ts.mu.Unlock()
 		return
@@ -523,11 +633,23 @@ func (p *Proxy) drainAutoTitleQueue(targetLang, targetLangName string) {
 	for _, c := range ts.pendingAuto {
 		batch = append(batch, c)
 	}
-	ts.pendingAuto = make(map[string]titleCandidate)
+	sort.Slice(batch, func(i, j int) bool {
+		return batch[i].LastModTime.After(batch[j].LastModTime)
+	})
+	if len(batch) > titleTranslateBatchSize {
+		batch = batch[:titleTranslateBatchSize]
+	}
+	for _, c := range batch {
+		delete(ts.pendingAuto, c.CascadeID)
+		ts.inFlightAuto[c.CascadeID] = true
+	}
 	ts.mu.Unlock()
 
 	defer func() {
 		ts.mu.Lock()
+		for _, c := range batch {
+			delete(ts.inFlightAuto, c.CascadeID)
+		}
 		ts.autoRunning = false
 		hasMore := len(ts.pendingAuto) > 0
 		ts.mu.Unlock()
@@ -541,13 +663,6 @@ func (p *Proxy) drainAutoTitleQueue(targetLang, targetLangName string) {
 			}
 		}
 	}()
-
-	sort.Slice(batch, func(i, j int) bool {
-		return batch[i].LastModTime.After(batch[j].LastModTime)
-	})
-	if len(batch) > titleTranslateBatchSize {
-		batch = batch[:titleTranslateBatchSize]
-	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), titleTranslateBatchTimeout)
 	defer cancel()
@@ -575,25 +690,27 @@ func buildBatchTitleTranslatePrompt(items []titleCandidate, targetLang, targetLa
 		}
 	}
 	rawJSON, _ := json.Marshal(arr)
-	return fmt.Sprintf(`Translate each conversation title into concise, natural %s (%s).
+	return fmt.Sprintf(`You are a precise UI translator. Translate EVERY conversation title in the Input JSON into concise, natural %s (%s).
 Rules:
-- Keep proper nouns, project names, acronyms, and technical terms as-is (e.g. Antigravity, Multigravity, iOS, Android, Xcode, Git, Docker, RPC, API, CLI).
-- If a title is already naturally written in %s, return it unchanged.
+- You MUST translate all non-%s words into %s. Do NOT leave English titles untranslated.
+- Keep only specific proper nouns, product/project names, acronyms, and technical terms as-is (e.g. Antigravity, Multigravity, iOS, Android, Xcode, Git, Docker, RPC, API, CLI).
+- Only return a title unchanged if it is ALREADY written in %s.
 - Keep each translated title concise and clean for a chat sidebar list (no trailing period, no quotes).
 - Return ONLY a valid JSON object mapping each id string to its translated title. No markdown code fences, no commentary.
 
 Input JSON:
-%s`, targetLangName, targetLang, targetLangName, string(rawJSON))
+%s`, targetLangName, targetLang, targetLangName, targetLangName, targetLangName, string(rawJSON))
 }
 
 func buildSingleTitleTranslatePrompt(title, targetLang, targetLangName string) string {
-	return fmt.Sprintf(`Translate this conversation title into concise, natural %s (%s).
+	return fmt.Sprintf(`You are a precise UI translator. Translate this conversation title into concise, natural %s (%s).
 Rules:
-- Keep proper nouns, project names, acronyms, and technical terms as-is (e.g. Antigravity, Multigravity, iOS, Android, Xcode, Git, RPC, API).
-- If the title is already naturally written in %s, return it unchanged.
+- You MUST translate all non-%s words into %s. Do NOT leave English titles untranslated.
+- Keep only specific proper nouns, product/project names, acronyms, and technical terms as-is (e.g. Antigravity, Multigravity, iOS, Android, Xcode, Git, RPC, API).
+- Only return the title unchanged if it is ALREADY written in %s.
 - Output ONLY the translated title with no quotes, no markdown, no trailing period, and no explanation.
 
-Title: %s`, targetLangName, targetLang, targetLangName, redactSensitiveForAI(title))
+Title: %s`, targetLangName, targetLang, targetLangName, targetLangName, targetLangName, redactSensitiveForAI(title))
 }
 
 func cleanTranslatedTitleOutput(raw string) string {
@@ -602,13 +719,24 @@ func cleanTranslatedTitleOutput(raw string) string {
 	s = strings.TrimPrefix(s, "```")
 	s = strings.TrimSuffix(s, "```")
 	s = strings.TrimSpace(s)
-	if idx := strings.IndexByte(s, '\n'); idx >= 0 {
-		s = strings.TrimSpace(s[:idx])
+	if strings.Contains(s, "<ADDITIONAL_METADATA>") || strings.Contains(s, "<USER_SETTINGS_CHANGE>") {
+		s = xmlMetaRegex.ReplaceAllString(s, "")
+		s = strings.TrimSpace(s)
+	}
+	if strings.IndexByte(s, '<') >= 0 {
+		s = xmlTagRegex.ReplaceAllString(s, "")
+		s = strings.TrimSpace(s)
+	}
+	s = reControlChars.ReplaceAllString(s, " ")
+	for _, line := range strings.Split(s, "\n") {
+		if trimmed := strings.TrimSpace(line); trimmed != "" {
+			s = trimmed
+			break
+		}
 	}
 	s = strings.Trim(s, "\"'`「」『』")
 	s = strings.TrimRight(s, "。.")
 	s = strings.TrimSpace(s)
-	s = SanitizeTitle(s)
 	if s == "" || s == "未命名会话" || utf8.RuneCountInString(s) > maxTranslatedTitleRunes {
 		return ""
 	}
@@ -635,19 +763,26 @@ func (p *Proxy) translateAndApplyCandidates(ctx context.Context, candidates []ti
 	}
 
 	results := make(map[int]string, len(candidates))
+	var primaryModel AIAssistModelInfo
+	var retryIndices []int
+
 	if len(candidates) == 1 {
 		prompt := buildSingleTitleTranslatePrompt(candidates[0].SourceTitle, targetLang, targetLangName)
-		resp, _, err := p.CallLSModelResponse(ctx, prompt, nil)
+		resp, usedModel, err := p.CallLSModelResponse(ctx, prompt, nil)
+		primaryModel = usedModel
 		if err != nil {
 			p.markTitleBackoff(candidates[0].CascadeID)
 			return 0, 1, err
 		}
-		if cleaned := cleanTranslatedTitleOutput(resp); cleaned != "" {
+		if cleaned := cleanTranslatedTitleOutput(resp); isTranslationAcceptable(candidates[0].SourceTitle, cleaned, targetLang) {
 			results[0] = cleaned
+		} else {
+			retryIndices = append(retryIndices, 0)
 		}
 	} else {
 		prompt := buildBatchTitleTranslatePrompt(candidates, targetLang, targetLangName)
-		resp, _, err := p.CallLSModelResponse(ctx, prompt, nil)
+		resp, usedModel, err := p.CallLSModelResponse(ctx, prompt, nil)
+		primaryModel = usedModel
 		if err != nil {
 			for _, c := range candidates {
 				p.markTitleBackoff(c.CascadeID)
@@ -656,38 +791,88 @@ func (p *Proxy) translateAndApplyCandidates(ctx context.Context, candidates []ti
 		}
 		parsed, parseErr := parseBatchTitleJSON(resp)
 		if parseErr != nil {
-			// Fallback: translate individually when batch JSON was malformed.
-			for i, c := range candidates {
-				sCtx, cancel := context.WithTimeout(ctx, titleTranslateSingleTimeout)
-				oneResp, _, oneErr := p.CallLSModelResponse(sCtx, buildSingleTitleTranslatePrompt(c.SourceTitle, targetLang, targetLangName), nil)
-				cancel()
-				if oneErr != nil {
-					p.markTitleBackoff(c.CascadeID)
-					failed++
-					if firstErr == nil {
-						firstErr = oneErr
-					}
-					continue
-				}
-				if cleaned := cleanTranslatedTitleOutput(oneResp); cleaned != "" {
-					results[i] = cleaned
-				}
+			slog.Warn("[TitleTranslate] Batch JSON malformed, scheduling retry", "model", usedModel.ID, "count", len(candidates), "err", parseErr)
+			for i := range candidates {
+				retryIndices = append(retryIndices, i)
 			}
 		} else {
-			for i := range candidates {
+			for i, c := range candidates {
 				key := strconv.Itoa(i + 1)
 				if val, ok := parsed[key]; ok {
-					if cleaned := cleanTranslatedTitleOutput(val); cleaned != "" {
+					if cleaned := cleanTranslatedTitleOutput(val); isTranslationAcceptable(c.SourceTitle, cleaned, targetLang) {
 						results[i] = cleaned
+						continue
 					}
 				}
+				retryIndices = append(retryIndices, i)
+			}
+		}
+	}
+
+	// Retry any missing, malformed, or untranslated-echo items using a stronger fallback model
+	// (single batch retry first when >=2 items need retry, then single-item fallback for stragglers).
+	if len(retryIndices) > 0 {
+		fbModel := p.ResolveAIAssistFallbackModel(ctx, primaryModel.Enum)
+		fbName := primaryModel.ID
+		if fbModel != nil {
+			fbName = fbModel.ID
+		}
+		slog.Warn("[TitleTranslate] Primary model returned untranslated/incomplete items, retrying with fallback",
+			"primary_model", primaryModel.ID, "fallback_model", fbName, "retry_count", len(retryIndices), "total", len(candidates))
+
+		var singleRetryIndices []int
+		if len(retryIndices) >= 2 && fbModel != nil {
+			sub := make([]titleCandidate, len(retryIndices))
+			for j, origIdx := range retryIndices {
+				sub[j] = candidates[origIdx]
+			}
+			fbCtx, cancel := context.WithTimeout(ctx, titleTranslateBatchTimeout)
+			fbResp, _, fbErr := p.CallLSModelResponse(fbCtx, buildBatchTitleTranslatePrompt(sub, targetLang, targetLangName), fbModel)
+			cancel()
+			if fbErr == nil {
+				if parsed, pErr := parseBatchTitleJSON(fbResp); pErr == nil {
+					for j, origIdx := range retryIndices {
+						if val, ok := parsed[strconv.Itoa(j+1)]; ok {
+							if cleaned := cleanTranslatedTitleOutput(val); isTranslationAcceptable(candidates[origIdx].SourceTitle, cleaned, targetLang) {
+								results[origIdx] = cleaned
+								continue
+							}
+						}
+						singleRetryIndices = append(singleRetryIndices, origIdx)
+					}
+				} else {
+					singleRetryIndices = retryIndices
+				}
+			} else {
+				if firstErr == nil {
+					firstErr = fbErr
+				}
+				singleRetryIndices = retryIndices
+			}
+		} else {
+			singleRetryIndices = retryIndices
+		}
+
+		for _, origIdx := range singleRetryIndices {
+			c := candidates[origIdx]
+			sCtx, cancel := context.WithTimeout(ctx, titleTranslateSingleTimeout)
+			oneResp, _, oneErr := p.CallLSModelResponse(sCtx, buildSingleTitleTranslatePrompt(c.SourceTitle, targetLang, targetLangName), fbModel)
+			cancel()
+			if oneErr != nil {
+				if firstErr == nil {
+					firstErr = oneErr
+				}
+				continue
+			}
+			if cleaned := cleanTranslatedTitleOutput(oneResp); isTranslationAcceptable(c.SourceTitle, cleaned, targetLang) {
+				results[origIdx] = cleaned
 			}
 		}
 	}
 
 	for i, c := range candidates {
 		newTitle, ok := results[i]
-		if !ok || newTitle == "" {
+		if !ok || !isTranslationAcceptable(c.SourceTitle, newTitle, targetLang) {
 			p.markTitleBackoff(c.CascadeID)
 			failed++
 			continue
@@ -705,6 +890,9 @@ func (p *Proxy) translateAndApplyCandidates(ctx context.Context, candidates []ti
 			translated++
 		}
 	}
+	slog.Info("[TitleTranslate] Batch processed",
+		"model", primaryModel.ID, "target_lang", targetLang,
+		"candidates", len(candidates), "translated", translated, "failed", failed, "retried", len(retryIndices))
 	return translated, failed, firstErr
 }
 
@@ -944,6 +1132,10 @@ func (p *Proxy) HandleTranslateTitles(w http.ResponseWriter, r *http.Request) {
 		p.invalidateAllTrajectories()
 	}
 
+	slog.Info("[TitleTranslate] Manual batch finished",
+		"target_lang", targetLang, "scanned", scanned, "candidates", len(candidates),
+		"translated", totalTranslated, "skipped", skipped, "failed", totalFailed, "restorable", ts.RestorableCount())
+
 	resp := map[string]interface{}{
 		"ok":              lastErr == nil || totalTranslated > 0,
 		"scanned":         scanned,
@@ -1010,6 +1202,8 @@ func (p *Proxy) HandleRestoreTitles(w http.ResponseWriter, r *http.Request) {
 		ts.mu.Unlock()
 		p.invalidateAllTrajectories()
 	}
+
+	slog.Info("[TitleTranslate] Restore finished", "restored", restored, "failed", failed, "remaining", ts.RestorableCount())
 
 	writeJSONOK(w, map[string]interface{}{
 		"ok":              failed == 0 || restored > 0,

@@ -569,3 +569,231 @@ func TestLiveTextTranslator_SeparateTogglesCopyOnWriteAndLiveActivity(t *testing
 		t.Fatalf("expected untouched focus for English user, got %q", dEn.ActiveFocus)
 	}
 }
+
+func TestTitleTranslator_OutputValidationFallbackNoTruncationAndSelfHeal(t *testing.T) {
+	t.Setenv("MULTIGRAVITY_DATA_DIR", t.TempDir())
+	t.Setenv("HOME", t.TempDir())
+
+	// 1. cleanTranslatedTitleOutput must NOT truncate titles longer than 36 runes (up to 80 runes).
+	longTranslated := "Antigravity Context Viewer 移动端功能设计与多端适配方案总结"
+	if got := cleanTranslatedTitleOutput(longTranslated); got != longTranslated {
+		t.Fatalf("cleanTranslatedTitleOutput truncated valid title: got %q, want %q", got, longTranslated)
+	}
+
+	// 2. isTranslationAcceptable rejects verbatim/truncated echoes and accepts valid translations with proper nouns.
+	if isTranslationAcceptable("Antigravity Context Viewer Mobile Features", "Antigravity Context Viewer Mobile Fe...", "zh-Hans") {
+		t.Fatal("expected truncated English echo to be rejected for zh-Hans")
+	}
+	if isTranslationAcceptable("Draft Message To Advisor", "Draft Message To Advisor", "zh-Hans") {
+		t.Fatal("expected verbatim English echo to be rejected for zh-Hans")
+	}
+	if !isTranslationAcceptable("Antigravity Context Viewer Mobile Features", "Antigravity Context Viewer 移动端功能", "zh-Hans") {
+		t.Fatal("expected proper-noun + Chinese title to be accepted for zh-Hans")
+	}
+	if titleNeedsTranslation("Antigravity Context Viewer 移动端功能", "zh-Hans") {
+		t.Fatal("expected already-Chinese title with English proper noun not to require re-translation")
+	}
+	if !isTranslationAcceptable("Configurar Docker", "Configurar Docker", "pt-BR") {
+		t.Fatal("expected unchanged Latin-script target title to remain accepted for pt-BR")
+	}
+
+	// 3. When primary model echoes English, translator automatically retries on fallback model and succeeds.
+	p := NewProxy(inspector.NewInspector(time.Second))
+	var mu sync.Mutex
+	written := map[string]string{}
+	p.titleWriteHook = func(ctx context.Context, cascadeID, title string) error {
+		mu.Lock()
+		written[cascadeID] = title
+		mu.Unlock()
+		return nil
+	}
+
+	nowStr := time.Now().UTC().Format(time.RFC3339)
+	// Seed a stale corrupted ledger (truncated English + unchanged English) from an earlier buggy run.
+	p.titleTranslator.mu.Lock()
+	p.titleTranslator.ensureLoadedLocked()
+	p.titleTranslator.ledger["conv-echo-1"] = titleTranslationRecord{
+		OriginalTitle:   "Antigravity Context Viewer Mobile Features",
+		TranslatedTitle: "Antigravity Context Viewer Mobile Fe...",
+		TargetLang:      "zh-Hans",
+		UpdatedAt:       nowStr,
+	}
+	p.titleTranslator.ledger["conv-echo-2"] = titleTranslationRecord{
+		OriginalTitle:   "Draft Message To Advisor",
+		TranslatedTitle: "Draft Message To Advisor",
+		TargetLang:      "zh-Hans",
+		UpdatedAt:       nowStr,
+	}
+	p.titleTranslator.saveLedgerLocked()
+	p.titleTranslator.mu.Unlock()
+
+	p.summariesFetchHook = func(ctx context.Context) (map[string]map[string]interface{}, error) {
+		return map[string]map[string]interface{}{
+			"conv-echo-1": {
+				"summary":          "Antigravity Context Viewer Mobile Fe...",
+				"annotations":      map[string]interface{}{"title": "Antigravity Context Viewer Mobile Fe..."},
+				"lastModifiedTime": nowStr,
+			},
+			"conv-echo-2": {
+				"summary":          "Draft Message To Advisor",
+				"annotations":      map[string]interface{}{"title": "Draft Message To Advisor"},
+				"lastModifiedTime": nowStr,
+			},
+		}, nil
+	}
+
+	var seenModels []string
+	p.lsModelResponseHook = func(ctx context.Context, prompt, modelEnum string) (string, error) {
+		mu.Lock()
+		seenModels = append(seenModels, modelEnum)
+		mu.Unlock()
+		if modelEnum == "MODEL_PLACEHOLDER_M198" {
+			// Simulate Flash Lite echoing verbatim English
+			var items []struct {
+				ID    string `json:"id"`
+				Title string `json:"title"`
+			}
+			out := map[string]string{}
+			if idx := strings.Index(prompt, "[{"); idx >= 0 && json.Unmarshal([]byte(prompt[idx:]), &items) == nil {
+				for _, it := range items {
+					out[it.ID] = it.Title
+				}
+			}
+			b, _ := json.Marshal(out)
+			return string(b), nil
+		}
+		// Fallback model translates cleanly using the self-healed untruncated OriginalTitle
+		var items []struct {
+			ID    string `json:"id"`
+			Title string `json:"title"`
+		}
+		out := map[string]string{}
+		if idx := strings.Index(prompt, "[{"); idx >= 0 && json.Unmarshal([]byte(prompt[idx:]), &items) == nil {
+			for _, it := range items {
+				if it.Title == "Antigravity Context Viewer Mobile Features" {
+					out[it.ID] = "Antigravity Context Viewer 移动端功能"
+				} else if it.Title == "Draft Message To Advisor" {
+					out[it.ID] = "给导师的消息草稿"
+				}
+			}
+		}
+		b, _ := json.Marshal(out)
+		return string(b), nil
+	}
+
+	req := httptest.NewRequest(http.MethodPost, "/gateway/ai-assist/translate-titles",
+		bytes.NewBufferString(`{"targetLang":"zh-Hans","targetLangName":"Simplified Chinese"}`))
+	rec := httptest.NewRecorder()
+	p.HandleTranslateTitles(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("translate-titles status = %d: %s", rec.Code, rec.Body.String())
+	}
+
+	var res struct {
+		OK              bool `json:"ok"`
+		Translated      int  `json:"translated"`
+		Failed          int  `json:"failed"`
+		TranslatedCount int  `json:"translatedCount"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &res); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if !res.OK || res.Translated != 2 || res.Failed != 0 || res.TranslatedCount != 2 {
+		t.Fatalf("expected 2 self-healed & fallback-translated titles, got %+v (body=%s)", res, rec.Body.String())
+	}
+	mu.Lock()
+	got1, got2 := written["conv-echo-1"], written["conv-echo-2"]
+	modelsUsed := append([]string(nil), seenModels...)
+	mu.Unlock()
+	if got1 != "Antigravity Context Viewer 移动端功能" || got2 != "给导师的消息草稿" {
+		t.Fatalf("unexpected written titles: conv-echo-1=%q conv-echo-2=%q", got1, got2)
+	}
+	if len(modelsUsed) < 2 || modelsUsed[0] != "MODEL_PLACEHOLDER_M198" || modelsUsed[1] == "MODEL_PLACEHOLDER_M198" {
+		t.Fatalf("expected primary M198 followed by non-Lite fallback model, got %v", modelsUsed)
+	}
+
+	// 4. If ALL models echo untranslated English, must NOT pollute ledger or overwrite titles.
+	p2 := NewProxy(inspector.NewInspector(time.Second))
+	t.Setenv("MULTIGRAVITY_DATA_DIR", t.TempDir())
+	wroteAny := false
+	p2.titleWriteHook = func(ctx context.Context, cascadeID, title string) error {
+		wroteAny = true
+		return nil
+	}
+	p2.summariesFetchHook = func(ctx context.Context) (map[string]map[string]interface{}, error) {
+		return map[string]map[string]interface{}{
+			"conv-fail-1": {
+				"summary":          "Multigravity Cross Platform Routine Inspection And Review",
+				"annotations":      map[string]interface{}{"title": "Multigravity Cross Platform Routine Inspection And Review"},
+				"lastModifiedTime": nowStr,
+			},
+		}, nil
+	}
+	p2.lsModelResponseHook = func(ctx context.Context, prompt, modelEnum string) (string, error) {
+		return "Multigravity Cross Platform Routine Inspection And Review", nil
+	}
+
+	reqFail := httptest.NewRequest(http.MethodPost, "/gateway/ai-assist/translate-titles",
+		bytes.NewBufferString(`{"targetLang":"zh-Hans","targetLangName":"Simplified Chinese"}`))
+	recFail := httptest.NewRecorder()
+	p2.HandleTranslateTitles(recFail, reqFail)
+	var failRes struct {
+		Translated      int `json:"translated"`
+		Failed          int `json:"failed"`
+		TranslatedCount int `json:"translatedCount"`
+	}
+	_ = json.Unmarshal(recFail.Body.Bytes(), &failRes)
+	if wroteAny || failRes.Translated != 0 || failRes.Failed != 1 || failRes.TranslatedCount != 0 {
+		t.Fatalf("expected untranslated echo to fail cleanly without writing, wroteAny=%v res=%+v", wroteAny, failRes)
+	}
+}
+
+func TestLiveTextTranslator_RejectsEchoAndRetriesFallbackModel(t *testing.T) {
+	t.Setenv("MULTIGRAVITY_DATA_DIR", t.TempDir())
+	t.Setenv("HOME", t.TempDir())
+
+	p := NewProxy(inspector.NewInspector(time.Second))
+	lang := "zh-Hans"
+	langName := "Simplified Chinese"
+	stepOn := true
+	focusOn := true
+	if _, err := p.aiAssistPrefs.Update(AIAssistPrefsPatch{
+		StepPlanTranslateEnabled: &stepOn,
+		FocusTranslateEnabled:    &focusOn,
+		TitleTranslateLang:       &lang,
+		TitleTranslateLangName:   &langName,
+	}); err != nil {
+		t.Fatalf("update prefs: %v", err)
+	}
+
+	p.lsModelResponseHook = func(ctx context.Context, prompt, modelEnum string) (string, error) {
+		if modelEnum == "MODEL_PLACEHOLDER_M198" {
+			// Primary echoes English untranslated
+			if strings.Contains(prompt, "Input JSON:") {
+				return `{"1":"Inspect title translation logs"}`, nil
+			}
+			return "Checking model fallback", nil
+		}
+		// Fallback translates properly
+		if strings.Contains(prompt, "Input JSON:") {
+			return `{"1":"排查标题翻译日志"}`, nil
+		}
+		return "正在检查模型回退", nil
+	}
+
+	details := TrajectoryDetails{
+		CascadeID:   "cid-live-fallback",
+		Status:      "CASCADE_RUN_STATUS_RUNNING",
+		ActiveFocus: "Checking model fallback",
+		ActivePlan: &StepPlanItem{
+			Items: []StepPlanItemEntry{{Key: "inspect title translation logs", Title: "Inspect title translation logs", Status: "in_progress"}},
+		},
+	}
+	p.EnsureLiveTextTranslatedForLiveActivity(context.Background(), &details, "")
+	if details.ActiveFocus != "正在检查模型回退" {
+		t.Fatalf("expected fallback focus translation, got %q", details.ActiveFocus)
+	}
+	if details.ActivePlan.Items[0].Title != "排查标题翻译日志" {
+		t.Fatalf("expected fallback step-plan translation, got %q", details.ActivePlan.Items[0].Title)
+	}
+}
