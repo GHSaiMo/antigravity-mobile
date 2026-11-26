@@ -38924,6 +38924,363 @@
           }
         }
       }
+    },
+    "智能辅助": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "AI Assist"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "AI アシスト"
+          }
+        }
+      }
+    },
+    "已开启 2 项": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "2 Enabled"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "2 件有効"
+          }
+        }
+      }
+    },
+    "标题翻译": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Title Translation"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "タイトル翻訳"
+          }
+        }
+      }
+    },
+    "提示词建议": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Prompt Suggestions"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "プロンプト提案"
+          }
+        }
+      }
+    },
+    "下一步提示词建议": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Next-Prompt Suggestions"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "次のプロンプト提案"
+          }
+        }
+      }
+    },
+    "每轮回复完成后轻量预测 1 条建议胶囊": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Predict 1 concise follow-up suggestion after each turn"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "各ターンの完了後に次の指示を1件軽量予測します"
+          }
+        }
+      }
+    },
+    "点击建议胶囊": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "On Suggestion Tap"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "提案タップ時の動作"
+          }
+        }
+      }
+    },
+    "直接发送": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Send Immediately"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "そのまま送信"
+          }
+        }
+      }
+    },
+    "存在审批卡片、Proceed/Continue 按钮或输入框已有草稿时自动隐藏，避免打扰。": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Automatically hidden when approvals, Proceed/Continue buttons, or draft text are present."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "承認カード・続行ボタン表示中や下書き入力中は自動で非表示になります。"
+          }
+        }
+      }
+    },
+    "推理引擎": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Inference Engine"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "推論エンジン"
+          }
+        }
+      }
+    },
+    "轻量模型": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Lightweight Model"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "軽量モデル"
+          }
+        }
+      }
+    },
+    "当前 Antigravity 版本不支持原生 GetModelResponse 接口。": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This Antigravity version does not support native GetModelResponse."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "現在の Antigravity バージョンでは GetModelResponse に対応していません。"
+          }
+        }
+      }
+    },
+    "通过本机 Antigravity 原生接口无状态执行，不产生额外会话，微量共享当前账号 Gemini 额度，开关跨设备同步至网关。": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Runs statelessly via local Antigravity native RPC without creating extra sessions. Shares minimal Gemini quota and syncs across devices."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ローカルの Antigravity ネイティブ API でステートレス実行され、追加会話は作成されません。Gemini クォータを微量消費し、設定は全端末に同期されます。"
+          }
+        }
+      }
+    },
+    "还原原始标题": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Restore Original Titles"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "元のタイトルを復元"
+          }
+        }
+      }
+    },
+    "还原": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Restore"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "復元"
+          }
+        }
+      }
+    },
+    "将把此前自动或批量翻译的会话标题恢复为原始标题（手动重命名的会话不受影响）。": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Restore titles previously translated by AI Assist back to their original text (manually renamed titles are preserved)."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "自動・一括翻訳された会話タイトルを元の英語タイトルに戻します（手動変更したタイトルは維持されます）。"
+          }
+        }
+      }
+    },
+    "翻译失败，请确认网关已连接 Antigravity": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Translation failed. Ensure the gateway is connected to Antigravity."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "翻訳に失敗しました。ゲートウェイと Antigravity の接続を確認してください。"
+          }
+        }
+      }
+    },
+    "翻译请求超时或连接中断": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Translation request timed out or connection dropped."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "翻訳リクエストがタイムアウトまたは切断されました。"
+          }
+        }
+      }
+    },
+    "还原失败，请稍后重试": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Restore failed. Please try again later."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "復元に失敗しました。しばらくしてから再試行してください。"
+          }
+        }
+      }
+    },
+    "还原失败，请检查网关连接": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Restore failed. Please check gateway connection."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "復元に失敗しました。ゲートウェイ接続を確認してください。"
+          }
+        }
+      }
+    },
+    "关闭建议": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dismiss suggestion"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "提案を閉じる"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

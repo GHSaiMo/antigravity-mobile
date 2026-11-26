@@ -205,7 +205,12 @@ internal fun ChatViewModel.sendMessage(
     val attachmentIds = files.mapNotNull { it.attachmentId }
     val ctxItems = _uiState.value.selectedContextItems
     if (ctxItems.isNotEmpty() || _uiState.value.suggestedResponses.isNotEmpty()) {
-        _uiState.value = _uiState.value.copy(selectedContextItems = emptyList(), suggestedResponses = emptyList())
+        _uiState.value = _uiState.value.copy(
+            selectedContextItems = emptyList(),
+            suggestedResponses = emptyList(),
+            suggestedResponseSource = "",
+            dismissedPredictedSuggestion = null
+        )
     }
     val model = _uiState.value.activeModel
 

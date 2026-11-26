@@ -48,6 +48,7 @@ public struct StreamUpdatePayload: Decodable, Sendable {
     public let swarm: SwarmBrief?
     public let contextMeter: ContextMeterItem?
     public let suggestedResponses: [String]?
+    public let suggestedResponseSource: String?
     public let activeFocus: String?
     public let activeFocusStartedAt: String?
     public let activePlan: StepPlanItem?

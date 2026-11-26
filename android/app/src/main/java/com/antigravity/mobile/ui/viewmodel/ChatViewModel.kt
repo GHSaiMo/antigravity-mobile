@@ -144,6 +144,8 @@ data class ChatUiState(
     val focusInputTrigger: Int = 0,
     val contextMeter: ContextMeterItem? = null,
     val suggestedResponses: List<String> = emptyList(),
+    val suggestedResponseSource: String = "",
+    val dismissedPredictedSuggestion: String? = null,
     val activeFocus: String? = null,
     val activeFocusStartedAt: String? = null,
     val activePlan: StepPlanItem? = null,
@@ -158,7 +160,10 @@ data class ChatUiState(
     val branchOrigin: SideQuestionOrigin? = null,
     val sideQuestions: List<SideQuestionCardItem> = emptyList(),
     val isStartingBtw: Boolean = false
-)
+) {
+    val isPredictedSuggestion: Boolean
+        get() = suggestedResponseSource == "predicted"
+}
 
 class ChatViewModel(
     internal val apiClient: ApiClient,
@@ -171,6 +176,10 @@ class ChatViewModel(
 
     internal val _uiState = MutableStateFlow(ChatUiState())
     val uiState: StateFlow<ChatUiState> = _uiState.asStateFlow()
+
+    fun dismissPredictedSuggestion(text: String) {
+        _uiState.value = _uiState.value.copy(dismissedPredictedSuggestion = text)
+    }
 
     init {
         // 新会话首选「设置 › 常用模型」中的常用模型 1

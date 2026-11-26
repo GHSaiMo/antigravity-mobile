@@ -88,6 +88,8 @@ function renderRoute() {
     if (changed && window.Phase3) {
       Phase3.contextItems = [];
       Phase3.suggestedResponses = [];
+      Phase3.suggestedResponseSource = "";
+      Phase3.dismissedPredictedSuggestion = null;
       Phase3.renderContextChips?.();
       Phase3.renderSuggestedResponses?.();
     }
@@ -191,6 +193,8 @@ function renderRoute() {
     if (window.Phase3) {
       Phase3.contextItems = [];
       Phase3.suggestedResponses = [];
+      Phase3.suggestedResponseSource = "";
+      Phase3.dismissedPredictedSuggestion = null;
       Phase3.renderContextChips?.();
       Phase3.renderSuggestedResponses?.();
     }
@@ -263,6 +267,8 @@ function renderRoute() {
     if (window.Phase3) {
       Phase3.contextItems = [];
       Phase3.suggestedResponses = [];
+      Phase3.suggestedResponseSource = "";
+      Phase3.dismissedPredictedSuggestion = null;
       Phase3.renderContextChips?.();
       Phase3.renderSuggestedResponses?.();
     }

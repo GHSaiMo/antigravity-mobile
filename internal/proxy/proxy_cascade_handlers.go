@@ -818,6 +818,7 @@ func (p *Proxy) handleUpdateConversationAnnotations(w http.ResponseWriter, r *ht
 				if cid != "" {
 					setCachedCascadeTitle(cid, title)
 					writeAnnotationTitle(cid, title)
+					p.MarkConversationTitleUserEdited(cid, title)
 				}
 			}
 		}

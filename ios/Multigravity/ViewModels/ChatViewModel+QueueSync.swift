@@ -323,6 +323,8 @@ extension ChatViewModel {
         selectedSlashCommand = nil
         selectedContextItems = []
         suggestedResponses = []
+        suggestedResponseSource = ""
+        dismissedPredictedSuggestion = nil
         if !key.isEmpty {
             cacheManager.clearDraft(key: key)
         }

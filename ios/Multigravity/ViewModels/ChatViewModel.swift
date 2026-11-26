@@ -376,6 +376,9 @@ public final class ChatViewModel {
 
     // MARK: - Phase 3 State
     public var suggestedResponses: [String] = []
+    public var suggestedResponseSource: String = ""
+    public var dismissedPredictedSuggestion: String? = nil
+    public var isPredictedSuggestion: Bool { suggestedResponseSource == "predicted" }
     public var activeFocus: String? = nil
     public var activeFocusStartedAt: String? = nil
     public var activePlan: StepPlanItem? = nil
@@ -1033,9 +1036,14 @@ public final class ChatViewModel {
             if let role = result.subagentRole {
                 self.subagentRole = role
             }
-            if let suggestions = result.suggestedResponses {
-                self.suggestedResponses = suggestions
+            let incomingSuggestions = result.suggestedResponses ?? []
+            if self.suggestedResponses != incomingSuggestions {
+                self.suggestedResponses = incomingSuggestions
+                if self.dismissedPredictedSuggestion != incomingSuggestions.first {
+                    self.dismissedPredictedSuggestion = nil
+                }
             }
+            self.suggestedResponseSource = result.suggestedResponseSource ?? (incomingSuggestions.isEmpty ? "" : "native")
             self.activeFocus = result.activeFocus
             self.activeFocusStartedAt = result.activeFocusStartedAt
             self.activePlan = result.activePlan

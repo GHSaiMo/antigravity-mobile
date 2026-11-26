@@ -55,9 +55,10 @@ type StreamUpdatePayload struct {
 	DesktopActiveModelName string               `json:"desktopActiveModelName,omitempty"`
 	StartedAt          string               `json:"startedAt,omitempty"`
 	Swarm              *SwarmBrief          `json:"swarm,omitempty"`
-	ContextMeter       *ContextMeterItem    `json:"contextMeter,omitempty"`
-	SuggestedResponses []string             `json:"suggestedResponses,omitempty"`
-	TaskProgress       *TaskProgressItem    `json:"taskProgress,omitempty"`
+	ContextMeter            *ContextMeterItem `json:"contextMeter,omitempty"`
+	SuggestedResponses      []string          `json:"suggestedResponses,omitempty"`
+	SuggestedResponseSource string            `json:"suggestedResponseSource,omitempty"`
+	TaskProgress            *TaskProgressItem `json:"taskProgress,omitempty"`
 	ActiveFocus        string               `json:"activeFocus,omitempty"`
 	ActiveFocusStarted string               `json:"activeFocusStartedAt,omitempty"`
 	ActivePlan         *StepPlanItem        `json:"activePlan,omitempty"`
@@ -153,7 +154,7 @@ func (p *StreamUpdatePayload) Fingerprint() string {
 			p.ContextMeter.SessionTotalTokens,
 		)
 	}
-	sugKey := fmt.Sprintf("%d:%s", len(p.SuggestedResponses), strings.Join(p.SuggestedResponses, "|"))
+	sugKey := fmt.Sprintf("%d:%s:%s", len(p.SuggestedResponses), p.SuggestedResponseSource, strings.Join(p.SuggestedResponses, "|"))
 	tpKey := ""
 	if p.TaskProgress != nil {
 		tpKey = p.TaskProgress.TaskName + ":" + p.TaskProgress.TaskStatus + ":" + p.TaskProgress.TaskSummary
@@ -444,7 +445,7 @@ func (p *Proxy) HandleCascadeStream(w http.ResponseWriter, r *http.Request) {
 			return true
 		}
 
-		rawSig := rawTrajectorySignature(rawResp) + "|" + p.subagentLiveSignature(rawResp) + "|" + p.sideQuestionLiveSignature(cascadeID) + "|" + GetSwarmSignature(cascadeID) + "|" + desktopModel + "|" + p.liveStreamAuxSignature(cascadeID)
+		rawSig := rawTrajectorySignature(rawResp) + "|" + p.subagentLiveSignature(rawResp) + "|" + p.sideQuestionLiveSignature(cascadeID) + "|" + GetSwarmSignature(cascadeID) + "|" + desktopModel + "|" + p.liveStreamAuxSignature(cascadeID) + "|" + p.nextPromptSignature(cascadeID)
 		if !firstPush && rawSig == lastRawSig && (time.Since(lastTitleLookupTime) < 2*time.Second || cachedStreamTitle != "") {
 			// Fast path: Upstream trajectory has not changed at all.
 			// Keep L7 stream alive across >5 minute silent thinking via lightweight JSON noop every 25s.
@@ -538,48 +539,50 @@ func (p *Proxy) HandleCascadeStream(w http.ResponseWriter, r *http.Request) {
 		slicedMessages := details.AllMessages[streamStart:totalMsgs]
 		hasMore := streamStart > 0
 
+		sugResponses, sugSource := p.ResolveOrScheduleNextPrompt(cascadeID, &details, rawResp, true)
 		payload := StreamUpdatePayload{
-			Type:                   "update",
-			CascadeID:              details.CascadeID,
-			Title:                  details.Title,
-			Status:                 details.Status,
-			HasError:               details.HasError,
-			ErrorMessage:           details.ErrorMessage,
-			Duration:               details.Duration,
-			TotalSteps:             details.TotalSteps,
-			TotalTools:             details.TotalTools,
-			TotalMessages:          totalMsgs,
-			HasMore:                hasMore,
-			NextOffset:             streamStart,
-			WorkspaceURI:           details.WorkspaceURI,
-			Messages:               slicedMessages,
-			TurnOutline:            details.TurnOutline,
-			QueuedMessages:         details.QueuedMessages,
-			RunningTasks:           details.RunningTasks,
-			Subagents:              details.Subagents,
-			HasRunningSubagents:    details.HasRunningSubagents,
-			ParentConversation:     details.ParentConversation,
-			SubagentRole:           details.SubagentRole,
-			BranchOrigin:           details.BranchOrigin,
-			SideQuestions:          details.SideQuestions,
-			IsFullSnapshot:         !hasMore,
-			CascadeConfigRaw:       details.CascadeConfigRaw,
-			CanProceed:             details.CanProceed,
-			ProceedArtifactURI:     details.ProceedArtifactURI,
-			PendingInteraction:     details.PendingInteraction,
-			ActiveModel:            details.ActiveModel,
-			ActiveModelName:        details.ActiveModelName,
-			ModelDisplayName:       details.ModelDisplayName,
-			DesktopActiveModel:     desktopModel,
-			DesktopActiveModelName: desktopModelName,
-			StartedAt:              details.StartedAt,
-			Swarm:              GetSwarmBrief(cascadeID),
-			ContextMeter:       sanitizeContextMeterForClient(details.ContextMeter),
-			SuggestedResponses: details.SuggestedResponses,
-			TaskProgress:       details.TaskProgress,
-			ActiveFocus:        details.ActiveFocus,
-			ActiveFocusStarted: details.ActiveFocusStarted,
-			ActivePlan:         details.ActivePlan,
+			Type:                    "update",
+			CascadeID:               details.CascadeID,
+			Title:                   details.Title,
+			Status:                  details.Status,
+			HasError:                details.HasError,
+			ErrorMessage:            details.ErrorMessage,
+			Duration:                details.Duration,
+			TotalSteps:              details.TotalSteps,
+			TotalTools:              details.TotalTools,
+			TotalMessages:           totalMsgs,
+			HasMore:                 hasMore,
+			NextOffset:              streamStart,
+			WorkspaceURI:            details.WorkspaceURI,
+			Messages:                slicedMessages,
+			TurnOutline:             details.TurnOutline,
+			QueuedMessages:          details.QueuedMessages,
+			RunningTasks:            details.RunningTasks,
+			Subagents:               details.Subagents,
+			HasRunningSubagents:     details.HasRunningSubagents,
+			ParentConversation:      details.ParentConversation,
+			SubagentRole:            details.SubagentRole,
+			BranchOrigin:            details.BranchOrigin,
+			SideQuestions:           details.SideQuestions,
+			IsFullSnapshot:          !hasMore,
+			CascadeConfigRaw:        details.CascadeConfigRaw,
+			CanProceed:              details.CanProceed,
+			ProceedArtifactURI:      details.ProceedArtifactURI,
+			PendingInteraction:      details.PendingInteraction,
+			ActiveModel:             details.ActiveModel,
+			ActiveModelName:         details.ActiveModelName,
+			ModelDisplayName:        details.ModelDisplayName,
+			DesktopActiveModel:      desktopModel,
+			DesktopActiveModelName:  desktopModelName,
+			StartedAt:               details.StartedAt,
+			Swarm:                   GetSwarmBrief(cascadeID),
+			ContextMeter:            sanitizeContextMeterForClient(details.ContextMeter),
+			SuggestedResponses:      sugResponses,
+			SuggestedResponseSource: sugSource,
+			TaskProgress:            details.TaskProgress,
+			ActiveFocus:             details.ActiveFocus,
+			ActiveFocusStarted:      details.ActiveFocusStarted,
+			ActivePlan:              details.ActivePlan,
 		}
 
 		if !isMessagesOnly {

@@ -78,6 +78,7 @@ var Features = []Feature{
 	{ID: "code_search", RPCs: []string{"SearchCode", "SearchFiles"}},
 	{ID: "artifact_snapshots", RPCs: []string{"GetArtifactSnapshots"}},
 	{ID: "environments", RPCs: []string{"ListEnvironments"}},
+	{ID: "ai_assist", RPCs: []string{"GetModelResponse"}},
 }
 
 // Compatibility is the result of comparing the running language_server with what the gateway needs.

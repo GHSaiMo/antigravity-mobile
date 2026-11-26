@@ -352,6 +352,7 @@ data class StreamUpdatePayload(
     val swarm: SwarmBrief? = null,
     val contextMeter: ContextMeterItem? = null,
     val suggestedResponses: List<String>? = null,
+    val suggestedResponseSource: String? = null,
     val activeFocus: String? = null,
     val activeFocusStartedAt: String? = null,
     val activePlan: StepPlanItem? = null,

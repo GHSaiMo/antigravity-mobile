@@ -397,9 +397,10 @@ type CascadeMessagesResponse struct {
 	ProceedArtifactURI string                 `json:"proceedArtifactUri,omitempty"`
 	PendingInteraction *PendingInteraction    `json:"pendingInteraction,omitempty"`
 	Swarm              *SwarmBrief            `json:"swarm,omitempty"`
-	ContextMeter       *ContextMeterItem      `json:"contextMeter,omitempty"`
-	SuggestedResponses []string               `json:"suggestedResponses,omitempty"`
-	TaskProgress       *TaskProgressItem      `json:"taskProgress,omitempty"`
+	ContextMeter            *ContextMeterItem `json:"contextMeter,omitempty"`
+	SuggestedResponses      []string          `json:"suggestedResponses,omitempty"`
+	SuggestedResponseSource string            `json:"suggestedResponseSource,omitempty"`
+	TaskProgress            *TaskProgressItem `json:"taskProgress,omitempty"`
 	ActiveFocus        string                 `json:"activeFocus,omitempty"`
 	ActiveFocusStarted string                 `json:"activeFocusStartedAt,omitempty"`
 	ActivePlan         *StepPlanItem          `json:"activePlan,omitempty"`
@@ -941,9 +942,10 @@ type TrajectoryDetails struct {
 	CanProceed         bool                 `json:"canProceed"`
 	ProceedArtifactURI string               `json:"proceedArtifactUri,omitempty"`
 	PendingInteraction *PendingInteraction  `json:"pendingInteraction,omitempty"`
-	ContextMeter       *ContextMeterItem    `json:"contextMeter,omitempty"`
-	SuggestedResponses []string             `json:"suggestedResponses,omitempty"`
-	TaskProgress       *TaskProgressItem    `json:"taskProgress,omitempty"`
+	ContextMeter            *ContextMeterItem   `json:"contextMeter,omitempty"`
+	SuggestedResponses      []string            `json:"suggestedResponses,omitempty"`
+	SuggestedResponseSource string              `json:"suggestedResponseSource,omitempty"`
+	TaskProgress            *TaskProgressItem   `json:"taskProgress,omitempty"`
 	ActiveFocus        string               `json:"activeFocus,omitempty"`
 	ActiveFocusStarted string               `json:"activeFocusStartedAt,omitempty"`
 	ActivePlan         *StepPlanItem        `json:"activePlan,omitempty"`

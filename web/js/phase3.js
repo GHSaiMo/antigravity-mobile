@@ -10,6 +10,8 @@
     mentionItems: [],
     mentionOpen: false,
     suggestedResponses: [],
+    suggestedResponseSource: "",
+    dismissedPredictedSuggestion: null,
     toolsTab: "mcp",
     memories: [],
     terminals: [],
@@ -1738,11 +1740,20 @@
       return items;
     },
 
-    // --- 5. Suggested Responses (hides when input focused) ---
+    // --- 5. Suggested Responses (hides when input focused, drafting, or dismissed) ---
     syncStreamData(data) {
       if (!data) return;
       const isRunning = data.status === "CASCADE_RUN_STATUS_RUNNING";
-      this.suggestedResponses = !isRunning && Array.isArray(data.suggestedResponses) ? data.suggestedResponses : [];
+      const incoming = !isRunning && Array.isArray(data.suggestedResponses) ? data.suggestedResponses : [];
+      const incomingSource = incoming.length > 0 ? (data.suggestedResponseSource || "native") : "";
+      if (this.dismissedPredictedSuggestion && incoming[0] !== this.dismissedPredictedSuggestion) {
+        this.dismissedPredictedSuggestion = null;
+      }
+      this.suggestedResponses = incoming;
+      this.suggestedResponseSource = incomingSource;
+      if (incomingSource === "predicted" && window.AIAssist?.ensureLoaded) {
+        window.AIAssist.ensureLoaded();
+      }
       this.renderSuggestedResponses();
     },
 
@@ -1750,6 +1761,7 @@
       const inputEl = document.getElementById("chat-input");
       if (!inputEl) return;
       inputEl.addEventListener("focus", () => this.renderSuggestedResponses());
+      inputEl.addEventListener("input", () => this.renderSuggestedResponses());
       inputEl.addEventListener("blur", () => setTimeout(() => this.renderSuggestedResponses(), 120));
     },
 
@@ -1758,21 +1770,49 @@
       if (!bar) return;
       const inputEl = document.getElementById("chat-input");
       const focused = document.activeElement === inputEl;
-      if (focused || this.suggestedResponses.length === 0) {
+      const hasDraft = Boolean(inputEl && inputEl.value.trim().length > 0);
+      const isPredicted = this.suggestedResponseSource === "predicted";
+      const isDismissed = isPredicted && this.dismissedPredictedSuggestion && this.dismissedPredictedSuggestion === this.suggestedResponses[0];
+      if (focused || hasDraft || isDismissed || this.suggestedResponses.length === 0) {
         bar.classList.add("hidden");
         return;
       }
       bar.classList.remove("hidden");
+      const sparkleSvg = isPredicted
+        ? `<svg class="p3-suggest-sparkle" width="12" height="12" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 2l2.2 6.8L21 11l-6.8 2.2L12 20l-2.2-6.8L3 11l6.8-2.2L12 2z"/></svg>`
+        : "";
       bar.innerHTML = this.suggestedResponses.map((text, idx) => `
-        <button type="button" class="p3-suggest-pill" data-suggest-idx="${idx}">${escapeHtml(text)}</button>`).join("");
+        <div class="p3-suggest-pill${isPredicted ? " is-predicted" : ""}">
+          <button type="button" class="p3-suggest-pill-main" data-suggest-idx="${idx}">${sparkleSvg}<span>${escapeHtml(text)}</span></button>${
+            isPredicted ? `<button type="button" class="p3-suggest-dismiss" data-suggest-dismiss="${idx}" aria-label="Dismiss">&times;</button>` : ""
+          }
+        </div>`).join("");
       bar.querySelectorAll("[data-suggest-idx]").forEach((btn) => {
         btn.addEventListener("click", () => {
           const text = this.suggestedResponses[Number(btn.getAttribute("data-suggest-idx"))];
           if (!text || !inputEl) return;
-          inputEl.value = text;
-          this.suggestedResponses = [];
+          const fillOnly = isPredicted && (window.AIAssist?.getTapAction?.() || "fill") !== "send";
+          if (fillOnly) {
+            this.dismissedPredictedSuggestion = text;
+            inputEl.value = text;
+            inputEl.dispatchEvent(new Event("input", { bubbles: true }));
+            inputEl.focus();
+            this.renderSuggestedResponses();
+          } else {
+            inputEl.value = text;
+            this.suggestedResponses = [];
+            this.suggestedResponseSource = "";
+            this.renderSuggestedResponses();
+            sendMessage?.();
+          }
+        });
+      });
+      bar.querySelectorAll("[data-suggest-dismiss]").forEach((btn) => {
+        btn.addEventListener("click", (e) => {
+          e.stopPropagation();
+          const idx = Number(btn.getAttribute("data-suggest-dismiss"));
+          this.dismissedPredictedSuggestion = this.suggestedResponses[idx] || this.suggestedResponses[0] || null;
           this.renderSuggestedResponses();
-          sendMessage?.();
         });
       });
     },

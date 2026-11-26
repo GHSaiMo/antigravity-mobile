@@ -2550,8 +2550,17 @@ fun ChatScreen(
                             }
                         }
 
-                        // Phase 3: SuggestedResponses single horizontal pill strip (hidden immediately when input focused)
-                        if (uiState.suggestedResponses.isNotEmpty() && !isInputFocused && !uiState.isRunning && !uiState.isAwaitingResponse) {
+                        // Phase 3 + AI Assist: SuggestedResponses single horizontal pill strip (hidden when focused, drafting, or dismissed)
+                        val aiAssistStatus by com.antigravity.mobile.data.service.AIAssistCache.statusFlow.collectAsState()
+                        LaunchedEffect(uiState.isPredictedSuggestion) {
+                            if (uiState.isPredictedSuggestion) {
+                                com.antigravity.mobile.data.service.AIAssistCache.ensureFetched(com.antigravity.mobile.data.service.ApiClient.defaultInstance)
+                            }
+                        }
+                        val isDismissedPredicted = uiState.isPredictedSuggestion &&
+                            uiState.dismissedPredictedSuggestion != null &&
+                            uiState.dismissedPredictedSuggestion == uiState.suggestedResponses.firstOrNull()
+                        if (uiState.suggestedResponses.isNotEmpty() && !isInputFocused && inputText.isBlank() && !uiState.isRunning && !uiState.isAwaitingResponse && !isDismissedPredicted) {
                             LazyRow(
                                 modifier = Modifier
                                     .fillMaxWidth()
@@ -2560,18 +2569,36 @@ fun ChatScreen(
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
                                 items(uiState.suggestedResponses, key = { it }) { suggestion ->
-                                    Box(
+                                    val isPred = uiState.isPredictedSuggestion
+                                    Row(
                                         modifier = Modifier
                                             .clip(RoundedCornerShape(16.dp))
                                             .background(colors.accentIndigo.copy(alpha = 0.1f))
                                             .border(0.5.dp, colors.accentIndigo.copy(alpha = 0.35f), RoundedCornerShape(16.dp))
                                             .clickable {
                                                 haptic.light()
-                                                viewModel.onInputTextChanged(suggestion)
-                                                viewModel.sendCurrentMessage()
+                                                val fillOnly = isPred && aiAssistStatus.prefs.nextPromptTapAction != "send"
+                                                if (fillOnly) {
+                                                    viewModel.dismissPredictedSuggestion(suggestion)
+                                                    viewModel.onInputTextChanged(suggestion)
+                                                    focusRequester.requestFocus()
+                                                } else {
+                                                    viewModel.onInputTextChanged(suggestion)
+                                                    viewModel.sendCurrentMessage()
+                                                }
                                             }
-                                            .padding(horizontal = 12.dp, vertical = 6.dp)
+                                            .padding(start = 12.dp, end = if (isPred) 8.dp else 12.dp, top = 6.dp, bottom = 6.dp),
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.spacedBy(5.dp)
                                     ) {
+                                        if (isPred) {
+                                            Icon(
+                                                imageVector = Icons.Default.AutoAwesome,
+                                                contentDescription = null,
+                                                tint = colors.accentIndigo,
+                                                modifier = Modifier.size(13.dp)
+                                            )
+                                        }
                                         Text(
                                             text = suggestion,
                                             fontSize = 12.5.sp,
@@ -2579,6 +2606,25 @@ fun ChatScreen(
                                             maxLines = 1,
                                             overflow = TextOverflow.Ellipsis
                                         )
+                                        if (isPred) {
+                                            Icon(
+                                                imageVector = Icons.Default.Close,
+                                                contentDescription = when (com.antigravity.mobile.ui.util.L10n.currentLang) {
+                                                    com.antigravity.mobile.ui.util.L10n.AppLang.EN -> "Dismiss suggestion"
+                                                    com.antigravity.mobile.ui.util.L10n.AppLang.JA -> "提案を閉じる"
+                                                    com.antigravity.mobile.ui.util.L10n.AppLang.ZH -> "关闭建议"
+                                                },
+                                                tint = colors.accentIndigo.copy(alpha = 0.65f),
+                                                modifier = Modifier
+                                                    .size(15.dp)
+                                                    .clip(CircleShape)
+                                                    .clickable {
+                                                        haptic.light()
+                                                        viewModel.dismissPredictedSuggestion(suggestion)
+                                                    }
+                                                    .padding(1.dp)
+                                            )
+                                        }
                                     }
                                 }
                             }

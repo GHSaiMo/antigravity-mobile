@@ -556,6 +556,13 @@
             <button id="btn-settings-open-tools" class="ios-cell-button" type="button" onclick="window.Phase3?.openToolsBoard?.('mcp')">
               <span>MCP 工具与技能看板</span>
             </button>
+            <button id="btn-open-ai-assist-settings" class="ios-cell-button between settings-nav-row" type="button">
+              <span class="cell-label">智能辅助</span>
+              <span class="settings-nav-trailing">
+                <span id="settings-ai-assist-summary" class="cell-value">已关闭</span>
+                <svg class="settings-chevron" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"></polyline></svg>
+              </span>
+            </button>
             <div class="settings-note">在此配置默认权限并查看 MCP 工具与技能；进入会话后，长按右上角工具按钮也可以随时改变该会话的权限。</div>
           </div>
 
@@ -768,6 +775,56 @@
               </label>
             </div>
             <div id="settings-alerts-footer" class="settings-note" style="margin: 6px 4px 14px;">开关实时同步至本机网关并跨设备生效。</div>
+          </div>
+          <div id="settings-sub-ai-assist" class="hidden">
+            <div id="ai-assist-title-section">
+              <div id="ai-assist-title-header" class="quota-section-header" style="margin: 6px 4px 6px;" data-i18n-skip="1">会话标题翻译</div>
+              <div class="ios-grouped-section compact-subpanel">
+                <label class="ios-cell between compact-subcell-page" for="settings-ai-title-translate" style="cursor: pointer;">
+                  <div class="compact-subtext">
+                    <span id="settings-ai-title-label" class="cell-label" data-i18n-skip="1">自动翻译为简体中文</span>
+                    <span id="settings-ai-title-desc" class="compact-subdesc" data-i18n-skip="1">Google 生成英文标题后自动翻译并同步到桌面与手机</span>
+                  </div>
+                  <input type="checkbox" id="settings-ai-title-translate" class="ios-switch-input" />
+                </label>
+                <button id="btn-ai-translate-existing" class="ios-cell-button" type="button" style="color: var(--ios-accent, #6366f1);" data-i18n-skip="1">
+                  <span id="btn-ai-translate-existing-label" data-i18n-skip="1">立即翻译历史英文标题</span>
+                </button>
+                <button id="btn-ai-restore-titles" class="ios-cell-button destructive hidden" type="button" data-i18n-skip="1">
+                  <span id="btn-ai-restore-titles-label" data-i18n-skip="1">还原已翻译标题</span>
+                </button>
+                <div id="settings-ai-title-feedback" class="settings-note hidden" style="padding: 8px 14px 10px; margin: 0;" data-i18n-skip="1"></div>
+              </div>
+              <div id="settings-ai-title-footer" class="settings-note" style="margin: 6px 4px 14px;" data-i18n-skip="1">仅翻译未归档活跃会话，不会覆盖手动重命名的标题；翻译结果直接写回 Antigravity，桌面端与手机端同步生效。</div>
+            </div>
+
+            <div class="quota-section-header" style="margin: 6px 4px 6px;">提示词建议</div>
+            <div class="ios-grouped-section compact-subpanel">
+              <label class="ios-cell between compact-subcell-page" for="settings-ai-next-prompt" style="cursor: pointer;">
+                <div class="compact-subtext">
+                  <span class="cell-label">下一步提示词建议</span>
+                  <span class="compact-subdesc">每轮回复完成后轻量预测 1 条建议胶囊</span>
+                </div>
+                <input type="checkbox" id="settings-ai-next-prompt" class="ios-switch-input" />
+              </label>
+              <div id="settings-ai-next-prompt-tap-row" class="ios-cell between hidden">
+                <span class="cell-label">点击建议胶囊</span>
+                <select id="settings-ai-next-prompt-tap" class="settings-select" aria-label="点击建议胶囊">
+                  <option value="fill">填入输入框</option>
+                  <option value="send">直接发送</option>
+                </select>
+              </div>
+            </div>
+            <div class="settings-note" style="margin: 6px 4px 14px;">存在审批卡片、Proceed/Continue 按钮或输入框已有草稿时自动隐藏，避免打扰。</div>
+
+            <div class="quota-section-header" style="margin: 6px 4px 6px;">推理引擎</div>
+            <div class="ios-grouped-section">
+              <div class="ios-cell between">
+                <span class="cell-label">轻量模型</span>
+                <span id="settings-ai-model-name" class="cell-value" data-i18n-skip="1">Gemini 3.5 Flash Lite</span>
+              </div>
+            </div>
+            <div id="settings-ai-engine-footer" class="settings-note" style="margin: 6px 4px 14px;">通过本机 Antigravity 原生接口无状态执行，不产生额外会话，微量共享当前账号 Gemini 额度，开关跨设备同步至网关。</div>
           </div>
         </div>
       </div>

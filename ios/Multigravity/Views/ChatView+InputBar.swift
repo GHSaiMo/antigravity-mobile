@@ -294,13 +294,30 @@ extension ChatView {
                 }
             }
 
-            if !viewModel.suggestedResponses.isEmpty && !isInputFocused && !viewModel.isActivelyRunning && !viewModel.showMentionPicker {
-                SuggestedResponsesBar(suggestions: viewModel.suggestedResponses) { chosen in
-                    Task {
-                        viewModel.suggestedResponses = []
-                        _ = await viewModel.sendMessage(text: chosen)
-                    }
-                }
+            let hasDraftText = !viewModel.inputText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            let isDismissedPredicted = viewModel.isPredictedSuggestion && viewModel.dismissedPredictedSuggestion == viewModel.suggestedResponses.first
+            if !viewModel.suggestedResponses.isEmpty && !isInputFocused && !hasDraftText && !viewModel.isActivelyRunning && !viewModel.showMentionPicker && !isDismissedPredicted {
+                SuggestedResponsesBar(
+                    suggestions: viewModel.suggestedResponses,
+                    isPredicted: viewModel.isPredictedSuggestion,
+                    onSelect: { chosen in
+                        let shouldFillOnly = viewModel.isPredictedSuggestion && AIAssistManager.shared.prefs.nextPromptTapAction != "send"
+                        if shouldFillOnly {
+                            viewModel.dismissedPredictedSuggestion = chosen
+                            viewModel.inputText = chosen
+                            isInputFocused = true
+                        } else {
+                            Task {
+                                viewModel.suggestedResponses = []
+                                viewModel.suggestedResponseSource = ""
+                                _ = await viewModel.sendMessage(text: chosen)
+                            }
+                        }
+                    },
+                    onDismiss: viewModel.isPredictedSuggestion ? {
+                        viewModel.dismissedPredictedSuggestion = viewModel.suggestedResponses.first
+                    } : nil
+                )
             }
 
             if !viewModel.selectedContextItems.isEmpty {
@@ -715,28 +732,55 @@ private struct DictationActiveBar: View {
 
 private struct SuggestedResponsesBar: View {
     let suggestions: [String]
+    var isPredicted: Bool = false
     let onSelect: (String) -> Void
+    var onDismiss: (() -> Void)? = nil
 
     var body: some View {
         ScrollView(.horizontal, showsIndicators: false) {
             HStack(spacing: 8) {
                 ForEach(suggestions, id: \.self) { text in
-                    Button {
-                        UIImpactFeedbackGenerator(style: .light).impactOccurred()
-                        onSelect(text)
-                    } label: {
-                        Text(text)
-                            .font(.system(size: 12.5, weight: .medium))
-                            .foregroundColor(.indigo)
-                            .padding(.horizontal, 12)
-                            .padding(.vertical, 6)
-                            .background(Color.indigo.opacity(0.1))
-                            .clipShape(Capsule())
-                            .overlay(
-                                Capsule().stroke(Color.indigo.opacity(0.25), lineWidth: 0.8)
-                            )
+                    HStack(spacing: 5) {
+                        Button {
+                            UIImpactFeedbackGenerator(style: .light).impactOccurred()
+                            onSelect(text)
+                        } label: {
+                            HStack(spacing: 5) {
+                                if isPredicted {
+                                    Image(systemName: "sparkles")
+                                        .font(.system(size: 11, weight: .semibold))
+                                        .foregroundColor(.indigo)
+                                }
+                                Text(text)
+                                    .font(.system(size: 12.5, weight: .medium))
+                                    .foregroundColor(.indigo)
+                                    .lineLimit(1)
+                            }
+                        }
+                        .buttonStyle(.plain)
+
+                        if isPredicted, let onDismiss {
+                            Button {
+                                UIImpactFeedbackGenerator(style: .light).impactOccurred()
+                                onDismiss()
+                            } label: {
+                                Image(systemName: "xmark")
+                                    .font(.system(size: 9.5, weight: .semibold))
+                                    .foregroundColor(.indigo.opacity(0.65))
+                                    .padding(3)
+                            }
+                            .buttonStyle(.plain)
+                            .accessibilityLabel("关闭建议")
+                        }
                     }
-                    .buttonStyle(.plain)
+                    .padding(.leading, 12)
+                    .padding(.trailing, isPredicted && onDismiss != nil ? 8 : 12)
+                    .padding(.vertical, 6)
+                    .background(Color.indigo.opacity(0.1))
+                    .clipShape(Capsule())
+                    .overlay(
+                        Capsule().stroke(Color.indigo.opacity(0.25), lineWidth: 0.8)
+                    )
                 }
             }
             .padding(.horizontal, 16)

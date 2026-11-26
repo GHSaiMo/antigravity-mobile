@@ -1047,6 +1047,9 @@ func (p *Proxy) handleGetAllCascadeTrajectories(w http.ResponseWriter, r *http.R
 		}
 	}
 
+	// Non-blocking auto-translation check for newly generated recent conversation titles.
+	p.MaybeAutoTranslateSummaries(summaries)
+
 	// 1. In-memory fast inspection: check sessions already cached in trajCache (instant, zero network cost)
 	defaultTrajCache.trajCacheMu.RLock()
 	type snapEntry struct {

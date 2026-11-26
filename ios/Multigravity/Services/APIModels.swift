@@ -167,6 +167,7 @@ public struct PaginatedMessagesResponse: Codable, Sendable {
     public let parentConversationId: String?
     public let subagentRole: String?
     public let suggestedResponses: [String]?
+    public let suggestedResponseSource: String?
     public let activeFocus: String?
     public let activeFocusStartedAt: String?
     public let activePlan: StepPlanItem?
@@ -240,6 +241,7 @@ public struct FetchMessagesResult: Sendable {
     public let parentConversationId: String?
     public let subagentRole: String?
     public let suggestedResponses: [String]?
+    public let suggestedResponseSource: String?
     public let activeFocus: String?
     public let activeFocusStartedAt: String?
     public let activePlan: StepPlanItem?

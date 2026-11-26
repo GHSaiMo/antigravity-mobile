@@ -8,6 +8,7 @@ public struct SettingsSheet: View {
     @State private var settings = AppSettings.shared
     @State private var connectionManager = ConnectionManager.shared
     @State private var pushManager = PushNotificationManager.shared
+    @State private var aiAssist = AIAssistManager.shared
     @State private var showClearCacheAlert: Bool = false
     @State private var showUnpairAlert: Bool = false
     @State private var lanAddress: String = ""
@@ -219,6 +220,22 @@ public struct SettingsSheet: View {
                                 .foregroundColor(.secondary)
                         }
                     }
+
+                    NavigationLink {
+                        AIAssistSettingsView()
+                    } label: {
+                        HStack {
+                            Text("智能辅助")
+                            Spacer()
+                            Text(aiAssist.summaryText)
+                                .font(.subheadline)
+                                .foregroundColor(.secondary)
+                                .lineLimit(1)
+                        }
+                    }
+                }
+                .task {
+                    await aiAssist.fetchStatus()
                 }
                 
                 // MARK: - 4a. 实时语音对话

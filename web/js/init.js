@@ -522,6 +522,346 @@ function initApp() {
   syncAlertPrefsUI();
   window.PushAlertPrefs.refresh();
 
+  // --- AI Assist (Title Auto/Batch Translation & Next-Prompt Suggestions) ---
+  let aiAssistState = {
+    prefs: {
+      titleTranslateEnabled: false,
+      titleTranslateLang: "",
+      titleTranslateLangName: "",
+      nextPromptEnabled: false,
+      nextPromptTapAction: "fill",
+    },
+    modelName: "Gemini 3.5 Flash Lite",
+    resolvedLangName: "",
+    translatedCount: 0,
+    available: true,
+    loadedAt: 0,
+    busyBatch: false,
+    busyRestore: false,
+    feedback: "",
+    feedbackIsError: false,
+  };
+
+  function resolveWebTitleTargetLanguage() {
+    const pref = window.I18n?.getPreference?.() || localStorage.getItem("antigravity_language") || "system";
+    if (pref === "en") return { kind: "en", bcp47: "en", englishName: "English", isEnglish: true };
+    if (pref === "zh-CN") return { kind: "zh-Hans", bcp47: "zh-Hans", englishName: "Simplified Chinese", isEnglish: false };
+    if (pref === "ja") return { kind: "ja", bcp47: "ja", englishName: "Japanese", isEnglish: false };
+
+    const raw = (
+      (navigator.languages && navigator.languages[0]) ||
+      navigator.language ||
+      "en"
+    ).replace(/_/g, "-").trim();
+    const lower = raw.toLowerCase();
+    if (lower === "en" || lower.startsWith("en-")) {
+      return { kind: "en", bcp47: "en", englishName: "English", isEnglish: true };
+    }
+    if (lower.startsWith("zh-hant") || lower.startsWith("zh-tw") || lower.startsWith("zh-hk") || lower.startsWith("zh-mo")) {
+      return { kind: "zh-Hant", bcp47: "zh-Hant", englishName: "Traditional Chinese", isEnglish: false };
+    }
+    if (lower === "zh" || lower.startsWith("zh-")) {
+      return { kind: "zh-Hans", bcp47: "zh-Hans", englishName: "Simplified Chinese", isEnglish: false };
+    }
+    if (lower === "ja" || lower.startsWith("ja-")) {
+      return { kind: "ja", bcp47: "ja", englishName: "Japanese", isEnglish: false };
+    }
+    const base = lower.split("-")[0] || lower;
+    let displayName = raw;
+    try {
+      if (typeof Intl !== "undefined" && typeof Intl.DisplayNames === "function") {
+        const dn = new Intl.DisplayNames(["en"], { type: "language" });
+        displayName = dn.of(base) || dn.of(raw) || raw;
+      }
+    } catch (_) {}
+    if (displayName) {
+      displayName = displayName.charAt(0).toUpperCase() + displayName.slice(1);
+    }
+    return { kind: "other", bcp47: raw || base, englishName: displayName || raw, isEnglish: false };
+  }
+
+  function syncAIAssistUI(syncErrorText = "") {
+    const dev = resolveWebTitleTargetLanguage();
+    const p = aiAssistState.prefs;
+    const showTitleSection = !dev.isEnglish || Boolean(p.titleTranslateEnabled);
+    const activeTargetName = !dev.isEnglish
+      ? dev.englishName
+      : (p.titleTranslateLangName || aiAssistState.resolvedLangName || "Local Language");
+
+    const uiLang = window.I18n?.getLang?.() || "zh";
+    const summaryEl = document.getElementById("settings-ai-assist-summary");
+    if (summaryEl) {
+      const titleOn = showTitleSection && Boolean(p.titleTranslateEnabled);
+      const nextOn = Boolean(p.nextPromptEnabled);
+      let label = uiLang === "en" ? "Off" : (uiLang === "ja" ? "オフ" : "已关闭");
+      if (titleOn && nextOn) {
+        label = uiLang === "en" ? "2 Enabled" : (uiLang === "ja" ? "2 件有効" : "已开启 2 项");
+      } else if (titleOn) {
+        label = uiLang === "en" ? "Title Translation" : (uiLang === "ja" ? "タイトル翻訳" : "标题翻译");
+      } else if (nextOn) {
+        label = uiLang === "en" ? "Prompt Suggestions" : (uiLang === "ja" ? "プロンプト提案" : "提示词建议");
+      }
+      summaryEl.textContent = label;
+    }
+
+    const titleSection = document.getElementById("ai-assist-title-section");
+    if (titleSection) {
+      titleSection.classList.toggle("hidden", !showTitleSection);
+    }
+    if (showTitleSection) {
+      const hdr = document.getElementById("ai-assist-title-header");
+      const lbl = document.getElementById("settings-ai-title-label");
+      const desc = document.getElementById("settings-ai-title-desc");
+      const btnBatch = document.getElementById("btn-ai-translate-existing");
+      const btnBatchLbl = document.getElementById("btn-ai-translate-existing-label");
+      const btnRestore = document.getElementById("btn-ai-restore-titles");
+      const btnRestoreLbl = document.getElementById("btn-ai-restore-titles-label");
+      const footer = document.getElementById("settings-ai-title-footer");
+      const fb = document.getElementById("settings-ai-title-feedback");
+
+      if (dev.kind === "zh-Hans" || dev.kind === "zh-Hant") {
+        if (hdr) hdr.textContent = "会话标题翻译";
+        if (lbl) lbl.textContent = dev.kind === "zh-Hant" ? "自动翻译为繁体中文" : "自动翻译为简体中文";
+        if (desc) desc.textContent = "Google 生成英文标题后自动翻译并同步到桌面与手机";
+        if (btnBatchLbl) btnBatchLbl.textContent = aiAssistState.busyBatch ? "正在翻译历史英文标题…" : "立即翻译历史英文标题";
+        if (btnRestoreLbl) btnRestoreLbl.textContent = aiAssistState.busyRestore ? "正在还原原始标题…" : `还原已翻译标题（${aiAssistState.translatedCount}）`;
+        if (footer) footer.textContent = "仅翻译未归档活跃会话，不会覆盖手动重命名的标题；翻译结果直接写回 Antigravity，桌面端与手机端同步生效。";
+      } else if (dev.kind === "ja") {
+        if (hdr) hdr.textContent = "会話タイトルの翻訳";
+        if (lbl) lbl.textContent = "英語タイトルを日本語に自動翻訳";
+        if (desc) desc.textContent = "Google 生成の英語タイトルを自動翻訳しデスクトップと同期";
+        if (btnBatchLbl) btnBatchLbl.textContent = aiAssistState.busyBatch ? "英語タイトルを翻訳中…" : "過去の英語タイトルを一括翻訳";
+        if (btnRestoreLbl) btnRestoreLbl.textContent = aiAssistState.busyRestore ? "元のタイトルを復元中…" : `翻訳済みタイトルを元に戻す（${aiAssistState.translatedCount}）`;
+        if (footer) footer.textContent = "アーカイブ済みを除く会話のみ対象。手動変更したタイトルは上書きされず、デスクトップと同期されます。";
+      } else {
+        if (hdr) hdr.textContent = "Conversation Title Translation";
+        if (lbl) lbl.textContent = `Auto-translate to ${activeTargetName}`;
+        if (desc) desc.textContent = `Translate English titles into ${activeTargetName} and sync across desktop & mobile`;
+        if (btnBatchLbl) btnBatchLbl.textContent = aiAssistState.busyBatch ? `Translating titles to ${activeTargetName}…` : `Translate Existing Titles to ${activeTargetName}`;
+        if (btnRestoreLbl) btnRestoreLbl.textContent = aiAssistState.busyRestore ? "Restoring original titles…" : `Restore Original Titles (${aiAssistState.translatedCount})`;
+        if (footer) footer.textContent = "Applies to active non-archived conversations only. Manually renamed titles are preserved.";
+      }
+
+      if (btnBatch) {
+        btnBatch.classList.toggle("hidden", dev.isEnglish);
+        btnBatch.disabled = !aiAssistState.available || aiAssistState.busyBatch;
+      }
+      if (btnRestore) {
+        btnRestore.classList.toggle("hidden", aiAssistState.translatedCount <= 0);
+        btnRestore.disabled = aiAssistState.busyRestore || aiAssistState.busyBatch;
+      }
+      if (fb) {
+        if (aiAssistState.feedback) {
+          fb.textContent = aiAssistState.feedback;
+          fb.style.color = aiAssistState.feedbackIsError ? "#ff453a" : "";
+          fb.classList.remove("hidden");
+        } else {
+          fb.classList.add("hidden");
+        }
+      }
+    }
+
+    const chkTitle = document.getElementById("settings-ai-title-translate");
+    if (chkTitle) {
+      chkTitle.checked = Boolean(p.titleTranslateEnabled);
+      chkTitle.disabled = !aiAssistState.available;
+    }
+    const chkNext = document.getElementById("settings-ai-next-prompt");
+    if (chkNext) {
+      chkNext.checked = Boolean(p.nextPromptEnabled);
+      chkNext.disabled = !aiAssistState.available;
+    }
+    const tapRow = document.getElementById("settings-ai-next-prompt-tap-row");
+    const tapSel = document.getElementById("settings-ai-next-prompt-tap");
+    if (tapRow) tapRow.classList.toggle("hidden", !p.nextPromptEnabled);
+    if (tapSel) tapSel.value = p.nextPromptTapAction === "send" ? "send" : "fill";
+
+    const modelEl = document.getElementById("settings-ai-model-name");
+    if (modelEl) modelEl.textContent = aiAssistState.modelName || "Gemini 3.5 Flash Lite";
+
+    const engFooter = document.getElementById("settings-ai-engine-footer");
+    if (engFooter) {
+      if (syncErrorText) {
+        engFooter.textContent = syncErrorText;
+      } else if (!aiAssistState.available) {
+        engFooter.textContent = uiLang === "en"
+          ? "This Antigravity version does not support native GetModelResponse."
+          : (uiLang === "ja" ? "現在の Antigravity バージョンでは GetModelResponse に対応していません。" : "当前 Antigravity 版本不支持原生 GetModelResponse 接口。");
+      } else {
+        engFooter.textContent = uiLang === "en"
+          ? "Runs statelessly via local Antigravity native RPC without creating extra sessions. Syncs across devices."
+          : (uiLang === "ja" ? "ローカルの Antigravity ネイティブ API でステートレス実行され、追加会話は作成されません。設定は全端末に同期されます。" : "通过本机 Antigravity 原生接口无状态执行，不产生额外会话，微量共享当前账号 Gemini 额度，开关跨设备同步至网关。");
+      }
+    }
+  }
+
+  window.AIAssist = {
+    getTapAction() {
+      return aiAssistState.prefs?.nextPromptTapAction === "send" ? "send" : "fill";
+    },
+    async ensureLoaded() {
+      if (aiAssistState.loadedAt > 0 && Date.now() - aiAssistState.loadedAt < 300000) return;
+      await this.refresh();
+    },
+    async refresh() {
+      try {
+        const resp = await fetch("/gateway/ai-assist/prefs");
+        if (resp && resp.ok) {
+          const data = await resp.json();
+          if (data && data.prefs) {
+            aiAssistState.prefs = { ...aiAssistState.prefs, ...data.prefs };
+            if (data.modelName) aiAssistState.modelName = data.modelName;
+            aiAssistState.resolvedLangName = data.resolvedLangName || "";
+            aiAssistState.translatedCount = Number(data.translatedCount || 0);
+            aiAssistState.available = data.available !== false;
+            aiAssistState.loadedAt = Date.now();
+          }
+        }
+      } catch (_) {}
+      syncAIAssistUI();
+    },
+    async patch(patchObj) {
+      const prev = { ...aiAssistState.prefs };
+      aiAssistState.prefs = { ...aiAssistState.prefs, ...patchObj };
+      syncAIAssistUI();
+      try {
+        const resp = await fetch("/gateway/ai-assist/prefs", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(patchObj),
+        });
+        if (!resp || !resp.ok) {
+          aiAssistState.prefs = prev;
+          syncAIAssistUI(typeof t === "function" ? t("同步失败，请稍后重试") : "同步失败，请稍后重试");
+          return;
+        }
+        const data = await resp.json();
+        if (data && data.prefs) {
+          aiAssistState.prefs = { ...aiAssistState.prefs, ...data.prefs };
+          if (data.modelName) aiAssistState.modelName = data.modelName;
+          aiAssistState.resolvedLangName = data.resolvedLangName || "";
+          aiAssistState.translatedCount = Number(data.translatedCount || 0);
+          aiAssistState.available = data.available !== false;
+          aiAssistState.loadedAt = Date.now();
+        }
+        syncAIAssistUI();
+      } catch (_) {
+        aiAssistState.prefs = prev;
+        syncAIAssistUI(typeof t === "function" ? t("同步失败，请检查网关连接") : "同步失败，请检查网关连接");
+      }
+    },
+    async translateExisting() {
+      if (aiAssistState.busyBatch) return;
+      const dev = resolveWebTitleTargetLanguage();
+      if (dev.isEnglish) return;
+      aiAssistState.busyBatch = true;
+      aiAssistState.feedback = "";
+      aiAssistState.feedbackIsError = false;
+      syncAIAssistUI();
+      try {
+        const resp = await fetch("/gateway/ai-assist/translate-titles", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            targetLang: dev.bcp47,
+            targetLangName: dev.englishName,
+            includeArchived: false,
+          }),
+        });
+        const data = resp && resp.ok ? await resp.json() : null;
+        if (data) {
+          if (typeof data.translatedCount === "number") aiAssistState.translatedCount = data.translatedCount;
+          const tr = Number(data.translated || 0);
+          const sk = Number(data.skipped || 0);
+          const fl = Number(data.failed || 0);
+          aiAssistState.feedbackIsError = tr === 0 && fl > 0;
+          if (data.alreadyRunning) {
+            aiAssistState.feedback = dev.kind === "ja" ? "翻訳処理が実行中です" : (dev.kind.startsWith("zh") ? "后台正在翻译中，请稍候" : "Translation is already running in the background");
+          } else if (tr === 0 && fl === 0) {
+            aiAssistState.feedback = dev.kind === "ja" ? `翻訳対象の英語タイトルはありませんでした（${sk} 件スキップ）` : (dev.kind.startsWith("zh") ? `所有活跃会话标题已是目标语言（跳过 ${sk} 条）` : `All active titles are already up to date (${sk} skipped)`);
+          } else {
+            aiAssistState.feedback = dev.kind === "ja"
+              ? (fl > 0 ? `${tr} 件翻訳、${sk} 件スキップ、${fl} 件失敗` : `${tr} 件のタイトルを翻訳しました（${sk} 件スキップ）`)
+              : (dev.kind.startsWith("zh")
+                ? (fl > 0 ? `已翻译 ${tr} 条，跳过 ${sk} 条，失败 ${fl} 条` : `已翻译 ${tr} 条标题，跳过 ${sk} 条`)
+                : (fl > 0 ? `Translated ${tr}, skipped ${sk}, failed ${fl}` : `Translated ${tr} titles (${sk} skipped)`));
+          }
+          if (tr > 0 && typeof loadConversations === "function") loadConversations();
+        } else {
+          aiAssistState.feedbackIsError = true;
+          aiAssistState.feedback = typeof t === "function" ? t("翻译失败，请确认网关已连接 Antigravity") : "翻译失败，请确认网关已连接 Antigravity";
+        }
+      } catch (_) {
+        aiAssistState.feedbackIsError = true;
+        aiAssistState.feedback = typeof t === "function" ? t("翻译请求超时或连接中断") : "翻译请求超时或连接中断";
+      } finally {
+        aiAssistState.busyBatch = false;
+        syncAIAssistUI();
+      }
+    },
+    async restoreOriginal() {
+      if (aiAssistState.busyRestore || aiAssistState.busyBatch) return;
+      const dev = resolveWebTitleTargetLanguage();
+      const msg = dev.kind === "ja"
+        ? "自動・一括翻訳された会話タイトルを元の英語タイトルに戻します（手動変更したタイトルは維持されます）。よろしいですか？"
+        : (dev.kind.startsWith("zh")
+          ? "将把此前自动或批量翻译的会话标题恢复为原始标题（手动重命名的会话不受影响），确认还原？"
+          : "Restore titles previously translated by AI Assist back to their original text? (Manually renamed titles are preserved.)");
+      if (!window.confirm(msg)) return;
+      aiAssistState.busyRestore = true;
+      aiAssistState.feedback = "";
+      aiAssistState.feedbackIsError = false;
+      syncAIAssistUI();
+      try {
+        const resp = await fetch("/gateway/ai-assist/restore-titles", { method: "POST" });
+        const data = resp && resp.ok ? await resp.json() : null;
+        if (data) {
+          const restored = Number(data.restored || 0);
+          if (typeof data.translatedCount === "number") aiAssistState.translatedCount = data.translatedCount;
+          aiAssistState.feedback = dev.kind === "ja"
+            ? `${restored} 件の元のタイトルを復元しました`
+            : (dev.kind.startsWith("zh") ? `已还原 ${restored} 条原始标题` : `Restored ${restored} original titles`);
+          if (restored > 0 && typeof loadConversations === "function") loadConversations();
+        } else {
+          aiAssistState.feedbackIsError = true;
+          aiAssistState.feedback = typeof t === "function" ? t("还原失败，请稍后重试") : "还原失败，请稍后重试";
+        }
+      } catch (_) {
+        aiAssistState.feedbackIsError = true;
+        aiAssistState.feedback = typeof t === "function" ? t("还原失败，请检查网关连接") : "还原失败，请检查网关连接";
+      } finally {
+        aiAssistState.busyRestore = false;
+        syncAIAssistUI();
+      }
+    },
+  };
+
+  document.getElementById("settings-ai-title-translate")?.addEventListener("change", (e) => {
+    const enabled = Boolean(e.target.checked);
+    const dev = resolveWebTitleTargetLanguage();
+    const patch = { titleTranslateEnabled: enabled };
+    if (enabled && !dev.isEnglish) {
+      patch.titleTranslateLang = dev.bcp47;
+      patch.titleTranslateLangName = dev.englishName;
+    }
+    window.AIAssist.patch(patch);
+  });
+  document.getElementById("btn-ai-translate-existing")?.addEventListener("click", () => {
+    window.AIAssist.translateExisting();
+  });
+  document.getElementById("btn-ai-restore-titles")?.addEventListener("click", () => {
+    window.AIAssist.restoreOriginal();
+  });
+  document.getElementById("settings-ai-next-prompt")?.addEventListener("change", (e) => {
+    window.AIAssist.patch({ nextPromptEnabled: Boolean(e.target.checked) });
+  });
+  document.getElementById("settings-ai-next-prompt-tap")?.addEventListener("change", (e) => {
+    window.AIAssist.patch({ nextPromptTapAction: e.target.value === "send" ? "send" : "fill" });
+  });
+  window.addEventListener("mgy:languagechange", () => syncAIAssistUI());
+  syncAIAssistUI();
+  window.AIAssist.refresh();
+
   // Expand / Collapse Running Tasks Card
   document.getElementById("btn-tasks-expand")?.addEventListener("click", () => {
     RunningTasksManager.toggleExpand();

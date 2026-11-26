@@ -94,8 +94,19 @@ extension ChatViewModel {
         if let ws = payload.workspaceUri, !ws.isEmpty, self.workspaceUri != ws {
             self.workspaceUri = ws
         }
-        if let suggestions = payload.suggestedResponses, self.suggestedResponses != suggestions {
-            self.suggestedResponses = suggestions
+        let incomingSuggestions = payload.suggestedResponses ?? []
+        if self.suggestedResponses != incomingSuggestions {
+            self.suggestedResponses = incomingSuggestions
+            if self.dismissedPredictedSuggestion != incomingSuggestions.first {
+                self.dismissedPredictedSuggestion = nil
+            }
+        }
+        let incomingSource = payload.suggestedResponseSource ?? (incomingSuggestions.isEmpty ? "" : "native")
+        if self.suggestedResponseSource != incomingSource {
+            self.suggestedResponseSource = incomingSource
+        }
+        if incomingSource == "predicted" {
+            Task { await AIAssistManager.shared.ensureFetched() }
         }
         if self.activeFocus != payload.activeFocus {
             self.activeFocus = payload.activeFocus
