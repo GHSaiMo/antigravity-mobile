@@ -33,7 +33,7 @@ func TestAIAssistPrefs_DefaultsAndPersistence(t *testing.T) {
 	if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil {
 		t.Fatalf("unmarshal GET prefs: %v", err)
 	}
-	if got.Prefs.TitleTranslateEnabled || got.Prefs.NextPromptEnabled {
+	if got.Prefs.TitleTranslateEnabled || got.Prefs.StepPlanTranslateEnabled || got.Prefs.FocusTranslateEnabled || got.Prefs.NextPromptEnabled {
 		t.Fatalf("expected opt-in defaults false, got %+v", got.Prefs)
 	}
 	if got.Prefs.NextPromptTapAction != NextPromptTapFill {
@@ -44,7 +44,7 @@ func TestAIAssistPrefs_DefaultsAndPersistence(t *testing.T) {
 	}
 
 	// POST partial patch
-	patchBody := `{"titleTranslateEnabled":true,"titleTranslateLang":"pt-BR","titleTranslateLangName":"Portuguese","nextPromptEnabled":true,"nextPromptTapAction":"send"}`
+	patchBody := `{"titleTranslateEnabled":true,"titleTranslateLang":"pt-BR","titleTranslateLangName":"Portuguese","stepPlanTranslateEnabled":true,"focusTranslateEnabled":true,"nextPromptEnabled":true,"nextPromptTapAction":"send"}`
 	req2 := httptest.NewRequest(http.MethodPost, "/gateway/ai-assist/prefs", strings.NewReader(patchBody))
 	rec2 := httptest.NewRecorder()
 	p.HandleAIAssistPrefs(rec2, req2)
@@ -55,7 +55,7 @@ func TestAIAssistPrefs_DefaultsAndPersistence(t *testing.T) {
 	// Reload from a fresh Proxy instance pointing at the same data dir
 	p2 := NewProxy(inspector.NewInspector(time.Second))
 	reloaded := p2.AIAssistPrefs()
-	if !reloaded.TitleTranslateEnabled || !reloaded.NextPromptEnabled {
+	if !reloaded.TitleTranslateEnabled || !reloaded.StepPlanTranslateEnabled || !reloaded.FocusTranslateEnabled || !reloaded.NextPromptEnabled {
 		t.Fatalf("expected persisted enabled flags, got %+v", reloaded)
 	}
 	if reloaded.TitleTranslateLang != "pt-BR" || reloaded.TitleTranslateLangName != "Portuguese" {
@@ -391,5 +391,181 @@ func TestNextPrompt_GatesSanitizationAndAsyncResolution(t *testing.T) {
 	}
 	if sig := p.nextPromptSignature(base.CascadeID); sig == "" {
 		t.Fatal("expected non-empty nextPromptSignature after prediction cached")
+	}
+}
+
+func TestLiveTextNeedsTranslation_MixedLanguageAndLocales(t *testing.T) {
+	cases := []struct {
+		text string
+		lang string
+		want bool
+	}{
+		// Chinese target: pure English & mixed English with CJK proper noun
+		{"Update iOS layout, trackpad cursor, and HUD", "zh-Hans", true},
+		{"Install to 九仔 and restart mgy", "zh-Hans", true},
+		{"Deploy to 九仔", "zh-Hans", true},
+		{"Updating Android layout, full model names, and virtual cursor", "zh-Hans", true},
+		// Already Chinese (with tech acronyms)
+		{"更新 iOS 布局、触控板光标与 HUD", "zh-Hans", false},
+		{"安装到九仔并重启 mgy", "zh-Hans", false},
+		{"iOS 端适配 HUD 与虚拟光标", "zh-Hans", false},
+		// Paths & empty
+		{"/Users/hal9000/Projects/antigravity-mobile", "zh-Hans", false},
+		{"", "zh-Hans", false},
+		// English target -> never translate
+		{"Update iOS layout, trackpad cursor, and HUD", "en", false},
+		{"更新 iOS 布局", "en-US", false},
+		// Japanese target
+		{"Update Android layout", "ja", true},
+		{"Androidレイアウトを更新", "ja", false},
+		// Korean target
+		{"Verify iOS, Android, and Web builds", "ko", true},
+		{"iOS, Android, Web 빌드 검증", "ko", false},
+		// Latin-script non-English (Portuguese)
+		{"Verify iOS, Android, and Web builds", "pt-BR", true},
+	}
+	for _, tc := range cases {
+		if got := liveTextNeedsTranslation(tc.text, tc.lang); got != tc.want {
+			t.Errorf("liveTextNeedsTranslation(%q, %q) = %v, want %v", tc.text, tc.lang, got, tc.want)
+		}
+	}
+}
+
+func TestLiveTextTranslator_SeparateTogglesCopyOnWriteAndLiveActivity(t *testing.T) {
+	t.Setenv("MULTIGRAVITY_DATA_DIR", t.TempDir())
+	t.Setenv("HOME", t.TempDir())
+
+	p := NewProxy(inspector.NewInspector(time.Second))
+	lang := "zh-Hans"
+	langName := "Simplified Chinese"
+	stepOn := true
+	focusOff := false
+	if _, err := p.aiAssistPrefs.Update(AIAssistPrefsPatch{
+		StepPlanTranslateEnabled: &stepOn,
+		FocusTranslateEnabled:    &focusOff,
+		TitleTranslateLang:       &lang,
+		TitleTranslateLangName:   &langName,
+	}); err != nil {
+		t.Fatalf("update prefs: %v", err)
+	}
+
+	var mu sync.Mutex
+	var calls int
+	p.lsModelResponseHook = func(ctx context.Context, prompt, modelEnum string) (string, error) {
+		mu.Lock()
+		calls++
+		mu.Unlock()
+		if strings.Contains(prompt, "Input JSON:") {
+			return `{"1":"更新 iOS 布局与光标","2":"安装到九仔并重启 mgy"}`, nil
+		}
+		if strings.Contains(prompt, "Status:") {
+			return "正在更新 Android 布局与虚拟光标", nil
+		}
+		return "", nil
+	}
+
+	// Build a shared TrajectoryDetails fixture to verify copy-on-write does NOT mutate original backing slices.
+	origItems := []StepPlanItemEntry{
+		{Key: "update ios layout, trackpad cursor, and hud", Title: "Update iOS layout, trackpad cursor, and HUD", Status: "done"},
+		{Key: "install to 九仔 and restart mgy", Title: "Install to 九仔 and restart mgy", Status: "in_progress"},
+	}
+	origPlan := &StepPlanItem{AnchorStepIndex: 3, Items: origItems, DoneCount: 1, TotalCount: 2}
+	origMsgs := []CascadeMessageItem{
+		{ID: "step-plan-3", Type: "step_plan", StepPlan: origPlan},
+		{ID: "tools-4", Type: "tools", FocusText: "Updating Android layout and virtual cursor"},
+	}
+
+	makeDetails := func() TrajectoryDetails {
+		return TrajectoryDetails{
+			CascadeID:   "cid-live-1",
+			Status:      "CASCADE_RUN_STATUS_RUNNING",
+			AllMessages: origMsgs,
+			ActivePlan:  origPlan,
+			ActiveFocus: "Updating Android layout and virtual cursor",
+		}
+	}
+
+	touchCh, cleanup := p.registerStreamTouchListener("cid-live-1")
+	defer cleanup()
+
+	// 1. With only StepPlanTranslateEnabled=true, schedules step plan batch (NOT focus).
+	d1 := makeDetails()
+	if applied := p.ApplyLiveTextTranslations("cid-live-1", &d1, "", true); len(applied) != 0 {
+		t.Fatalf("expected empty immediate overlay on cache miss, got %v", applied)
+	}
+	select {
+	case <-touchCh:
+	case <-time.After(3 * time.Second):
+		t.Fatal("timed out waiting for step-plan translation touch notification")
+	}
+
+	d2 := makeDetails()
+	applied := p.ApplyLiveTextTranslations("cid-live-1", &d2, "", false)
+	if len(applied) != 2 {
+		t.Fatalf("expected 2 translated step items in applied map, got %v", applied)
+	}
+	// Verify translated titles + untouched original Keys!
+	sp := d2.AllMessages[0].StepPlan
+	if sp.Items[0].Title != "更新 iOS 布局与光标" || sp.Items[0].Key != "update ios layout, trackpad cursor, and hud" {
+		t.Fatalf("unexpected translated item[0]: %+v", sp.Items[0])
+	}
+	if sp.Items[1].Title != "安装到九仔并重启 mgy" || sp.Items[1].Key != "install to 九仔 and restart mgy" {
+		t.Fatalf("unexpected translated item[1]: %+v", sp.Items[1])
+	}
+	if d2.ActivePlan.Items[1].Title != "安装到九仔并重启 mgy" {
+		t.Fatalf("expected ActivePlan translated, got %+v", d2.ActivePlan.Items[1])
+	}
+	// Focus switch is OFF -> ActiveFocus and tools.FocusText MUST remain original English.
+	if d2.ActiveFocus != "Updating Android layout and virtual cursor" || d2.AllMessages[1].FocusText != "Updating Android layout and virtual cursor" {
+		t.Fatalf("expected focus untouched when focusTranslateEnabled=false, got active=%q msg=%q", d2.ActiveFocus, d2.AllMessages[1].FocusText)
+	}
+	// Shared original backing slices MUST remain completely untouched (copy-on-write safety)!
+	if origItems[0].Title != "Update iOS layout, trackpad cursor, and HUD" || origMsgs[0].StepPlan.Items[0].Title != "Update iOS layout, trackpad cursor, and HUD" {
+		t.Fatalf("shared backing slice was mutated! origItems[0]=%q", origItems[0].Title)
+	}
+
+	// 2. Flipping step status (pending -> done) reuses cache with ZERO additional model calls!
+	mu.Lock()
+	callsAfterSteps := calls
+	mu.Unlock()
+	if callsAfterSteps != 1 {
+		t.Fatalf("expected exactly 1 batched model call for 2 step items, got %d", callsAfterSteps)
+	}
+	d3 := makeDetails()
+	p.ApplyLiveTextTranslations("cid-live-1", &d3, "", true)
+	time.Sleep(50 * time.Millisecond)
+	mu.Lock()
+	callsAfterCacheHit := calls
+	mu.Unlock()
+	if callsAfterCacheHit != 1 {
+		t.Fatalf("expected 0 extra model calls on cache hit, got %d", callsAfterCacheHit-callsAfterSteps)
+	}
+
+	// 3. Turn FocusTranslateEnabled=true and verify EnsureLiveTextTranslatedForLiveActivity translates synchronously!
+	focusOn := true
+	if _, err := p.aiAssistPrefs.Update(AIAssistPrefsPatch{FocusTranslateEnabled: &focusOn}); err != nil {
+		t.Fatalf("enable focus translate: %v", err)
+	}
+	laDetails := makeDetails()
+	p.EnsureLiveTextTranslatedForLiveActivity(context.Background(), &laDetails, "")
+	if laDetails.ActiveFocus != "正在更新 Android 布局与虚拟光标" {
+		t.Fatalf("expected Live Activity ActiveFocus translated synchronously, got %q", laDetails.ActiveFocus)
+	}
+	if laDetails.ActivePlan.Items[1].Title != "安装到九仔并重启 mgy" {
+		t.Fatalf("expected Live Activity ActivePlan translated, got %q", laDetails.ActivePlan.Items[1].Title)
+	}
+
+	// 4. English target language must never translate or issue model calls.
+	enLang := "en"
+	enName := "English"
+	if _, err := p.aiAssistPrefs.Update(AIAssistPrefsPatch{TitleTranslateLang: &enLang, TitleTranslateLangName: &enName}); err != nil {
+		t.Fatalf("switch to en: %v", err)
+	}
+	dEn := makeDetails()
+	if appliedEn := p.ApplyLiveTextTranslations("cid-live-1", &dEn, "en-US", true); len(appliedEn) != 0 {
+		t.Fatalf("expected no translations for English user, got %v", appliedEn)
+	}
+	if dEn.ActiveFocus != "Updating Android layout and virtual cursor" {
+		t.Fatalf("expected untouched focus for English user, got %q", dEn.ActiveFocus)
 	}
 }

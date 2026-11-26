@@ -5,6 +5,8 @@ public struct AIAssistPrefsPayload: Codable, Equatable, Sendable {
     public var titleTranslateEnabled: Bool
     public var titleTranslateLang: String?
     public var titleTranslateLangName: String?
+    public var stepPlanTranslateEnabled: Bool
+    public var focusTranslateEnabled: Bool
     public var nextPromptEnabled: Bool
     public var nextPromptTapAction: String
 
@@ -12,6 +14,8 @@ public struct AIAssistPrefsPayload: Codable, Equatable, Sendable {
         titleTranslateEnabled: false,
         titleTranslateLang: nil,
         titleTranslateLangName: nil,
+        stepPlanTranslateEnabled: false,
+        focusTranslateEnabled: false,
         nextPromptEnabled: false,
         nextPromptTapAction: "fill"
     )
@@ -20,14 +24,35 @@ public struct AIAssistPrefsPayload: Codable, Equatable, Sendable {
         titleTranslateEnabled: Bool = false,
         titleTranslateLang: String? = nil,
         titleTranslateLangName: String? = nil,
+        stepPlanTranslateEnabled: Bool = false,
+        focusTranslateEnabled: Bool = false,
         nextPromptEnabled: Bool = false,
         nextPromptTapAction: String = "fill"
     ) {
         self.titleTranslateEnabled = titleTranslateEnabled
         self.titleTranslateLang = titleTranslateLang
         self.titleTranslateLangName = titleTranslateLangName
+        self.stepPlanTranslateEnabled = stepPlanTranslateEnabled
+        self.focusTranslateEnabled = focusTranslateEnabled
         self.nextPromptEnabled = nextPromptEnabled
         self.nextPromptTapAction = nextPromptTapAction
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case titleTranslateEnabled, titleTranslateLang, titleTranslateLangName
+        case stepPlanTranslateEnabled, focusTranslateEnabled
+        case nextPromptEnabled, nextPromptTapAction
+    }
+
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        self.titleTranslateEnabled = try c.decodeIfPresent(Bool.self, forKey: .titleTranslateEnabled) ?? false
+        self.titleTranslateLang = try c.decodeIfPresent(String.self, forKey: .titleTranslateLang)
+        self.titleTranslateLangName = try c.decodeIfPresent(String.self, forKey: .titleTranslateLangName)
+        self.stepPlanTranslateEnabled = try c.decodeIfPresent(Bool.self, forKey: .stepPlanTranslateEnabled) ?? false
+        self.focusTranslateEnabled = try c.decodeIfPresent(Bool.self, forKey: .focusTranslateEnabled) ?? false
+        self.nextPromptEnabled = try c.decodeIfPresent(Bool.self, forKey: .nextPromptEnabled) ?? false
+        self.nextPromptTapAction = try c.decodeIfPresent(String.self, forKey: .nextPromptTapAction) ?? "fill"
     }
 }
 
@@ -124,6 +149,10 @@ public struct DeviceTitleTargetLanguage: Equatable, Sendable {
     public func shouldShowTitleTranslationSection(prefs: AIAssistPrefsPayload) -> Bool {
         !isEnglish || prefs.titleTranslateEnabled
     }
+
+    public func shouldShowLiveTranslationSection(prefs: AIAssistPrefsPayload) -> Bool {
+        !isEnglish || prefs.stepPlanTranslateEnabled || prefs.focusTranslateEnabled
+    }
 }
 
 public extension Notification.Name {
@@ -166,14 +195,27 @@ public final class AIAssistManager {
         deviceLanguage.shouldShowTitleTranslationSection(prefs: prefs)
     }
 
+    public var shouldShowLiveTranslation: Bool {
+        deviceLanguage.shouldShowLiveTranslationSection(prefs: prefs)
+    }
+
     public var summaryText: String {
         let titleOn = shouldShowTitleTranslation && prefs.titleTranslateEnabled
+        let stepOn = shouldShowLiveTranslation && prefs.stepPlanTranslateEnabled
+        let focusOn = shouldShowLiveTranslation && prefs.focusTranslateEnabled
         let nextOn = prefs.nextPromptEnabled
-        if titleOn && nextOn {
-            return String(localized: "已开启 2 项")
+        let count = [titleOn, stepOn, focusOn, nextOn].filter { $0 }.count
+        if count >= 2 {
+            return String(localized: "已开启 \(count) 项")
         }
         if titleOn {
             return String(localized: "标题翻译")
+        }
+        if stepOn {
+            return String(localized: "步骤翻译")
+        }
+        if focusOn {
+            return String(localized: "状态翻译")
         }
         if nextOn {
             return String(localized: "提示词建议")
@@ -227,6 +269,36 @@ public final class AIAssistManager {
         var body: [String: Any] = ["titleTranslateEnabled": enabled]
         var next = prefs
         next.titleTranslateEnabled = enabled
+        if enabled && !dev.isEnglish {
+            body["titleTranslateLang"] = dev.bcp47Tag
+            body["titleTranslateLangName"] = dev.englishDisplayName
+            next.titleTranslateLang = dev.bcp47Tag
+            next.titleTranslateLangName = dev.englishDisplayName
+        }
+        await patchPrefs(optimistic: next, previous: prev, body: body)
+    }
+
+    public func setStepPlanTranslateEnabled(_ enabled: Bool) async {
+        let prev = prefs
+        let dev = deviceLanguage
+        var body: [String: Any] = ["stepPlanTranslateEnabled": enabled]
+        var next = prefs
+        next.stepPlanTranslateEnabled = enabled
+        if enabled && !dev.isEnglish {
+            body["titleTranslateLang"] = dev.bcp47Tag
+            body["titleTranslateLangName"] = dev.englishDisplayName
+            next.titleTranslateLang = dev.bcp47Tag
+            next.titleTranslateLangName = dev.englishDisplayName
+        }
+        await patchPrefs(optimistic: next, previous: prev, body: body)
+    }
+
+    public func setFocusTranslateEnabled(_ enabled: Bool) async {
+        let prev = prefs
+        let dev = deviceLanguage
+        var body: [String: Any] = ["focusTranslateEnabled": enabled]
+        var next = prefs
+        next.focusTranslateEnabled = enabled
         if enabled && !dev.isEnglish {
             body["titleTranslateLang"] = dev.bcp47Tag
             body["titleTranslateLangName"] = dev.englishDisplayName

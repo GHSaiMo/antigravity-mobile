@@ -22,20 +22,24 @@ const (
 // AIAssistPrefs holds gateway-persisted, cross-device AI Assist preferences.
 // All capabilities default to opt-in (false) so no extra model calls are issued unexpectedly.
 type AIAssistPrefs struct {
-	TitleTranslateEnabled  bool   `json:"titleTranslateEnabled"`
-	TitleTranslateLang     string `json:"titleTranslateLang,omitempty"`     // BCP-47 tag (e.g. "zh-Hans", "ja", "pt-BR"), empty = auto
-	TitleTranslateLangName string `json:"titleTranslateLangName,omitempty"` // English display name (e.g. "Simplified Chinese", "Portuguese")
-	NextPromptEnabled      bool   `json:"nextPromptEnabled"`
-	NextPromptTapAction    string `json:"nextPromptTapAction"` // "fill" | "send"
+	TitleTranslateEnabled    bool   `json:"titleTranslateEnabled"`
+	TitleTranslateLang       string `json:"titleTranslateLang,omitempty"`     // BCP-47 tag (e.g. "zh-Hans", "ja", "pt-BR"), empty = auto
+	TitleTranslateLangName   string `json:"titleTranslateLangName,omitempty"` // English display name (e.g. "Simplified Chinese", "Portuguese")
+	StepPlanTranslateEnabled bool   `json:"stepPlanTranslateEnabled"`
+	FocusTranslateEnabled    bool   `json:"focusTranslateEnabled"`
+	NextPromptEnabled        bool   `json:"nextPromptEnabled"`
+	NextPromptTapAction      string `json:"nextPromptTapAction"` // "fill" | "send"
 }
 
 // AIAssistPrefsPatch supports partial updates from mobile/web settings clients.
 type AIAssistPrefsPatch struct {
-	TitleTranslateEnabled  *bool   `json:"titleTranslateEnabled,omitempty"`
-	TitleTranslateLang     *string `json:"titleTranslateLang,omitempty"`
-	TitleTranslateLangName *string `json:"titleTranslateLangName,omitempty"`
-	NextPromptEnabled      *bool   `json:"nextPromptEnabled,omitempty"`
-	NextPromptTapAction    *string `json:"nextPromptTapAction,omitempty"`
+	TitleTranslateEnabled    *bool   `json:"titleTranslateEnabled,omitempty"`
+	TitleTranslateLang       *string `json:"titleTranslateLang,omitempty"`
+	TitleTranslateLangName   *string `json:"titleTranslateLangName,omitempty"`
+	StepPlanTranslateEnabled *bool   `json:"stepPlanTranslateEnabled,omitempty"`
+	FocusTranslateEnabled    *bool   `json:"focusTranslateEnabled,omitempty"`
+	NextPromptEnabled        *bool   `json:"nextPromptEnabled,omitempty"`
+	NextPromptTapAction      *string `json:"nextPromptTapAction,omitempty"`
 }
 
 // AIAssistStatusResponse is returned by GET and POST /gateway/ai-assist/prefs.
@@ -72,9 +76,11 @@ func defaultAIAssistPrefs() AIAssistPrefs {
 		tapAction = NextPromptTapFill
 	}
 	return AIAssistPrefs{
-		TitleTranslateEnabled: envBoolDefaultFalse("MGY_AI_TITLE_TRANSLATE"),
-		NextPromptEnabled:     envBoolDefaultFalse("MGY_AI_NEXT_PROMPT"),
-		NextPromptTapAction:   tapAction,
+		TitleTranslateEnabled:    envBoolDefaultFalse("MGY_AI_TITLE_TRANSLATE"),
+		StepPlanTranslateEnabled: envBoolDefaultFalse("MGY_AI_STEP_PLAN_TRANSLATE"),
+		FocusTranslateEnabled:    envBoolDefaultFalse("MGY_AI_FOCUS_TRANSLATE"),
+		NextPromptEnabled:        envBoolDefaultFalse("MGY_AI_NEXT_PROMPT"),
+		NextPromptTapAction:      tapAction,
 	}
 }
 
@@ -128,6 +134,12 @@ func applyAIAssistPrefsPatch(dst *AIAssistPrefs, patch AIAssistPrefsPatch) {
 		if len(name) <= 64 {
 			dst.TitleTranslateLangName = name
 		}
+	}
+	if patch.StepPlanTranslateEnabled != nil {
+		dst.StepPlanTranslateEnabled = *patch.StepPlanTranslateEnabled
+	}
+	if patch.FocusTranslateEnabled != nil {
+		dst.FocusTranslateEnabled = *patch.FocusTranslateEnabled
 	}
 	if patch.NextPromptEnabled != nil {
 		dst.NextPromptEnabled = *patch.NextPromptEnabled
@@ -221,6 +233,13 @@ func (p *Proxy) HandleAIAssistPrefs(w http.ResponseWriter, r *http.Request) {
 		// If next-prompt suggestions were disabled, immediately clear cached suggestions and notify active streams.
 		if prev.NextPromptEnabled && !updated.NextPromptEnabled {
 			p.clearAllNextPromptCache()
+		}
+		// If live step-plan / focus translation switches or target language changed, immediately wake active streams.
+		if prev.StepPlanTranslateEnabled != updated.StepPlanTranslateEnabled ||
+			prev.FocusTranslateEnabled != updated.FocusTranslateEnabled ||
+			prev.TitleTranslateLang != updated.TitleTranslateLang {
+			p.liveTextTranslator.BumpPrefsVersion()
+			p.notifyAllStreamTouch()
 		}
 		writeJSONOK(w, p.buildAIAssistStatus(r))
 	default:

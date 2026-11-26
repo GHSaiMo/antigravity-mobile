@@ -660,6 +660,7 @@ func (p *Proxy) FetchTrajectoryDetails(cascadeID string, maxAge time.Duration) (
 			details.Title = t
 		}
 	}
+	p.ApplyLiveTextTranslations(cascadeID, &details, "", true)
 	return &details, nil
 }
 

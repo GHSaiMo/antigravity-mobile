@@ -89,6 +89,76 @@ struct AIAssistSettingsView: View {
         }
     }
 
+    private var liveSectionHeader: String {
+        switch devLang.kind {
+        case .simplifiedChinese, .traditionalChinese:
+            return "进度与状态翻译"
+        case .japanese:
+            return "進捗・ステータスの翻訳"
+        default:
+            return "Progress & Status Translation"
+        }
+    }
+
+    private var stepPlanToggleLabel: String {
+        switch devLang.kind {
+        case .simplifiedChinese, .traditionalChinese:
+            return "步骤清单实时翻译"
+        case .japanese:
+            return "ステップ一覧を自動翻訳"
+        default:
+            return "Translate Step Checklist"
+        }
+    }
+
+    private var stepPlanToggleSubtitle: String {
+        switch devLang.kind {
+        case .simplifiedChinese:
+            return "将英文待办步骤翻译为简体中文（含灵动岛）"
+        case .traditionalChinese:
+            return "将英文待办步骤翻译为繁体中文（含灵动岛）"
+        case .japanese:
+            return "英語のタスクリストを日本語に翻訳（Dynamic Island 含む）"
+        default:
+            return "Translate English checklist steps into \(activeTargetEnglishName) (incl. Live Activity)"
+        }
+    }
+
+    private var focusToggleLabel: String {
+        switch devLang.kind {
+        case .simplifiedChinese, .traditionalChinese:
+            return "实时状态行翻译"
+        case .japanese:
+            return "リアルタイム状況を自動翻訳"
+        default:
+            return "Translate Live Status Line"
+        }
+    }
+
+    private var focusToggleSubtitle: String {
+        switch devLang.kind {
+        case .simplifiedChinese:
+            return "将执行中的英文状态摘要翻译为简体中文（含灵动岛）"
+        case .traditionalChinese:
+            return "将执行中的英文状态摘要翻译为繁体中文（含灵动岛）"
+        case .japanese:
+            return "実行中の英語ステータスを日本語に翻訳（Dynamic Island 含む）"
+        default:
+            return "Translate live working status into \(activeTargetEnglishName) (incl. Live Activity)"
+        }
+    }
+
+    private var liveSectionFooter: String {
+        switch devLang.kind {
+        case .simplifiedChinese, .traditionalChinese:
+            return "仅在客户端与灵动岛展示译文，不修改桌面端原始记录；相同条目本地缓存复用，随时可独立开关。"
+        case .japanese:
+            return "クライアントと Dynamic Island の表示のみ翻訳され、デスクトップの元記録は変更されません。同じ項目はキャッシュで再利用されます。"
+        default:
+            return "Translates display on mobile, Web, and Live Activity only without modifying desktop history. Cached locally for reuse."
+        }
+    }
+
     var body: some View {
         Form {
             // MARK: - 1. 会话标题翻译 (英文区默认隐藏；若网关已开启则兜底展示以便关闭)
@@ -152,6 +222,46 @@ struct AIAssistSettingsView: View {
                             .font(.caption)
                             .foregroundColor(manager.batchFeedbackIsError ? .red : .secondary)
                     }
+                }
+            }
+
+            // MARK: - 1.5 进度与状态翻译 (英文区默认隐藏；若网关已开启则兜底展示以便关闭)
+            if manager.shouldShowLiveTranslation {
+                Section(
+                    header: Text(liveSectionHeader),
+                    footer: Text(liveSectionFooter)
+                ) {
+                    Toggle(isOn: Binding(
+                        get: { manager.prefs.stepPlanTranslateEnabled },
+                        set: { newVal in
+                            UIImpactFeedbackGenerator(style: .light).impactOccurred()
+                            Task { await manager.setStepPlanTranslateEnabled(newVal) }
+                        }
+                    )) {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(stepPlanToggleLabel)
+                            Text(stepPlanToggleSubtitle)
+                                .font(.caption)
+                                .foregroundColor(.secondary)
+                        }
+                    }
+                    .disabled(settings.isDemoMode || !manager.isAvailable)
+
+                    Toggle(isOn: Binding(
+                        get: { manager.prefs.focusTranslateEnabled },
+                        set: { newVal in
+                            UIImpactFeedbackGenerator(style: .light).impactOccurred()
+                            Task { await manager.setFocusTranslateEnabled(newVal) }
+                        }
+                    )) {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(focusToggleLabel)
+                            Text(focusToggleSubtitle)
+                                .font(.caption)
+                                .foregroundColor(.secondary)
+                        }
+                    }
+                    .disabled(settings.isDemoMode || !manager.isAvailable)
                 }
             }
 

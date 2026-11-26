@@ -401,9 +401,10 @@ type CascadeMessagesResponse struct {
 	SuggestedResponses      []string          `json:"suggestedResponses,omitempty"`
 	SuggestedResponseSource string            `json:"suggestedResponseSource,omitempty"`
 	TaskProgress            *TaskProgressItem `json:"taskProgress,omitempty"`
-	ActiveFocus        string                 `json:"activeFocus,omitempty"`
-	ActiveFocusStarted string                 `json:"activeFocusStartedAt,omitempty"`
-	ActivePlan         *StepPlanItem          `json:"activePlan,omitempty"`
+	ActiveFocus          string                 `json:"activeFocus,omitempty"`
+	ActiveFocusStarted   string                 `json:"activeFocusStartedAt,omitempty"`
+	ActivePlan           *StepPlanItem          `json:"activePlan,omitempty"`
+	LiveTextTranslations map[string]string      `json:"liveTextTranslations,omitempty"`
 }
 
 type TrajectoryMediaItem struct {

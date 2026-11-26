@@ -91,8 +91,9 @@ type LiveActivityDispatcher struct {
 	endedAt          map[string]time.Time           // cascadeID -> recent EndSession timestamp
 	cascadeStripes   [64]sync.Mutex                 // fixed striped locks for per-cascade send serialization
 	members          map[string]*liveActivityMember // cascades admitted to hold a card (cap MaxLiveActivityCards)
-	coalesceMu       sync.Mutex
-	pendingLatest    map[string]*proxy.TrajectoryDetails
+	coalesceMu          sync.Mutex
+	pendingLatest       map[string]*proxy.TrajectoryDetails
+	detailsPreprocessor func(ctx context.Context, details *proxy.TrajectoryDetails, fallbackLang string)
 	coalesceInFlight map[string]bool
 	coalesceWorkers  int
 }
@@ -263,6 +264,17 @@ func (d *LiveActivityDispatcher) HasStateForCascade(cascadeID string) bool {
 // IsActive reports whether Live Activity pushing is enabled and at least one iOS device is subscribed.
 func (d *LiveActivityDispatcher) IsActive() bool {
 	return d != nil && d.enabled && d.client != nil && d.client.HasLiveActivityTargets()
+}
+
+// SetDetailsPreprocessor registers an optional callback run asynchronously right before building
+// non-redacted Live Activity ContentState (used to apply/wait briefly for AI Assist translations).
+func (d *LiveActivityDispatcher) SetDetailsPreprocessor(fn func(ctx context.Context, details *proxy.TrajectoryDetails, fallbackLang string)) {
+	if d == nil {
+		return
+	}
+	d.mu.Lock()
+	d.detailsPreprocessor = fn
+	d.mu.Unlock()
 }
 
 // BuildContentState builds a compact (< 1.5 KB) LiveActivityContentState from TrajectoryDetails
@@ -548,11 +560,29 @@ func (d *LiveActivityDispatcher) SyncFromDetails(ctx context.Context, details *p
 	}
 
 	redact := d.Redact()
+	d.mu.Lock()
+	preproc := d.detailsPreprocessor
+	d.mu.Unlock()
+
+	effectiveDetails := details
+	if !redact && preproc != nil {
+		fallbackLang := ""
+		for _, t := range targets {
+			if l := strings.TrimSpace(t.Lang); l != "" {
+				fallbackLang = l
+				break
+			}
+		}
+		work := *details
+		preproc(ctx, &work, fallbackLang)
+		effectiveDetails = &work
+	}
+
 	var state LiveActivityContentState
 	if redact {
-		state = BuildRedactedContentStateForLang(details, now, i18n.GetLang())
+		state = BuildRedactedContentStateForLang(effectiveDetails, now, i18n.GetLang())
 	} else {
-		state = BuildContentState(details, now)
+		state = BuildContentState(effectiveDetails, now)
 	}
 	stateHash := hashContentState(state)
 
@@ -632,9 +662,9 @@ func (d *LiveActivityDispatcher) SyncFromDetails(ctx context.Context, details *p
 		targetState := state
 		if resolved := i18n.ResolveLang(target.Lang); resolved != defaultLang {
 			if redact {
-				targetState = BuildRedactedContentStateForLang(details, now, resolved)
+				targetState = BuildRedactedContentStateForLang(effectiveDetails, now, resolved)
 			} else {
-				targetState = BuildContentStateForLang(details, now, resolved)
+				targetState = BuildContentStateForLang(effectiveDetails, now, resolved)
 			}
 		}
 		req := APNsLiveActivityRequest{

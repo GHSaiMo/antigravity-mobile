@@ -12,6 +12,8 @@ data class AIAssistPrefsPayload(
     val titleTranslateEnabled: Boolean = false,
     val titleTranslateLang: String = "",
     val titleTranslateLangName: String = "",
+    val stepPlanTranslateEnabled: Boolean = false,
+    val focusTranslateEnabled: Boolean = false,
     val nextPromptEnabled: Boolean = false,
     val nextPromptTapAction: String = "fill"
 )
@@ -86,6 +88,9 @@ data class DeviceTitleTargetLanguage(
 
     fun shouldShowTitleTranslation(prefs: AIAssistPrefsPayload): Boolean =
         !isEnglish || prefs.titleTranslateEnabled
+
+    fun shouldShowLiveTranslation(prefs: AIAssistPrefsPayload): Boolean =
+        !isEnglish || prefs.stepPlanTranslateEnabled || prefs.focusTranslateEnabled
 
     companion object {
         fun current(): DeviceTitleTargetLanguage {

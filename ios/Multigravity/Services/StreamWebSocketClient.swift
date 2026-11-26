@@ -153,7 +153,8 @@ public final class StreamWebSocketClient {
             URLQueryItem(name: "cascadeId", value: cascadeId),
             URLQueryItem(name: "client", value: "ios"),
             URLQueryItem(name: "format", value: "messages"),
-            URLQueryItem(name: "delta", value: "1")
+            URLQueryItem(name: "delta", value: "1"),
+            URLQueryItem(name: "lang", value: DeviceTitleTargetLanguage.current().bcp47Tag)
         ]
         if lastStreamRev > 0 && revCascadeId == cascadeId {
             queryItems.append(URLQueryItem(name: "sinceRev", value: "\(lastStreamRev)"))

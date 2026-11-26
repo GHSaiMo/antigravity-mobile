@@ -498,6 +498,11 @@ func runGatewayServerWithMode(mode gatewayMode, args []string) {
 		if notifCfg.APNSEnabled {
 			apnsClient := notifier.NewAPNsRelayClient(notifCfg.APNSRelayURL, pushStore)
 			notif.AttachAPNsClient(apnsClient, notifCfg.LiveActivityPushEnabled)
+			if la := notif.LiveActivity(); la != nil {
+				la.SetDetailsPreprocessor(func(ctx context.Context, details *proxy.TrajectoryDetails, fallbackLang string) {
+					p.EnsureLiveTextTranslatedForLiveActivity(ctx, details, fallbackLang)
+				})
+			}
 		}
 		authStore.SetOnDeviceRemoved(func(deviceID string) {
 			pushStore.RemoveDevice(deviceID)

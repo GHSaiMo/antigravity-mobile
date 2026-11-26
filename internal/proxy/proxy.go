@@ -197,9 +197,10 @@ type Proxy struct {
 	wsConnsMu sync.Mutex
 	wsConns   map[*websocket.Conn]struct{}
 
-	// AI Assist (stateless GetModelResponse: conversation title translation & next-prompt suggestions)
+	// AI Assist (stateless GetModelResponse: conversation title, step-plan & focus translation, next-prompt suggestions)
 	aiAssistPrefs       aiAssistPrefsStore
 	titleTranslator     titleTranslatorState
+	liveTextTranslator  liveTextTranslatorState
 	nextPrompt          nextPromptEngine
 	lsModelResponseHook func(ctx context.Context, prompt, modelEnum string) (string, error)
 	titleWriteHook      func(ctx context.Context, cascadeID, title string) error
@@ -1095,6 +1096,22 @@ func (p *Proxy) notifyStreamTouch(cascadeID string) {
 		select {
 		case ch <- struct{}{}:
 		default:
+		}
+	}
+}
+
+func (p *Proxy) notifyAllStreamTouch() {
+	p.streamListenersMu.Lock()
+	defer p.streamListenersMu.Unlock()
+	if p.streamListeners == nil {
+		return
+	}
+	for _, listeners := range p.streamListeners {
+		for _, ch := range listeners {
+			select {
+			case ch <- struct{}{}:
+			default:
+			}
 		}
 	}
 }

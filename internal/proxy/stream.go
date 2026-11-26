@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -59,9 +60,10 @@ type StreamUpdatePayload struct {
 	SuggestedResponses      []string          `json:"suggestedResponses,omitempty"`
 	SuggestedResponseSource string            `json:"suggestedResponseSource,omitempty"`
 	TaskProgress            *TaskProgressItem `json:"taskProgress,omitempty"`
-	ActiveFocus        string               `json:"activeFocus,omitempty"`
-	ActiveFocusStarted string               `json:"activeFocusStartedAt,omitempty"`
-	ActivePlan         *StepPlanItem        `json:"activePlan,omitempty"`
+	ActiveFocus          string               `json:"activeFocus,omitempty"`
+	ActiveFocusStarted   string               `json:"activeFocusStartedAt,omitempty"`
+	ActivePlan           *StepPlanItem        `json:"activePlan,omitempty"`
+	LiveTextTranslations map[string]string    `json:"liveTextTranslations,omitempty"`
 
 	// Delta framing, only set for clients that connect with delta=1 (see streamDeltaState).
 	Delta      bool     `json:"delta,omitempty"`
@@ -159,11 +161,23 @@ func (p *StreamUpdatePayload) Fingerprint() string {
 	if p.TaskProgress != nil {
 		tpKey = p.TaskProgress.TaskName + ":" + p.TaskProgress.TaskStatus + ":" + p.TaskProgress.TaskSummary
 	}
-	if p.ActiveFocus != "" || p.ActiveFocusStarted != "" || p.ActivePlan != nil {
+	if p.ActiveFocus != "" || p.ActiveFocusStarted != "" || p.ActivePlan != nil || len(p.LiveTextTranslations) > 0 {
 		ph := newFNV64()
 		ph.str(p.ActiveFocus)
 		ph.str(p.ActiveFocusStarted)
 		hashStepPlanItem(&ph, p.ActivePlan)
+		if len(p.LiveTextTranslations) > 0 {
+			keys := make([]string, 0, len(p.LiveTextTranslations))
+			for k := range p.LiveTextTranslations {
+				keys = append(keys, k)
+			}
+			sort.Strings(keys)
+			ph.num(len(keys))
+			for _, k := range keys {
+				ph.str(k)
+				ph.str(p.LiveTextTranslations[k])
+			}
+		}
 		tpKey += fmt.Sprintf("|%x", uint64(ph))
 	}
 	if len(p.Steps) == 0 {
@@ -287,6 +301,7 @@ func (p *Proxy) HandleCascadeStream(w http.ResponseWriter, r *http.Request) {
 	// Step-rendering clients (the web app) never read the messages window; messages=0 drops it so
 	// every frame (and the large init frame) is not sent twice in two shapes.
 	omitMessages := !isMessagesOnly && r.URL.Query().Get("messages") == "0"
+	streamLangHint := extractRequestLangHint(r)
 	var deltaState streamDeltaState
 
 	sanitizeWebSocketHeaders(r)
@@ -445,7 +460,7 @@ func (p *Proxy) HandleCascadeStream(w http.ResponseWriter, r *http.Request) {
 			return true
 		}
 
-		rawSig := rawTrajectorySignature(rawResp) + "|" + p.subagentLiveSignature(rawResp) + "|" + p.sideQuestionLiveSignature(cascadeID) + "|" + GetSwarmSignature(cascadeID) + "|" + desktopModel + "|" + p.liveStreamAuxSignature(cascadeID) + "|" + p.nextPromptSignature(cascadeID)
+		rawSig := rawTrajectorySignature(rawResp) + "|" + p.subagentLiveSignature(rawResp) + "|" + p.sideQuestionLiveSignature(cascadeID) + "|" + GetSwarmSignature(cascadeID) + "|" + desktopModel + "|" + p.liveStreamAuxSignature(cascadeID) + "|" + p.nextPromptSignature(cascadeID) + "|" + p.liveTextTranslateSignature(cascadeID)
 		if !firstPush && rawSig == lastRawSig && (time.Since(lastTitleLookupTime) < 2*time.Second || cachedStreamTitle != "") {
 			// Fast path: Upstream trajectory has not changed at all.
 			// Keep L7 stream alive across >5 minute silent thinking via lightweight JSON noop every 25s.
@@ -525,6 +540,7 @@ func (p *Proxy) HandleCascadeStream(w http.ResponseWriter, r *http.Request) {
 			p.fetchUpstreamGeneratorMetadata(cascadeID, port, token),
 			extractLastActivityAt(rawResp.Trajectory.Steps),
 		)
+		liveTranslations := p.ApplyLiveTextTranslations(cascadeID, &details, streamLangHint, true)
 		lastDetails = details
 
 		if sink := p.NotificationSink(); sink != nil {
@@ -587,6 +603,9 @@ func (p *Proxy) HandleCascadeStream(w http.ResponseWriter, r *http.Request) {
 
 		if !isMessagesOnly {
 			payload.Steps = details.Steps
+			if len(liveTranslations) > 0 {
+				payload.LiveTextTranslations = liveTranslations
+			}
 		}
 		if omitMessages {
 			payload.Messages = nil

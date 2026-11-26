@@ -38981,6 +38981,23 @@
         }
       }
     },
+    "已开启 %lld 项": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld Enabled"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld 件有効"
+          }
+        }
+      }
+    },
     "标题翻译": {
       "extractionState": "manual",
       "localizations": {
@@ -38994,6 +39011,40 @@
           "stringUnit": {
             "state": "translated",
             "value": "タイトル翻訳"
+          }
+        }
+      }
+    },
+    "步骤翻译": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Step Translation"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ステップ翻訳"
+          }
+        }
+      }
+    },
+    "状态翻译": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Status Translation"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ステータス翻訳"
           }
         }
       }

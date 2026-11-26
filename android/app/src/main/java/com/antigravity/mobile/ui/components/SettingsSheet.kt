@@ -1040,17 +1040,30 @@ private fun MainSettingsContent(
                 val devLangForSummary = com.antigravity.mobile.data.service.DeviceTitleTargetLanguage.current()
                 val aiSummary = run {
                     val titleOn = devLangForSummary.shouldShowTitleTranslation(aiAssistStatus.prefs) && aiAssistStatus.prefs.titleTranslateEnabled
+                    val stepOn = devLangForSummary.shouldShowLiveTranslation(aiAssistStatus.prefs) && aiAssistStatus.prefs.stepPlanTranslateEnabled
+                    val focusOn = devLangForSummary.shouldShowLiveTranslation(aiAssistStatus.prefs) && aiAssistStatus.prefs.focusTranslateEnabled
                     val nextOn = aiAssistStatus.prefs.nextPromptEnabled
+                    val enabledCount = listOf(titleOn, stepOn, focusOn, nextOn).count { it }
                     when {
-                        titleOn && nextOn -> when (L10n.currentLang) {
-                            L10n.AppLang.EN -> "2 Enabled"
-                            L10n.AppLang.JA -> "2 件有効"
-                            L10n.AppLang.ZH -> "已开启 2 项"
+                        enabledCount >= 2 -> when (L10n.currentLang) {
+                            L10n.AppLang.EN -> "$enabledCount Enabled"
+                            L10n.AppLang.JA -> "$enabledCount 件有効"
+                            L10n.AppLang.ZH -> "已开启 $enabledCount 项"
                         }
                         titleOn -> when (L10n.currentLang) {
                             L10n.AppLang.EN -> "Title Translation"
                             L10n.AppLang.JA -> "タイトル翻訳"
                             L10n.AppLang.ZH -> "标题翻译"
+                        }
+                        stepOn -> when (L10n.currentLang) {
+                            L10n.AppLang.EN -> "Step Translation"
+                            L10n.AppLang.JA -> "ステップ翻訳"
+                            L10n.AppLang.ZH -> "步骤翻译"
+                        }
+                        focusOn -> when (L10n.currentLang) {
+                            L10n.AppLang.EN -> "Status Translation"
+                            L10n.AppLang.JA -> "ステータス翻訳"
+                            L10n.AppLang.ZH -> "状态翻译"
                         }
                         nextOn -> when (L10n.currentLang) {
                             L10n.AppLang.EN -> "Prompt Suggestions"
@@ -2723,6 +2736,7 @@ private fun AIAssistSubpageContent(
     }
     val prefs = status.prefs
     val showTitleSection = devLang.shouldShowTitleTranslation(prefs)
+    val showLiveSection = devLang.shouldShowLiveTranslation(prefs)
 
     var isTranslatingBatch by remember { mutableStateOf(false) }
     var isRestoringTitles by remember { mutableStateOf(false) }
@@ -2772,6 +2786,43 @@ private fun AIAssistSubpageContent(
         com.antigravity.mobile.data.service.DeviceTitleTargetLanguage.Kind.TRADITIONAL_CHINESE -> "仅翻译未归档活跃会话，不会覆盖手动重命名的标题；翻译结果直接写回 Antigravity，桌面端与手机端同步生效。"
         com.antigravity.mobile.data.service.DeviceTitleTargetLanguage.Kind.JAPANESE -> "アーカイブ済みを除く会話のみ対象。手動変更したタイトルは上書きされず、デスクトップと同期されます。"
         else -> "Applies to active non-archived conversations only. Manually renamed titles are preserved."
+    }
+
+    val liveSectionHeader = when (devLang.kind) {
+        com.antigravity.mobile.data.service.DeviceTitleTargetLanguage.Kind.SIMPLIFIED_CHINESE,
+        com.antigravity.mobile.data.service.DeviceTitleTargetLanguage.Kind.TRADITIONAL_CHINESE -> "进度与状态翻译"
+        com.antigravity.mobile.data.service.DeviceTitleTargetLanguage.Kind.JAPANESE -> "進捗・ステータスの翻訳"
+        else -> "Progress & Status Translation"
+    }
+    val stepPlanToggleLabel = when (devLang.kind) {
+        com.antigravity.mobile.data.service.DeviceTitleTargetLanguage.Kind.SIMPLIFIED_CHINESE,
+        com.antigravity.mobile.data.service.DeviceTitleTargetLanguage.Kind.TRADITIONAL_CHINESE -> "步骤清单实时翻译"
+        com.antigravity.mobile.data.service.DeviceTitleTargetLanguage.Kind.JAPANESE -> "ステップ一覧を自動翻訳"
+        else -> "Translate Step Checklist"
+    }
+    val stepPlanToggleSubtitle = when (devLang.kind) {
+        com.antigravity.mobile.data.service.DeviceTitleTargetLanguage.Kind.SIMPLIFIED_CHINESE -> "将英文待办步骤翻译为简体中文"
+        com.antigravity.mobile.data.service.DeviceTitleTargetLanguage.Kind.TRADITIONAL_CHINESE -> "将英文待办步骤翻译为繁体中文"
+        com.antigravity.mobile.data.service.DeviceTitleTargetLanguage.Kind.JAPANESE -> "英語のタスクリストを日本語に自動翻訳"
+        else -> "Translate English checklist steps into $activeTargetEnglishName"
+    }
+    val focusToggleLabel = when (devLang.kind) {
+        com.antigravity.mobile.data.service.DeviceTitleTargetLanguage.Kind.SIMPLIFIED_CHINESE,
+        com.antigravity.mobile.data.service.DeviceTitleTargetLanguage.Kind.TRADITIONAL_CHINESE -> "实时状态行翻译"
+        com.antigravity.mobile.data.service.DeviceTitleTargetLanguage.Kind.JAPANESE -> "リアルタイム状況を自動翻訳"
+        else -> "Translate Live Status Line"
+    }
+    val focusToggleSubtitle = when (devLang.kind) {
+        com.antigravity.mobile.data.service.DeviceTitleTargetLanguage.Kind.SIMPLIFIED_CHINESE -> "将执行中的英文状态摘要翻译为简体中文"
+        com.antigravity.mobile.data.service.DeviceTitleTargetLanguage.Kind.TRADITIONAL_CHINESE -> "将执行中的英文状态摘要翻译为繁体中文"
+        com.antigravity.mobile.data.service.DeviceTitleTargetLanguage.Kind.JAPANESE -> "実行中の英語ステータスを日本語に自動翻訳"
+        else -> "Translate live working status into $activeTargetEnglishName"
+    }
+    val liveSectionFooter = when (devLang.kind) {
+        com.antigravity.mobile.data.service.DeviceTitleTargetLanguage.Kind.SIMPLIFIED_CHINESE,
+        com.antigravity.mobile.data.service.DeviceTitleTargetLanguage.Kind.TRADITIONAL_CHINESE -> "仅在客户端与灵动岛展示译文，不修改桌面端原始记录；相同条目本地缓存复用，随时可独立开关。"
+        com.antigravity.mobile.data.service.DeviceTitleTargetLanguage.Kind.JAPANESE -> "クライアント表示のみ翻訳され、デスクトップの元記録は変更されません。同じ項目はキャッシュで再利用されます。"
+        else -> "Translates display on mobile, Web, and Live Activity only without modifying desktop history. Cached locally for reuse."
     }
 
     fun applyPatch(optimistic: com.antigravity.mobile.data.service.AIAssistPrefsPayload, patch: kotlinx.serialization.json.JsonObject) {
@@ -2960,6 +3011,77 @@ private fun AIAssistSubpageContent(
                             modifier = Modifier.padding(horizontal = 16.dp, vertical = 10.dp)
                         )
                     }
+                }
+            }
+        }
+
+        if (showLiveSection) {
+            SettingsSection(
+                title = liveSectionHeader,
+                footer = liveSectionFooter
+            ) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(12.dp))
+                        .background(colors.surface)
+                        .border(0.5.dp, colors.border, RoundedCornerShape(12.dp))
+                ) {
+                    CompactSubpageToggleRow(
+                        title = stepPlanToggleLabel,
+                        subtitle = stepPlanToggleSubtitle,
+                        checked = prefs.stepPlanTranslateEnabled,
+                        enabled = isPaired && status.available,
+                        onCheckedChange = { enabled ->
+                            haptic.light()
+                            val next = if (enabled && !devLang.isEnglish) {
+                                prefs.copy(
+                                    stepPlanTranslateEnabled = true,
+                                    titleTranslateLang = devLang.bcp47Tag,
+                                    titleTranslateLangName = devLang.englishDisplayName
+                                )
+                            } else {
+                                prefs.copy(stepPlanTranslateEnabled = enabled)
+                            }
+                            val patch = buildJsonObject {
+                                put("stepPlanTranslateEnabled", enabled)
+                                if (enabled && !devLang.isEnglish) {
+                                    put("titleTranslateLang", devLang.bcp47Tag)
+                                    put("titleTranslateLangName", devLang.englishDisplayName)
+                                }
+                            }
+                            applyPatch(next, patch)
+                        }
+                    )
+
+                    HorizontalDivider(color = colors.separator.copy(alpha = 0.35f), thickness = 0.5.dp, modifier = Modifier.padding(start = 16.dp))
+
+                    CompactSubpageToggleRow(
+                        title = focusToggleLabel,
+                        subtitle = focusToggleSubtitle,
+                        checked = prefs.focusTranslateEnabled,
+                        enabled = isPaired && status.available,
+                        onCheckedChange = { enabled ->
+                            haptic.light()
+                            val next = if (enabled && !devLang.isEnglish) {
+                                prefs.copy(
+                                    focusTranslateEnabled = true,
+                                    titleTranslateLang = devLang.bcp47Tag,
+                                    titleTranslateLangName = devLang.englishDisplayName
+                                )
+                            } else {
+                                prefs.copy(focusTranslateEnabled = enabled)
+                            }
+                            val patch = buildJsonObject {
+                                put("focusTranslateEnabled", enabled)
+                                if (enabled && !devLang.isEnglish) {
+                                    put("titleTranslateLang", devLang.bcp47Tag)
+                                    put("titleTranslateLangName", devLang.englishDisplayName)
+                                }
+                            }
+                            applyPatch(next, patch)
+                        }
+                    )
                 }
             }
         }

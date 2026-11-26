@@ -237,7 +237,8 @@ class StreamWebSocketClient(
         val hostAndPort = cleanBase.substringAfter("://")
         val encodedCid = URLEncoder.encode(cascadeId, "UTF-8")
 
-        var url = "$wsScheme://$hostAndPort/gateway/cascade/stream?cascadeId=$encodedCid&client=android&format=messages&delta=1"
+        val langParam = URLEncoder.encode(DeviceTitleTargetLanguage.current().bcp47Tag, "UTF-8")
+        var url = "$wsScheme://$hostAndPort/gateway/cascade/stream?cascadeId=$encodedCid&client=android&format=messages&delta=1&lang=$langParam"
         if (lastStreamRev > 0L && revCascadeId == cascadeId) {
             url += "&sinceRev=$lastStreamRev"
         }

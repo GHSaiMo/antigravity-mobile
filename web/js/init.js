@@ -528,6 +528,8 @@ function initApp() {
       titleTranslateEnabled: false,
       titleTranslateLang: "",
       titleTranslateLangName: "",
+      stepPlanTranslateEnabled: false,
+      focusTranslateEnabled: false,
       nextPromptEnabled: false,
       nextPromptTapAction: "fill",
     },
@@ -584,6 +586,7 @@ function initApp() {
     const dev = resolveWebTitleTargetLanguage();
     const p = aiAssistState.prefs;
     const showTitleSection = !dev.isEnglish || Boolean(p.titleTranslateEnabled);
+    const showLiveSection = !dev.isEnglish || Boolean(p.stepPlanTranslateEnabled) || Boolean(p.focusTranslateEnabled);
     const activeTargetName = !dev.isEnglish
       ? dev.englishName
       : (p.titleTranslateLangName || aiAssistState.resolvedLangName || "Local Language");
@@ -592,12 +595,19 @@ function initApp() {
     const summaryEl = document.getElementById("settings-ai-assist-summary");
     if (summaryEl) {
       const titleOn = showTitleSection && Boolean(p.titleTranslateEnabled);
+      const stepOn = showLiveSection && Boolean(p.stepPlanTranslateEnabled);
+      const focusOn = showLiveSection && Boolean(p.focusTranslateEnabled);
       const nextOn = Boolean(p.nextPromptEnabled);
+      const count = [titleOn, stepOn, focusOn, nextOn].filter(Boolean).length;
       let label = uiLang === "en" ? "Off" : (uiLang === "ja" ? "オフ" : "已关闭");
-      if (titleOn && nextOn) {
-        label = uiLang === "en" ? "2 Enabled" : (uiLang === "ja" ? "2 件有効" : "已开启 2 项");
+      if (count >= 2) {
+        label = uiLang === "en" ? `${count} Enabled` : (uiLang === "ja" ? `${count} 件有効` : `已开启 ${count} 项`);
       } else if (titleOn) {
         label = uiLang === "en" ? "Title Translation" : (uiLang === "ja" ? "タイトル翻訳" : "标题翻译");
+      } else if (stepOn) {
+        label = uiLang === "en" ? "Step Translation" : (uiLang === "ja" ? "ステップ翻訳" : "步骤翻译");
+      } else if (focusOn) {
+        label = uiLang === "en" ? "Status Translation" : (uiLang === "ja" ? "ステータス翻訳" : "状态翻译");
       } else if (nextOn) {
         label = uiLang === "en" ? "Prompt Suggestions" : (uiLang === "ja" ? "プロンプト提案" : "提示词建议");
       }
@@ -661,10 +671,56 @@ function initApp() {
       }
     }
 
+    const liveSection = document.getElementById("ai-assist-live-section");
+    if (liveSection) {
+      liveSection.classList.toggle("hidden", !showLiveSection);
+    }
+    if (showLiveSection) {
+      const hdr = document.getElementById("ai-assist-live-header");
+      const stepLbl = document.getElementById("settings-ai-step-plan-label");
+      const stepDesc = document.getElementById("settings-ai-step-plan-desc");
+      const focusLbl = document.getElementById("settings-ai-focus-label");
+      const focusDesc = document.getElementById("settings-ai-focus-desc");
+      const footer = document.getElementById("settings-ai-live-footer");
+      if (dev.kind === "zh-Hans" || dev.kind === "zh-Hant") {
+        const langLabel = dev.kind === "zh-Hant" ? "繁体中文" : "简体中文";
+        if (hdr) hdr.textContent = "进度与状态翻译";
+        if (stepLbl) stepLbl.textContent = "步骤清单实时翻译";
+        if (stepDesc) stepDesc.textContent = `将英文待办步骤翻译为${langLabel}（含灵动岛）`;
+        if (focusLbl) focusLbl.textContent = "实时状态行翻译";
+        if (focusDesc) focusDesc.textContent = `将执行中的英文状态摘要翻译为${langLabel}（含灵动岛）`;
+        if (footer) footer.textContent = "仅在客户端与灵动岛展示译文，不修改桌面端原始记录；相同条目本地缓存复用，随时可独立开关。";
+      } else if (dev.kind === "ja") {
+        if (hdr) hdr.textContent = "進捗・ステータスの翻訳";
+        if (stepLbl) stepLbl.textContent = "ステップ一覧を自動翻訳";
+        if (stepDesc) stepDesc.textContent = "英語のタスクリストを日本語に翻訳（Dynamic Island 含む）";
+        if (focusLbl) focusLbl.textContent = "リアルタイム状況を自動翻訳";
+        if (focusDesc) focusDesc.textContent = "実行中の英語ステータスを日本語に翻訳（Dynamic Island 含む）";
+        if (footer) footer.textContent = "クライアントと Dynamic Island の表示のみ翻訳され、デスクトップの元記録は変更されません。同じ項目はキャッシュで再利用されます。";
+      } else {
+        if (hdr) hdr.textContent = "Progress & Status Translation";
+        if (stepLbl) stepLbl.textContent = "Translate Step Checklist";
+        if (stepDesc) stepDesc.textContent = `Translate English checklist steps into ${activeTargetName} (incl. Live Activity)`;
+        if (focusLbl) focusLbl.textContent = "Translate Live Status Line";
+        if (focusDesc) focusDesc.textContent = `Translate live working status into ${activeTargetName} (incl. Live Activity)`;
+        if (footer) footer.textContent = "Translates display on mobile, Web, and Live Activity only without modifying desktop history. Cached locally for reuse.";
+      }
+    }
+
     const chkTitle = document.getElementById("settings-ai-title-translate");
     if (chkTitle) {
       chkTitle.checked = Boolean(p.titleTranslateEnabled);
       chkTitle.disabled = !aiAssistState.available;
+    }
+    const chkStepPlan = document.getElementById("settings-ai-step-plan-translate");
+    if (chkStepPlan) {
+      chkStepPlan.checked = Boolean(p.stepPlanTranslateEnabled);
+      chkStepPlan.disabled = !aiAssistState.available;
+    }
+    const chkFocus = document.getElementById("settings-ai-focus-translate");
+    if (chkFocus) {
+      chkFocus.checked = Boolean(p.focusTranslateEnabled);
+      chkFocus.disabled = !aiAssistState.available;
     }
     const chkNext = document.getElementById("settings-ai-next-prompt");
     if (chkNext) {
@@ -696,6 +752,9 @@ function initApp() {
   }
 
   window.AIAssist = {
+    getTargetLangTag() {
+      return resolveWebTitleTargetLanguage().bcp47;
+    },
     getTapAction() {
       return aiAssistState.prefs?.nextPromptTapAction === "send" ? "send" : "fill";
     },
@@ -840,6 +899,26 @@ function initApp() {
     const enabled = Boolean(e.target.checked);
     const dev = resolveWebTitleTargetLanguage();
     const patch = { titleTranslateEnabled: enabled };
+    if (enabled && !dev.isEnglish) {
+      patch.titleTranslateLang = dev.bcp47;
+      patch.titleTranslateLangName = dev.englishName;
+    }
+    window.AIAssist.patch(patch);
+  });
+  document.getElementById("settings-ai-step-plan-translate")?.addEventListener("change", (e) => {
+    const enabled = Boolean(e.target.checked);
+    const dev = resolveWebTitleTargetLanguage();
+    const patch = { stepPlanTranslateEnabled: enabled };
+    if (enabled && !dev.isEnglish) {
+      patch.titleTranslateLang = dev.bcp47;
+      patch.titleTranslateLangName = dev.englishName;
+    }
+    window.AIAssist.patch(patch);
+  });
+  document.getElementById("settings-ai-focus-translate")?.addEventListener("change", (e) => {
+    const enabled = Boolean(e.target.checked);
+    const dev = resolveWebTitleTargetLanguage();
+    const patch = { focusTranslateEnabled: enabled };
     if (enabled && !dev.isEnglish) {
       patch.titleTranslateLang = dev.bcp47;
       patch.titleTranslateLangName = dev.englishName;

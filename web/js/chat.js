@@ -1325,6 +1325,24 @@ function applyStreamDelta(ws, data) {
 let streamWsSeq = 0;
 const streamResumeCache = new Map();
 const MAX_STREAM_RESUME_CACHE = 16;
+let activeLiveTextTranslations = {};
+let activeLiveTextTranslationsCascadeId = "";
+
+function setLiveTextTranslations(cascadeId, mapObj) {
+  activeLiveTextTranslationsCascadeId = cascadeId || "";
+  activeLiveTextTranslations = (mapObj && typeof mapObj === "object") ? mapObj : {};
+}
+
+function resolveLiveTranslatedText(raw) {
+  if (typeof raw !== "string") return raw;
+  const trimmed = raw.trim();
+  if (!trimmed) return raw;
+  if (activeLiveTextTranslationsCascadeId && activeCascadeId && activeLiveTextTranslationsCascadeId !== activeCascadeId) {
+    return raw;
+  }
+  const translated = activeLiveTextTranslations[trimmed];
+  return (typeof translated === "string" && translated.trim()) ? translated.trim() : raw;
+}
 
 function saveStreamResumeState(cascadeId, rev, steps, messages) {
   if (!cascadeId || typeof rev !== "number" || rev <= 0) return;
@@ -1344,7 +1362,11 @@ async function connectStreamWs(cascadeId) {
   closeActiveWs();
 
   const proto = location.protocol === "https:" ? "wss:" : "ws:";
+  const webLangTag = window.AIAssist?.getTargetLangTag?.() || navigator.language || "";
   let wsUrl = `${proto}//${location.host}/gateway/cascade/stream?cascadeId=${encodeURIComponent(cascadeId)}&delta=1&messages=0`;
+  if (webLangTag) {
+    wsUrl += `&lang=${encodeURIComponent(webLangTag)}`;
+  }
   const resumeState = streamResumeCache.get(cascadeId);
   if (resumeState && resumeState.rev > 0 && (resumeState.steps || resumeState.messages)) {
     wsUrl += `&sinceRev=${encodeURIComponent(String(resumeState.rev))}`;
@@ -1406,6 +1428,7 @@ async function connectStreamWs(cascadeId) {
         if (typeof data.rev === "number" && data.rev > 0) {
           saveStreamResumeState(cascadeId, data.rev, ws.__steps, ws.__messages);
         }
+        setLiveTextTranslations(cascadeId, data.liveTextTranslations || null);
 
         const alignedModel = data.desktopActiveModel || data.activeModel;
         if (alignedModel) {
@@ -1464,8 +1487,9 @@ async function connectStreamWs(cascadeId) {
         if (window.Phase3?.syncStreamData) window.Phase3.syncStreamData(data);
         window.V233?.syncBranchState?.(cascadeId, data);
 
-        if (data.steps) {
-          scheduleRenderMessages(data.steps, isRunning);
+        const stepsToRender = data.steps || ws.__steps;
+        if (stepsToRender) {
+          scheduleRenderMessages(stepsToRender, isRunning);
         }
       } catch (err) {
         console.warn("[WS] Error parsing stream message:", err);
@@ -1556,10 +1580,16 @@ async function loadChat(cascadeId, isBackgroundPoll = false) {
 
     // P1 / B-4: Avoid redundant HTTP messages request when WebSocket stream is active
     if (!activeWs || activeWs.readyState !== WebSocket.OPEN) {
-      fetch(`/gateway/cascade/messages?cascadeId=${encodeURIComponent(cascadeId)}&limit=1`)
+      const webLangTag = window.AIAssist?.getTargetLangTag?.() || navigator.language || "";
+      const langQ = webLangTag ? `&lang=${encodeURIComponent(webLangTag)}` : "";
+      fetch(`/gateway/cascade/messages?cascadeId=${encodeURIComponent(cascadeId)}&limit=1${langQ}`)
         .then(res => res.json())
         .then(info => {
           if (activeCascadeId === cascadeId) {
+            setLiveTextTranslations(cascadeId, info.liveTextTranslations || null);
+            if (info.liveTextTranslations && Object.keys(info.liveTextTranslations).length > 0) {
+              scheduleRenderMessages(steps, isRunning);
+            }
             const alignedModel = info.desktopActiveModel || info.activeModel;
             if (alignedModel) {
               syncActiveModel(alignedModel);
@@ -1673,7 +1703,7 @@ function finalizeStepPlanWeb(anchorStepIndex, rawItems) {
     if (it.status === "done") doneCount++;
     else if (it.status === "skipped") skippedCount++;
     else if (it.status === "failed") failedCount++;
-    return { key, title: it.title, status: it.status };
+    return { key, title: resolveLiveTranslatedText(it.title), status: it.status };
   });
   return {
     anchorStepIndex,
@@ -1707,20 +1737,20 @@ function extractFocusFromRawStep(s) {
   if (extractToolNameFromRawStep(s) !== "update_focus") return "";
   if (s.status === "CORTEX_STEP_STATUS_ERROR" || s.error?.shortError || s.errorMessage?.error?.shortError) return "";
   const title = s.generic?.result?.stepRenderInfo?.title;
-  if (typeof title === "string" && title.trim()) return title.trim();
+  if (typeof title === "string" && title.trim()) return resolveLiveTranslatedText(title.trim());
   const argFocus = s.generic?.args?.focus;
   if (argFocus !== undefined && argFocus !== null) {
     let val = argFocus;
     if (typeof val === "string") {
       try { const unq = JSON.parse(val); if (typeof unq === "string") val = unq; } catch {}
-      if (val.trim()) return val.trim();
+      if (val.trim()) return resolveLiveTranslatedText(val.trim());
     }
   }
   const argsJson = s.metadata?.toolCall?.argumentsJson || s.toolCall?.argumentsJson || "";
   if (argsJson) {
     try {
       const parsed = JSON.parse(argsJson);
-      if (typeof parsed?.focus === "string" && parsed.focus.trim()) return parsed.focus.trim();
+      if (typeof parsed?.focus === "string" && parsed.focus.trim()) return resolveLiveTranslatedText(parsed.focus.trim());
     } catch {}
   }
   return "";
@@ -2738,7 +2768,7 @@ function getItemFingerprint(item, isRunning, isLastItem, isActivePlan = false) {
   if (!item) return "";
   if (item.type === "step_plan") {
     const sp = item.stepPlan || {};
-    const statusSig = (sp.items || []).map(it => `${it.key}:${it.status}`).join("|");
+    const statusSig = (sp.items || []).map(it => `${it.key}:${it.status}:${it.title || ""}`).join("|");
     return `sp:${sp.anchorStepIndex || 0}:${isActivePlan ? 1 : 0}:${statusSig}`;
   }
   if (item.type === "user") {

@@ -189,6 +189,7 @@ func (p *Proxy) handleCascadeMessages(w http.ResponseWriter, r *http.Request) {
 		p.fetchUpstreamGeneratorMetadata(cascadeID, port, token),
 		extractLastActivityAt(rawResp.Trajectory.Steps),
 	)
+	liveTranslations := p.ApplyLiveTextTranslations(cascadeID, &details, extractRequestLangHint(r), true)
 
 	totalMsgs := len(details.AllMessages)
 	sliced := make([]CascadeMessageItem, 0)
@@ -282,6 +283,7 @@ func (p *Proxy) handleCascadeMessages(w http.ResponseWriter, r *http.Request) {
 		ActiveFocus:             details.ActiveFocus,
 		ActiveFocusStarted:      details.ActiveFocusStarted,
 		ActivePlan:              details.ActivePlan,
+		LiveTextTranslations:    liveTranslations,
 	})
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
