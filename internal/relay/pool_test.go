@@ -276,3 +276,208 @@ func TestPoolProvider_MultiConnPoolAndSingleSlotHealing(t *testing.T) {
 		t.Fatalf("expected dropped slot to heal back to 3 conns, got %d", srv.ActiveConns())
 	}
 }
+
+func TestPoolProvider_PrefersStableNodeOverLossyOrSpikyFastNode(t *testing.T) {
+	// Case 1: Lossy fast node (fails 2 of 3 probes, succeeds once fast) vs stable 65ms node -> stable must win.
+	var lossyCalls atomic.Int32
+	lossyFast := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		n := lossyCalls.Add(1)
+		if n != 2 {
+			w.WriteHeader(http.StatusBadGateway)
+			return
+		}
+		time.Sleep(10 * time.Millisecond)
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer lossyFast.Close()
+
+	// Case 2: Jittery fast node (3/3 ok, but warm probes jump 10ms -> 280ms like evening packet loss)
+	var spikyCalls atomic.Int32
+	spikyFast := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		n := spikyCalls.Add(1)
+		switch n {
+		case 1:
+			time.Sleep(30 * time.Millisecond)
+		case 2:
+			time.Sleep(10 * time.Millisecond)
+		default:
+			time.Sleep(280 * time.Millisecond)
+		}
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer spikyFast.Close()
+
+	stableNode := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		time.Sleep(65 * time.Millisecond)
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer stableNode.Close()
+
+	ln := NewStreamListener()
+	defer ln.Close()
+
+	pool, err := NewPoolProvider(PoolConfig{
+		Nodes: []NodeConfig{
+			{
+				ID:        "hk1-lossy",
+				Region:    "ap",
+				Priority:  4,
+				Endpoint:  "ws://127.0.0.1:1" + TunnelUpgradePath,
+				HealthURL: lossyFast.URL + "/healthz",
+				Subdomain: "r-abcd1234.hk1.jiuge.space",
+				URL:       "https://r-abcd1234.hk1.jiuge.space",
+				Token:     "tok",
+			},
+			{
+				ID:        "hk1-spiky",
+				Region:    "ap",
+				Priority:  5,
+				Endpoint:  "ws://127.0.0.1:2" + TunnelUpgradePath,
+				HealthURL: spikyFast.URL + "/healthz",
+				Subdomain: "r-abcd1234.hk2.jiuge.space",
+				URL:       "https://r-abcd1234.hk2.jiuge.space",
+				Token:     "tok",
+			},
+			{
+				ID:        "tw1-stable",
+				Region:    "ap",
+				Priority:  6,
+				Endpoint:  "ws://127.0.0.1:3" + TunnelUpgradePath,
+				HealthURL: stableNode.URL + "/healthz",
+				Subdomain: "r-abcd1234.tw1.jiuge.space",
+				URL:       "https://r-abcd1234.tw1.jiuge.space",
+				Token:     "tok",
+			},
+		},
+		Listener: ln,
+	})
+	if err != nil {
+		t.Fatalf("NewPoolProvider: %v", err)
+	}
+
+	best, rtt := pool.selectFastestNode(context.Background(), pool.nodes)
+	if best.ID != "tw1-stable" {
+		t.Fatalf("expected tw1-stable to beat lossy and spiky nodes, got %q (rtt=%v)", best.ID, rtt)
+	}
+}
+
+func TestPoolProvider_LocalReprobeMigratesOnCongestion(t *testing.T) {
+	secret := "reprobe-test-secret"
+	var nodeADelayMs atomic.Int64
+	nodeADelayMs.Store(5) // Starts fast in daytime
+
+	srvA, _ := NewServer(ServerConfig{SigningSecret: secret, ControlHosts: []string{"a.jiuge.space"}, AllowedSuffixes: []string{".jiuge.space"}})
+	defer srvA.Close()
+	httpA := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/healthz" {
+			time.Sleep(time.Duration(nodeADelayMs.Load()) * time.Millisecond)
+		}
+		srvA.ServeHTTP(w, r)
+	}))
+	defer httpA.Close()
+
+	srvB, _ := NewServer(ServerConfig{SigningSecret: secret, ControlHosts: []string{"b.jiuge.space"}, AllowedSuffixes: []string{".jiuge.space"}})
+	defer srvB.Close()
+	httpB := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/healthz" {
+			time.Sleep(45 * time.Millisecond)
+		}
+		srvB.ServeHTTP(w, r)
+	}))
+	defer httpB.Close()
+
+	tokA, _ := SignToken(secret, TokenClaims{ShortID: "beef1234", OwnerHash: "dddddddddddddddddddddddddddddddd", Domain: "r-beef1234.a.jiuge.space"})
+	tokB, _ := SignToken(secret, TokenClaims{ShortID: "beef1234", OwnerHash: "dddddddddddddddddddddddddddddddd", Domain: "r-beef1234.b.jiuge.space"})
+
+	ln := NewStreamListener()
+	defer ln.Close()
+
+	pool, err := NewPoolProvider(PoolConfig{
+		Nodes: []NodeConfig{
+			{
+				ID:        "node-a",
+				Region:    "ap",
+				Priority:  4,
+				Endpoint:  "ws" + strings.TrimPrefix(httpA.URL, "http") + TunnelUpgradePath,
+				HealthURL: httpA.URL + "/healthz",
+				Subdomain: "r-beef1234.a.jiuge.space",
+				URL:       "https://r-beef1234.a.jiuge.space",
+				Token:     tokA,
+			},
+			{
+				ID:        "node-b",
+				Region:    "ap",
+				Priority:  6,
+				Endpoint:  "ws" + strings.TrimPrefix(httpB.URL, "http") + TunnelUpgradePath,
+				HealthURL: httpB.URL + "/healthz",
+				Subdomain: "r-beef1234.b.jiuge.space",
+				URL:       "https://r-beef1234.b.jiuge.space",
+				Token:     tokB,
+			},
+		},
+		Listener:        ln,
+		RefreshInterval: 6 * time.Hour,
+		ReprobeInterval: 180 * time.Millisecond,
+	})
+	if err != nil {
+		t.Fatalf("NewPoolProvider: %v", err)
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	if err := pool.Start(ctx); err != nil {
+		t.Fatalf("pool.Start: %v", err)
+	}
+	defer pool.Stop()
+
+	if got := pool.ActiveNode().ID; got != "node-a" {
+		t.Fatalf("expected initial node 'node-a', got %q", got)
+	}
+
+	// Wait until node-a establishes tunnel
+	d1 := time.Now().Add(3 * time.Second)
+	for srvA.ActiveTunnels() < 1 && time.Now().Before(d1) {
+		time.Sleep(15 * time.Millisecond)
+	}
+	if srvA.ActiveTunnels() < 1 {
+		t.Fatalf("expected srvA active tunnel")
+	}
+
+	// Simulate evening peak congestion on node-a (5ms -> 240ms) while node-b stays 45ms.
+	nodeADelayMs.Store(240)
+
+	// Local reprobeLoop must migrate to node-b automatically without waiting for 6h RefreshInterval.
+	d2 := time.Now().Add(5 * time.Second)
+	for pool.ActiveNode().ID != "node-b" && time.Now().Before(d2) {
+		time.Sleep(30 * time.Millisecond)
+	}
+	if got := pool.ActiveNode().ID; got != "node-b" {
+		t.Fatalf("expected local reprobe to migrate to 'node-b' on congestion, still on %q", got)
+	}
+	d3 := time.Now().Add(3 * time.Second)
+	for srvB.ActiveTunnels() < 1 && time.Now().Before(d3) {
+		time.Sleep(20 * time.Millisecond)
+	}
+	if srvB.ActiveTunnels() < 1 {
+		t.Fatalf("expected srvB to accept migrated tunnel")
+	}
+}
+
+func TestShouldMigrateIdle_LossAndDegradedThresholds(t *testing.T) {
+	// Zero-loss faster peer rescues from lossy node even when delta < 50ms
+	curLossy := nodeProbeResult{node: NodeConfig{ID: "hk1"}, rtt: 110 * time.Millisecond, successes: 2, attempts: 3, ok: true}
+	bestClean := nodeProbeResult{node: NodeConfig{ID: "tw1"}, rtt: 72 * time.Millisecond, successes: 3, attempts: 3, ok: true}
+	if !shouldMigrateIdle(curLossy, bestClean, false) {
+		t.Fatalf("expected zero-loss node to rescue from lossy current node")
+	}
+
+	// Runtime degraded watchdog lowers threshold to >=30ms & >25% improvement
+	curDeg := nodeProbeResult{node: NodeConfig{ID: "jp1"}, rtt: 160 * time.Millisecond, successes: 3, attempts: 3, ok: true}
+	bestDeg := nodeProbeResult{node: NodeConfig{ID: "tw1"}, rtt: 115 * time.Millisecond, successes: 3, attempts: 3, ok: true}
+	if shouldMigrateIdle(curDeg, bestDeg, false) {
+		t.Fatalf("normal hysteresis should not migrate for 45ms / 28%% delta")
+	}
+	if !shouldMigrateIdle(curDeg, bestDeg, true) {
+		t.Fatalf("degraded watchdog should migrate for 45ms / 28%% delta")
+	}
+}

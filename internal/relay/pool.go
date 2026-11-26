@@ -23,8 +23,19 @@ import (
 )
 
 const (
-	defaultConnsPerNode = 3
-	maxConnsPerNode     = 4
+	defaultConnsPerNode          = 3
+	maxConnsPerNode              = 4
+	defaultRefreshInterval       = 6 * time.Hour
+	defaultReprobeInterval       = 45 * time.Minute
+	defaultHealthPingInterval    = 2 * time.Minute
+	defaultDegradedPingThreshold = 450 * time.Millisecond
+	defaultDegradedCooldown      = 10 * time.Minute
+	probeSamplesPerNode          = 3
+	probeAttemptTimeout          = 2000 * time.Millisecond
+	probeSingleLossPenalty       = 100 * time.Millisecond
+	probeSevereLossPenalty       = 1000 * time.Millisecond
+	probeColdSpikeCutoff         = 900 * time.Millisecond
+	probeColdSpikeMaxPenalty     = 200 * time.Millisecond
 )
 
 // NodeConfig represents a single VPS relay node dispatched by the Worker pool.
@@ -40,25 +51,32 @@ type NodeConfig struct {
 }
 
 // PoolConfig configures a multi-VPS relay pool client with concurrent RTT race,
-// hysteresis pinning, automatic failover, and periodic pool refresh.
+// loss-aware scoring, hysteresis pinning, automatic failover, periodic local reprobe,
+// runtime ping degradation escape, and periodic pool refresh.
 type PoolConfig struct {
-	Nodes             []NodeConfig
-	Listener          *StreamListener // preferred: direct in-process E2EE-guarded HTTP listener
-	LocalAddr         string          // fallback if Listener is nil
-	ConnsPerNode      int             // parallel yamux connections per node (default 3, max 4; negotiated with server)
-	RefreshInterval   time.Duration   // default 6h
-	RefreshFunc       func(ctx context.Context) ([]NodeConfig, error)
-	OnEndpointChanged func(node NodeConfig)
-	OnAllFailed       func()
-	ProbeClient       *http.Client
-	Logger            *slog.Logger
+	Nodes                 []NodeConfig
+	Listener              *StreamListener // preferred: direct in-process E2EE-guarded HTTP listener
+	LocalAddr             string          // fallback if Listener is nil
+	ConnsPerNode          int             // parallel yamux connections per node (default 3, max 4; negotiated with server)
+	RefreshInterval       time.Duration   // Worker pool/token refresh interval (default 6h)
+	ReprobeInterval       time.Duration   // local RTT reprobe interval across cached nodes (default 45m)
+	HealthPingInterval    time.Duration   // runtime yamux ping interval to detect congestion (default 2m)
+	DegradedPingThreshold time.Duration   // yamux ping RTT treated as degraded (default 450ms)
+	RefreshFunc           func(ctx context.Context) ([]NodeConfig, error)
+	OnEndpointChanged     func(node NodeConfig)
+	OnAllFailed           func()
+	ProbeClient           *http.Client
+	Logger                *slog.Logger
 }
 
 // PoolProvider implements tunnel.Provider across a dynamic pool of mgy-relay VPS nodes.
 type PoolProvider struct {
-	cfg          PoolConfig
-	logger       *slog.Logger
-	connsPerNode int
+	cfg                   PoolConfig
+	logger                *slog.Logger
+	connsPerNode          int
+	reprobeInterval       time.Duration
+	healthPingInterval    time.Duration
+	degradedPingThreshold time.Duration
 
 	mu          sync.RWMutex
 	nodes       []NodeConfig
@@ -68,6 +86,7 @@ type PoolProvider struct {
 	cancel      context.CancelFunc
 	epochCancel context.CancelFunc
 	done        chan struct{}
+	degradeCh   chan struct{}
 	sessions    map[*yamux.Session]struct{}
 }
 
@@ -83,7 +102,19 @@ func NewPoolProvider(cfg PoolConfig) (*PoolProvider, error) {
 		return nil, fmt.Errorf("relay pool has no valid nodes")
 	}
 	if cfg.RefreshInterval <= 0 {
-		cfg.RefreshInterval = 6 * time.Hour
+		cfg.RefreshInterval = defaultRefreshInterval
+	}
+	reprobeInterval := cfg.ReprobeInterval
+	if reprobeInterval <= 0 {
+		reprobeInterval = defaultReprobeInterval
+	}
+	healthPingInterval := cfg.HealthPingInterval
+	if healthPingInterval <= 0 {
+		healthPingInterval = defaultHealthPingInterval
+	}
+	degradedPingThreshold := cfg.DegradedPingThreshold
+	if degradedPingThreshold <= 0 {
+		degradedPingThreshold = defaultDegradedPingThreshold
 	}
 	if cfg.LocalAddr == "" {
 		cfg.LocalAddr = "127.0.0.1:58900"
@@ -107,12 +138,16 @@ func NewPoolProvider(cfg PoolConfig) (*PoolProvider, error) {
 		logger = slog.Default()
 	}
 	return &PoolProvider{
-		cfg:          cfg,
-		logger:       logger,
-		connsPerNode: connsPerNode,
-		nodes:        valid,
-		activeNode:   valid[0],
-		sessions:     make(map[*yamux.Session]struct{}),
+		cfg:                   cfg,
+		logger:                logger,
+		connsPerNode:          connsPerNode,
+		reprobeInterval:       reprobeInterval,
+		healthPingInterval:    healthPingInterval,
+		degradedPingThreshold: degradedPingThreshold,
+		nodes:                 valid,
+		activeNode:            valid[0],
+		degradeCh:             make(chan struct{}, 1),
+		sessions:              make(map[*yamux.Session]struct{}),
 	}, nil
 }
 
@@ -161,6 +196,8 @@ func (p *PoolProvider) Start(ctx context.Context) error {
 	if p.cfg.RefreshFunc != nil {
 		go p.refreshLoop(runCtx)
 	}
+	go p.reprobeLoop(runCtx)
+	go p.healthWatchdogLoop(runCtx)
 	return nil
 }
 
@@ -259,33 +296,61 @@ func (p *PoolProvider) setActiveNode(node NodeConfig, rtt time.Duration) {
 }
 
 type nodeProbeResult struct {
-	node NodeConfig
-	rtt  time.Duration
-	ok   bool
-	idx  int
+	node         NodeConfig
+	rtt          time.Duration // loss- and jitter-adjusted effective score for ranking
+	medianRTT    time.Duration // raw median of successful probes
+	successes    int
+	attempts     int
+	ok           bool
+	idx          int
+}
+
+func (r nodeProbeResult) hadLoss() bool {
+	return r.attempts > 0 && r.successes < r.attempts
+}
+
+func (r nodeProbeResult) severeLoss() bool {
+	return r.attempts >= 2 && r.successes <= 1
 }
 
 func (p *PoolProvider) selectFastestNode(ctx context.Context, nodes []NodeConfig) (NodeConfig, time.Duration) {
-	if len(nodes) == 1 {
-		rtt, ok := p.probeSingle(ctx, nodes[0])
-		if ok {
-			return nodes[0], rtt
-		}
+	results := p.probeAllNodes(ctx, nodes)
+	if len(results) == 0 {
 		return nodes[0], 0
 	}
+	best := results[0]
+	if best.ok {
+		p.logger.Info("🌐 [RelayPool] 测速优选完成",
+			"node", best.node.ID,
+			"region", best.node.Region,
+			"rtt_ms", best.rtt.Milliseconds(),
+			"med_ms", best.medianRTT.Milliseconds(),
+			"ok", fmt.Sprintf("%d/%d", best.successes, best.attempts))
+		return best.node, best.rtt
+	}
+	return nodes[0], 0
+}
 
-	probeCtx, cancel := context.WithTimeout(ctx, 4500*time.Millisecond)
+func (p *PoolProvider) probeAllNodes(ctx context.Context, nodes []NodeConfig) []nodeProbeResult {
+	if len(nodes) == 0 {
+		return nil
+	}
+	if len(nodes) == 1 {
+		res := p.probeNode(ctx, nodes[0], 0)
+		return []nodeProbeResult{res}
+	}
+
+	probeCtx, cancel := context.WithTimeout(ctx, 5500*time.Millisecond)
 	defer cancel()
 
 	resCh := make(chan nodeProbeResult, len(nodes))
 	for i, n := range nodes {
 		go func(idx int, node NodeConfig) {
-			rtt, ok := p.probeSingle(probeCtx, node)
-			resCh <- nodeProbeResult{node: node, rtt: rtt, ok: ok, idx: idx}
+			resCh <- p.probeNode(probeCtx, node, idx)
 		}(i, n)
 	}
 
-	var results []nodeProbeResult
+	results := make([]nodeProbeResult, 0, len(nodes))
 	for range nodes {
 		results = append(results, <-resCh)
 	}
@@ -295,7 +360,11 @@ func (p *PoolProvider) selectFastestNode(ctx context.Context, nodes []NodeConfig
 			return results[i].ok
 		}
 		if results[i].ok && results[j].ok {
-			// Within 15ms tie, respect Dispatcher's region/priority order
+			// Severely lossy nodes (<=1/3 probes succeeded) always rank behind healthy peers.
+			if results[i].severeLoss() != results[j].severeLoss() {
+				return !results[i].severeLoss()
+			}
+			// Within 15ms tie, respect Dispatcher's region/priority order.
 			diff := results[i].rtt - results[j].rtt
 			if diff < -15*time.Millisecond {
 				return true
@@ -306,94 +375,200 @@ func (p *PoolProvider) selectFastestNode(ctx context.Context, nodes []NodeConfig
 		}
 		return results[i].idx < results[j].idx
 	})
-
-	best := results[0]
-	if best.ok {
-		p.logger.Info("🌐 [RelayPool] 测速优选完成", "node", best.node.ID, "region", best.node.Region, "rtt_ms", best.rtt.Milliseconds())
-		return best.node, best.rtt
-	}
-	return nodes[0], 0
+	return results
 }
 
 func (p *PoolProvider) probeSingle(ctx context.Context, node NodeConfig) (time.Duration, bool) {
+	res := p.probeNode(ctx, node, 0)
+	return res.rtt, res.ok
+}
+
+// probeNode executes up to 3 lightweight probes (1 cold + 2 keep-alive warm probes) to expose
+// both cold-start SYN/TLS packet loss and evening-peak retransmit jitter, computing a
+// loss- and jitter-adjusted effective RTT score.
+func (p *PoolProvider) probeNode(ctx context.Context, node NodeConfig, idx int) nodeProbeResult {
+	res := nodeProbeResult{node: node, idx: idx}
 	healthURL := strings.TrimSpace(node.HealthURL)
 	if healthURL == "" {
-		return 0, false
+		return res
 	}
-
-	const (
-		attemptTimeout   = 2000 * time.Millisecond
-		fastAcceptCutoff = 800 * time.Millisecond
-	)
-
-	var bestRTT time.Duration
-	var gotOK bool
 
 	// Prefer direct (Proxy: nil) probes so a developer's local Clash/VPN proxy
 	// (often routed via US/EU nodes) does not distort physical RTT selection.
-	for attempt := 0; attempt < 2; attempt++ {
-		if ctx.Err() != nil {
-			break
-		}
-		attemptCtx, cancel := context.WithTimeout(ctx, attemptTimeout)
-		rtt, ok := p.probeOnce(attemptCtx, healthURL, false)
-		cancel()
-		if ok {
-			if !gotOK || rtt < bestRTT {
-				bestRTT = rtt
-				gotOK = true
-			}
-			// Fast healthy response needs no second attempt; only retry on failure or
-			// high-RTT spike (e.g., single-packet TCP SYN drop/retransmit on cold start).
-			if bestRTT <= fastAcceptCutoff {
-				break
-			}
-		}
-	}
-	if gotOK || p.cfg.ProbeClient != nil || ctx.Err() != nil {
-		return bestRTT, gotOK
+	directRes := p.probeSeries(ctx, healthURL, false)
+	directRes.node = node
+	directRes.idx = idx
+	if directRes.ok || p.cfg.ProbeClient != nil || ctx.Err() != nil {
+		return directRes
 	}
 
 	// Corporate-proxy fallback: if direct outbound 443 is blocked and env proxy is set, try proxy once.
 	if hasEnvProxyForURL(healthURL) {
-		attemptCtx, cancel := context.WithTimeout(ctx, attemptTimeout)
-		rtt, ok := p.probeOnce(attemptCtx, healthURL, true)
-		cancel()
-		if ok {
-			return rtt, true
+		proxyRes := p.probeSeries(ctx, healthURL, true)
+		proxyRes.node = node
+		proxyRes.idx = idx
+		if proxyRes.ok {
+			return proxyRes
 		}
 	}
-	return 0, false
+	return directRes
 }
 
-func (p *PoolProvider) probeOnce(ctx context.Context, healthURL string, useProxy bool) (time.Duration, bool) {
+func (p *PoolProvider) probeSeries(ctx context.Context, healthURL string, useProxy bool) nodeProbeResult {
 	client := p.cfg.ProbeClient
+	var ownedTransport *http.Transport
 	if client == nil {
 		tr := http.DefaultTransport.(*http.Transport).Clone()
-		tr.DisableKeepAlives = true
+		// Keep connections alive across the 3 samples of this node so sample 0 tests
+		// cold TCP+TLS connect while samples 1-2 measure warm RTT and retransmit jitter.
+		tr.DisableKeepAlives = false
+		tr.MaxIdleConnsPerHost = 2
 		if useProxy {
 			tr.Proxy = http.ProxyFromEnvironment
 		} else {
 			tr.Proxy = nil
 		}
+		ownedTransport = tr
 		client = &http.Client{Transport: tr}
-		defer tr.CloseIdleConnections()
+		defer ownedTransport.CloseIdleConnections()
 	}
+
+	var (
+		rtts             []time.Duration
+		coldRTT          time.Duration
+		attempts         int
+		consecutiveFails int
+	)
+
+	for i := 0; i < probeSamplesPerNode; i++ {
+		if ctx.Err() != nil {
+			break
+		}
+		attempts++
+		attemptCtx, cancel := context.WithTimeout(ctx, probeAttemptTimeout)
+		rtt, ok := p.probeOnceWithClient(attemptCtx, client, healthURL)
+		cancel()
+		if ok {
+			consecutiveFails = 0
+			if len(rtts) == 0 {
+				coldRTT = rtt
+			}
+			rtts = append(rtts, rtt)
+		} else {
+			consecutiveFails++
+			// If 2 consecutive attempts failed and already consumed >=1.5s, stop early
+			// so dead/heavily-congested nodes don't stall startup probing.
+			if consecutiveFails >= 2 && rtt >= 1500*time.Millisecond {
+				break
+			}
+		}
+	}
+
+	res := nodeProbeResult{
+		attempts:  attempts,
+		successes: len(rtts),
+		ok:        len(rtts) > 0,
+	}
+	if !res.ok {
+		return res
+	}
+
+	res.medianRTT = medianDuration(rtts)
+	res.rtt = scoreProbeSamples(rtts, coldRTT, attempts)
+	return res
+}
+
+// scoreProbeSamples turns raw probe RTTs into a loss- and jitter-aware score:
+//   - 3/3 ok: uses warm samples (rtts[1:]) weighted 25% min + 75% max so retransmit spikes
+//     (e.g. 49ms -> 302ms) are penalized instead of hidden by min(), plus a mild cold-connect
+//     penalty if TCP+TLS handshake exceeded 900ms (SYN retransmit).
+//   - 2/3 ok (1 transient failure): adds +100ms loss penalty on top of the post-recovery RTT.
+//   - 1/3 ok (>=50% loss): adds +1000ms severe-loss penalty (and ranked behind healthy peers).
+func scoreProbeSamples(rtts []time.Duration, coldRTT time.Duration, attempts int) time.Duration {
+	if len(rtts) == 0 {
+		return 0
+	}
+	var score time.Duration
+	if len(rtts) >= 3 {
+		warmMin, warmMax := rtts[1], rtts[1]
+		for _, d := range rtts[2:] {
+			if d < warmMin {
+				warmMin = d
+			}
+			if d > warmMax {
+				warmMax = d
+			}
+		}
+		score = (warmMin + 3*warmMax) / 4
+		if coldRTT > probeColdSpikeCutoff {
+			extra := (coldRTT - probeColdSpikeCutoff) / 4
+			if extra > probeColdSpikeMaxPenalty {
+				extra = probeColdSpikeMaxPenalty
+			}
+			score += extra
+		}
+	} else if len(rtts) == 2 {
+		// rtts[0] was cold (after 1st failed), rtts[1] was warm.
+		// Penalize if warm jumped above cold or still spiky.
+		warm := rtts[1]
+		if warm > rtts[0] {
+			score = (rtts[0] + 3*warm) / 4
+		} else {
+			score = warm
+		}
+		if rtts[0] > probeColdSpikeCutoff {
+			extra := (rtts[0] - probeColdSpikeCutoff) / 4
+			if extra > probeColdSpikeMaxPenalty {
+				extra = probeColdSpikeMaxPenalty
+			}
+			score += extra
+		}
+	} else {
+		score = rtts[0]
+	}
+
+	failures := attempts - len(rtts)
+	if failures >= 2 || (attempts >= 2 && len(rtts) == 1) {
+		score += probeSevereLossPenalty
+	} else if failures == 1 {
+		score += probeSingleLossPenalty
+	}
+	if score <= 0 {
+		score = time.Millisecond
+	}
+	return score
+}
+
+func medianDuration(vals []time.Duration) time.Duration {
+	if len(vals) == 0 {
+		return 0
+	}
+	cp := append([]time.Duration(nil), vals...)
+	sort.Slice(cp, func(i, j int) bool { return cp[i] < cp[j] })
+	mid := len(cp) / 2
+	if len(cp)%2 == 1 {
+		return cp[mid]
+	}
+	return (cp[mid-1] + cp[mid]) / 2
+}
+
+func (p *PoolProvider) probeOnceWithClient(ctx context.Context, client *http.Client, healthURL string) (time.Duration, bool) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, healthURL, nil)
 	if err != nil {
 		return 0, false
 	}
 	start := time.Now()
 	resp, err := client.Do(req)
+	elapsed := time.Since(start)
 	if err != nil {
-		return 0, false
+		return elapsed, false
 	}
 	_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, 4096))
 	resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
-		return 0, false
+		return elapsed, false
 	}
-	return time.Since(start), true
+	return elapsed, true
 }
 
 func hasEnvProxyForURL(rawURL string) bool {
@@ -494,6 +669,63 @@ func (p *PoolProvider) supervise(ctx context.Context) {
 	}
 }
 
+func shouldMigrateIdle(cur, best nodeProbeResult, degraded bool) bool {
+	if !best.ok || best.node.ID == cur.node.ID {
+		return false
+	}
+	if !cur.ok {
+		return true
+	}
+	// Always escape a lossy current node when a zero-loss faster alternative exists.
+	if cur.hadLoss() && !best.hadLoss() && best.rtt < cur.rtt {
+		return true
+	}
+	// If runtime ping watchdog flagged sustained congestion, use a lower escape threshold.
+	if degraded {
+		return cur.rtt-best.rtt >= 30*time.Millisecond && float64(best.rtt) < float64(cur.rtt)*0.75
+	}
+	// Normal hysteresis: require >=50ms improvement AND >40% faster to avoid route flapping.
+	return cur.rtt-best.rtt >= 50*time.Millisecond && float64(best.rtt) < float64(cur.rtt)*0.6
+}
+
+func (p *PoolProvider) evaluateAndMigrateIdle(ctx context.Context, nodes []NodeConfig, curNode NodeConfig, reason string, degraded bool) {
+	if len(nodes) <= 1 || p.totalNumStreams() != 0 {
+		return
+	}
+	results := p.probeAllNodes(ctx, nodes)
+	if len(results) == 0 || !results[0].ok {
+		return
+	}
+	best := results[0]
+	if best.node.ID == curNode.ID {
+		return
+	}
+	var curRes nodeProbeResult
+	foundCur := false
+	for _, r := range results {
+		if r.node.ID == curNode.ID && r.node.Endpoint == curNode.Endpoint {
+			curRes = r
+			foundCur = true
+			break
+		}
+	}
+	if !foundCur {
+		curRes = p.probeNode(ctx, curNode, len(results))
+	}
+	// Re-check stream count right before closing sessions so we never interrupt newly opened streams.
+	if p.totalNumStreams() != 0 {
+		return
+	}
+	if shouldMigrateIdle(curRes, best, degraded) {
+		p.logger.Info("🚀 [RelayPool] 发现更优节点，空闲时无感切换",
+			"reason", reason,
+			"from", curNode.ID, "from_ms", curRes.rtt.Milliseconds(), "from_ok", fmt.Sprintf("%d/%d", curRes.successes, curRes.attempts),
+			"to", best.node.ID, "to_ms", best.rtt.Milliseconds(), "to_ok", fmt.Sprintf("%d/%d", best.successes, best.attempts))
+		p.setActiveNode(best.node, best.rtt)
+		p.closeAllSessions()
+	}
+}
+
 func (p *PoolProvider) refreshLoop(ctx context.Context) {
 	ticker := time.NewTicker(p.cfg.RefreshInterval)
 	defer ticker.Stop()
@@ -520,25 +752,108 @@ func (p *PoolProvider) refreshLoop(ctx context.Context) {
 				}
 			}
 
-			bestNode, bestRTT := p.selectFastestNode(ctx, fresh)
 			if !stillPresent {
+				bestNode, bestRTT := p.selectFastestNode(ctx, fresh)
 				p.logger.Info("🔄 [RelayPool] 当前节点已从池中下线，平滑迁移至新节点", "from", curNode.ID, "to", bestNode.ID)
 				p.setActiveNode(bestNode, bestRTT)
 				p.closeAllSessions()
 				continue
 			}
 
-			// Hysteresis: only migrate if new node is >40% faster AND at least 50ms lower RTT, and no active streams
-			if bestNode.ID != curNode.ID && bestRTT > 0 {
-				curRTT, curOK := p.probeSingle(ctx, curNode)
-				noActiveStreams := p.totalNumStreams() == 0
-				if noActiveStreams && (!curOK || (curRTT-bestRTT >= 50*time.Millisecond && float64(bestRTT) < float64(curRTT)*0.6)) {
-					p.logger.Info("🚀 [RelayPool] 发现更优节点，空闲时无感切换",
-						"from", curNode.ID, "from_ms", curRTT.Milliseconds(),
-						"to", bestNode.ID, "to_ms", bestRTT.Milliseconds())
-					p.setActiveNode(bestNode, bestRTT)
-					p.closeAllSessions()
+			p.evaluateAndMigrateIdle(ctx, fresh, curNode, "pool_refresh", false)
+		}
+	}
+}
+
+// reprobeLoop periodically re-evaluates cached pool nodes locally (without hitting Worker)
+// and also reacts to sustained congestion signals from healthWatchdogLoop so evening-peak
+// degradation triggers idle escape in minutes instead of waiting for the 6h Worker refresh.
+func (p *PoolProvider) reprobeLoop(ctx context.Context) {
+	ticker := time.NewTicker(p.reprobeInterval)
+	defer ticker.Stop()
+	var lastDegradedProbe time.Time
+	for {
+		degraded := false
+		reason := "periodic_reprobe"
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+		case <-p.degradeCh:
+			if !lastDegradedProbe.IsZero() && time.Since(lastDegradedProbe) < defaultDegradedCooldown {
+				continue
+			}
+			lastDegradedProbe = time.Now()
+			degraded = true
+			reason = "runtime_degraded"
+		}
+
+		p.mu.RLock()
+		nodesSnap := append([]NodeConfig(nil), p.nodes...)
+		curNode := p.activeNode
+		p.mu.RUnlock()
+
+		p.evaluateAndMigrateIdle(ctx, nodesSnap, curNode, reason, degraded)
+	}
+}
+
+func (p *PoolProvider) pickLiveSession() *yamux.Session {
+	p.mu.RLock()
+	defer p.mu.RUnlock()
+	for s := range p.sessions {
+		if !s.IsClosed() {
+			return s
+		}
+	}
+	return nil
+}
+
+// healthWatchdogLoop pings one live yamux session periodically; 3 consecutive slow/failed
+// pings (>= degradedPingThreshold) signal reprobeLoop to escape evening-peak congestion when idle.
+func (p *PoolProvider) healthWatchdogLoop(ctx context.Context) {
+	ticker := time.NewTicker(p.healthPingInterval)
+	defer ticker.Stop()
+
+	consecutiveBad := 0
+	var lastNodeID string
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			p.mu.RLock()
+			nodeCount := len(p.nodes)
+			curID := p.activeNode.ID
+			p.mu.RUnlock()
+			if nodeCount <= 1 {
+				consecutiveBad = 0
+				continue
+			}
+			if curID != lastNodeID {
+				lastNodeID = curID
+				consecutiveBad = 0
+			}
+			sess := p.pickLiveSession()
+			if sess == nil {
+				continue
+			}
+			rtt, err := sess.Ping()
+			if ctx.Err() != nil {
+				return
+			}
+			if err != nil || rtt >= p.degradedPingThreshold {
+				consecutiveBad++
+				if consecutiveBad >= 3 {
+					p.logger.Warn("⚠️  [RelayPool] 检测到当前节点持续高延迟/拥堵，触发空闲重选",
+						"node", curID, "ping_ms", rtt.Milliseconds(), "err", err)
+					consecutiveBad = 0
+					select {
+					case p.degradeCh <- struct{}{}:
+					default:
+					}
 				}
+			} else {
+				consecutiveBad = 0
 			}
 		}
 	}
