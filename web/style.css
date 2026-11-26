@@ -1781,7 +1781,7 @@ code.inline-code, .markdown-body code:not(.code-block-pre code) {
   100% { background-position: 0% 50%; }
 }
 
-/* Long-press Inline Effort Model Picker + Right Companion Quota Card */
+/* Long-press 2-level Model Picker Popover */
 .model-picker-overlay {
   position: fixed;
   inset: 0;
@@ -1795,74 +1795,13 @@ code.inline-code, .markdown-body code:not(.code-block-pre code) {
   inset: 0;
   background: rgba(0, 0, 0, 0.08);
 }
-.model-picker-overlay .mp-top-hud {
-  position: fixed;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 5px;
-  pointer-events: none;
-  z-index: 2;
-}
-.model-picker-overlay .mp-running-pill {
-  padding: 4px 10px;
-  border-radius: 999px;
-  font-size: 11px;
-  font-weight: 500;
-  color: #f59e0b;
-  background: color-mix(in srgb, var(--ios-secondary-bg) 94%, transparent);
-  border: 0.8px solid rgba(245, 158, 11, 0.35);
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.16);
-}
-.model-picker-overlay .mp-live-pill {
-  position: relative;
-  overflow: hidden;
-  padding: 5px 11px;
-  border-radius: 999px;
-  font-size: 12px;
-  font-weight: 600;
-  background: color-mix(in srgb, var(--ios-secondary-bg) 94%, transparent);
-  border: 0.9px solid color-mix(in srgb, var(--mp-accent, currentColor) 48%, transparent);
-  color: var(--mp-accent, currentColor);
-  box-shadow: 0 6px 16px rgba(0, 0, 0, 0.18);
-}
-.model-picker-overlay .mp-live-pill.hidden {
-  display: none;
-}
-.model-picker-overlay .mp-live-pill-fg {
-  position: relative;
-  z-index: 2;
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-}
-.model-picker-overlay .mp-live-sep {
-  opacity: 0.65;
-}
-.model-picker-overlay .mp-live-pill.tier-low {
-  background: linear-gradient(var(--mp-low), var(--mp-low)), color-mix(in srgb, var(--ios-secondary-bg) 94%, transparent);
-}
-.model-picker-overlay .mp-live-pill.tier-med {
-  background: var(--mp-med), color-mix(in srgb, var(--ios-secondary-bg) 94%, transparent);
-}
-.model-picker-overlay .mp-live-pill.tier-high {
-  background: var(--mp-high);
-  color: #fff;
-  border-color: rgba(255, 255, 255, 0.28);
-}
-.model-picker-overlay .mp-live-pill.tier-xhigh {
-  background: var(--mp-cosmic);
-  color: #fff;
-  border-color: color-mix(in srgb, var(--mp-glow) 80%, transparent);
-  box-shadow: 0 0 14px color-mix(in srgb, var(--mp-glow) 42%, transparent);
-}
 .model-picker-overlay .mp-card {
   position: fixed;
   display: flex;
   flex-direction: column;
   gap: 3px;
   padding: 5px;
-  border-radius: 13px;
+  border-radius: 12px;
   background: color-mix(in srgb, var(--ios-secondary-bg) 92%, transparent);
   backdrop-filter: blur(18px);
   -webkit-backdrop-filter: blur(18px);
@@ -1871,458 +1810,59 @@ code.inline-code, .markdown-body code:not(.code-block-pre code) {
   overflow-y: auto;
 }
 .model-picker-overlay .mp-left {
-  width: 244px;
+  width: 210px;
 }
 .model-picker-overlay .mp-right {
-  width: 116px;
+  width: 108px;
 }
-
-/* Shared 4-tier Provider Palette Tokens */
-.model-picker-overlay .mp-prov-gemini {
-  color: var(--ios-blue);
-  --mp-accent: #2563eb;
-  --mp-low: rgba(37, 99, 235, 0.20);
-  --mp-med: linear-gradient(90deg, rgba(30, 64, 175, 0.42), rgba(59, 130, 246, 0.58));
-  --mp-high: linear-gradient(90deg, #1d4ed8, #2563eb, #38bdf8);
-  --mp-cosmic: linear-gradient(90deg, #13174a, #1e3a8a, #4f46e5, #38bdf8);
-  --mp-star: #ffffff;
-  --mp-glow: #38bdf8;
-}
-.model-picker-overlay .mp-prov-claude {
-  color: var(--ios-orange);
-  --mp-accent: #f97316;
-  --mp-low: rgba(234, 88, 12, 0.20);
-  --mp-med: linear-gradient(90deg, rgba(154, 52, 18, 0.44), rgba(249, 115, 22, 0.58));
-  --mp-high: linear-gradient(90deg, #c2410c, #ea580c, #fb923c);
-  --mp-cosmic: linear-gradient(90deg, #451a03, #9a3412, #ea580c, #fbbf24);
-  --mp-star: #fef3c7;
-  --mp-glow: #fb923c;
-}
-.model-picker-overlay .mp-prov-orchestrator {
-  color: var(--orchestrator-slate);
-  --mp-accent: var(--orchestrator-slate);
-  --mp-low: rgba(100, 116, 139, 0.24);
-  --mp-med: linear-gradient(90deg, rgba(51, 65, 85, 0.48), rgba(100, 116, 139, 0.62));
-  --mp-high: linear-gradient(90deg, #1e293b, #475569, #94a3b8);
-  --mp-cosmic: linear-gradient(90deg, #0b101c, #1e293b, #475569, #94a3b8);
-  --mp-star: #f1f5f9;
-  --mp-glow: #cbd5e1;
-}
-.model-picker-overlay .mp-prov-other {
-  color: var(--ios-teal);
-  --mp-accent: #14b8a6;
-  --mp-low: rgba(13, 148, 136, 0.20);
-  --mp-med: linear-gradient(90deg, rgba(17, 94, 89, 0.44), rgba(20, 184, 166, 0.58));
-  --mp-high: linear-gradient(90deg, #0f766e, #0d9488, #2dd4bf);
-  --mp-cosmic: linear-gradient(90deg, #042f2e, #0f766e, #0d9488, #5eead4);
-  --mp-star: #ccfbf1;
-  --mp-glow: #2dd4bf;
-}
-@media (prefers-color-scheme: light) {
-  .model-picker-overlay .mp-prov-gemini {
-    --mp-low: rgba(37, 99, 235, 0.14);
-    --mp-med: linear-gradient(90deg, rgba(96, 165, 250, 0.28), rgba(37, 99, 235, 0.40));
-  }
-  .model-picker-overlay .mp-prov-claude {
-    --mp-low: rgba(234, 88, 12, 0.14);
-    --mp-med: linear-gradient(90deg, rgba(253, 186, 116, 0.34), rgba(234, 88, 12, 0.40));
-  }
-  .model-picker-overlay .mp-prov-orchestrator {
-    --mp-low: rgba(71, 85, 105, 0.14);
-    --mp-med: linear-gradient(90deg, rgba(148, 163, 184, 0.28), rgba(71, 85, 105, 0.40));
-    --mp-high: linear-gradient(90deg, #1e293b, #475569, #64748b);
-  }
-  .model-picker-overlay .mp-prov-other {
-    --mp-low: rgba(13, 148, 136, 0.14);
-    --mp-med: linear-gradient(90deg, rgba(94, 234, 212, 0.28), rgba(13, 148, 136, 0.40));
-  }
-}
-
-/* Base row (also shared by workflow/commit pickers) */
+.model-picker-overlay .mp-card-prov-gemini { border-color: rgba(10, 132, 255, 0.4); }
+.model-picker-overlay .mp-card-prov-claude { border-color: rgba(255, 159, 10, 0.4); }
+.model-picker-overlay .mp-card-prov-orchestrator { border-color: rgba(var(--orchestrator-slate-rgb), 0.38); }
+.model-picker-overlay .mp-card-prov-other { border-color: rgba(48, 176, 199, 0.4); }
 .model-picker-overlay .mp-row {
-  position: relative;
   display: flex;
   align-items: center;
   gap: 6px;
   width: 100%;
-  min-height: 34px;
+  min-height: 32px;
   padding: 0 9px;
   border: 1px solid transparent;
-  border-radius: 9px;
+  border-radius: 8px;
   background: transparent;
   font-size: 13px;
   font-weight: 500;
   cursor: pointer;
   text-align: left;
-  overflow: hidden;
-  user-select: none;
-  -webkit-user-select: none;
-  touch-action: none;
 }
 .model-picker-overlay .mp-row.mp-group-start {
   margin-top: 3px;
   box-shadow: 0 -2px 0 -1px var(--ios-separator-subtle);
 }
-/* Workflow/Commit picker rows keep original simple hover */
-.wf-picker-overlay .mp-row.is-active { background: rgba(120, 120, 128, 0.14); font-weight: 600; }
-.wf-picker-overlay .mp-row.is-hovered,
-.wf-picker-overlay .mp-row:hover { background: rgba(120, 120, 128, 0.24); border-color: currentColor; font-weight: 600; }
-
-/* Inline-effort model rows */
-#model-picker-overlay .mp-row.is-hovered.has-effort {
-  background: color-mix(in srgb, var(--mp-accent) 10%, transparent);
-  border-color: color-mix(in srgb, var(--mp-accent) 72%, transparent);
-  font-weight: 600;
-}
-#model-picker-overlay .mp-row.is-hovered.is-single {
-  background: color-mix(in srgb, var(--mp-accent) 22%, transparent);
-  border-color: color-mix(in srgb, var(--mp-accent) 76%, transparent);
-  font-weight: 600;
-}
-#model-picker-overlay .mp-row.is-active:not(.is-hovered) {
-  background: color-mix(in srgb, var(--mp-accent) 9%, transparent);
-  border-color: color-mix(in srgb, var(--mp-accent) 42%, transparent);
-  font-weight: 600;
-}
-#model-picker-overlay .mp-row.is-hovered.tier-high {
-  border-color: color-mix(in srgb, var(--mp-accent) 85%, transparent);
-}
-#model-picker-overlay .mp-row.is-hovered.tier-xhigh {
-  border-color: color-mix(in srgb, var(--mp-glow) 88%, transparent);
-  box-shadow: 0 0 12px color-mix(in srgb, var(--mp-glow) 36%, transparent);
-}
-#model-picker-overlay .mp-row.is-resting-xhigh {
-  border-color: color-mix(in srgb, var(--mp-glow) 60%, transparent);
-}
-
-/* Inline progress fill bar */
-#model-picker-overlay .mp-fill {
-  position: absolute;
-  left: 0;
-  top: 0;
-  bottom: 0;
-  width: 0%;
-  border-radius: inherit;
-  overflow: hidden;
-  pointer-events: none;
-  transition: width 150ms cubic-bezier(0.22, 1, 0.36, 1);
-  z-index: 0;
-}
-#model-picker-overlay .mp-row.is-single .mp-fill {
-  display: none;
-}
-#model-picker-overlay .mp-row.tier-low .mp-fill {
-  background: var(--mp-low);
-}
-#model-picker-overlay .mp-row.tier-med .mp-fill {
-  background: var(--mp-med);
-}
-#model-picker-overlay .mp-row.tier-high .mp-fill {
-  background: var(--mp-high);
-}
-#model-picker-overlay .mp-row.tier-xhigh .mp-fill {
-  background: var(--mp-cosmic);
-}
-#model-picker-overlay .mp-row.is-active:not(.is-hovered):not(.is-resting-xhigh) .mp-fill {
-  opacity: 0.42;
-}
-#model-picker-overlay .mp-row.is-resting-xhigh .mp-fill {
-  opacity: 0.80;
-}
-#model-picker-overlay .mp-fill-cap {
-  display: none;
-  position: absolute;
-  right: 1.5px;
-  top: 5px;
-  bottom: 5px;
-  width: 2.5px;
-  border-radius: 2px;
-  background: var(--mp-accent);
-  opacity: 0.85;
-}
-#model-picker-overlay .mp-row.is-hovered.has-effort:not(.is-full-fill) .mp-fill-cap {
-  display: block;
-}
-#model-picker-overlay .mp-row.is-hovered.tier-high .mp-fill-cap {
-  background: rgba(255, 255, 255, 0.9);
-}
-
-/* Cosmic stars & aurora sweep (XHigh only) */
-.model-picker-overlay .mp-cosmic-stars {
-  display: none;
-  position: absolute;
-  inset: 0;
-  pointer-events: none;
-  overflow: hidden;
-}
-#model-picker-overlay .mp-row.tier-xhigh .mp-cosmic-stars,
-.model-picker-overlay .mp-live-pill.tier-xhigh .mp-cosmic-stars {
-  display: block;
-}
-.model-picker-overlay .mp-cosmic-sweep {
-  position: absolute;
-  inset: 0;
-  width: 42%;
-  background: linear-gradient(105deg, transparent 0%, color-mix(in srgb, var(--mp-star) 24%, transparent) 48%, color-mix(in srgb, var(--mp-glow) 18%, transparent) 62%, transparent 100%);
-  transform: translateX(-140%);
-  animation: mp-aurora-sweep 2.8s linear infinite;
-}
-#model-picker-overlay .mp-row.is-resting-xhigh .mp-cosmic-sweep {
-  animation: none;
-  opacity: 0;
-}
-.model-picker-overlay .mp-star {
-  position: absolute;
-  border-radius: 50%;
-  background: var(--mp-star);
-  box-shadow: 0 0 4px var(--mp-glow);
-  transform: translate(-50%, -50%);
-  animation: mp-star-twinkle 2.2s ease-in-out infinite;
-}
-.model-picker-overlay .mp-star.is-sparkle {
-  box-shadow: 0 0 6px var(--mp-star), 0 0 10px var(--mp-glow);
-}
-#model-picker-overlay .mp-row.is-resting-xhigh .mp-star {
-  animation: none;
-  opacity: 0.58;
-}
-@keyframes mp-aurora-sweep {
-  0% { transform: translateX(-140%); }
-  100% { transform: translateX(340%); }
-}
-@keyframes mp-star-twinkle {
-  0%, 100% { opacity: 0.42; transform: translate(-50%, -50%) scale(0.85); }
-  50% { opacity: 1; transform: translate(-50%, -50%) scale(1.18); }
-}
-
-/* Row foreground */
-#model-picker-overlay .mp-row-fg {
-  position: relative;
-  z-index: 2;
-  display: flex;
-  align-items: center;
-  gap: 5px;
-  width: 100%;
-}
-#model-picker-overlay .mp-row.is-hovered.has-effort .mp-row-fg {
-  padding-bottom: 3px;
-}
+.model-picker-overlay .mp-prov-gemini { color: var(--ios-blue); }
+.model-picker-overlay .mp-prov-claude { color: var(--ios-orange); }
+.model-picker-overlay .mp-prov-orchestrator { color: var(--orchestrator-slate); }
+.model-picker-overlay .mp-prov-other { color: var(--ios-teal); }
+.model-picker-overlay .mp-row.is-active { background: rgba(120, 120, 128, 0.14); font-weight: 600; }
+.model-picker-overlay .mp-row.is-hovered,
+.model-picker-overlay .mp-row:hover { background: rgba(120, 120, 128, 0.24); border-color: currentColor; font-weight: 600; }
+.model-picker-overlay .mp-row.is-default:not(.is-active):not(.is-hovered) { background: rgba(120, 120, 128, 0.10); }
 .model-picker-overlay .mp-title { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.model-picker-overlay .mp-check { width: 12px; font-size: 11px; font-weight: 700; text-align: center; flex-shrink: 0; }
-#model-picker-overlay .mp-row:not(.is-active) .mp-check { display: none; }
-
-/* Contrast boost on rich High / XHigh fills */
-#model-picker-overlay .mp-row.is-hovered.tier-high .mp-row-fg,
-#model-picker-overlay .mp-row.is-hovered.tier-xhigh .mp-row-fg,
-#model-picker-overlay .mp-row.is-resting-xhigh .mp-row-fg {
-  color: #ffffff;
-  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.28);
-}
-
-/* Effort badge & idle dots */
-#model-picker-overlay .mp-effort-badge {
-  display: none;
+.model-picker-overlay .mp-check { width: 12px; font-size: 11px; font-weight: 700; text-align: center; }
+.model-picker-overlay .mp-arrow { font-size: 14px; opacity: 0.7; }
+.model-picker-overlay .mp-quota {
   flex-shrink: 0;
   padding: 1px 6px;
   border-radius: 999px;
-  font-size: 10.5px;
-  font-weight: 600;
-  line-height: 15px;
-  color: var(--mp-accent);
-  background: color-mix(in srgb, var(--mp-accent) 16%, transparent);
-}
-#model-picker-overlay .mp-effort-badge.is-visible {
-  display: inline-flex;
-  align-items: center;
-}
-#model-picker-overlay .mp-row.tier-xhigh .mp-effort-badge {
-  font-weight: 700;
-}
-#model-picker-overlay .mp-row.is-hovered.is-full-fill.tier-high .mp-effort-badge,
-#model-picker-overlay .mp-row.is-hovered.tier-xhigh .mp-effort-badge,
-#model-picker-overlay .mp-row.is-resting-xhigh .mp-effort-badge {
-  color: #ffffff;
-  background: rgba(255, 255, 255, 0.22);
-}
-#model-picker-overlay .mp-idle-dots {
-  display: inline-flex;
-  align-items: center;
-  gap: 2.5px;
-  flex-shrink: 0;
-}
-#model-picker-overlay .mp-row.is-hovered .mp-idle-dots,
-#model-picker-overlay .mp-row.is-active .mp-idle-dots {
-  display: none;
-}
-#model-picker-overlay .mp-idle-dot {
-  width: 3px;
-  height: 3px;
-  border-radius: 50%;
-  background: currentColor;
-  opacity: 0.34;
-}
-
-/* Bottom micro-node rail on hovered adjustable row */
-#model-picker-overlay .mp-node-rail {
-  display: none;
-  position: absolute;
-  left: 6px;
-  right: 6px;
-  bottom: 2.5px;
-  z-index: 2;
-  align-items: center;
-  pointer-events: none;
-}
-#model-picker-overlay .mp-row.is-hovered.has-effort .mp-node-rail {
-  display: flex;
-}
-#model-picker-overlay .mp-node-slot {
-  flex: 1;
-  display: flex;
-  justify-content: center;
-  align-items: center;
-}
-#model-picker-overlay .mp-node-dot {
-  width: 4px;
-  height: 2.5px;
-  border-radius: 999px;
-  background: color-mix(in srgb, var(--mp-accent) 28%, transparent);
-  transition: width 140ms ease, background-color 140ms ease;
-}
-#model-picker-overlay .mp-node-dot.is-reached {
-  background: color-mix(in srgb, var(--mp-accent) 58%, transparent);
-}
-#model-picker-overlay .mp-node-dot.is-current {
-  width: 12px;
-  height: 3px;
-  background: var(--mp-accent);
-}
-#model-picker-overlay .mp-row.is-hovered.tier-high .mp-node-dot.is-reached,
-#model-picker-overlay .mp-row.is-hovered.tier-xhigh .mp-node-dot.is-reached {
-  background: rgba(255, 255, 255, 0.56);
-}
-#model-picker-overlay .mp-row.is-hovered.tier-high .mp-node-dot.is-current,
-#model-picker-overlay .mp-row.is-hovered.tier-xhigh .mp-node-dot.is-current {
-  background: #ffffff;
-}
-
-/* Right Companion Quota Card (Gemini + Claude, 5h + Weekly + Pace Cursor) */
-.model-picker-overlay .mp-quota-card {
-  gap: 6px;
-  padding: 6px;
-  pointer-events: none;
-}
-.model-picker-overlay .mp-q-pool {
-  display: flex;
-  flex-direction: column;
-  gap: 5px;
-  padding: 6px 7px;
-  border-radius: 9px;
-  border: 0.7px solid rgba(128, 128, 128, 0.14);
-  background: rgba(128, 128, 128, 0.06);
-  transition: opacity 140ms ease, border-color 140ms ease, background-color 140ms ease;
-}
-.model-picker-overlay .mp-q-pool-gemini { --mp-q-accent: var(--ios-blue); }
-.model-picker-overlay .mp-q-pool-claude { --mp-q-accent: var(--ios-orange); }
-.model-picker-overlay .mp-q-pool.is-focused {
-  border-color: color-mix(in srgb, var(--mp-q-accent) 68%, transparent);
-  background: color-mix(in srgb, var(--mp-q-accent) 13%, transparent);
-}
-.model-picker-overlay .mp-q-pool.is-dimmed {
-  opacity: 0.48;
-}
-.model-picker-overlay .mp-q-head {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-}
-.model-picker-overlay .mp-q-dot {
-  width: 5.5px;
-  height: 5.5px;
-  border-radius: 50%;
-  background: var(--mp-q-accent);
-  flex-shrink: 0;
-}
-.model-picker-overlay .mp-q-name {
   font-size: 11px;
   font-weight: 600;
-  color: var(--mp-q-accent);
-  flex: 1;
-}
-.model-picker-overlay .mp-q-reset {
-  font-size: 9px;
-  font-weight: 500;
   font-variant-numeric: tabular-nums;
-  color: var(--ios-secondary-label);
+  color: currentColor;
+  background: color-mix(in srgb, currentColor 14%, transparent);
 }
-.model-picker-overlay .mp-q-metric {
-  display: flex;
-  flex-direction: column;
-  gap: 2.5px;
-}
-.model-picker-overlay .mp-q-metric-head {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 3px;
-}
-.model-picker-overlay .mp-q-label {
-  font-size: 9.5px;
-  font-weight: 500;
-  color: var(--ios-secondary-label);
-}
-.model-picker-overlay .mp-q-pct {
-  font-size: 10.5px;
-  font-weight: 600;
-  font-variant-numeric: tabular-nums;
-  color: var(--ios-label);
-}
-.model-picker-overlay .mp-q-metric.is-low .mp-q-pct {
-  color: #e5484d;
-}
-.model-picker-overlay .mp-q-track {
-  position: relative;
-  width: 100%;
-  height: 4.5px;
-  border-radius: 999px;
-  background: rgba(128, 128, 128, 0.18);
-}
-.model-picker-overlay .mp-q-bar {
-  display: block;
-  height: 100%;
-  border-radius: 999px;
-  background: var(--mp-q-accent);
-}
-.model-picker-overlay .mp-q-metric.is-low .mp-q-bar {
-  background: #e5484d;
-}
-.model-picker-overlay .mp-q-pace {
-  position: absolute;
-  top: -1.5px;
-  width: 1.5px;
-  height: 7.5px;
-  border-radius: 1px;
-  transform: translateX(-50%);
-  background: rgba(255, 255, 255, 0.92);
-  box-shadow: 0 0.5px 1.5px rgba(0, 0, 0, 0.4);
-}
-.model-picker-overlay .mp-q-pace.is-over {
-  background: #ff9f0a;
-}
-@media (prefers-color-scheme: light) {
-  .model-picker-overlay .mp-q-pace:not(.is-over) {
-    background: rgba(28, 28, 30, 0.78);
-  }
-}
-
+.model-picker-overlay .mp-quota.is-low { color: #e5484d; background: rgba(229, 72, 77, 0.14); }
 @media (prefers-reduced-motion: reduce) {
-  .chip-model-switch.chip-xhigh::before,
-  .model-picker-overlay .mp-cosmic-sweep,
-  .model-picker-overlay .mp-star {
+  .chip-model-switch.chip-xhigh::before {
     animation: none !important;
-  }
-  .model-picker-overlay .mp-cosmic-sweep {
-    opacity: 0;
   }
 }
 .cell-label-stack { display: flex; flex-direction: column; gap: 2px; }

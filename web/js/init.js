@@ -964,75 +964,29 @@ function initApp() {
     }
   });
 
-  // Model Switch Chip (click to toggle favorites; long-press + slide up/horizontal or right-click for inline effort picker)
+  // Model Switch Chip (click to toggle favorites; long-press or right-click for full 2-level model menu)
   const modelSwitchBtn = document.getElementById("btn-model-switch");
   if (modelSwitchBtn) {
     let modelLongPressTimer = null;
     let suppressNextClick = false;
-    let activePointerId = null;
-    let isDraggingPicker = false;
-
-    const cleanupDragListeners = () => {
-      window.removeEventListener("pointermove", onWindowPointerMove);
-      window.removeEventListener("pointerup", onWindowPointerUp);
-      window.removeEventListener("pointercancel", onWindowPointerCancel);
-      activePointerId = null;
-      isDraggingPicker = false;
-    };
-
-    const onWindowPointerMove = (ev) => {
-      if (activePointerId !== null && ev.pointerId !== activePointerId) return;
-      if (isDraggingPicker && typeof updateWebModelPickerDrag === "function") {
-        ev.preventDefault();
-        updateWebModelPickerDrag(ev.clientX, ev.clientY);
-      }
-    };
-
-    const onWindowPointerUp = (ev) => {
-      if (activePointerId !== null && ev.pointerId !== activePointerId) return;
-      clearTimeout(modelLongPressTimer);
-      if (isDraggingPicker && typeof endWebModelPickerDrag === "function") {
-        endWebModelPickerDrag();
-      }
-      cleanupDragListeners();
-    };
-
-    const onWindowPointerCancel = () => {
-      clearTimeout(modelLongPressTimer);
-      if (isDraggingPicker && typeof dismissWebModelPicker === "function") {
-        dismissWebModelPicker();
-      }
-      cleanupDragListeners();
-    };
-
     modelSwitchBtn.addEventListener("pointerdown", (e) => {
       if (e.button === 2) return;
       suppressNextClick = false;
-      activePointerId = e.pointerId;
-      isDraggingPicker = false;
       clearTimeout(modelLongPressTimer);
-      window.addEventListener("pointermove", onWindowPointerMove, { passive: false });
-      window.addEventListener("pointerup", onWindowPointerUp);
-      window.addEventListener("pointercancel", onWindowPointerCancel);
-      const startX = e.clientX;
-      const startY = e.clientY;
       modelLongPressTimer = setTimeout(() => {
         suppressNextClick = true;
-        isDraggingPicker = true;
         triggerHaptic("medium");
-        if (typeof openWebModelPicker === "function") {
-          openWebModelPicker(modelSwitchBtn, { dragMode: true, pointerX: startX, pointerY: startY });
-        }
-      }, 210);
+        if (typeof openWebModelPicker === "function") openWebModelPicker(modelSwitchBtn);
+      }, 220);
     });
-
+    const cancelPress = () => clearTimeout(modelLongPressTimer);
+    modelSwitchBtn.addEventListener("pointerup", cancelPress);
+    modelSwitchBtn.addEventListener("pointercancel", cancelPress);
+    modelSwitchBtn.addEventListener("pointerleave", cancelPress);
     modelSwitchBtn.addEventListener("contextmenu", (e) => {
       e.preventDefault();
-      clearTimeout(modelLongPressTimer);
-      cleanupDragListeners();
-      if (typeof openWebModelPicker === "function") {
-        openWebModelPicker(modelSwitchBtn, { dragMode: false });
-      }
+      cancelPress();
+      if (typeof openWebModelPicker === "function") openWebModelPicker(modelSwitchBtn);
     });
     modelSwitchBtn.addEventListener("click", () => {
       if (suppressNextClick) {

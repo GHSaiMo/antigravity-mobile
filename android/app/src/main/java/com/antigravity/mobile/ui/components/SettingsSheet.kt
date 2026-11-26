@@ -1297,11 +1297,13 @@ private fun MainSettingsContent(
         val compactCollapseTasks by prefs.compactCollapseTasksFlow.collectAsState()
         val compactHideHealthyContext by prefs.compactHideHealthyContextFlow.collectAsState()
         val pickerQuotaEnabled by com.antigravity.mobile.data.service.ModelPickerQuotaCache.enabled.collectAsState()
+        val pickerQuotaWeekly by com.antigravity.mobile.data.service.ModelPickerQuotaCache.weekly.collectAsState()
         val quotaDisplaySummary = run {
+            val window = if (pickerQuotaWeekly) "每周".loc else "5h"
             when {
-                weeklyPaceCursor && pickerQuotaEnabled -> "${"匀速".loc} · ${"余量".loc}"
+                weeklyPaceCursor && pickerQuotaEnabled -> "${"匀速".loc} · $window"
                 weeklyPaceCursor -> "匀速游标".loc
-                pickerQuotaEnabled -> "余量面板".loc
+                pickerQuotaEnabled -> "${"余量".loc} · $window"
                 else -> "已关闭".loc
             }
         }
@@ -2587,6 +2589,7 @@ private fun QuotaDisplaySubpageContent(prefs: PreferencesManager) {
     val haptic = rememberHaptic()
     val weeklyPaceCursor by prefs.weeklyPaceCursorFlow.collectAsState()
     val enabled by com.antigravity.mobile.data.service.ModelPickerQuotaCache.enabled.collectAsState()
+    val weekly by com.antigravity.mobile.data.service.ModelPickerQuotaCache.weekly.collectAsState()
 
     Column(
         modifier = Modifier
@@ -2633,7 +2636,7 @@ private fun QuotaDisplaySubpageContent(prefs: PreferencesManager) {
 
         SettingsSection(
             title = "模型选择器".loc,
-            footer = "长按模型胶囊上滑时，在右侧伴随面板同屏显示 Gemini 与 Claude 共享池的 5h 与周剩余额度，低于 20% 标红。".loc
+            footer = "长按模型胶囊上滑时，在每个模型行右侧显示所属额度池（Gemini / Claude）的剩余百分比，低于 20% 标红。".loc
         ) {
             Column(
                 modifier = Modifier
@@ -2667,6 +2670,56 @@ private fun QuotaDisplaySubpageContent(prefs: PreferencesManager) {
                             checkedTrackColor = colors.accentIndigo
                         )
                     )
+                }
+                HorizontalDivider(
+                    color = colors.separator.copy(alpha = 0.35f),
+                    thickness = 0.5.dp,
+                    modifier = Modifier.padding(start = 16.dp)
+                )
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .alpha(if (enabled) 1f else 0.48f)
+                        .padding(horizontal = 16.dp, vertical = 10.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    Text(
+                        text = "余量窗口".loc,
+                        color = colors.textPrimary,
+                        fontSize = 15.sp,
+                        fontWeight = FontWeight.Medium,
+                        modifier = Modifier.weight(1f, fill = false).padding(end = 8.dp)
+                    )
+                    Row(
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(9.dp))
+                            .background(colors.surfaceVariant)
+                            .padding(2.dp),
+                        horizontalArrangement = Arrangement.spacedBy(2.dp)
+                    ) {
+                        listOf(false to "5h", true to "每周".loc).forEach { (isWeekly, label) ->
+                            val selected = weekly == isWeekly
+                            Box(
+                                modifier = Modifier
+                                    .clip(RoundedCornerShape(7.dp))
+                                    .background(if (selected) colors.surface else Color.Transparent)
+                                    .clickable(enabled = enabled) {
+                                        haptic.light()
+                                        prefs.modelPickerQuotaWeekly = isWeekly
+                                    }
+                                    .padding(horizontal = 14.dp, vertical = 5.dp),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Text(
+                                    text = label,
+                                    color = if (selected) colors.textPrimary else colors.textSecondary,
+                                    fontSize = 12.5.sp,
+                                    fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Medium
+                                )
+                            }
+                        }
+                    }
                 }
             }
         }

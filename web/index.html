@@ -715,8 +715,15 @@
                 <span class="cell-label">显示余量</span>
                 <input type="checkbox" id="settings-picker-quota-enabled" class="ios-switch-input" checked />
               </label>
+              <div class="ios-cell between">
+                <span class="cell-label">余量窗口</span>
+                <div id="settings-picker-quota-seg" class="settings-segmented" role="radiogroup" aria-label="余量窗口">
+                  <button type="button" class="settings-seg-btn active" data-quota-window="5h" aria-pressed="true">5h</button>
+                  <button type="button" class="settings-seg-btn" data-quota-window="weekly" aria-pressed="false">每周</button>
+                </div>
+              </div>
             </div>
-            <div class="settings-note" style="margin: 6px 4px 14px;">长按模型胶囊上滑时，在右侧伴随面板同屏显示 Gemini 与 Claude 共享池的 5h 与周剩余额度，低于 20% 标红。</div>
+            <div class="settings-note" style="margin: 6px 4px 14px;">长按模型胶囊上滑时，在每个模型行右侧显示所属额度池（Gemini / Claude）的剩余百分比，低于 20% 标红。</div>
           </div>
           <div id="settings-sub-alerts" class="hidden">
             <div class="quota-section-header" style="margin: 6px 4px 6px;">任务与会话提醒</div>

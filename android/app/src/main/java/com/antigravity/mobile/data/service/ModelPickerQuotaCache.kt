@@ -5,24 +5,18 @@ import com.antigravity.mobile.data.model.CockpitQuotaBucket
 import com.antigravity.mobile.data.model.ModelDefaults
 import kotlinx.coroutines.flow.MutableStateFlow
 
-enum class ModelQuotaPoolKind {
-    GEMINI,
-    CLAUDE
-}
-
 /**
- * 模型选择器右侧额度伴随卡的只读缓存：由首页额度拉取同步当前账号额度，零额外请求。
- * 开关与匀速游标状态由 [PreferencesManager] 写入。
+ * 模型选择器行内余量的只读缓存：由首页额度拉取同步当前账号额度，零额外请求。
+ * 开关与 5h / Weekly 窗口由 [PreferencesManager] 写入。
  */
 object ModelPickerQuotaCache {
     val account = MutableStateFlow<CockpitAccountQuota?>(null)
     val enabled = MutableStateFlow(true)
     val weekly = MutableStateFlow(false)
-    val weeklyPaceCursorEnabled = MutableStateFlow(true)
 
     private val CLAUDE_ORCHESTRATOR_TOKENS = listOf("claude", "opus", "sonnet", "haiku", "anthropic")
 
-    fun usesClaudeQuotaPool(
+    private fun usesClaudeQuotaPool(
         title: String,
         variantIds: List<String>,
         variantRawNames: List<String>,
@@ -45,27 +39,25 @@ object ModelPickerQuotaCache {
         }
     }
 
-    fun quotaPool(
-        providerKind: String,
+    private fun geminiBucket(
+        acc: CockpitAccountQuota,
         title: String,
         variantIds: List<String>,
-        variantRawNames: List<String> = emptyList(),
-        quotaPools: List<String?> = emptyList()
-    ): ModelQuotaPoolKind? = when (providerKind.lowercase()) {
-        "claude" -> ModelQuotaPoolKind.CLAUDE
-        "gemini" -> ModelQuotaPoolKind.GEMINI
-        "orchestrator" -> {
-            if (usesClaudeQuotaPool(title, variantIds, variantRawNames, quotaPools)) {
-                ModelQuotaPoolKind.CLAUDE
-            } else {
-                ModelQuotaPoolKind.GEMINI
-            }
-        }
-        else -> null
+        variantRawNames: List<String>,
+        weekly: Boolean
+    ): CockpitQuotaBucket? {
+        val isArgon = title.contains("argon", ignoreCase = true) ||
+            variantIds.any { it.contains("argon", ignoreCase = true) } ||
+            variantRawNames.any { it.contains("argon", ignoreCase = true) }
+        val argon = acc.gemini4Argon
+        return if (isArgon && argon != null) argon
+        else if (weekly) acc.geminiWeekly else (acc.gemini5h ?: acc.geminiWeekly)
     }
 
     /**
-     * 兼容保留：返回某个模型行对应共享池剩余百分比（0..100，仅 Gemini / Claude 双池）。
+     * 返回某个模型行对应额度池剩余百分比（0..100）；无数据或无法归属时返回 null。
+     * Claude 及由 Claude 驱动的 Orchestrator（如 Orch Opus / Sonnet）归 Claude 池；
+     * 其余 Gemini / Orchestrator 归 Gemini 池（Argon 若网关单独下发则用 Argon 桶）。
      */
     fun remainingPercent(
         account: CockpitAccountQuota?,
@@ -77,10 +69,17 @@ object ModelPickerQuotaCache {
         quotaPools: List<String?> = emptyList()
     ): Double? {
         val acc = account ?: return null
-        val pool = quotaPool(providerKind, title, variantIds, variantRawNames, quotaPools) ?: return null
-        val bucket: CockpitQuotaBucket? = when (pool) {
-            ModelQuotaPoolKind.CLAUDE -> if (weekly) acc.claudeWeekly else (acc.claude5h ?: acc.claudeWeekly)
-            ModelQuotaPoolKind.GEMINI -> if (weekly) acc.geminiWeekly else (acc.gemini5h ?: acc.geminiWeekly)
+        val bucket: CockpitQuotaBucket? = when (providerKind.lowercase()) {
+            "claude" -> if (weekly) acc.claudeWeekly else (acc.claude5h ?: acc.claudeWeekly)
+            "gemini" -> geminiBucket(acc, title, variantIds, variantRawNames, weekly)
+            "orchestrator" -> {
+                if (usesClaudeQuotaPool(title, variantIds, variantRawNames, quotaPools)) {
+                    if (weekly) acc.claudeWeekly else (acc.claude5h ?: acc.claudeWeekly)
+                } else {
+                    geminiBucket(acc, title, variantIds, variantRawNames, weekly)
+                }
+            }
+            else -> null
         }
         val pct = bucket?.remainingPercent ?: return null
         if (pct.isNaN() || pct.isInfinite()) return null

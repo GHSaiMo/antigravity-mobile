@@ -248,8 +248,8 @@ fun QuickActionChips(
                             Modifier.shadow(
                                 elevation = 4.dp,
                                 shape = chipShape,
-                                ambientColor = effortPalette.glowColor,
-                                spotColor = effortPalette.glowColor
+                                ambientColor = xhighGlowColor,
+                                spotColor = xhighGlowColor
                             )
                         } else {
                             Modifier
@@ -261,8 +261,8 @@ fun QuickActionChips(
                             Modifier.background(
                                 Brush.linearGradient(
                                     colors = listOf(
-                                        effortPalette.cosmicColors.first().copy(alpha = if (colors.isDark) 0.34f else 0.14f),
-                                        effortPalette.glowColor.copy(alpha = if (colors.isDark) 0.22f else 0.12f)
+                                        xhighCosmicStart.copy(alpha = if (colors.isDark) 0.34f else 0.14f),
+                                        xhighGlowColor.copy(alpha = if (colors.isDark) 0.22f else 0.12f)
                                     )
                                 )
                             )
@@ -280,7 +280,7 @@ fun QuickActionChips(
                                 val dx = (cos(rad) * size.width * 0.65).toFloat()
                                 val dy = (sin(rad) * size.height * 1.4).toFloat()
                                 val rimBrush = Brush.linearGradient(
-                                    colors = effortPalette.chipRimColors,
+                                    colors = xhighRimColors,
                                     start = Offset(center.x - dx, center.y - dy),
                                     end = Offset(center.x + dx, center.y + dy)
                                 )
