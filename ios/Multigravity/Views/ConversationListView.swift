@@ -4,8 +4,10 @@ import SwiftUI
 public struct ConversationListView: View {
     @Environment(\.scenePhase) private var scenePhase
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
+    @Environment(\.colorScheme) private var colorScheme
     /// Wide screens (iPad / unfolded iPhone Duo landscape): whether the conversation list column is shown next to the chat.
     @State private var showSidebar = true
+    @State private var swipedBranchChildId: String? = nil
     @State private var layoutGeometry = AdaptiveLayoutGeometry()
     @State private var chatSessionStore = ChatSessionStore()
     @State private var settings = AppSettings.shared
@@ -1510,57 +1512,60 @@ public struct ConversationListView: View {
             let firstConversationId = viewModel.filteredConversations.first?.id
             ForEach(displayRows) { row in
                 switch row {
-                case .branchToggle(let parentId, let branches, let isExpanded, let aggregateStatus):
-                    branchGroupToggleRow(
-                        parentId: parentId,
-                        branches: branches,
-                        isExpanded: isExpanded,
-                        aggregateStatus: aggregateStatus
+                case .branchDrawer(let parentId, let branches, let isExpanded, let aggregateStatus):
+                    applyConversationConfirmationDialogs(
+                        to: branchGroupDrawer(
+                            parentId: parentId,
+                            branches: branches,
+                            isExpanded: isExpanded,
+                            aggregateStatus: aggregateStatus
+                        ),
+                        matches: { id in branches.contains(where: { $0.id == id }) }
                     )
                     .listRowInsets(EdgeInsets(
                         top: 0,
-                        leading: 16,
-                        bottom: isExpanded ? 2 : 6,
-                        trailing: 16
+                        leading: 28,
+                        bottom: 6,
+                        trailing: 28
                     ))
                     .listRowSeparator(.hidden)
                     .listRowBackground(Color.clear)
 
-                case .conversation(let item, let isAttachedBranchChild, let isLastBranchChild, let hasAttachedBranches):
-                    conversationCard(
-                        for: item,
-                        isAttachedBranchChild: isAttachedBranchChild,
-                        isLastBranchChild: isLastBranchChild
+                case .conversation(let item, let hasAttachedBranches):
+                    applyConversationConfirmationDialogs(
+                        to: conversationCard(for: item)
+                            .offset(x: item.id == firstConversationId ? firstCardPeekOffset : 0)
+                            .contentShape(Rectangle())
+                            .onTapGesture {
+                                swipedBranchChildId = nil
+                                openConversation(item)
+                            }
+                            .modifier(RowActions(
+                                isSplit: usesSplitLayout,
+                                item: item,
+                                onRename: {
+                                    conversationToRename = item
+                                    renameText = item.title
+                                    showRenameAlert = true
+                                },
+                                onToggleStar: {
+                                    viewModel.toggleStar(item: item)
+                                },
+                                onArchive: {
+                                    conversationToArchive = item
+                                    showArchiveConfirm = true
+                                },
+                                onDelete: {
+                                    conversationToDelete = item
+                                    showDeleteConfirm = true
+                                }
+                            )),
+                        matches: { id in id == item.id }
                     )
-                    .offset(x: item.id == firstConversationId ? firstCardPeekOffset : 0)
-                    .contentShape(Rectangle())
-                    .onTapGesture {
-                        openConversation(item)
-                    }
-                    .modifier(RowActions(
-                        isSplit: usesSplitLayout,
-                        item: item,
-                        onRename: {
-                            conversationToRename = item
-                            renameText = item.title
-                            showRenameAlert = true
-                        },
-                        onToggleStar: {
-                            viewModel.toggleStar(item: item)
-                        },
-                        onArchive: {
-                            conversationToArchive = item
-                            showArchiveConfirm = true
-                        },
-                        onDelete: {
-                            conversationToDelete = item
-                            showDeleteConfirm = true
-                        }
-                    ))
                     .listRowInsets(EdgeInsets(
-                        top: isAttachedBranchChild ? 1 : 6,
+                        top: 6,
                         leading: 16,
-                        bottom: hasAttachedBranches ? 2 : (isAttachedBranchChild && !isLastBranchChild ? 2 : 6),
+                        bottom: hasAttachedBranches ? 0 : 6,
                         trailing: 16
                     ))
                     .listRowSeparator(.hidden)
@@ -1600,88 +1605,6 @@ public struct ConversationListView: View {
                                 Image(uiImage: Self.archiveActionImage(isArchived: item.isArchived))
                             }
                             .tint(.clear)
-                        }
-                    }
-
-                    .confirmationDialog(
-                        (conversationToPin?.isPinned == true)
-                            ? String(localized: "确定取消置顶此会话吗？")
-                            : String(localized: "确定置顶此会话吗？\n置顶后该会话将固定显示在会话列表顶部。"),
-                        isPresented: Binding(
-                            get: { showPinConfirm && conversationToPin?.id == item.id },
-                            set: { if !$0 {
-                                showPinConfirm = false
-                                conversationToPin = nil
-                            } }
-                        ),
-                        titleVisibility: .visible
-                    ) {
-                        Button((conversationToPin?.isPinned == true) ? String(localized: "取消置顶") : String(localized: "置顶会话")) {
-                            showPinConfirm = false
-                            if let target = conversationToPin {
-                                UIImpactFeedbackGenerator(style: .medium).impactOccurred()
-                                viewModel.togglePin(item: target)
-                            }
-                            conversationToPin = nil
-                        }
-                        Button("取消", role: .cancel) {
-                            showPinConfirm = false
-                            conversationToPin = nil
-                        }
-                    }
-
-                    .confirmationDialog(
-                        (conversationToArchive?.isArchived == true)
-                            ? String(localized: "确定取消归档此会话吗？")
-                            : String(localized: "确定归档此会话吗？\n归档后该会话将移入「已归档」，随时可查看或恢复。"),
-                        isPresented: Binding(
-                            get: { showArchiveConfirm && conversationToArchive?.id == item.id },
-                            set: { if !$0 {
-                                showArchiveConfirm = false
-                                conversationToArchive = nil
-                            } }
-                        ),
-                        titleVisibility: .visible
-                    ) {
-                        Button((conversationToArchive?.isArchived == true) ? String(localized: "取消归档") : String(localized: "归档会话")) {
-                            showArchiveConfirm = false
-                            if let target = conversationToArchive {
-                                UIImpactFeedbackGenerator(style: .medium).impactOccurred()
-                                viewModel.toggleArchive(item: target)
-                            }
-                            conversationToArchive = nil
-                        }
-                        Button("取消", role: .cancel) {
-                            showArchiveConfirm = false
-                            conversationToArchive = nil
-                        }
-                    }
-
-                    .confirmationDialog(
-                        (conversationToDelete?.isDraft == true)
-                            ? String(localized: "确定删除此草稿会话吗？\n此操作将删除本地临时会话且无法撤销。")
-                            : String(localized: "确定删除此会话吗？\n此操作将永久删除会话记录且无法撤销。"),
-                        isPresented: Binding(
-                            get: { showDeleteConfirm && conversationToDelete?.id == item.id },
-                            set: { if !$0 {
-                                showDeleteConfirm = false
-                                conversationToDelete = nil
-                            } }
-                        ),
-                        titleVisibility: .visible
-                    ) {
-                        Button("删除", role: .destructive) {
-                            showDeleteConfirm = false
-                            let target = conversationToDelete ?? item
-                            conversationToDelete = nil
-                            if navigationPath.last?.id == target.id { navigationPath = [] }
-                            Task {
-                                await viewModel.deleteConversation(item: target)
-                            }
-                        }
-                        Button("取消", role: .cancel) {
-                            showDeleteConfirm = false
-                            conversationToDelete = nil
                         }
                     }
                 }
@@ -1738,6 +1661,8 @@ public struct ConversationListView: View {
             }
         }
         .listStyle(.plain)
+        .listRowSpacing(0)
+        .environment(\.defaultMinListRowHeight, 0)
         .animation(.spring(response: 0.42, dampingFraction: 0.72), value: viewModel.globalBackgroundTasks.isEmpty)
         .animation(.spring(response: 0.34, dampingFraction: 0.86), value: viewModel.selectedWorkspaceFilter)
         .refreshable {
@@ -2089,17 +2014,105 @@ public struct ConversationListView: View {
     }
 
     private enum ConversationListRow: Identifiable {
-        case conversation(ConversationItem, isAttachedBranchChild: Bool, isLastBranchChild: Bool, hasAttachedBranches: Bool)
-        case branchToggle(parentId: String, branches: [ConversationItem], isExpanded: Bool, aggregateStatus: BranchAggregateStatus)
+        case conversation(ConversationItem, hasAttachedBranches: Bool)
+        case branchDrawer(parentId: String, branches: [ConversationItem], isExpanded: Bool, aggregateStatus: BranchAggregateStatus)
 
         var id: String {
             switch self {
-            case .conversation(let item, _, _, _):
+            case .conversation(let item, _):
                 return item.id
-            case .branchToggle(let parentId, _, _, _):
-                return "btw-toggle-\(parentId)"
+            case .branchDrawer(let parentId, _, _, _):
+                return "btw-drawer-\(parentId)"
             }
         }
+    }
+
+    @ViewBuilder
+    private func applyConversationConfirmationDialogs<Content: View>(
+        to content: Content,
+        matches: @escaping (String?) -> Bool
+    ) -> some View {
+        content
+            .confirmationDialog(
+                (conversationToPin?.isPinned == true)
+                    ? String(localized: "确定取消置顶此会话吗？")
+                    : String(localized: "确定置顶此会话吗？\n置顶后该会话将固定显示在会话列表顶部。"),
+                isPresented: Binding(
+                    get: { showPinConfirm && matches(conversationToPin?.id) },
+                    set: { if !$0 {
+                        showPinConfirm = false
+                        conversationToPin = nil
+                    } }
+                ),
+                titleVisibility: .visible
+            ) {
+                Button((conversationToPin?.isPinned == true) ? String(localized: "取消置顶") : String(localized: "置顶会话")) {
+                    showPinConfirm = false
+                    if let target = conversationToPin {
+                        UIImpactFeedbackGenerator(style: .medium).impactOccurred()
+                        viewModel.togglePin(item: target)
+                    }
+                    conversationToPin = nil
+                }
+                Button("取消", role: .cancel) {
+                    showPinConfirm = false
+                    conversationToPin = nil
+                }
+            }
+            .confirmationDialog(
+                (conversationToArchive?.isArchived == true)
+                    ? String(localized: "确定取消归档此会话吗？")
+                    : String(localized: "确定归档此会话吗？\n归档后该会话将移入「已归档」，随时可查看或恢复。"),
+                isPresented: Binding(
+                    get: { showArchiveConfirm && matches(conversationToArchive?.id) },
+                    set: { if !$0 {
+                        showArchiveConfirm = false
+                        conversationToArchive = nil
+                    } }
+                ),
+                titleVisibility: .visible
+            ) {
+                Button((conversationToArchive?.isArchived == true) ? String(localized: "取消归档") : String(localized: "归档会话")) {
+                    showArchiveConfirm = false
+                    if let target = conversationToArchive {
+                        UIImpactFeedbackGenerator(style: .medium).impactOccurred()
+                        viewModel.toggleArchive(item: target)
+                    }
+                    conversationToArchive = nil
+                }
+                Button("取消", role: .cancel) {
+                    showArchiveConfirm = false
+                    conversationToArchive = nil
+                }
+            }
+            .confirmationDialog(
+                (conversationToDelete?.isDraft == true)
+                    ? String(localized: "确定删除此草稿会话吗？\n此操作将删除本地临时会话且无法撤销。")
+                    : String(localized: "确定删除此会话吗？\n此操作将永久删除会话记录且无法撤销。"),
+                isPresented: Binding(
+                    get: { showDeleteConfirm && matches(conversationToDelete?.id) },
+                    set: { if !$0 {
+                        showDeleteConfirm = false
+                        conversationToDelete = nil
+                    } }
+                ),
+                titleVisibility: .visible
+            ) {
+                Button("删除", role: .destructive) {
+                    showDeleteConfirm = false
+                    if let target = conversationToDelete {
+                        conversationToDelete = nil
+                        if navigationPath.last?.id == target.id { navigationPath = [] }
+                        Task {
+                            await viewModel.deleteConversation(item: target)
+                        }
+                    }
+                }
+                Button("取消", role: .cancel) {
+                    showDeleteConfirm = false
+                    conversationToDelete = nil
+                }
+            }
     }
 
     private func aggregateBranchStatus(for branches: [ConversationItem]) -> BranchAggregateStatus {
@@ -2115,13 +2128,11 @@ public struct ConversationListView: View {
         let _ = draftsVersion
         let groups = ConversationListViewModel.groupConversationsWithBranches(viewModel.filteredConversations)
         var rows: [ConversationListRow] = []
-        rows.reserveCapacity(viewModel.filteredConversations.count + groups.count)
+        rows.reserveCapacity(groups.count * 2)
         for group in groups {
             let hasBranches = !group.branches.isEmpty
             rows.append(.conversation(
                 group.root,
-                isAttachedBranchChild: false,
-                isLastBranchChild: false,
                 hasAttachedBranches: hasBranches
             ))
             if hasBranches {
@@ -2130,66 +2141,56 @@ public struct ConversationListView: View {
                     parentId: group.root.id,
                     hasAction: agg == .action
                 )
-                rows.append(.branchToggle(
+                rows.append(.branchDrawer(
                     parentId: group.root.id,
                     branches: group.branches,
                     isExpanded: isExpanded,
                     aggregateStatus: agg
                 ))
-                if isExpanded {
-                    for (idx, child) in group.branches.enumerated() {
-                        rows.append(.conversation(
-                            child,
-                            isAttachedBranchChild: true,
-                            isLastBranchChild: idx == group.branches.count - 1,
-                            hasAttachedBranches: false
-                        ))
-                    }
-                }
             }
         }
         return rows
     }
 
-    private func branchTreeConnector(continuesBelow: Bool, height: CGFloat = 34) -> some View {
-        let midY = height / 2
-        return ZStack(alignment: .topLeading) {
-            Rectangle()
-                .fill(Color.indigo.opacity(0.32))
-                .frame(width: 1.5, height: continuesBelow ? height : midY)
-            Rectangle()
-                .fill(Color.indigo.opacity(0.32))
-                .frame(width: 10, height: 1.5)
-                .offset(x: 0, y: midY - 0.75)
-        }
-        .frame(width: 12, height: height, alignment: .topLeading)
-        .padding(.leading, 10)
-    }
-
-    private func branchGroupToggleRow(
+    private func branchGroupDrawer(
         parentId: String,
         branches: [ConversationItem],
         isExpanded: Bool,
         aggregateStatus: BranchAggregateStatus
     ) -> some View {
+        let _ = draftsVersion
         let countLabel = branches.count == 1
             ? String(localized: "1 个旁路")
             : String(localized: "\(branches.count) 个旁路")
         let previewTitle = branches.first?.title.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        let drawerShape = UnevenRoundedRectangle(
+            topLeadingRadius: 0,
+            bottomLeadingRadius: 12,
+            bottomTrailingRadius: 12,
+            topTrailingRadius: 0,
+            style: .continuous
+        )
+        let trayBackground = colorScheme == .dark
+            ? Color(red: 0.095, green: 0.095, blue: 0.112)
+            : Color(red: 0.922, green: 0.925, blue: 0.955)
+        // Opaque pre-blended connector tone eliminates any alpha double-compositing at T-junctions
+        let connectorColor = colorScheme == .dark
+            ? Color(red: 0.23, green: 0.23, blue: 0.45)
+            : Color(red: 0.72, green: 0.72, blue: 0.90)
 
-        return HStack(alignment: .center, spacing: 6) {
-            branchTreeConnector(continuesBelow: isExpanded, height: 32)
-
+        return VStack(spacing: 0) {
             Button {
                 UIImpactFeedbackGenerator(style: .light).impactOccurred()
-                withAnimation(.spring(response: 0.32, dampingFraction: 0.86)) {
+                swipedBranchChildId = nil
+                withAnimation(.snappy(duration: 0.28, extraBounce: 0)) {
                     viewModel.toggleBranchGroup(parentId: parentId, hasAction: aggregateStatus == .action)
                 }
             } label: {
-                HStack(spacing: 5) {
+                HStack(alignment: .center, spacing: 5) {
                     Image(systemName: "arrow.triangle.branch")
                         .font(.system(size: 10.5, weight: .semibold))
                         .foregroundColor(.indigo)
+                        .frame(width: 12, height: 12)
 
                     Text(countLabel)
                         .font(.system(size: 11.5, weight: .semibold))
@@ -2282,39 +2283,149 @@ public struct ConversationListView: View {
                         .font(.system(size: 9.5, weight: .semibold))
                         .foregroundColor(.secondary.opacity(0.85))
                         .rotationEffect(.degrees(isExpanded ? 180 : 0))
-                        .animation(.spring(response: 0.28, dampingFraction: 0.82), value: isExpanded)
+                        .animation(.snappy(duration: 0.26, extraBounce: 0), value: isExpanded)
                 }
                 .padding(.horizontal, 10)
-                .padding(.vertical, 7)
-                .background(Color(uiColor: .secondarySystemBackground).opacity(isExpanded ? 0.65 : 0.85))
-                .overlay(
-                    RoundedRectangle(cornerRadius: 10, style: .continuous)
-                        .stroke(Color.indigo.opacity(isExpanded ? 0.16 : 0.24), lineWidth: 0.75)
-                )
-                .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
-                .contentShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+                .frame(maxWidth: .infinity)
+                .frame(height: 34)
+                .overlay(alignment: .bottomLeading) {
+                    if isExpanded {
+                        Rectangle()
+                            .fill(connectorColor)
+                            .frame(width: 1.5, height: 6.5)
+                            .offset(x: 15.25, y: 0)
+                    }
+                }
+                .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
+
+            if isExpanded {
+                VStack(spacing: 0) {
+                    ForEach(Array(branches.enumerated()), id: \.element.id) { idx, child in
+                        let isLast = idx == branches.count - 1
+                        let bottomPad: CGFloat = isLast ? 8 : 6
+                        let childHasDraft = child.isDraft || CacheManager.shared.hasDraft(for: child.id)
+
+                        BranchChildSwipeRow(
+                            item: child,
+                            hasDraft: childHasDraft,
+                            isSelected: usesSplitLayout && selectedConversationID == child.id,
+                            isSwipedOpen: swipedBranchChildId == child.id,
+                            onSwipeStateChanged: { isOpen in
+                                if isOpen {
+                                    swipedBranchChildId = child.id
+                                } else if swipedBranchChildId == child.id {
+                                    swipedBranchChildId = nil
+                                }
+                            },
+                            onWillBeginSwipe: {
+                                if swipedBranchChildId != nil && swipedBranchChildId != child.id {
+                                    swipedBranchChildId = nil
+                                }
+                            },
+                            onTap: {
+                                if swipedBranchChildId != nil {
+                                    swipedBranchChildId = nil
+                                } else {
+                                    openConversation(child)
+                                }
+                            },
+                            onPin: {
+                                swipedBranchChildId = nil
+                                conversationToPin = child
+                                DispatchQueue.main.asyncAfter(deadline: .now() + 0.08) {
+                                    showPinConfirm = true
+                                }
+                            },
+                            onRename: {
+                                swipedBranchChildId = nil
+                                conversationToRename = child
+                                renameText = child.title
+                                showRenameAlert = true
+                            },
+                            onToggleStar: {
+                                swipedBranchChildId = nil
+                                viewModel.toggleStar(item: child)
+                            },
+                            onArchive: {
+                                swipedBranchChildId = nil
+                                conversationToArchive = child
+                                DispatchQueue.main.asyncAfter(deadline: .now() + 0.08) {
+                                    showArchiveConfirm = true
+                                }
+                            },
+                            onDelete: {
+                                swipedBranchChildId = nil
+                                conversationToDelete = child
+                                DispatchQueue.main.asyncAfter(deadline: .now() + 0.08) {
+                                    showDeleteConfirm = true
+                                }
+                            },
+                            isSplit: usesSplitLayout,
+                            statusBadge: {
+                                sideQuestionStatusBadge(item: child, hasDraft: childHasDraft)
+                            }
+                        )
+                        .padding(.leading, 28)
+                        .padding(.trailing, 8)
+                        .padding(.bottom, bottomPad)
+                        .background(alignment: .leading) {
+                            BranchInternalTreeConnector(
+                                continuesBelow: !isLast,
+                                bottomPadding: bottomPad,
+                                spineX: 16,
+                                endX: 27,
+                                cornerRadius: 6
+                            )
+                            .stroke(
+                                connectorColor,
+                                style: StrokeStyle(lineWidth: 1.5, lineCap: .round, lineJoin: .round)
+                            )
+                            .frame(width: 28)
+                        }
+                    }
+                }
+                .transition(.opacity.combined(with: .scale(scale: 0.98, anchor: .top)))
+            }
         }
+        .background(trayBackground)
+        .overlay(alignment: .top) {
+            VStack(spacing: 0) {
+                Rectangle()
+                    .fill(colorScheme == .dark ? Color.white.opacity(0.08) : Color.black.opacity(0.07))
+                    .frame(height: 0.5)
+                LinearGradient(
+                    colors: [
+                        Color.black.opacity(colorScheme == .dark ? 0.28 : 0.055),
+                        Color.clear
+                    ],
+                    startPoint: .top,
+                    endPoint: .bottom
+                )
+                .frame(height: 3.5)
+            }
+            .allowsHitTesting(false)
+        }
+        .overlay {
+            DrawerTraySideBottomBorder(bottomRadius: 12)
+                .stroke(
+                    Color.indigo.opacity(colorScheme == .dark ? 0.24 : 0.17),
+                    lineWidth: 0.75
+                )
+                .allowsHitTesting(false)
+        }
+        .clipShape(drawerShape)
     }
 
     @ViewBuilder
-    private func conversationCard(
-        for item: ConversationItem,
-        isAttachedBranchChild: Bool = false,
-        isLastBranchChild: Bool = false
-    ) -> some View {
+    private func conversationCard(for item: ConversationItem) -> some View {
         let _ = draftsVersion
         let hasDraft = item.isDraft || CacheManager.shared.hasDraft(for: item.id)
         let isRecording = audioRecorder.isRecording && audioRecorder.currentCascadeId == item.id
 
         if item.isSideQuestion {
-            sideQuestionBranchRow(
-                item: item,
-                isAttachedChild: isAttachedBranchChild,
-                isLastChild: isLastBranchChild,
-                hasDraft: hasDraft
-            )
+            sideQuestionStandaloneCard(item: item, hasDraft: hasDraft)
         } else {
             standardConversationCard(for: item, hasDraft: hasDraft, isRecording: isRecording)
         }
@@ -2380,129 +2491,79 @@ public struct ConversationListView: View {
         }
     }
 
-    private func sideQuestionBranchRow(
+    private func sideQuestionStandaloneCard(
         item: ConversationItem,
-        isAttachedChild: Bool,
-        isLastChild: Bool,
         hasDraft: Bool
     ) -> some View {
-        HStack(alignment: .center, spacing: 6) {
-            if isAttachedChild {
-                branchTreeConnector(continuesBelow: !isLastChild, height: 36)
+        VStack(alignment: .leading, spacing: 5) {
+            HStack(alignment: .center, spacing: 6) {
+                Image(systemName: "arrow.triangle.branch")
+                    .font(.system(size: 11.5, weight: .semibold))
+                    .foregroundColor(.indigo)
 
-                HStack(alignment: .center, spacing: 6) {
-                    Image(systemName: "arrow.triangle.branch")
-                        .font(.system(size: 10.5, weight: .semibold))
-                        .foregroundColor(.indigo.opacity(0.85))
+                Text("旁路")
+                    .font(.system(size: 10, weight: .semibold))
+                    .lineLimit(1)
+                    .fixedSize(horizontal: true, vertical: false)
+                    .foregroundColor(.indigo)
+                    .padding(.horizontal, 5)
+                    .padding(.vertical, 1.5)
+                    .background(Color.indigo.opacity(0.12))
+                    .clipShape(Capsule())
 
-                    Text(item.title)
-                        .font(.system(size: 13.5, weight: .medium))
+                Text(item.title)
+                    .font(.system(size: 14, weight: .semibold))
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+                    .foregroundColor(.primary)
+
+                Spacer(minLength: 4)
+
+                sideQuestionStatusBadge(item: item, hasDraft: hasDraft)
+            }
+
+            HStack(spacing: 6) {
+                if let parentTitle = item.branchParentTitle?.trimmingCharacters(in: .whitespacesAndNewlines), !parentTitle.isEmpty {
+                    Text("来自「\(parentTitle)」")
+                        .font(.system(size: 11.5))
+                        .foregroundColor(.secondary)
                         .lineLimit(1)
-                        .truncationMode(.tail)
-                        .foregroundColor(.primary)
-
-                    Spacer(minLength: 4)
-
-                    if !item.relativeTimeString.isEmpty {
-                        Text(item.relativeTimeString)
-                            .font(.system(size: 11))
-                            .foregroundColor(.secondary)
-                            .lineLimit(1)
-                            .fixedSize(horizontal: true, vertical: false)
-                    }
-
-                    sideQuestionStatusBadge(item: item, hasDraft: hasDraft)
+                } else {
+                    Text(item.isPureChat ? String(localized: "Chat") : item.workspaceName)
+                        .font(.system(size: 11.5, design: item.isPureChat ? .default : .monospaced))
+                        .foregroundColor(.secondary)
+                        .lineLimit(1)
                 }
-                .padding(.horizontal, 11)
-                .padding(.vertical, 9)
-                .background(Color(uiColor: .secondarySystemBackground).opacity(0.85))
-                .overlay(
-                    RoundedRectangle(cornerRadius: 11, style: .continuous)
-                        .stroke(Color.indigo.opacity(0.18), lineWidth: 0.75)
-                )
-                .clipShape(RoundedRectangle(cornerRadius: 11, style: .continuous))
-                .overlay {
-                    if usesSplitLayout && selectedConversationID == item.id {
-                        RoundedRectangle(cornerRadius: 11, style: .continuous)
-                            .fill(Color.accentColor.opacity(0.10))
-                        RoundedRectangle(cornerRadius: 11, style: .continuous)
-                            .stroke(Color.accentColor.opacity(0.55), lineWidth: 1.5)
-                    }
+
+                Spacer(minLength: 4)
+
+                if !item.relativeTimeString.isEmpty {
+                    Text(item.relativeTimeString)
+                        .font(.system(size: 11.5))
+                        .foregroundColor(.secondary)
+                        .lineLimit(1)
+                        .fixedSize(horizontal: true, vertical: false)
                 }
-                .contentShape(.hoverEffect, RoundedRectangle(cornerRadius: 11, style: .continuous))
-                .hoverEffect(.highlight)
-            } else {
-                VStack(alignment: .leading, spacing: 5) {
-                    HStack(alignment: .center, spacing: 6) {
-                        Image(systemName: "arrow.triangle.branch")
-                            .font(.system(size: 11.5, weight: .semibold))
-                            .foregroundColor(.indigo)
-
-                        Text("旁路")
-                            .font(.system(size: 10, weight: .semibold))
-                            .lineLimit(1)
-                            .fixedSize(horizontal: true, vertical: false)
-                            .foregroundColor(.indigo)
-                            .padding(.horizontal, 5)
-                            .padding(.vertical, 1.5)
-                            .background(Color.indigo.opacity(0.12))
-                            .clipShape(Capsule())
-
-                        Text(item.title)
-                            .font(.system(size: 14, weight: .semibold))
-                            .lineLimit(1)
-                            .truncationMode(.tail)
-                            .foregroundColor(.primary)
-
-                        Spacer(minLength: 4)
-
-                        sideQuestionStatusBadge(item: item, hasDraft: hasDraft)
-                    }
-
-                    HStack(spacing: 6) {
-                        if let parentTitle = item.branchParentTitle?.trimmingCharacters(in: .whitespacesAndNewlines), !parentTitle.isEmpty {
-                            Text("来自「\(parentTitle)」")
-                                .font(.system(size: 11.5))
-                                .foregroundColor(.secondary)
-                                .lineLimit(1)
-                        } else {
-                            Text(item.isPureChat ? String(localized: "Chat") : item.workspaceName)
-                                .font(.system(size: 11.5, design: item.isPureChat ? .default : .monospaced))
-                                .foregroundColor(.secondary)
-                                .lineLimit(1)
-                        }
-
-                        Spacer(minLength: 4)
-
-                        if !item.relativeTimeString.isEmpty {
-                            Text(item.relativeTimeString)
-                                .font(.system(size: 11.5))
-                                .foregroundColor(.secondary)
-                                .lineLimit(1)
-                                .fixedSize(horizontal: true, vertical: false)
-                        }
-                    }
-                }
-                .padding(.horizontal, 12)
-                .padding(.vertical, 10)
-                .background(Color(uiColor: .secondarySystemBackground).opacity(0.85))
-                .overlay(
-                    RoundedRectangle(cornerRadius: 12, style: .continuous)
-                        .stroke(Color.indigo.opacity(0.20), lineWidth: 0.8)
-                )
-                .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
-                .overlay {
-                    if usesSplitLayout && selectedConversationID == item.id {
-                        RoundedRectangle(cornerRadius: 12, style: .continuous)
-                            .fill(Color.accentColor.opacity(0.10))
-                        RoundedRectangle(cornerRadius: 12, style: .continuous)
-                            .stroke(Color.accentColor.opacity(0.55), lineWidth: 1.5)
-                    }
-                }
-                .contentShape(.hoverEffect, RoundedRectangle(cornerRadius: 12, style: .continuous))
-                .hoverEffect(.highlight)
             }
         }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 10)
+        .background(Color(uiColor: .secondarySystemBackground).opacity(0.85))
+        .overlay(
+            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                .stroke(Color.indigo.opacity(0.20), lineWidth: 0.8)
+        )
+        .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+        .overlay {
+            if usesSplitLayout && selectedConversationID == item.id {
+                RoundedRectangle(cornerRadius: 12, style: .continuous)
+                    .fill(Color.accentColor.opacity(0.10))
+                RoundedRectangle(cornerRadius: 12, style: .continuous)
+                    .stroke(Color.accentColor.opacity(0.55), lineWidth: 1.5)
+            }
+        }
+        .contentShape(.hoverEffect, RoundedRectangle(cornerRadius: 12, style: .continuous))
+        .hoverEffect(.highlight)
     }
 
     private func standardConversationCard(for item: ConversationItem, hasDraft: Bool, isRecording: Bool) -> some View {
@@ -3750,6 +3811,7 @@ private struct SharePendingDeliveryPillV27: View {
 private struct RowActions: ViewModifier {
     let isSplit: Bool
     let item: ConversationItem
+    var onTogglePin: (() -> Void)? = nil
     let onRename: () -> Void
     let onToggleStar: () -> Void
     let onArchive: () -> Void
@@ -3757,6 +3819,16 @@ private struct RowActions: ViewModifier {
     
     func body(content: Content) -> some View {
         content.contextMenu {
+            if let onTogglePin {
+                Button {
+                    onTogglePin()
+                } label: {
+                    Label(
+                        item.isPinned ? String(localized: "取消置顶") : String(localized: "置顶"),
+                        systemImage: item.isPinned ? "pin.slash" : "pin"
+                    )
+                }
+            }
             if !item.isDraft {
                 Button {
                     onRename()
@@ -3885,5 +3957,336 @@ struct TerminalRunningIndicator: View {
             }
             .frame(width: size, height: size)
         }
+    }
+}
+
+/// Draws only the left, bottom (with smooth rounded corners), and right borders of the recessed branch drawer tray.
+private struct DrawerTraySideBottomBorder: Shape {
+    var bottomRadius: CGFloat = 12
+    var inset: CGFloat = 0.375
+
+    func path(in rect: CGRect) -> Path {
+        let minX = rect.minX + inset
+        let maxX = rect.maxX - inset
+        let maxY = rect.maxY - inset
+        let r = min(bottomRadius, (maxX - minX) / 2, maxY - rect.minY)
+        var path = Path()
+        path.move(to: CGPoint(x: minX, y: rect.minY))
+        path.addLine(to: CGPoint(x: minX, y: maxY - r))
+        path.addQuadCurve(
+            to: CGPoint(x: minX + r, y: maxY),
+            control: CGPoint(x: minX, y: maxY)
+        )
+        path.addLine(to: CGPoint(x: maxX - r, y: maxY))
+        path.addQuadCurve(
+            to: CGPoint(x: maxX, y: maxY - r),
+            control: CGPoint(x: maxX, y: maxY)
+        )
+        path.addLine(to: CGPoint(x: maxX, y: rect.minY))
+        return path
+    }
+}
+
+/// Continuous unbroken internal tree connector drawn in the same coordinate space as each embedded child slot.
+private struct BranchInternalTreeConnector: Shape {
+    let continuesBelow: Bool
+    let bottomPadding: CGFloat
+    var spineX: CGFloat = 16
+    var endX: CGFloat = 27
+    var cornerRadius: CGFloat = 6
+
+    func path(in rect: CGRect) -> Path {
+        let cardHeight = max(rect.height - bottomPadding, 1)
+        let midY = cardHeight / 2
+        let r = min(cornerRadius, max(midY - 1, 0), max(endX - spineX, 0))
+        var path = Path()
+
+        // Unbroken vertical spine + smooth rounded elbow (no overlapping vertical double-stroke)
+        if continuesBelow {
+            path.move(to: CGPoint(x: spineX, y: -0.5))
+            path.addLine(to: CGPoint(x: spineX, y: rect.height + 0.5))
+
+            path.move(to: CGPoint(x: spineX, y: max(0, midY - r)))
+            path.addQuadCurve(
+                to: CGPoint(x: spineX + r, y: midY),
+                control: CGPoint(x: spineX, y: midY)
+            )
+            path.addLine(to: CGPoint(x: endX, y: midY))
+        } else {
+            path.move(to: CGPoint(x: spineX, y: -0.5))
+            path.addLine(to: CGPoint(x: spineX, y: max(0, midY - r)))
+            path.addQuadCurve(
+                to: CGPoint(x: spineX + r, y: midY),
+                control: CGPoint(x: spineX, y: midY)
+            )
+            path.addLine(to: CGPoint(x: endX, y: midY))
+        }
+        return path
+    }
+}
+
+/// Direction-gated UIKit pan recognizer for embedded swipe cards inside SwiftUI List so vertical scrolling stays 100% native.
+private struct HorizontalSwipePanGesture: UIGestureRecognizerRepresentable {
+    var onBegan: () -> Void
+    var onChanged: (CGFloat) -> Void
+    var onEnded: (CGFloat, CGFloat) -> Void
+
+    func makeCoordinator(converter: CoordinateSpaceConverter) -> Coordinator {
+        Coordinator()
+    }
+
+    func makeUIGestureRecognizer(context: Context) -> UIPanGestureRecognizer {
+        let pan = UIPanGestureRecognizer()
+        pan.maximumNumberOfTouches = 1
+        pan.cancelsTouchesInView = true
+        pan.delegate = context.coordinator
+        return pan
+    }
+
+    func handleUIGestureRecognizerAction(_ recognizer: UIPanGestureRecognizer, context: Context) {
+        let tx = recognizer.translation(in: recognizer.view).x
+        let vx = recognizer.velocity(in: recognizer.view).x
+        switch recognizer.state {
+        case .began:
+            onBegan()
+        case .changed:
+            onChanged(tx)
+        case .ended, .cancelled, .failed:
+            onEnded(tx, vx)
+        default:
+            break
+        }
+    }
+
+    final class Coordinator: NSObject, UIGestureRecognizerDelegate {
+        func gestureRecognizerShouldBegin(_ gestureRecognizer: UIGestureRecognizer) -> Bool {
+            guard let pan = gestureRecognizer as? UIPanGestureRecognizer, let view = pan.view else {
+                return false
+            }
+            let vel = pan.velocity(in: view)
+            let trans = pan.translation(in: view)
+            let absVX = abs(vel.x)
+            let absVY = abs(vel.y)
+            if absVX > 10 || absVY > 10 {
+                return absVX > absVY * 1.4
+            }
+            return abs(trans.x) > abs(trans.y) * 1.4 && abs(trans.x) > 4
+        }
+    }
+}
+
+/// Embedded child conversation card inside the recessed branch drawer with full Tap, Long-Press Context Menu, and Horizontal Swipe actions.
+private struct BranchChildSwipeRow<StatusBadge: View>: View {
+    @Environment(\.colorScheme) private var colorScheme
+
+    let item: ConversationItem
+    let hasDraft: Bool
+    let isSelected: Bool
+    let isSwipedOpen: Bool
+    let onSwipeStateChanged: (Bool) -> Void
+    let onWillBeginSwipe: () -> Void
+    let onTap: () -> Void
+    let onPin: () -> Void
+    let onRename: () -> Void
+    let onToggleStar: () -> Void
+    let onArchive: () -> Void
+    let onDelete: () -> Void
+    let isSplit: Bool
+    @ViewBuilder let statusBadge: () -> StatusBadge
+
+    @State private var offsetX: CGFloat = 0
+    @State private var dragStartOffset: CGFloat = 0
+
+    private let maxLeadingReveal: CGFloat = 52
+    private var maxTrailingReveal: CGFloat { item.isDraft ? 52 : 94 }
+
+    var body: some View {
+        let cardShape = RoundedRectangle(cornerRadius: 10, style: .continuous)
+        let cardBackground = colorScheme == .dark
+            ? Color(uiColor: .tertiarySystemBackground)
+            : Color(uiColor: .systemBackground)
+        let cardBorder = colorScheme == .dark
+            ? Color.white.opacity(0.08)
+            : Color.black.opacity(0.065)
+
+        ZStack {
+            if offsetX > 0.5 {
+                HStack(spacing: 0) {
+                    Button {
+                        UIImpactFeedbackGenerator(style: .medium).impactOccurred()
+                        closeSwipe()
+                        onPin()
+                    } label: {
+                        Image(systemName: item.isPinned ? "pin.slash.fill" : "pin.fill")
+                            .font(.system(size: 13, weight: .semibold))
+                            .foregroundColor(.white)
+                            .frame(width: 30, height: 30)
+                            .background(item.isPinned ? Color.secondary : Color.orange)
+                            .clipShape(Circle())
+                    }
+                    .buttonStyle(.plain)
+                    .frame(width: maxLeadingReveal)
+                    Spacer(minLength: 0)
+                }
+            }
+
+            if offsetX < -0.5 {
+                HStack(spacing: 0) {
+                    Spacer(minLength: 0)
+                    HStack(spacing: 8) {
+                        if !item.isDraft {
+                            Button {
+                                UIImpactFeedbackGenerator(style: .medium).impactOccurred()
+                                closeSwipe()
+                                onArchive()
+                            } label: {
+                                Image(systemName: item.isArchived ? "tray.and.arrow.up.fill" : "archivebox.fill")
+                                    .font(.system(size: 12.5, weight: .semibold))
+                                    .foregroundColor(.white)
+                                    .frame(width: 30, height: 30)
+                                    .background(item.isArchived ? Color.indigo : Color(red: 0.39, green: 0.45, blue: 0.55))
+                                    .clipShape(Circle())
+                            }
+                            .buttonStyle(.plain)
+                        }
+
+                        Button {
+                            UIImpactFeedbackGenerator(style: .medium).impactOccurred()
+                            closeSwipe()
+                            onDelete()
+                        } label: {
+                            Image(systemName: "trash.fill")
+                                .font(.system(size: 12.5, weight: .semibold))
+                                .foregroundColor(.white)
+                                .frame(width: 30, height: 30)
+                                .background(Color.red)
+                                .clipShape(Circle())
+                        }
+                        .buttonStyle(.plain)
+                    }
+                    .frame(width: maxTrailingReveal)
+                }
+            }
+
+            HStack(alignment: .center, spacing: 5) {
+                if item.isPinned {
+                    Image(systemName: "pin.fill")
+                        .font(.system(size: 9.5, weight: .bold))
+                        .foregroundColor(.orange)
+                }
+                if item.isStarred {
+                    Image(systemName: "star.fill")
+                        .font(.system(size: 9.5, weight: .bold))
+                        .foregroundColor(.yellow)
+                }
+
+                Text(item.title)
+                    .font(.system(size: 13.5, weight: .medium))
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+                    .foregroundColor(.primary)
+
+                Spacer(minLength: 4)
+
+                if !item.relativeTimeString.isEmpty {
+                    Text(item.relativeTimeString)
+                        .font(.system(size: 11))
+                        .foregroundColor(.secondary)
+                        .lineLimit(1)
+                        .fixedSize(horizontal: true, vertical: false)
+                }
+
+                statusBadge()
+            }
+            .padding(.horizontal, 10)
+            .padding(.vertical, 8.5)
+            .background(cardBackground)
+            .overlay(
+                cardShape.stroke(cardBorder, lineWidth: 0.5)
+            )
+            .overlay {
+                if isSelected {
+                    cardShape.fill(Color.accentColor.opacity(0.10))
+                    cardShape.stroke(Color.accentColor.opacity(0.55), lineWidth: 1.5)
+                }
+            }
+            .clipShape(cardShape)
+            .shadow(
+                color: colorScheme == .dark ? .clear : Color.black.opacity(0.035),
+                radius: 1.5,
+                x: 0,
+                y: 0.5
+            )
+            .contentShape(cardShape)
+            .offset(x: offsetX)
+            .onTapGesture {
+                if abs(offsetX) > 1 {
+                    closeSwipe()
+                } else {
+                    onTap()
+                }
+            }
+            .gesture(
+                HorizontalSwipePanGesture(
+                    onBegan: {
+                        onWillBeginSwipe()
+                        dragStartOffset = offsetX
+                    },
+                    onChanged: { tx in
+                        let raw = dragStartOffset + tx
+                        if raw > maxLeadingReveal {
+                            offsetX = maxLeadingReveal + (raw - maxLeadingReveal) * 0.22
+                        } else if raw < -maxTrailingReveal {
+                            offsetX = -maxTrailingReveal + (raw + maxTrailingReveal) * 0.22
+                        } else {
+                            offsetX = raw
+                        }
+                    },
+                    onEnded: { _, vx in
+                        let target: CGFloat
+                        if vx < -420 || offsetX < -maxTrailingReveal * 0.45 {
+                            target = -maxTrailingReveal
+                        } else if vx > 420 || offsetX > maxLeadingReveal * 0.45 {
+                            target = maxLeadingReveal
+                        } else {
+                            target = 0
+                        }
+                        if target != 0 && dragStartOffset == 0 {
+                            UIImpactFeedbackGenerator(style: .light).impactOccurred()
+                        }
+                        withAnimation(.snappy(duration: 0.24, extraBounce: 0)) {
+                            offsetX = target
+                        }
+                        onSwipeStateChanged(target != 0)
+                    }
+                )
+            )
+            .modifier(RowActions(
+                isSplit: isSplit,
+                item: item,
+                onTogglePin: onPin,
+                onRename: onRename,
+                onToggleStar: onToggleStar,
+                onArchive: onArchive,
+                onDelete: onDelete
+            ))
+            .contentShape(.hoverEffect, cardShape)
+            .hoverEffect(.highlight)
+        }
+        .clipShape(cardShape)
+        .onChange(of: isSwipedOpen) { _, open in
+            if !open && offsetX != 0 {
+                withAnimation(.snappy(duration: 0.22, extraBounce: 0)) {
+                    offsetX = 0
+                }
+            }
+        }
+    }
+
+    private func closeSwipe() {
+        withAnimation(.snappy(duration: 0.22, extraBounce: 0)) {
+            offsetX = 0
+        }
+        onSwipeStateChanged(false)
     }
 }

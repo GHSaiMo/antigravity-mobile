@@ -2,15 +2,15 @@
 >
 > - 此版本仅供灰度内测与尝鲜体验，**不会推送给正式版用户**（`mgy update`、Android 应用内自动更新及一键安装脚本均自动跳过预发布版，`v1.2.7` 仍保持为 `Latest` 正式版）。
 > - **网关更新至本测试版**：运行 `mgy update v1.2.8-beta.2`（若已安装早先的 `beta.2` 请执行 `mgy update -force v1.2.8-beta.2`）；测试完毕后运行 `mgy update` 即可切回最新正式版。
-> - **Android 测试安装**：直接下载下方 `Multigravity-v1.2.8-beta.2.apk` 安装即可（`versionCode 42`，与 `v1.2.7` / 早先 `beta` 同私有正式签名，可直接覆盖升级，后续亦可无缝覆盖升级至 `v1.2.8` 正式版）。
-> - **iOS 测试安装**：通过 TestFlight 安装 `1.2.8 (44)`。
+> - **Android 测试安装**：直接下载下方 `Multigravity-v1.2.8-beta.2.apk` 安装即可（`versionCode 43`，与 `v1.2.7` / 早先 `beta` 同私有正式签名，可直接覆盖升级，后续亦可无缝覆盖升级至 `v1.2.8` 正式版）。
+> - **iOS 测试安装**：通过 TestFlight 安装 `1.2.8 (45)`。
 >
 > ---
 >
 > - This is a **Pre-release** build for grayscale testing and **will not be pushed to stable users** (`mgy update`, Android in-app updater, and install scripts ignore pre-releases; `v1.2.7` remains the `Latest` stable release).
 > - **Gateway CLI**: run `mgy update v1.2.8-beta.2` to install this build (or `mgy update -force v1.2.8-beta.2` if already on an earlier `beta.2`), or `mgy update` to return to the latest stable release.
-> - **Android**: download and install `Multigravity-v1.2.8-beta.2.apk` below (`versionCode 42`, signed with the same private release key as `v1.2.7` for seamless in-place upgrades).
-> - **iOS**: install `1.2.8 (44)` via TestFlight.
+> - **Android**: download and install `Multigravity-v1.2.8-beta.2.apk` below (`versionCode 43`, signed with the same private release key as `v1.2.7` for seamless in-place upgrades).
+> - **iOS**: install `1.2.8 (45)` via TestFlight.
 
 ---
 
@@ -34,6 +34,10 @@
 - **全链路细节补齐**：切机自动回到列表顶部；断网错误页明确提示 `无法连接「主机名」` 并提供「切换其他主机」快捷按钮；设置页「设备配对」标明当前主机名防误操作；「手势与使用技巧」补录多主机切换说明，并补全多网关全量中/英/日三语本地化。
 
 #### 3. 自 `beta.1` 以来的其他功能与修复
+- **`/btw` 旁路分支内收抽屉与完整树形连线重构（iOS / Android / Web 三端对齐）**：将旁路分支改为紧贴父卡片底部的对称内收灰色总控抽屉，展开时平滑舒展并在内部嵌入独立子对话卡片与不断开的圆角树形连线，彻底消除左侧断线与展开/折叠时的高度跳动；同时完整保留内嵌子对话的点按进入、长按菜单与独立滑动操作（置顶 / 归档 / 删除）。
+- **安全与中继增强（Gateway / iOS / Android）**：新增推送脱敏（Push Redaction）、自建中继（BYO-Relay）、强制端到端加密（Force-E2EE）以及 E2EE v2 防重放与 WebSocket 序列号保护。
+- **局域网多节点聚合与自动发现（Gateway）**：新增 `mgy hub` 多节点聚合与 `mgy node` 局域网节点发现能力。
+- **移动端分享应用入口（iOS / Android）**：设置页「关于」区块新增「分享应用」快捷入口。
 - **无相机链接配对增强（Gateway / iOS / Android）**：新增 `mgy pair -copy` / `-uri` 快捷导出配对链接，移动端新增一键粘贴按钮并在链接配对流程中完整保留 E2EE 密钥配置。
 - **iOS 26/27 聊天页左边缘滑动返回修复（iOS）**：修复在 iOS 26/27 下聊天详情页左侧边缘右滑返回失效问题，并避免与代码横向滚动和长按滑选器冲突。
 - **Orchestrator Plan & Execute 配置保留（Gateway / iOS）**：完整保留 Orchestrator Plan & Execute 配置与合成模型 ID。
@@ -65,6 +69,10 @@ Keeping **zero visual clutter** for single-host users and preserving the clean `
 - **End-to-End Polish**: Auto-scrolls to top after switching hosts; offline error screen now names the unreachable host with a direct **Switch Host** action; Settings shows the active host name under Pairing Status; added Multi-Host guide to Gestures & Tips along with complete zh/en/ja localization.
 
 #### 3. Additional Improvements & Fixes Since `beta.1`
+- **Unified `/btw` Recessed Branch Drawer & Unbroken Tree Connector (iOS / Android / Web)**: Redesigned side-question branches into a symmetrically recessed tray tucked seamlessly beneath the parent card that expands smoothly into embedded child cards connected by a continuous rounded tree spine, eliminating broken left connectors and expand/collapse height jitter while preserving full tap, context menu, and independent swipe actions on every child conversation.
+- **Security & Relay Hardening (Gateway / iOS / Android)**: Added push notification redaction, Bring-Your-Own Relay (BYO-Relay), Force-E2EE enforcement, and E2EE v2 replay / WebSocket sequence protection.
+- **LAN Multi-Node Aggregation & Discovery (Gateway)**: Added `mgy hub` multi-node aggregation and `mgy node` LAN discovery.
+- **Share App Entry (iOS / Android)**: Added a quick **Share App** entry in Settings → About.
 - **Enhanced Camera-Free Link Pairing (Gateway / iOS / Android)**: Added `mgy pair -copy` / `-uri`, one-tap paste buttons on mobile, and preserved E2EE parameters through link pairing.
 - **iOS 26/27 Swipe-Back Fix (iOS)**: Restored reliable leading-edge swipe-back in chat on iOS 26/27 without interfering with horizontal scroll containers or slide pickers.
 - **Orchestrator Plan & Execute Config Preservation (Gateway / iOS)**: Preserved Orchestrator Plan & Execute settings and synthetic model IDs.

@@ -4,11 +4,15 @@ import com.antigravity.mobile.ui.util.L10n
 import com.antigravity.mobile.ui.util.loc
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
+import androidx.compose.animation.shrinkVertically
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
 import androidx.compose.ui.geometry.Rect
@@ -58,9 +62,16 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.clipToBounds
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.StrokeJoin
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.platform.LocalContext
@@ -1478,27 +1489,6 @@ private enum class BranchAggregateStatus {
     ACTION, ERROR, WORKING, DRAFT, UNREAD, NONE
 }
 
-private sealed interface ConversationListRow {
-    val key: String
-
-    data class Conversation(
-        val item: ConversationItem,
-        val isAttachedBranchChild: Boolean,
-        val isLastBranchChild: Boolean
-    ) : ConversationListRow {
-        override val key: String get() = item.id
-    }
-
-    data class BranchToggle(
-        val parentId: String,
-        val branches: List<ConversationItem>,
-        val isExpanded: Boolean,
-        val hasAction: Boolean
-    ) : ConversationListRow {
-        override val key: String get() = "btw_toggle_$parentId"
-    }
-}
-
 @Composable
 private fun ConversationListContent(
     conversations: List<ConversationItem>,
@@ -1611,54 +1601,10 @@ private fun ConversationListContent(
     }
 
     val navBottomPadding = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
-    val displayRows = remember(
-        conversations,
-        searchQuery,
-        expandedBranchParentIds,
-        searchCollapsedBranchParentIds,
-        manuallyCollapsedActionBranchParentIds
-    ) {
-        val groups = ConversationListViewModel.groupConversationsWithBranches(conversations)
-        val isSearching = searchQuery.trim().isNotEmpty()
-        val rows = ArrayList<ConversationListRow>(conversations.size + groups.size)
-        for (group in groups) {
-            rows.add(
-                ConversationListRow.Conversation(
-                    item = group.root,
-                    isAttachedBranchChild = false,
-                    isLastBranchChild = false
-                )
-            )
-            if (group.branches.isNotEmpty()) {
-                val hasAction = group.branches.any { it.status.needsAction }
-                val isExpanded = when {
-                    isSearching -> group.root.id !in searchCollapsedBranchParentIds
-                    hasAction -> group.root.id !in manuallyCollapsedActionBranchParentIds
-                    else -> group.root.id in expandedBranchParentIds
-                }
-                rows.add(
-                    ConversationListRow.BranchToggle(
-                        parentId = group.root.id,
-                        branches = group.branches,
-                        isExpanded = isExpanded,
-                        hasAction = hasAction
-                    )
-                )
-                if (isExpanded) {
-                    group.branches.forEachIndexed { idx, child ->
-                        rows.add(
-                            ConversationListRow.Conversation(
-                                item = child,
-                                isAttachedBranchChild = true,
-                                isLastBranchChild = idx == group.branches.lastIndex
-                            )
-                        )
-                    }
-                }
-            }
-        }
-        rows
+    val displayGroups = remember(conversations) {
+        ConversationListViewModel.groupConversationsWithBranches(conversations)
     }
+    val isSearchingBranches = searchQuery.trim().isNotEmpty()
     val firstConversationId = conversations.firstOrNull()?.id
 
     LazyColumn(
@@ -1956,97 +1902,138 @@ private fun ConversationListContent(
                 }
             }
         } else {
-            items(displayRows, key = { it.key }) { row ->
-                when (row) {
-                    is ConversationListRow.BranchToggle -> {
-                        val aggStatus = when {
-                            row.hasAction -> BranchAggregateStatus.ACTION
-                            row.branches.any { it.status.isError } -> BranchAggregateStatus.ERROR
-                            row.branches.any { it.isWorking } -> BranchAggregateStatus.WORKING
-                            row.branches.any { it.isDraft || hasDraftFor(it.id) } -> BranchAggregateStatus.DRAFT
-                            row.branches.any { it.isUnread } -> BranchAggregateStatus.UNREAD
-                            else -> BranchAggregateStatus.NONE
-                        }
-                        BranchGroupToggleRow(
-                            branches = row.branches,
-                            isExpanded = row.isExpanded,
-                            aggregateStatus = aggStatus,
-                            onToggle = { onToggleBranchGroup(row.parentId, row.hasAction) },
-                            modifier = Modifier.animateItem(
-                                placementSpec = spring(
-                                    dampingRatio = Spring.DampingRatioMediumBouncy,
-                                    stiffness = Spring.StiffnessLow
-                                )
+            items(displayGroups, key = { it.root.id }) { group ->
+                val conversation = group.root
+                val hasDraft = conversation.isDraft || hasDraftFor(conversation.id)
+                val isFirst = conversation.id == firstConversationId
+                val hasBranches = group.branches.isNotEmpty()
+
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(top = 6.dp)
+                        .animateItem(
+                            placementSpec = spring(
+                                dampingRatio = Spring.DampingRatioNoBouncy,
+                                stiffness = Spring.StiffnessMediumLow
                             )
                         )
-                    }
+                ) {
+                    SwipeableConversationCard(
+                        modifier = Modifier
+                            .offset { androidx.compose.ui.unit.IntOffset(if (isFirst) firstCardPeekOffset.toInt() else 0, 0) },
+                        conversation = conversation,
+                        hasDraft = hasDraft,
+                        isEmbeddedBranchChild = false,
+                        isSwiped = (swipedConversationId == conversation.id),
+                        onSwipeOpened = {
+                            tipsPrefs.edit().putBoolean("has_seen_swipe_gesture_hint", true).apply()
+                            onSwipedConversationIdChange(conversation.id)
+                        },
+                        onSwipeClosed = {
+                            if (swipedConversationId == conversation.id) {
+                                onSwipedConversationIdChange(null)
+                            }
+                        },
+                        onStartDrag = {
+                            if (swipedConversationId != null && swipedConversationId != conversation.id) {
+                                onSwipedConversationIdChange(null)
+                            }
+                        },
+                        onClick = {
+                            if (swipedConversationId != null) {
+                                onSwipedConversationIdChange(null)
+                            } else {
+                                onSelect(
+                                    conversation.id,
+                                    conversation.displayTitle,
+                                    false,
+                                    conversation.isUnread,
+                                    conversation.status,
+                                    conversation.lastModifiedTime
+                                )
+                            }
+                        },
+                        onWorkspaceTap = {
+                            if (swipedConversationId != null) {
+                                onSwipedConversationIdChange(null)
+                            } else {
+                                onWorkspaceTagTap(conversation)
+                            }
+                        },
+                        onLongClick = { onRename(conversation) },
+                        onDelete = {
+                            onSwipedConversationIdChange(null)
+                            onDelete(conversation)
+                        },
+                        onPin = {
+                            onSwipedConversationIdChange(null)
+                            onPin(conversation)
+                        },
+                        onArchive = {
+                            onSwipedConversationIdChange(null)
+                            onArchive(conversation)
+                        }
+                    )
 
-                    is ConversationListRow.Conversation -> {
-                        val conversation = row.item
-                        val hasDraft = conversation.isDraft || hasDraftFor(conversation.id)
-                        val isFirst = conversation.id == firstConversationId
-                        SwipeableConversationCard(
-                            modifier = Modifier
-                                .padding(top = if (row.isAttachedBranchChild) 0.dp else 6.dp)
-                                .offset { androidx.compose.ui.unit.IntOffset(if (isFirst) firstCardPeekOffset.toInt() else 0, 0) }
-                                .animateItem(
-                                    placementSpec = spring(
-                                        dampingRatio = Spring.DampingRatioMediumBouncy,
-                                        stiffness = Spring.StiffnessLow
-                                    )
-                                ),
-                            conversation = conversation,
-                            hasDraft = hasDraft,
-                            isAttachedBranchChild = row.isAttachedBranchChild,
-                            isLastBranchChild = row.isLastBranchChild,
-                            isSwiped = (swipedConversationId == conversation.id),
-                            onSwipeOpened = {
-                                tipsPrefs.edit().putBoolean("has_seen_swipe_gesture_hint", true).apply()
-                                onSwipedConversationIdChange(conversation.id)
-                            },
-                            onSwipeClosed = {
-                                if (swipedConversationId == conversation.id) {
-                                    onSwipedConversationIdChange(null)
+                    if (hasBranches) {
+                        val hasAction = group.branches.any { it.status.needsAction }
+                        val isExpanded = when {
+                            isSearchingBranches -> conversation.id !in searchCollapsedBranchParentIds
+                            hasAction -> conversation.id !in manuallyCollapsedActionBranchParentIds
+                            else -> conversation.id in expandedBranchParentIds
+                        }
+                        val aggStatus = when {
+                            hasAction -> BranchAggregateStatus.ACTION
+                            group.branches.any { it.status.isError } -> BranchAggregateStatus.ERROR
+                            group.branches.any { it.isWorking } -> BranchAggregateStatus.WORKING
+                            group.branches.any { it.isDraft || hasDraftFor(it.id) } -> BranchAggregateStatus.DRAFT
+                            group.branches.any { it.isUnread } -> BranchAggregateStatus.UNREAD
+                            else -> BranchAggregateStatus.NONE
+                        }
+
+                        BranchGroupDrawer(
+                            branches = group.branches,
+                            isExpanded = isExpanded,
+                            aggregateStatus = aggStatus,
+                            hasDraftFor = hasDraftFor,
+                            swipedConversationId = swipedConversationId,
+                            onSwipedConversationIdChange = { id ->
+                                if (id != null) {
+                                    tipsPrefs.edit().putBoolean("has_seen_swipe_gesture_hint", true).apply()
                                 }
+                                onSwipedConversationIdChange(id)
                             },
-                            onStartDrag = {
-                                if (swipedConversationId != null && swipedConversationId != conversation.id) {
-                                    onSwipedConversationIdChange(null)
-                                }
+                            onToggle = {
+                                onSwipedConversationIdChange(null)
+                                onToggleBranchGroup(conversation.id, hasAction)
                             },
-                            onClick = {
+                            onSelectChild = { child ->
                                 if (swipedConversationId != null) {
                                     onSwipedConversationIdChange(null)
                                 } else {
                                     onSelect(
-                                        conversation.id,
-                                        conversation.displayTitle,
+                                        child.id,
+                                        child.displayTitle,
                                         false,
-                                        conversation.isUnread,
-                                        conversation.status,
-                                        conversation.lastModifiedTime
+                                        child.isUnread,
+                                        child.status,
+                                        child.lastModifiedTime
                                     )
                                 }
                             },
-                            onWorkspaceTap = {
-                                if (swipedConversationId != null) {
-                                    onSwipedConversationIdChange(null)
-                                } else {
-                                    onWorkspaceTagTap(conversation)
-                                }
-                            },
-                            onLongClick = { onRename(conversation) },
-                            onDelete = {
+                            onLongClickChild = { child -> onRename(child) },
+                            onDeleteChild = { child ->
                                 onSwipedConversationIdChange(null)
-                                onDelete(conversation)
+                                onDelete(child)
                             },
-                            onPin = {
+                            onPinChild = { child ->
                                 onSwipedConversationIdChange(null)
-                                onPin(conversation)
+                                onPin(child)
                             },
-                            onArchive = {
+                            onArchiveChild = { child ->
                                 onSwipedConversationIdChange(null)
-                                onArchive(conversation)
+                                onArchive(child)
                             }
                         )
                     }
@@ -2355,41 +2342,19 @@ private fun WorkspaceFilterCapsule(
 }
 
 @Composable
-private fun BranchTreeConnector(
-    continuesBelow: Boolean,
-    height: Dp,
-    modifier: Modifier = Modifier
-) {
-    val colors = AntigravityTheme.colors
-    val lineColor = colors.accentIndigo.copy(alpha = 0.35f)
-    Box(
-        modifier = modifier
-            .padding(start = 10.dp)
-            .width(12.dp)
-            .height(height)
-    ) {
-        Box(
-            modifier = Modifier
-                .width(1.5.dp)
-                .height(if (continuesBelow) height else height / 2)
-                .background(lineColor)
-        )
-        Box(
-            modifier = Modifier
-                .padding(top = height / 2 - 0.75.dp)
-                .width(10.dp)
-                .height(1.5.dp)
-                .background(lineColor)
-        )
-    }
-}
-
-@Composable
-private fun BranchGroupToggleRow(
+private fun BranchGroupDrawer(
     branches: List<ConversationItem>,
     isExpanded: Boolean,
     aggregateStatus: BranchAggregateStatus,
+    hasDraftFor: (String) -> Boolean,
+    swipedConversationId: String?,
+    onSwipedConversationIdChange: (String?) -> Unit,
     onToggle: () -> Unit,
+    onSelectChild: (ConversationItem) -> Unit,
+    onLongClickChild: (ConversationItem) -> Unit,
+    onDeleteChild: (ConversationItem) -> Unit,
+    onPinChild: (ConversationItem) -> Unit,
+    onArchiveChild: (ConversationItem) -> Unit,
     modifier: Modifier = Modifier
 ) {
     val colors = AntigravityTheme.colors
@@ -2397,155 +2362,319 @@ private fun BranchGroupToggleRow(
     val previewTitle = branches.firstOrNull()?.displayTitle?.trim().orEmpty()
     val chevronRotation by animateFloatAsState(
         targetValue = if (isExpanded) 180f else 0f,
-        animationSpec = spring(stiffness = Spring.StiffnessMediumLow),
-        label = "BranchToggleChevron"
+        animationSpec = tween(durationMillis = 240, easing = FastOutSlowInEasing),
+        label = "BranchDrawerChevron"
     )
+    val drawerShape = RoundedCornerShape(
+        topStart = 0.dp,
+        topEnd = 0.dp,
+        bottomStart = 12.dp,
+        bottomEnd = 12.dp
+    )
+    val trayBg = when {
+        colors.useNord -> Color(0xFF333947)
+        colors.isDark -> Color(0xFF151519)
+        else -> Color(0xFFECEDF4)
+    }
+    val borderColor = colors.accentIndigo.copy(alpha = if (colors.isDark) 0.24f else 0.17f)
+    // Opaque pre-blended connector tone eliminates any alpha double-compositing at T-junctions
+    val connectorColor = when {
+        colors.useNord -> Color(0xFF577281)
+        colors.isDark -> Color(0xFF3A3A73)
+        else -> Color(0xFFB8B8E6)
+    }
+    val topHairlineColor = if (colors.isDark) Color.White.copy(alpha = 0.08f) else Color.Black.copy(alpha = 0.07f)
+    val topShadowColor = Color.Black.copy(alpha = if (colors.isDark) 0.28f else 0.055f)
 
-    Row(
-        modifier = modifier.fillMaxWidth(),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(6.dp)
-    ) {
-        BranchTreeConnector(continuesBelow = isExpanded, height = 34.dp)
-
-        Row(
-            modifier = Modifier
-                .weight(1f)
-                .clip(RoundedCornerShape(10.dp))
-                .background(colors.surface.copy(alpha = if (isExpanded) 0.76f else 0.94f))
-                .border(
-                    width = 0.75.dp,
-                    color = colors.accentIndigo.copy(alpha = if (isExpanded) 0.16f else 0.24f),
-                    shape = RoundedCornerShape(10.dp)
+    Box(
+        modifier = modifier
+            .fillMaxWidth()
+            .padding(horizontal = 12.dp)
+            .clip(drawerShape)
+            .background(trayBg)
+            .drawWithContent {
+                drawContent()
+                val strokePx = 0.75.dp.toPx()
+                val inset = strokePx / 2f
+                val r = 12.dp.toPx().coerceAtMost((size.width - strokePx) / 2f).coerceAtMost(size.height - inset)
+                val borderPath = Path().apply {
+                    moveTo(inset, 0f)
+                    lineTo(inset, size.height - inset - r)
+                    quadraticTo(inset, size.height - inset, inset + r, size.height - inset)
+                    lineTo(size.width - inset - r, size.height - inset)
+                    quadraticTo(size.width - inset, size.height - inset, size.width - inset, size.height - inset - r)
+                    lineTo(size.width - inset, 0f)
+                }
+                drawPath(
+                    path = borderPath,
+                    color = borderColor,
+                    style = Stroke(width = strokePx, cap = StrokeCap.Butt, join = StrokeJoin.Round)
                 )
-                .clickable(onClick = onToggle)
-                .padding(horizontal = 10.dp, vertical = 7.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(5.dp)
-        ) {
-            Icon(
-                imageVector = Icons.Default.CallSplit,
-                contentDescription = null,
-                tint = colors.accentIndigo,
-                modifier = Modifier.size(12.dp)
-            )
-            Text(
-                text = countLabel,
-                color = colors.accentIndigo,
-                fontSize = 11.5.sp,
-                fontWeight = FontWeight.SemiBold,
-                maxLines = 1,
-                softWrap = false
-            )
-            if (!isExpanded && previewTitle.isNotEmpty()) {
-                Text(
-                    text = "·",
-                    color = colors.textSecondary.copy(alpha = 0.75f),
-                    fontSize = 11.5.sp
-                )
-                Text(
-                    text = previewTitle,
-                    color = colors.textSecondary,
-                    fontSize = 12.sp,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                    modifier = Modifier.weight(1f)
-                )
-            } else {
-                Spacer(modifier = Modifier.weight(1f))
             }
-
-            if (!isExpanded) {
-                when (aggregateStatus) {
-                    BranchAggregateStatus.ACTION -> {
-                        Text(
-                            text = "待审批".loc,
-                            color = colors.accentBlue,
-                            fontSize = 10.sp,
-                            fontWeight = FontWeight.Bold,
-                            maxLines = 1,
-                            softWrap = false,
-                            modifier = Modifier
-                                .clip(RoundedCornerShape(5.dp))
-                                .background(colors.accentBlue.copy(alpha = 0.15f))
-                                .padding(horizontal = 5.5.dp, vertical = 1.5.dp)
-                        )
-                    }
-                    BranchAggregateStatus.ERROR -> {
-                        Text(
-                            text = "错误".loc,
-                            color = colors.accentRed,
-                            fontSize = 10.sp,
-                            fontWeight = FontWeight.Bold,
-                            maxLines = 1,
-                            softWrap = false,
-                            modifier = Modifier
-                                .clip(RoundedCornerShape(5.dp))
-                                .background(colors.accentRed.copy(alpha = 0.15f))
-                                .padding(horizontal = 5.5.dp, vertical = 1.5.dp)
-                        )
-                    }
-                    BranchAggregateStatus.WORKING -> {
-                        Row(
-                            modifier = Modifier
-                                .clip(RoundedCornerShape(5.dp))
-                                .background(colors.accentGreen.copy(alpha = 0.15f))
-                                .padding(horizontal = 5.5.dp, vertical = 1.5.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(3.5.dp)
-                        ) {
-                            CircularProgressIndicator(
-                                modifier = Modifier.size(9.dp),
-                                strokeWidth = 1.4.dp,
-                                color = colors.accentGreen
-                            )
-                            Text(
-                                text = "工作中".loc,
-                                color = colors.accentGreen,
-                                fontSize = 10.sp,
-                                fontWeight = FontWeight.Bold,
-                                maxLines = 1,
-                                softWrap = false
+    ) {
+        Column(modifier = Modifier.fillMaxWidth()) {
+            // Fixed-height header row (prevents any vertical height jitter between collapsed & expanded)
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(36.dp)
+                    .clickable(onClick = onToggle)
+                    .drawBehind {
+                        if (isExpanded) {
+                            val spineX = 16.dp.toPx()
+                            val stemH = 7.dp.toPx()
+                            drawLine(
+                                color = connectorColor,
+                                start = androidx.compose.ui.geometry.Offset(spineX, size.height - stemH),
+                                end = androidx.compose.ui.geometry.Offset(spineX, size.height + 1f),
+                                strokeWidth = 1.5.dp.toPx(),
+                                cap = StrokeCap.Round
                             )
                         }
                     }
-                    BranchAggregateStatus.DRAFT -> {
+            ) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .padding(horizontal = 10.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(5.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.CallSplit,
+                        contentDescription = null,
+                        tint = colors.accentIndigo,
+                        modifier = Modifier.size(12.dp)
+                    )
+                    Text(
+                        text = countLabel,
+                        color = colors.accentIndigo,
+                        fontSize = 11.5.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        maxLines = 1,
+                        softWrap = false
+                    )
+                    if (!isExpanded && previewTitle.isNotEmpty()) {
                         Text(
-                            text = "草稿".loc,
-                            color = colors.accentYellow,
-                            fontSize = 10.sp,
-                            fontWeight = FontWeight.Bold,
+                            text = "·",
+                            color = colors.textSecondary.copy(alpha = 0.75f),
+                            fontSize = 11.5.sp
+                        )
+                        Text(
+                            text = previewTitle,
+                            color = colors.textSecondary,
+                            fontSize = 12.sp,
                             maxLines = 1,
-                            softWrap = false,
-                            modifier = Modifier
-                                .clip(RoundedCornerShape(5.dp))
-                                .background(colors.accentYellow.copy(alpha = 0.15f))
-                                .padding(horizontal = 5.dp, vertical = 1.5.dp)
+                            overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier.weight(1f)
+                        )
+                    } else {
+                        Spacer(modifier = Modifier.weight(1f))
+                    }
+
+                    if (!isExpanded) {
+                        when (aggregateStatus) {
+                            BranchAggregateStatus.ACTION -> {
+                                Text(
+                                    text = "待审批".loc,
+                                    color = colors.accentBlue,
+                                    fontSize = 10.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    maxLines = 1,
+                                    softWrap = false,
+                                    modifier = Modifier
+                                        .clip(RoundedCornerShape(5.dp))
+                                        .background(colors.accentBlue.copy(alpha = 0.15f))
+                                        .padding(horizontal = 5.5.dp, vertical = 1.5.dp)
+                                )
+                            }
+                            BranchAggregateStatus.ERROR -> {
+                                Text(
+                                    text = "错误".loc,
+                                    color = colors.accentRed,
+                                    fontSize = 10.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    maxLines = 1,
+                                    softWrap = false,
+                                    modifier = Modifier
+                                        .clip(RoundedCornerShape(5.dp))
+                                        .background(colors.accentRed.copy(alpha = 0.15f))
+                                        .padding(horizontal = 5.5.dp, vertical = 1.5.dp)
+                                )
+                            }
+                            BranchAggregateStatus.WORKING -> {
+                                Row(
+                                    modifier = Modifier
+                                        .clip(RoundedCornerShape(5.dp))
+                                        .background(colors.accentGreen.copy(alpha = 0.15f))
+                                        .padding(horizontal = 5.5.dp, vertical = 1.5.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(3.5.dp)
+                                ) {
+                                    CircularProgressIndicator(
+                                        modifier = Modifier.size(9.dp),
+                                        strokeWidth = 1.4.dp,
+                                        color = colors.accentGreen
+                                    )
+                                    Text(
+                                        text = "工作中".loc,
+                                        color = colors.accentGreen,
+                                        fontSize = 10.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        maxLines = 1,
+                                        softWrap = false
+                                    )
+                                }
+                            }
+                            BranchAggregateStatus.DRAFT -> {
+                                Text(
+                                    text = "草稿".loc,
+                                    color = colors.accentYellow,
+                                    fontSize = 10.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    maxLines = 1,
+                                    softWrap = false,
+                                    modifier = Modifier
+                                        .clip(RoundedCornerShape(5.dp))
+                                        .background(colors.accentYellow.copy(alpha = 0.15f))
+                                        .padding(horizontal = 5.dp, vertical = 1.5.dp)
+                                )
+                            }
+                            BranchAggregateStatus.UNREAD -> {
+                                UnreadDot(modifier = Modifier.size(14.dp))
+                            }
+                            BranchAggregateStatus.NONE -> Unit
+                        }
+                    } else {
+                        Text(
+                            text = "收起".loc,
+                            color = colors.textSecondary,
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.Medium,
+                            maxLines = 1,
+                            softWrap = false
                         )
                     }
-                    BranchAggregateStatus.UNREAD -> {
-                        UnreadDot(modifier = Modifier.size(14.dp))
-                    }
-                    BranchAggregateStatus.NONE -> Unit
+
+                    Icon(
+                        imageVector = Icons.Default.KeyboardArrowDown,
+                        contentDescription = null,
+                        tint = colors.textSecondary.copy(alpha = 0.85f),
+                        modifier = Modifier
+                            .size(15.dp)
+                            .graphicsLayer { rotationZ = chevronRotation }
+                    )
                 }
-            } else {
-                Text(
-                    text = "收起".loc,
-                    color = colors.textSecondary,
-                    fontSize = 11.sp,
-                    fontWeight = FontWeight.Medium,
-                    maxLines = 1,
-                    softWrap = false
-                )
             }
 
-            Icon(
-                imageVector = Icons.Default.KeyboardArrowDown,
-                contentDescription = null,
-                tint = colors.textSecondary.copy(alpha = 0.85f),
+            AnimatedVisibility(
+                visible = isExpanded,
+                enter = expandVertically(
+                    animationSpec = tween(durationMillis = 260, easing = FastOutSlowInEasing),
+                    expandFrom = Alignment.Top
+                ) + fadeIn(animationSpec = tween(durationMillis = 200)),
+                exit = shrinkVertically(
+                    animationSpec = tween(durationMillis = 220, easing = FastOutSlowInEasing),
+                    shrinkTowards = Alignment.Top
+                ) + fadeOut(animationSpec = tween(durationMillis = 150))
+            ) {
+                Column(modifier = Modifier.fillMaxWidth()) {
+                    branches.forEachIndexed { idx, child ->
+                        val isLast = idx == branches.lastIndex
+                        val bottomPad = if (isLast) 8.dp else 6.dp
+                        val childHasDraft = child.isDraft || hasDraftFor(child.id)
+
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .drawBehind {
+                                    val spineX = 16.dp.toPx()
+                                    val endX = 27.dp.toPx()
+                                    val strokePx = 1.5.dp.toPx()
+                                    val bottomPadPx = bottomPad.toPx()
+                                    val cardHeight = (size.height - bottomPadPx).coerceAtLeast(1f)
+                                    val midY = cardHeight / 2f
+                                    val r = 6.dp.toPx().coerceAtMost((midY - 1f).coerceAtLeast(0f)).coerceAtMost(endX - spineX)
+
+                                    val elbowPath = Path().apply {
+                                        if (!isLast) {
+                                            moveTo(spineX, (midY - r).coerceAtLeast(0f))
+                                            quadraticTo(spineX, midY, spineX + r, midY)
+                                            lineTo(endX, midY)
+                                        } else {
+                                            moveTo(spineX, -0.5f)
+                                            lineTo(spineX, (midY - r).coerceAtLeast(0f))
+                                            quadraticTo(spineX, midY, spineX + r, midY)
+                                            lineTo(endX, midY)
+                                        }
+                                    }
+                                    if (!isLast) {
+                                        drawLine(
+                                            color = connectorColor,
+                                            start = androidx.compose.ui.geometry.Offset(spineX, -0.5f),
+                                            end = androidx.compose.ui.geometry.Offset(spineX, size.height + 0.5f),
+                                            strokeWidth = strokePx,
+                                            cap = StrokeCap.Butt
+                                        )
+                                    }
+                                    drawPath(
+                                        path = elbowPath,
+                                        color = connectorColor,
+                                        style = Stroke(width = strokePx, cap = StrokeCap.Round, join = StrokeJoin.Round)
+                                    )
+                                }
+                                .padding(start = 28.dp, end = 8.dp, bottom = bottomPad)
+                        ) {
+                            SwipeableConversationCard(
+                                conversation = child,
+                                hasDraft = childHasDraft,
+                                isEmbeddedBranchChild = true,
+                                isSwiped = (swipedConversationId == child.id),
+                                onSwipeOpened = { onSwipedConversationIdChange(child.id) },
+                                onSwipeClosed = {
+                                    if (swipedConversationId == child.id) {
+                                        onSwipedConversationIdChange(null)
+                                    }
+                                },
+                                onStartDrag = {
+                                    if (swipedConversationId != null && swipedConversationId != child.id) {
+                                        onSwipedConversationIdChange(null)
+                                    }
+                                },
+                                onClick = { onSelectChild(child) },
+                                onWorkspaceTap = { onSelectChild(child) },
+                                onLongClick = { onLongClickChild(child) },
+                                onDelete = { onDeleteChild(child) },
+                                onPin = { onPinChild(child) },
+                                onArchive = { onArchiveChild(child) }
+                            )
+                        }
+                    }
+                }
+            }
+        }
+
+        // Top tucked lip hairline + subtle recess shadow directly beneath the parent card
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .align(Alignment.TopCenter)
+        ) {
+            Box(
                 modifier = Modifier
-                    .size(15.dp)
-                    .graphicsLayer { rotationZ = chevronRotation }
+                    .fillMaxWidth()
+                    .height(0.5.dp)
+                    .background(topHairlineColor)
+            )
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(3.5.dp)
+                    .background(
+                        Brush.verticalGradient(
+                            colors = listOf(topShadowColor, Color.Transparent)
+                        )
+                    )
             )
         }
     }
@@ -2555,8 +2684,7 @@ private fun BranchGroupToggleRow(
 private fun SwipeableConversationCard(
     conversation: ConversationItem,
     hasDraft: Boolean,
-    isAttachedBranchChild: Boolean = false,
-    isLastBranchChild: Boolean = false,
+    isEmbeddedBranchChild: Boolean = false,
     isSwiped: Boolean,
     onSwipeOpened: () -> Unit,
     onSwipeClosed: () -> Unit,
@@ -2572,8 +2700,17 @@ private fun SwipeableConversationCard(
     val colors = AntigravityTheme.colors
     val density = LocalDensity.current
     val coroutineScope = rememberCoroutineScope()
-    val maxLeftRevealPx = with(density) { 72.dp.toPx() }
-    val maxRightRevealPx = with(density) { (if (conversation.isDraft) 72.dp else 124.dp).toPx() }
+    val leadingWidthDp = if (isEmbeddedBranchChild) 54.dp else 72.dp
+    val trailingWidthDp = if (isEmbeddedBranchChild) {
+        if (conversation.isDraft) 54.dp else 96.dp
+    } else {
+        if (conversation.isDraft) 72.dp else 124.dp
+    }
+    val actionCircleSize = if (isEmbeddedBranchChild) 30.dp else 40.dp
+    val actionIconSize = if (isEmbeddedBranchChild) 15.dp else 20.dp
+    val clipShape = RoundedCornerShape(if (isEmbeddedBranchChild) 10.dp else 14.dp)
+    val maxLeftRevealPx = with(density) { leadingWidthDp.toPx() }
+    val maxRightRevealPx = with(density) { trailingWidthDp.toPx() }
     val offsetX = remember { Animatable(0f) }
     val haptic = com.antigravity.mobile.ui.util.rememberHaptic()
 
@@ -2586,7 +2723,7 @@ private fun SwipeableConversationCard(
     Box(
         modifier = modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(14.dp)),
+            .clip(clipShape),
         contentAlignment = Alignment.Center
     ) {
         // Background Left: iOS-style circular orange pin button (only composed while swiping right)
@@ -2597,13 +2734,13 @@ private fun SwipeableConversationCard(
             ) {
                 Box(
                     modifier = Modifier
-                        .width(72.dp)
+                        .width(leadingWidthDp)
                         .fillMaxHeight(),
                     contentAlignment = Alignment.Center
                 ) {
                     Box(
                         modifier = Modifier
-                            .size(40.dp)
+                            .size(actionCircleSize)
                             .clip(CircleShape)
                             .background(if (conversation.isPinned) colors.textMuted else colors.accentOrange)
                             .clickable {
@@ -2620,7 +2757,7 @@ private fun SwipeableConversationCard(
                             imageVector = Icons.Default.PushPin,
                             contentDescription = if (conversation.isPinned) "取消置顶".loc else "置顶".loc,
                             tint = Color.White,
-                            modifier = Modifier.size(20.dp)
+                            modifier = Modifier.size(actionIconSize)
                         )
                     }
                 }
@@ -2635,16 +2772,16 @@ private fun SwipeableConversationCard(
             ) {
                 Row(
                     modifier = Modifier
-                        .width(if (conversation.isDraft) 72.dp else 124.dp)
+                        .width(trailingWidthDp)
                         .fillMaxHeight()
-                        .padding(horizontal = 10.dp),
-                    horizontalArrangement = Arrangement.spacedBy(10.dp, Alignment.CenterHorizontally),
+                        .padding(horizontal = if (isEmbeddedBranchChild) 6.dp else 10.dp),
+                    horizontalArrangement = Arrangement.spacedBy(if (isEmbeddedBranchChild) 8.dp else 10.dp, Alignment.CenterHorizontally),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     if (!conversation.isDraft) {
                         Box(
                             modifier = Modifier
-                                .size(40.dp)
+                                .size(actionCircleSize)
                                 .clip(CircleShape)
                                 .background(if (conversation.isArchived) colors.accentIndigo else Color(0xFF64748B))
                                 .clickable {
@@ -2661,13 +2798,13 @@ private fun SwipeableConversationCard(
                                 imageVector = if (conversation.isArchived) Icons.Default.Unarchive else Icons.Default.Archive,
                                 contentDescription = if (conversation.isArchived) "取消归档".loc else "归档".loc,
                                 tint = Color.White,
-                                modifier = Modifier.size(19.dp)
+                                modifier = Modifier.size(if (isEmbeddedBranchChild) 15.dp else 19.dp)
                             )
                         }
                     }
                     Box(
                         modifier = Modifier
-                            .size(40.dp)
+                            .size(actionCircleSize)
                             .clip(CircleShape)
                             .background(colors.accentRed)
                             .clickable {
@@ -2684,7 +2821,7 @@ private fun SwipeableConversationCard(
                             imageVector = Icons.Default.Delete,
                             contentDescription = "删除".loc,
                             tint = Color.White,
-                            modifier = Modifier.size(20.dp)
+                            modifier = Modifier.size(actionIconSize)
                         )
                     }
                 }
@@ -2734,8 +2871,7 @@ private fun SwipeableConversationCard(
             ConversationCard(
                 conversation = conversation,
                 hasDraft = hasDraft,
-                isAttachedBranchChild = isAttachedBranchChild,
-                isLastBranchChild = isLastBranchChild,
+                isEmbeddedBranchChild = isEmbeddedBranchChild,
                 onClick = {
                     if (offsetX.value != 0f) {
                         onSwipeClosed()
@@ -2777,8 +2913,7 @@ private fun SwipeableConversationCard(
 fun ConversationCard(
     conversation: ConversationItem,
     hasDraft: Boolean = false,
-    isAttachedBranchChild: Boolean = false,
-    isLastBranchChild: Boolean = false,
+    isEmbeddedBranchChild: Boolean = false,
     onClick: () -> Unit,
     onWorkspaceTap: (() -> Unit)? = null,
     onLongClick: () -> Unit,
@@ -2787,64 +2922,74 @@ fun ConversationCard(
     val colors = AntigravityTheme.colors
 
     if (conversation.isSideQuestion) {
-        if (isAttachedBranchChild) {
-            Row(
-                modifier = modifier.fillMaxWidth(),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(6.dp)
+        if (isEmbeddedBranchChild) {
+            val innerCardBg = if (colors.isDark) colors.surfaceVariant else colors.surface
+            val innerCardBorder = if (colors.isDark) {
+                Color.White.copy(alpha = 0.08f)
+            } else {
+                colors.border.copy(alpha = 0.45f)
+            }
+            Card(
+                modifier = modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(10.dp))
+                    .border(0.5.dp, innerCardBorder, RoundedCornerShape(10.dp))
+                    .combinedClickable(
+                        onClick = onClick,
+                        onLongClick = onLongClick
+                    ),
+                shape = RoundedCornerShape(10.dp),
+                colors = CardDefaults.cardColors(containerColor = innerCardBg),
+                elevation = CardDefaults.cardElevation(defaultElevation = if (colors.isDark) 0.dp else 0.5.dp)
             ) {
-                BranchTreeConnector(continuesBelow = !isLastBranchChild, height = 38.dp)
-                Card(
+                Row(
                     modifier = Modifier
-                        .weight(1f)
-                        .clip(RoundedCornerShape(11.dp))
-                        .border(0.75.dp, colors.accentIndigo.copy(alpha = 0.20f), RoundedCornerShape(11.dp))
-                        .combinedClickable(
-                            onClick = onClick,
-                            onLongClick = onLongClick
-                        ),
-                    shape = RoundedCornerShape(11.dp),
-                    colors = CardDefaults.cardColors(containerColor = colors.surface)
+                        .fillMaxWidth()
+                        .padding(horizontal = 10.dp, vertical = 8.5.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(5.dp)
                 ) {
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(horizontal = 11.dp, vertical = 9.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(6.dp)
-                    ) {
+                    if (conversation.isPinned) {
                         Icon(
-                            imageVector = Icons.Default.CallSplit,
-                            contentDescription = "旁路快问".loc,
-                            tint = colors.accentIndigo.copy(alpha = 0.85f),
-                            modifier = Modifier.size(12.dp)
+                            imageVector = Icons.Default.PushPin,
+                            contentDescription = "置顶".loc,
+                            tint = colors.accentOrange,
+                            modifier = Modifier.size(11.dp)
                         )
+                    }
+                    if (conversation.isStarred) {
+                        Icon(
+                            imageVector = Icons.Default.Star,
+                            contentDescription = "星标".loc,
+                            tint = colors.accentYellow,
+                            modifier = Modifier.size(11.dp)
+                        )
+                    }
+                    Text(
+                        text = conversation.displayTitle,
+                        color = colors.textPrimary,
+                        fontSize = 13.5.sp,
+                        fontWeight = FontWeight.Medium,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.weight(1f)
+                    )
+                    val timeStr = conversation.relativeTimeString
+                    if (timeStr.isNotBlank()) {
                         Text(
-                            text = conversation.displayTitle,
-                            color = colors.textPrimary,
-                            fontSize = 13.5.sp,
-                            fontWeight = FontWeight.Medium,
+                            text = timeStr,
+                            color = colors.textSecondary,
+                            fontSize = 11.sp,
                             maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
-                            modifier = Modifier.weight(1f)
+                            softWrap = false
                         )
-                        val timeStr = conversation.relativeTimeString
-                        if (timeStr.isNotBlank()) {
-                            Text(
-                                text = timeStr,
-                                color = colors.textSecondary,
-                                fontSize = 11.sp,
-                                maxLines = 1,
-                                softWrap = false
-                            )
-                        }
-                        if (conversation.isWorking || conversation.status.needsAction || conversation.status.isError) {
-                            StatusBadge(status = conversation.status, hasRunningTasks = conversation.hasRunningTasks)
-                        } else if (hasDraft || conversation.isDraft) {
-                            DraftBadge()
-                        } else if (conversation.isUnread) {
-                            UnreadDot(modifier = Modifier.size(14.dp))
-                        }
+                    }
+                    if (conversation.isWorking || conversation.status.needsAction || conversation.status.isError) {
+                        StatusBadge(status = conversation.status, hasRunningTasks = conversation.hasRunningTasks)
+                    } else if (hasDraft || conversation.isDraft) {
+                        DraftBadge()
+                    } else if (conversation.isUnread) {
+                        UnreadDot(modifier = Modifier.size(14.dp))
                     }
                 }
             }

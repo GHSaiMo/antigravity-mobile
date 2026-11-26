@@ -37,7 +37,7 @@ android {
         applicationId = "com.antigravity.mobile"
         minSdk = 26
         targetSdk = 34
-        versionCode = 42
+        versionCode = 43
         versionName = "1.2.8-beta.2"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"

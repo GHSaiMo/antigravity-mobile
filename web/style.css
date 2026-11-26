@@ -9696,76 +9696,114 @@ dialog::backdrop {
   resize: none;
 }
 
-/* /btw Side-Question Branch Architecture (Collapsible toggle strip, Compact tree rows, Inline anchor cards, Collapsed shared prefix) */
-.conv-branch-toggle-wrap {
+/* /btw Side-Question Branch Architecture (Plan B: Recessed Drawer Tray + Unbroken Internal Tree + Embedded Child Cards) */
+.conv-branch-group {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+}
+
+.conv-branch-drawer {
   position: relative;
-  padding-left: 22px;
-  margin-top: -8px;
+  margin: 0 12px;
+  border-radius: 0 0 12px 12px;
+  background: #151519;
+  border: 0.75px solid rgba(99, 102, 241, 0.24);
+  border-top: none;
+  overflow: hidden;
 }
-.conv-branch-toggle-wrap::before {
+
+/* Tucked top lip hairline + subtle recess shadow directly beneath the parent card */
+.conv-branch-drawer::before {
   content: "";
   position: absolute;
-  left: 10px;
-  top: -4px;
-  width: 10px;
-  height: calc(50% + 4px);
-  border-left: 1.5px solid rgba(99, 102, 241, 0.34);
-  border-bottom: 1.5px solid rgba(99, 102, 241, 0.34);
-  border-bottom-left-radius: 5px;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 4px;
+  background: linear-gradient(to bottom, rgba(0, 0, 0, 0.28), transparent);
+  box-shadow: inset 0 0.5px 0 rgba(255, 255, 255, 0.08);
   pointer-events: none;
+  z-index: 2;
 }
-.conv-branch-toggle-wrap.is-expanded::after {
-  content: "";
-  position: absolute;
-  left: 10px;
-  top: 50%;
-  bottom: -4px;
-  width: 1.5px;
-  background: rgba(99, 102, 241, 0.34);
-  pointer-events: none;
-}
+
 .conv-branch-toggle-btn {
+  position: relative;
   width: 100%;
+  height: 34px;
   display: flex;
   align-items: center;
   gap: 5px;
-  padding: 7px 10px;
-  border-radius: 10px;
-  border: 0.75px solid rgba(99, 102, 241, 0.24);
-  background: var(--ios-secondary-bg);
+  padding: 0 10px;
+  border: none;
+  background: transparent;
   color: var(--ios-label);
   font-family: inherit;
   text-align: left;
   cursor: pointer;
   -webkit-tap-highlight-color: transparent;
-  transition: background-color 0.14s ease, border-color 0.14s ease, opacity 0.14s ease;
 }
-.conv-branch-toggle-wrap.is-expanded .conv-branch-toggle-btn {
-  border-color: rgba(99, 102, 241, 0.16);
-  opacity: 0.88;
+
+/* Vertical stem dropping directly from underneath the ⑂ icon into the first child branch */
+.conv-branch-toggle-btn::after {
+  content: "";
+  position: absolute;
+  left: 15.25px;
+  bottom: 0;
+  width: 1.5px;
+  height: 6.5px;
+  border-radius: 1px 1px 0 0;
+  background: #3a3a73;
+  opacity: 0;
+  pointer-events: none;
 }
+.conv-branch-drawer.is-expanded .conv-branch-toggle-btn::after {
+  opacity: 1;
+}
+
 .conv-branch-toggle-btn:active {
-  background: var(--ios-tertiary-bg);
+  background: rgba(128, 128, 140, 0.12);
 }
+
 .conv-branch-toggle-icon {
-  color: var(--ios-indigo, #5856d6);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 12px;
+  height: 12px;
+  color: var(--ios-indigo, #5e5ce6);
   font-size: 11px;
   font-weight: 700;
+  line-height: 1;
   flex-shrink: 0;
 }
+
 .conv-branch-toggle-count {
-  color: var(--ios-indigo, #5856d6);
+  color: var(--ios-indigo, #5e5ce6);
   font-size: 11.5px;
   font-weight: 600;
   white-space: nowrap;
   flex-shrink: 0;
 }
+
+.conv-branch-toggle-preview-wrap {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  min-width: 0;
+  flex: 1 1 auto;
+}
+.conv-branch-drawer.is-expanded .conv-branch-toggle-preview-wrap {
+  display: none;
+}
+
 .conv-branch-toggle-sep {
   color: var(--ios-secondary-label);
   opacity: 0.7;
   font-size: 11.5px;
   flex-shrink: 0;
 }
+
 .conv-branch-toggle-preview {
   font-size: 12px;
   color: var(--ios-secondary-label);
@@ -9775,92 +9813,171 @@ dialog::backdrop {
   min-width: 0;
   flex: 1 1 auto;
 }
+
 .conv-branch-toggle-spacer {
   flex: 1 0 4px;
 }
-.conv-branch-toggle-preview + .conv-branch-toggle-spacer {
+.conv-branch-toggle-preview-wrap + .conv-branch-toggle-spacer {
   flex: 0 0 4px;
 }
+.conv-branch-drawer.is-expanded .conv-branch-toggle-preview-wrap + .conv-branch-toggle-spacer {
+  flex: 1 0 4px;
+}
+
+.conv-branch-toggle-agg {
+  display: inline-flex;
+  align-items: center;
+  flex-shrink: 0;
+}
+.conv-branch-drawer.is-expanded .conv-branch-toggle-agg {
+  display: none;
+}
+
 .conv-branch-toggle-collapse {
+  display: none;
   font-size: 11px;
   font-weight: 500;
   color: var(--ios-secondary-label);
   white-space: nowrap;
   flex-shrink: 0;
 }
+.conv-branch-drawer.is-expanded .conv-branch-toggle-collapse {
+  display: inline;
+}
+
 .conv-branch-toggle-badge {
   font-size: 9.5px;
   padding: 1.5px 5.5px;
   border-radius: 5px;
 }
+
 .conv-branch-toggle-dot {
   transform: scale(0.88);
   flex-shrink: 0;
 }
+
 .conv-branch-toggle-chevron {
   color: var(--ios-secondary-label);
   opacity: 0.85;
   flex-shrink: 0;
-  transition: transform 0.24s cubic-bezier(0.32, 0.72, 0, 1);
 }
-.conv-branch-toggle-wrap.is-expanded .conv-branch-toggle-chevron {
+.conv-branch-drawer.is-expanded .conv-branch-toggle-chevron {
   transform: rotate(180deg);
 }
 
-.conv-card-wrapper.is-branch-child {
-  padding-left: 22px;
-  margin-top: -8px;
+/* Smooth zero-jitter drawer body expansion (cross-browser Grid 0fr -> 1fr + layout containment) */
+.conv-branch-drawer-body {
+  display: grid;
+  grid-template-rows: 0fr;
+  opacity: 0;
+}
+.conv-branch-drawer.is-expanded .conv-branch-drawer-body {
+  grid-template-rows: 1fr;
+  opacity: 1;
+}
+
+.conv-branch-drawer-inner {
+  overflow: hidden;
+  min-height: 0;
+  contain: layout;
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .conv-branch-toggle-btn::after {
+    transition: opacity 0.2s ease;
+  }
+  .conv-branch-toggle-chevron {
+    transition: transform 0.24s cubic-bezier(0.32, 0.72, 0, 1);
+  }
+  .conv-branch-drawer-body {
+    transition:
+      grid-template-rows 0.26s cubic-bezier(0.32, 0.72, 0, 1),
+      opacity 0.2s ease;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .conv-branch-toggle-btn::after,
+  .conv-branch-toggle-chevron,
+  .conv-branch-drawer-body {
+    transition: none !important;
+  }
+}
+
+/* Embedded child slot with unbroken internal tree connector */
+.conv-branch-child-slot {
   position: relative;
+  padding: 0 8px 6px 28px;
 }
-.conv-card-wrapper.is-branch-child::before {
+.conv-branch-child-slot.is-branch-last {
+  padding-bottom: 8px;
+}
+
+.conv-branch-child-slot::before {
   content: "";
   position: absolute;
-  left: 10px;
-  top: 0;
-  width: 10px;
-  height: 50%;
-  border-left: 1.5px solid rgba(99, 102, 241, 0.34);
-  border-bottom: 1.5px solid rgba(99, 102, 241, 0.34);
-  border-bottom-left-radius: 5px;
+  left: 15.25px;
+  top: -0.5px;
+  width: 11px;
+  height: calc((100% - 6px) / 2 + 0.5px);
+  border-left: 1.5px solid #3a3a73;
+  border-bottom: 1.5px solid #3a3a73;
+  border-bottom-left-radius: 6px;
   pointer-events: none;
 }
-.conv-card-wrapper.is-branch-child:not(.is-branch-last)::after {
+.conv-branch-child-slot.is-branch-last::before {
+  height: calc((100% - 8px) / 2 + 0.5px);
+}
+
+.conv-branch-child-slot:not(.is-branch-last)::after {
   content: "";
   position: absolute;
-  left: 10px;
-  top: 50%;
-  bottom: 0;
+  left: 15.25px;
+  top: -0.5px;
+  bottom: -0.5px;
   width: 1.5px;
-  background: rgba(99, 102, 241, 0.34);
+  background: #3a3a73;
   pointer-events: none;
 }
+
 .conv-card-wrapper.is-side-question .conv-card {
   border: 0.75px solid rgba(99, 102, 241, 0.22);
   padding: 10px 12px;
 }
-.conv-card-wrapper.is-branch-compact {
-  contain-intrinsic-size: auto 42px;
+
+.conv-card-wrapper.is-branch-embedded {
+  border-radius: 10px;
+  content-visibility: visible;
+  contain-intrinsic-size: auto 38px;
 }
-.conv-card-wrapper.is-branch-compact .conv-card-archive-btn,
-.conv-card-wrapper.is-branch-compact .conv-card-delete-btn {
-  width: 32px;
-  height: 32px;
+
+.conv-card-wrapper.is-branch-embedded .conv-card-actions {
+  width: 96px;
+  gap: 8px;
+  border-radius: 10px;
 }
-.conv-card-wrapper.is-branch-compact .conv-card.conv-branch-compact-card {
+
+.conv-card-wrapper.is-branch-embedded .conv-card-archive-btn,
+.conv-card-wrapper.is-branch-embedded .conv-card-delete-btn {
+  width: 30px;
+  height: 30px;
+}
+.conv-card-wrapper.is-branch-embedded .conv-card-archive-btn svg,
+.conv-card-wrapper.is-branch-embedded .conv-card-delete-btn svg {
+  width: 14px;
+  height: 14px;
+}
+
+.conv-card-wrapper.is-branch-embedded .conv-card.conv-branch-embedded-card {
   flex-direction: row;
   align-items: center;
-  gap: 6px;
-  padding: 9px 11px;
-  border-radius: 11px;
-  border: 0.75px solid rgba(99, 102, 241, 0.18);
+  gap: 5px;
+  padding: 8.5px 10px;
+  border-radius: 10px;
+  background: var(--ios-tertiary-bg);
+  border: 0.5px solid rgba(255, 255, 255, 0.08);
 }
-.conv-branch-compact-icon {
-  color: var(--ios-indigo, #5856d6);
-  opacity: 0.85;
-  font-size: 11px;
-  font-weight: 700;
-  flex-shrink: 0;
-}
+
 .conv-branch-compact-title {
   font-size: 13.5px;
   font-weight: 500;
@@ -9871,17 +9988,61 @@ dialog::backdrop {
   min-width: 0;
   flex: 1 1 auto;
 }
+
 .conv-branch-compact-right {
   display: inline-flex;
   align-items: center;
   gap: 6px;
   flex-shrink: 0;
 }
+
 .conv-branch-compact-time {
   font-size: 11px;
   color: var(--ios-secondary-label);
   white-space: nowrap;
 }
+
+@media (prefers-color-scheme: light) {
+  .conv-branch-drawer {
+    background: #ecedf4;
+    border-color: rgba(88, 86, 214, 0.17);
+  }
+  .conv-branch-drawer::before {
+    background: linear-gradient(to bottom, rgba(0, 0, 0, 0.055), transparent);
+    box-shadow: inset 0 0.5px 0 rgba(0, 0, 0, 0.07);
+  }
+  .conv-branch-toggle-btn::after,
+  .conv-branch-child-slot:not(.is-branch-last)::after {
+    background: #b8b8e6;
+  }
+  .conv-branch-child-slot::before {
+    border-left-color: #b8b8e6;
+    border-bottom-color: #b8b8e6;
+  }
+  .conv-card-wrapper.is-branch-embedded .conv-card.conv-branch-embedded-card {
+    background: #ffffff;
+    border: 0.5px solid rgba(0, 0, 0, 0.065);
+    box-shadow: 0 0.5px 1.5px rgba(0, 0, 0, 0.035);
+  }
+}
+
+:root[data-theme="nord"] .conv-branch-drawer {
+  background: #333947;
+  border-color: rgba(136, 192, 208, 0.24);
+}
+:root[data-theme="nord"] .conv-branch-toggle-btn::after,
+:root[data-theme="nord"] .conv-branch-child-slot:not(.is-branch-last)::after {
+  background: #577281;
+}
+:root[data-theme="nord"] .conv-branch-child-slot::before {
+  border-left-color: #577281;
+  border-bottom-color: #577281;
+}
+:root[data-theme="nord"] .conv-card-wrapper.is-branch-embedded .conv-card.conv-branch-embedded-card {
+  background: #434c5e;
+  border-color: rgba(236, 239, 244, 0.09);
+}
+
 .conv-branch-tag {
   display: inline-flex;
   align-items: center;

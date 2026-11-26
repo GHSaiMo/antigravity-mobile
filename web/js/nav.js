@@ -897,15 +897,14 @@ function renderConversationCardHtml(item, { isAttachedBranchChild = false, isLas
     const wrapperClasses = [
       "conv-card-wrapper",
       "is-side-question",
-      "is-branch-child",
-      "is-branch-compact",
+      "is-branch-embedded",
       isLastBranchChild ? "is-branch-last" : "",
     ].filter(Boolean).join(" ");
     return `
       <div class="${wrapperClasses}" data-id="${idEsc}">
         ${actionsHtml}
-        <div class="conv-card conv-branch-compact-card" data-id="${idEsc}" data-title="${escapeHtml(title)}">
-          <span class="conv-branch-compact-icon" aria-hidden="true">⑂</span>
+        <div class="conv-card conv-branch-embedded-card" data-id="${idEsc}" data-title="${escapeHtml(title)}">
+          ${pinIconHtml}${starIconHtml}
           <span class="conv-branch-compact-title" data-i18n-skip="1">${escapeHtml(title)}</span>
           <span class="conv-branch-compact-right">
             ${timeStr ? `<span class="conv-branch-compact-time">${escapeHtml(timeStr)}</span>` : ""}
@@ -955,11 +954,12 @@ function renderConversationCardHtml(item, { isAttachedBranchChild = false, isLas
   `;
 }
 
-function renderBranchToggleRowHtml(parentId, branches, isExpanded, aggStatus) {
+function renderBranchDrawerHtml(parentId, branches, isExpanded, aggStatus) {
   const parentIdEsc = escapeHtml(parentId || "");
   const count = branches.length;
   const rawCountLabel = count === 1 ? "1 个旁路" : `${count} 个旁路`;
   const countLabel = typeof t === "function" ? t(rawCountLabel) : rawCountLabel;
+  const collapseLabel = typeof t === "function" ? t("收起") : "收起";
   const firstBranch = branches[0];
   const previewTitle = firstBranch
     ? formatConversationTitle(firstBranch.annotations, firstBranch.summary, "")
@@ -967,35 +967,48 @@ function renderBranchToggleRowHtml(parentId, branches, isExpanded, aggStatus) {
   const hasAction = aggStatus === "action";
 
   let aggStatusHtml = "";
-  if (!isExpanded) {
-    if (aggStatus === "action") {
-      aggStatusHtml = `<span class="badge badge-action conv-branch-toggle-badge">ACTION</span>`;
-    } else if (aggStatus === "error") {
-      aggStatusHtml = `<span class="badge badge-error conv-branch-toggle-badge">error</span>`;
-    } else if (aggStatus === "working") {
-      aggStatusHtml = `<span class="badge badge-running conv-branch-toggle-badge">RUNNING</span>`;
-    } else if (aggStatus === "draft") {
-      aggStatusHtml = `<span class="badge badge-draft conv-branch-toggle-badge">DRAFT</span>`;
-    } else if (aggStatus === "unread") {
-      aggStatusHtml = `<div class="status-unread-dot conv-branch-toggle-dot" title="未读新消息"><div class="dot-halo"></div><div class="dot-core"></div></div>`;
-    }
-  } else {
-    const collapseLabel = typeof t === "function" ? t("收起") : "收起";
-    aggStatusHtml = `<span class="conv-branch-toggle-collapse">${escapeHtml(collapseLabel)}</span>`;
+  if (aggStatus === "action") {
+    aggStatusHtml = `<span class="badge badge-action conv-branch-toggle-badge">ACTION</span>`;
+  } else if (aggStatus === "error") {
+    aggStatusHtml = `<span class="badge badge-error conv-branch-toggle-badge">error</span>`;
+  } else if (aggStatus === "working") {
+    aggStatusHtml = `<span class="badge badge-running conv-branch-toggle-badge">RUNNING</span>`;
+  } else if (aggStatus === "draft") {
+    aggStatusHtml = `<span class="badge badge-draft conv-branch-toggle-badge">DRAFT</span>`;
+  } else if (aggStatus === "unread") {
+    aggStatusHtml = `<div class="status-unread-dot conv-branch-toggle-dot" title="未读新消息"><div class="dot-halo"></div><div class="dot-core"></div></div>`;
   }
 
+  const childrenHtml = branches
+    .map((child, idx) => {
+      const isLast = idx === branches.length - 1;
+      const cardHtml = renderConversationCardHtml(child, {
+        isAttachedBranchChild: true,
+        isLastBranchChild: isLast,
+        hasAttachedBranches: false,
+      });
+      return `<div class="conv-branch-child-slot${isLast ? " is-branch-last" : ""}">${cardHtml}</div>`;
+    })
+    .join("");
+
   return `
-    <div class="conv-branch-toggle-wrap${isExpanded ? " is-expanded" : ""}" data-branch-parent="${parentIdEsc}">
+    <div class="conv-branch-drawer${isExpanded ? " is-expanded" : ""}" data-branch-parent="${parentIdEsc}">
       <button type="button" class="conv-branch-toggle-btn" data-branch-parent="${parentIdEsc}" data-has-action="${hasAction ? "1" : "0"}" aria-expanded="${isExpanded ? "true" : "false"}">
         <span class="conv-branch-toggle-icon" aria-hidden="true">⑂</span>
         <span class="conv-branch-toggle-count">${escapeHtml(countLabel)}</span>
-        ${!isExpanded && previewTitle ? `<span class="conv-branch-toggle-sep" aria-hidden="true">·</span><span class="conv-branch-toggle-preview" data-i18n-skip="1">${escapeHtml(previewTitle)}</span>` : ""}
+        ${previewTitle ? `<span class="conv-branch-toggle-preview-wrap"><span class="conv-branch-toggle-sep" aria-hidden="true">·</span><span class="conv-branch-toggle-preview" data-i18n-skip="1">${escapeHtml(previewTitle)}</span></span>` : ""}
         <span class="conv-branch-toggle-spacer"></span>
-        ${aggStatusHtml}
+        ${aggStatusHtml ? `<span class="conv-branch-toggle-agg">${aggStatusHtml}</span>` : ""}
+        <span class="conv-branch-toggle-collapse">${escapeHtml(collapseLabel)}</span>
         <svg class="conv-branch-toggle-chevron" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
           <polyline points="6 9 12 15 18 9"></polyline>
         </svg>
       </button>
+      <div class="conv-branch-drawer-body"${isExpanded ? "" : " inert"}>
+        <div class="conv-branch-drawer-inner">
+          ${childrenHtml}
+        </div>
+      </div>
     </div>
   `;
 }
@@ -1103,28 +1116,19 @@ function renderConversationList(summaries, { forceReorder = false } = {}) {
   const htmlParts = [];
   for (const group of groups) {
     const hasBranches = group.branches.length > 0;
-    htmlParts.push(
-      renderConversationCardHtml(group.root, {
-        isAttachedBranchChild: false,
-        isLastBranchChild: false,
-        hasAttachedBranches: hasBranches,
-      })
-    );
+    const rootHtml = renderConversationCardHtml(group.root, {
+      isAttachedBranchChild: false,
+      isLastBranchChild: false,
+      hasAttachedBranches: hasBranches,
+    });
     if (hasBranches) {
       const aggStatus = getBranchAggregateStatus(group.branches);
       const isExpanded = isBranchGroupExpanded(group.root.id, aggStatus === "action", isSearching);
-      htmlParts.push(renderBranchToggleRowHtml(group.root.id, group.branches, isExpanded, aggStatus));
-      if (isExpanded) {
-        group.branches.forEach((child, idx) => {
-          htmlParts.push(
-            renderConversationCardHtml(child, {
-              isAttachedBranchChild: true,
-              isLastBranchChild: idx === group.branches.length - 1,
-              hasAttachedBranches: false,
-            })
-          );
-        });
-      }
+      htmlParts.push(
+        `<div class="conv-branch-group">${rootHtml}${renderBranchDrawerHtml(group.root.id, group.branches, isExpanded, aggStatus)}</div>`
+      );
+    } else {
+      htmlParts.push(rootHtml);
     }
   }
   listEl.innerHTML = archivedBannerHtml + htmlParts.join("") + archivedFooterHtml;
@@ -1234,14 +1238,15 @@ function initConversationCardDelegation() {
       card.classList.add("swiping");
       wrapper.classList.add("swiping");
 
+      const swipeMax = wrapper.classList.contains("is-branch-embedded") ? 96 : 128;
       const isAlreadySwiped = card.classList.contains("swiped");
-      const baseOffset = isAlreadySwiped ? -128 : 0;
+      const baseOffset = isAlreadySwiped ? -swipeMax : 0;
       let newX = baseOffset + dx;
 
       if (newX > 0) {
         newX = newX * 0.2;
-      } else if (newX < -128) {
-        newX = -128 + (newX + 128) * 0.25;
+      } else if (newX < -swipeMax) {
+        newX = -swipeMax + (newX + swipeMax) * 0.25;
       }
       card.style.transform = `translateX(${newX}px)`;
     }
@@ -1272,18 +1277,20 @@ function initConversationCardDelegation() {
 
     if (isDragging && isHorizontal) {
       const dx = currentX - startX;
+      const swipeMax = wrapper.classList.contains("is-branch-embedded") ? 96 : 128;
+      const openThreshold = wrapper.classList.contains("is-branch-embedded") ? -36 : -44;
       const isAlreadySwiped = card.classList.contains("swiped");
       if (isAlreadySwiped) {
         if (dx > 25) {
           closeCard(card);
         } else {
-          card.style.transform = "translateX(-128px)";
+          card.style.transform = `translateX(-${swipeMax}px)`;
           card.classList.add("swiped");
           wrapper.classList.add("swiped");
         }
       } else {
-        if (dx < -44) {
-          card.style.transform = "translateX(-128px)";
+        if (dx < openThreshold) {
+          card.style.transform = `translateX(-${swipeMax}px)`;
           card.classList.add("swiped");
           wrapper.classList.add("swiped");
           triggerHaptic("light");
@@ -1328,9 +1335,21 @@ function initConversationCardDelegation() {
       const parentId = branchToggleBtn.getAttribute("data-branch-parent");
       const hasAction = branchToggleBtn.getAttribute("data-has-action") === "1";
       const q = (document.getElementById("conv-search")?.value || "").toLowerCase().trim();
+      const isSearching = Boolean(q);
       if (parentId) {
-        toggleBranchGroup(parentId, hasAction, Boolean(q));
-        renderConversationList(currentTrajectories || {}, { forceReorder: false });
+        toggleBranchGroup(parentId, hasAction, isSearching);
+        const drawer = branchToggleBtn.closest(".conv-branch-drawer");
+        if (drawer) {
+          const nowExpanded = isBranchGroupExpanded(parentId, hasAction, isSearching);
+          drawer.classList.toggle("is-expanded", nowExpanded);
+          branchToggleBtn.setAttribute("aria-expanded", nowExpanded ? "true" : "false");
+          const bodyEl = drawer.querySelector(":scope > .conv-branch-drawer-body");
+          if (bodyEl) {
+            bodyEl.inert = !nowExpanded;
+          }
+        } else {
+          renderConversationList(currentTrajectories || {}, { forceReorder: false });
+        }
       }
       return;
     }
