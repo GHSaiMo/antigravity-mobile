@@ -171,11 +171,12 @@ extension APIClient {
         baseURL: URL? = nil,
         candidates: [URL] = [],
         token: String? = nil,
-        deviceID: String? = nil
+        deviceID: String? = nil,
+        context: GatewayRequestContext? = nil
     ) async {
-        let primaryURL = baseURL ?? AppSettings.shared.serverURL
-        let deviceToken = token ?? KeychainHelper.shared.read(key: .deviceToken) ?? AppSettings.shared.deviceToken
-        let targetDeviceID = deviceID ?? KeychainHelper.shared.read(key: .deviceID) ?? AppSettings.shared.deviceID
+        let primaryURL = baseURL ?? (context == nil ? AppSettings.shared.serverURL : nil)
+        let deviceToken = token ?? context?.deviceToken ?? KeychainHelper.shared.read(key: .deviceToken) ?? AppSettings.shared.deviceToken
+        let targetDeviceID = deviceID ?? context?.deviceID ?? KeychainHelper.shared.read(key: .deviceID) ?? AppSettings.shared.deviceID
         
         guard let deviceToken, !deviceToken.isEmpty else { return }
         
@@ -188,7 +189,11 @@ extension APIClient {
                 targetURLs.append(cand)
             }
         }
-        if targetURLs.isEmpty {
+        if targetURLs.isEmpty, let context {
+            let isCell = NetworkStatus.shared.isCellular || !NetworkStatus.shared.isWifi
+            targetURLs = context.candidateURLs(isCellular: isCell)
+        }
+        if targetURLs.isEmpty && context == nil {
             targetURLs = AppSettings.shared.candidateEndpoints.compactMap { URL(string: $0.urlString) }
         }
         guard !targetURLs.isEmpty else { return }
@@ -208,7 +213,12 @@ extension APIClient {
             request.httpBody = bodyData
             
             do {
-                let (_, response) = try await transport.send(request: request)
+                let (_, response): (Data, URLResponse)
+                if let context {
+                    (_, response) = try await transport.send(request: request, context: context)
+                } else {
+                    (_, response) = try await transport.send(request: request)
+                }
                 if let httpResp = response as? HTTPURLResponse, (200...299).contains(httpResp.statusCode) {
                     return
                 }

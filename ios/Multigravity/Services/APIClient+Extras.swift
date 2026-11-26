@@ -35,7 +35,7 @@ extension APIClient {
         }
         guard (200...299).contains(http.statusCode) else {
             if http.statusCode == 401 {
-                postTokenRevokedIfCurrentEpoch(reqEpoch)
+                postTokenRevokedIfCurrentEpoch(reqEpoch, url: request.url, data: data)
             }
             let msg = (try? JSONDecoder().decode(GatewayErrorBody.self, from: data))?.error
                 ?? String(data: data, encoding: .utf8)
@@ -474,7 +474,7 @@ extension APIClient {
         }
         guard (200...299).contains(http.statusCode) else {
             if http.statusCode == 401 {
-                postTokenRevokedIfCurrentEpoch(reqEpoch)
+                postTokenRevokedIfCurrentEpoch(reqEpoch, url: request.url, data: data)
             }
             let msg = (try? JSONDecoder().decode(GatewayErrorBody.self, from: data))?.error
                 ?? String(data: data, encoding: .utf8)

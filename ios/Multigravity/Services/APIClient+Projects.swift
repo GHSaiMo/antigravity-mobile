@@ -87,7 +87,7 @@ extension APIClient {
         }
         guard (200...299).contains(httpResp.statusCode) else {
             if httpResp.statusCode == 401 {
-                postTokenRevokedIfCurrentEpoch(reqEpoch)
+                postTokenRevokedIfCurrentEpoch(reqEpoch, url: request.url, data: data)
             }
             let msg = (try? Self.makeProjectsDecoder().decode(CreateProjectResponse.self, from: data))?.error
                 ?? String(data: data, encoding: .utf8)
@@ -129,7 +129,7 @@ extension APIClient {
         }
         guard (200...299).contains(httpResp.statusCode) else {
             if httpResp.statusCode == 401 {
-                postTokenRevokedIfCurrentEpoch(reqEpoch)
+                postTokenRevokedIfCurrentEpoch(reqEpoch, url: request.url, data: data)
             }
             let msg = (try? JSONDecoder().decode(CreateLocalDirResponse.self, from: data))?.error
                 ?? String(data: data, encoding: .utf8)
@@ -173,7 +173,7 @@ extension APIClient {
         }
         guard (200...299).contains(httpResp.statusCode) else {
             if httpResp.statusCode == 401 {
-                postTokenRevokedIfCurrentEpoch(reqEpoch)
+                postTokenRevokedIfCurrentEpoch(reqEpoch, url: request.url, data: data)
             }
             let msg = (try? JSONDecoder().decode(CreateLocalDirResponse.self, from: data))?.error
                 ?? String(data: data, encoding: .utf8)
@@ -227,7 +227,7 @@ extension APIClient {
         }
         guard (200...299).contains(httpResp.statusCode) else {
             if httpResp.statusCode == 401 {
-                postTokenRevokedIfCurrentEpoch(reqEpoch)
+                postTokenRevokedIfCurrentEpoch(reqEpoch, url: request.url, data: data)
             }
             let msg = (try? decoder.decode(CloneRepoResponse.self, from: data))?.error
                 ?? String(data: data, encoding: .utf8)
@@ -258,7 +258,7 @@ extension APIClient {
         let decoder = Self.makeProjectsDecoder()
         guard (200...299).contains(httpResp.statusCode) else {
             if httpResp.statusCode == 401 {
-                postTokenRevokedIfCurrentEpoch(reqEpoch)
+                postTokenRevokedIfCurrentEpoch(reqEpoch, url: request.url, data: data)
             }
             let msg = (try? decoder.decode(CloneRepoResponse.self, from: data))?.error
                 ?? String(data: data, encoding: .utf8)

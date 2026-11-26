@@ -127,7 +127,7 @@ extension APIClient {
         }
         guard (200...299).contains(http.statusCode) else {
             if http.statusCode == 401 {
-                postTokenRevokedIfCurrentEpoch(reqEpoch)
+                postTokenRevokedIfCurrentEpoch(reqEpoch, url: endpoint, data: finalData)
             }
             struct ErrBody: Decodable { let message: String? }
             let message = (try? JSONDecoder().decode(ErrBody.self, from: finalData))?.message

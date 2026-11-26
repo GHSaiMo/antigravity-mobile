@@ -935,6 +935,13 @@ public final class AppSettings {
         self.isDemoMode = demo
         DemoGateway.isEnabled = demo
         if demo { URLProtocol.registerClass(DemoURLProtocol.self) }
+        // Defensive cold-launch bootstrap: if AppSettings is touched before GatewayProfileStore,
+        // align KeychainHelper's active profile scope first so non-legacy profiles still resolve isPaired.
+        if KeychainHelper.shared.activeProfileId == nil,
+           let savedActiveProfileId = UserDefaults.standard.string(forKey: "antigravity.active_gateway_profile_id_v1"),
+           !savedActiveProfileId.isEmpty {
+            KeychainHelper.shared.setActiveProfileId(savedActiveProfileId)
+        }
         let token = KeychainHelper.shared.read(key: .deviceToken)
         self.isPaired = demo || (token != nil && !token!.isEmpty)
         

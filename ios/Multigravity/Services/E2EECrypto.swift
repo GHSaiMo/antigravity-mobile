@@ -634,8 +634,9 @@ public final class E2EECrypto: Sendable {
 
     /// Silently negotiates an E2EE device key for previously paired devices upgrading to v1.2.5+
     /// over LAN or legacy Cloudflare Tunnel, without requiring a QR re-scan.
-    public func silentUpgradeIfNeeded(reachableBaseURL: String) async {
-        guard !isReady else { return }
+    public func silentUpgradeIfNeeded(reachableBaseURL: String, expectedEpoch: UInt64? = nil) async {
+        let reqEpoch = expectedEpoch ?? GatewayRuntimeState.shared.epoch
+        guard !isReady, GatewayRuntimeState.shared.epoch == reqEpoch else { return }
         guard let token = KeychainHelper.shared.read(key: .deviceToken), !token.isEmpty else {
             return
         }
@@ -666,6 +667,7 @@ public final class E2EECrypto: Sendable {
 
         do {
             let (data, resp) = try await NetworkTransport.shared.send(request: req)
+            guard GatewayRuntimeState.shared.epoch == reqEpoch else { return }
             guard let http = resp as? HTTPURLResponse, http.statusCode == 200 else { return }
             struct UpgradeResp: Decodable {
                 let device_id: String
@@ -674,6 +676,7 @@ public final class E2EECrypto: Sendable {
                 let cloud_url: String?
             }
             let decoded = try JSONDecoder().decode(UpgradeResp.self, from: data)
+            guard GatewayRuntimeState.shared.epoch == reqEpoch else { return }
             KeychainHelper.shared.save(key: .deviceID, value: decoded.device_id)
             _ = try deriveAndSaveDeviceKey(
                 privateKey: ephemPriv,
@@ -689,16 +692,19 @@ public final class E2EECrypto: Sendable {
                 }
                 if NetworkTransport.isValidAdvertisedCloudURL(cleanCloud, trustedByE2EE: true) {
                     await MainActor.run {
+                        guard GatewayRuntimeState.shared.epoch == reqEpoch else { return }
                         AppSettings.shared.primaryCloudURL = cleanCloud
                         AppSettings.shared.syncWidgetConfiguration(reloadWidget: false)
                     }
                 } else {
                     await MainActor.run {
+                        guard GatewayRuntimeState.shared.epoch == reqEpoch else { return }
                         AppSettings.shared.syncWidgetConfiguration(reloadWidget: false)
                     }
                 }
             } else {
                 await MainActor.run {
+                    guard GatewayRuntimeState.shared.epoch == reqEpoch else { return }
                     AppSettings.shared.syncWidgetConfiguration(reloadWidget: false)
                 }
             }

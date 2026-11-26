@@ -30,10 +30,21 @@ public final class APIClient: Sendable {
     public static let sharedDecoder = JSONDecoder()
     public static let sharedEncoder = JSONEncoder()
 
-    internal func postTokenRevokedIfCurrentEpoch(_ reqEpoch: UInt64) {
-        if GatewayRuntimeState.shared.epoch == reqEpoch {
-            NotificationCenter.default.post(name: .deviceTokenRevoked, object: nil, userInfo: ["epoch": reqEpoch])
+    internal func postTokenRevokedIfCurrentEpoch(_ reqEpoch: UInt64, url: URL? = nil, data: Data? = nil) {
+        guard GatewayRuntimeState.shared.epoch == reqEpoch else { return }
+        if let url {
+            // Never unpair the active gateway because of a 401 from a stale/non-active origin.
+            guard NetworkTransport.isConfiguredGatewayOrigin(url),
+                  !GatewayRuntimeState.shared.isOriginOwnedByInactiveProfile(url) else {
+                return
+            }
         }
+        if let data,
+           E2EECrypto.parseClockSkewServerTimestamp(statusCode: 401, data: data) != nil {
+            // Transient E2EE replay clock-skew rejection is NOT a revoked device token.
+            return
+        }
+        NotificationCenter.default.post(name: .deviceTokenRevoked, object: nil, userInfo: ["epoch": reqEpoch])
     }
 
     // Core ConnectRPC POST request
@@ -70,8 +81,8 @@ public final class APIClient: Sendable {
         }
         
         guard (200...299).contains(httpResp.statusCode) else {
-            if httpResp.statusCode == 401 && GatewayRuntimeState.shared.epoch == reqEpoch {
-                NotificationCenter.default.post(name: .deviceTokenRevoked, object: nil, userInfo: ["epoch": reqEpoch])
+            if httpResp.statusCode == 401 {
+                postTokenRevokedIfCurrentEpoch(reqEpoch, url: endpoint, data: data)
             }
             if let upstreamErr = APIError.upstreamUnavailableIfMatched(
                 statusCode: httpResp.statusCode,

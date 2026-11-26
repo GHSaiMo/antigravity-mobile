@@ -60,6 +60,94 @@ public final class GatewayRuntimeState: Sendable {
         lock.withLock { $0.profilesById[id] }
     }
 
+    public var activeGatewayId: String? {
+        lock.withLock { state in
+            guard let aid = state.activeProfileId,
+                  let active = state.profilesById[aid],
+                  let gw = active.gatewayId?.trimmingCharacters(in: .whitespacesAndNewlines),
+                  !gw.isEmpty else {
+                return nil
+            }
+            return gw
+        }
+    }
+
+    public func activeProfileSnapshot() -> GatewayProfile? {
+        lock.withLock { state in
+            guard let aid = state.activeProfileId else { return nil }
+            return state.profilesById[aid]
+        }
+    }
+
+    private static func normalizedOriginKey(_ raw: String?) -> String? {
+        guard let trimmed = raw?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !trimmed.isEmpty,
+              let parsed = URL(string: trimmed),
+              let scheme = parsed.scheme?.lowercased(),
+              (scheme == "http" || scheme == "https") else {
+            return nil
+        }
+        let host = (parsed.host ?? "").trimmingCharacters(in: CharacterSet(charactersIn: "[]")).lowercased()
+        guard !host.isEmpty else { return nil }
+        let port = parsed.port ?? (scheme == "https" ? 443 : 80)
+        return "\(scheme)://\(host):\(port)"
+    }
+
+    private static func normalizedOriginKey(url: URL?) -> String? {
+        guard let url,
+              let scheme = url.scheme?.lowercased(),
+              (scheme == "http" || scheme == "https") else {
+            return nil
+        }
+        let host = (url.host ?? "").trimmingCharacters(in: CharacterSet(charactersIn: "[]")).lowercased()
+        guard !host.isEmpty else { return nil }
+        let port = url.port ?? (scheme == "https" ? 443 : 80)
+        return "\(scheme)://\(host):\(port)"
+    }
+
+    private static func profileOrigins(_ profile: GatewayProfile) -> Set<String> {
+        let candidates: [String?] = [
+            profile.rawServerURL,
+            profile.primaryCloudURL,
+            profile.lanServerURL,
+            profile.relayServerURL,
+            profile.customServerURL,
+            profile.activeServerURL
+        ]
+        var origins = Set<String>()
+        for raw in candidates {
+            if let key = normalizedOriginKey(raw) {
+                origins.insert(key)
+            }
+        }
+        return origins
+    }
+
+    /// Returns `true` when `url` matches an origin configured on an INACTIVE paired gateway profile
+    /// and is NOT configured on the currently active profile. Prevents stale pre-switch tasks from
+    /// leaking the new active gateway's credentials to an old host or poisoning its cloud URL.
+    public func isOriginOwnedByInactiveProfile(_ url: URL?) -> Bool {
+        guard let targetOrigin = Self.normalizedOriginKey(url: url) else {
+            return false
+        }
+        return lock.withLock { state in
+            guard state.profilesById.count > 1,
+                  let activeId = state.activeProfileId else {
+                return false
+            }
+            if let active = state.profilesById[activeId],
+               Self.profileOrigins(active).contains(targetOrigin) {
+                return false
+            }
+            for (pid, prof) in state.profilesById where pid != activeId {
+                if Self.profileOrigins(prof).contains(targetOrigin) {
+                    return true
+                }
+            }
+            return false
+        }
+    }
+
     public func allProfilesSnapshot() -> [GatewayProfile] {
         lock.withLock { Array($0.profilesById.values) }
     }
@@ -532,6 +620,14 @@ public final class GatewayProfileStore {
             if let gw = validGwId, (existing.gatewayId == gw || existing.id == gw) {
                 return true
             }
+            // Two profiles carrying different known gatewayIds are provably different physical hosts
+            // and must never be merged by URL (even if an endpoint was previously cross-contaminated).
+            if let gw = validGwId,
+               let existingGw = existing.gatewayId?.trimmingCharacters(in: .whitespacesAndNewlines),
+               !existingGw.isEmpty,
+               existingGw != gw {
+                return false
+            }
             if let c = cleanCloud, !c.isEmpty,
                existing.primaryCloudURL?.trimmingCharacters(in: CharacterSet(charactersIn: "/")).lowercased() == c {
                 return true
@@ -656,6 +752,12 @@ public final class GatewayProfileStore {
     public func backfillGatewayMetadata(profileId: String, gatewayId: String?, gatewayName: String?, platform: String?) {
         guard let idx = profiles.firstIndex(where: { $0.id == profileId }) else { return }
         var p = profiles[idx]
+        if let gw = gatewayId?.trimmingCharacters(in: .whitespacesAndNewlines), !gw.isEmpty,
+           let existingGw = p.gatewayId?.trimmingCharacters(in: .whitespacesAndNewlines), !existingGw.isEmpty,
+           existingGw != gw {
+            // Never overwrite an established profile's identity or name with metadata from a different gateway.
+            return
+        }
         var changed = false
         if let gw = gatewayId?.trimmingCharacters(in: .whitespacesAndNewlines), !gw.isEmpty, p.gatewayId != gw {
             p.gatewayId = gw
@@ -742,7 +844,8 @@ public final class GatewayProfileStore {
                     baseURL: primaryURL,
                     candidates: candidates,
                     token: token,
-                    deviceID: devId
+                    deviceID: devId,
+                    context: ctx
                 )
             }
         }

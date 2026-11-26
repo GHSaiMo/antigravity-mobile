@@ -596,6 +596,9 @@ class ConnectionManager(private val context: Context) {
                     connectionManager = this@ConnectionManager,
                     httpClient = publicProbeClient
                 )
+                if (com.antigravity.mobile.data.model.GatewayRuntimeState.epoch != startEpoch) {
+                    return@withContext null
+                }
                 if (!migratedUrl.isNullOrBlank()) {
                     val cleanMigrated = migratedUrl.trim().trimEnd('/')
                     val oldBase = prefs.gatewayBaseUrl
@@ -622,6 +625,9 @@ class ConnectionManager(private val context: Context) {
             if (prefs.primaryCloudUrl.isNullOrBlank() && reachable.isNotEmpty()) {
                 val token = prefs.deviceToken?.trim()?.takeIf { it.isNotBlank() }
                 for (ep in reachable) {
+                    if (com.antigravity.mobile.data.model.GatewayRuntimeState.epoch != startEpoch) {
+                        return@withContext null
+                    }
                     val cleanBase = ep.urlString.trim().trimEnd('/')
                     val probeUrl = "$cleanBase/api/v1/auth/endpoints"
                     val epClient = if (isLanHost(extractHost(cleanBase))) httpClient else publicProbeClient
@@ -631,6 +637,9 @@ class ConnectionManager(private val context: Context) {
                             reqBuilder.header("Authorization", "Bearer $token")
                         }
                         epClient.newCall(reqBuilder.build()).execute().use { resp ->
+                            if (com.antigravity.mobile.data.model.GatewayRuntimeState.epoch != startEpoch) {
+                                return@withContext null
+                            }
                             if (resp.isSuccessful) {
                                 applyAdvertisedCloudUrl(
                                     rawHeader = resp.header("X-Antigravity-Cloud-URL"),

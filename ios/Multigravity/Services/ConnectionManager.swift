@@ -10,6 +10,7 @@ public struct EndpointHealthStatus: Identifiable, Sendable {
     public let latencyMs: Double
     public let errorMessage: String?
     public let platform: String?
+    public let gatewayId: String?
     
     public init(
         id: String,
@@ -17,7 +18,8 @@ public struct EndpointHealthStatus: Identifiable, Sendable {
         isReachable: Bool,
         latencyMs: Double,
         errorMessage: String? = nil,
-        platform: String? = nil
+        platform: String? = nil,
+        gatewayId: String? = nil
     ) {
         self.id = id
         self.urlString = urlString
@@ -25,6 +27,7 @@ public struct EndpointHealthStatus: Identifiable, Sendable {
         self.latencyMs = latencyMs
         self.errorMessage = errorMessage
         self.platform = platform
+        self.gatewayId = gatewayId
     }
 }
 
@@ -220,9 +223,10 @@ public final class ConnectionManager {
         }
 
         let startEpoch = GatewayRuntimeState.shared.epoch
+        let expectedGwId = GatewayRuntimeState.shared.activeGatewayId
         let task = Task<Bool, Never> { @MainActor [weak self] in
             guard let self else { return false }
-            let status = await Self.testSingleEndpoint(urlString: lan, timeout: timeout)
+            let status = await Self.testSingleEndpoint(urlString: lan, timeout: timeout, expectedGatewayId: expectedGwId)
             guard !Task.isCancelled, GatewayRuntimeState.shared.epoch == startEpoch else { return false }
             self.endpointStatuses[status.urlString] = status
             if status.isReachable {
@@ -233,7 +237,7 @@ public final class ConnectionManager {
                 }
                 if settings.isPaired && !E2EECrypto.shared.isReady {
                     Task {
-                        await E2EECrypto.shared.silentUpgradeIfNeeded(reachableBaseURL: lan)
+                        await E2EECrypto.shared.silentUpgradeIfNeeded(reachableBaseURL: lan, expectedEpoch: startEpoch)
                     }
                 }
                 let changed = Self.normalizedEndpointKey(settings.activeServerURL) != cleanLan
@@ -277,6 +281,7 @@ public final class ConnectionManager {
 
     private func performProbeEndpoints() async -> String? {
         let startEpoch = GatewayRuntimeState.shared.epoch
+        let expectedGwId = GatewayRuntimeState.shared.activeGatewayId
         let settings = AppSettings.shared
         let isCellularNow = self.isCellular || !self.isWifi
         
@@ -323,7 +328,7 @@ public final class ConnectionManager {
         await withTaskGroup(of: EndpointHealthStatus.self) { group in
             for ep in endpointsToTest {
                 group.addTask {
-                    await Self.testSingleEndpoint(urlString: ep)
+                    await Self.testSingleEndpoint(urlString: ep, expectedGatewayId: expectedGwId)
                 }
             }
             
@@ -363,7 +368,7 @@ public final class ConnectionManager {
         // Silent legacy-to-E2EE key negotiation for pre-1.2.5 paired devices (zero user interaction)
         if settings.isPaired && !E2EECrypto.shared.isReady, let reachableBase = reachable.first?.urlString {
             Task {
-                await E2EECrypto.shared.silentUpgradeIfNeeded(reachableBaseURL: reachableBase)
+                await E2EECrypto.shared.silentUpgradeIfNeeded(reachableBaseURL: reachableBase, expectedEpoch: startEpoch)
             }
         }
 
@@ -371,7 +376,14 @@ public final class ConnectionManager {
         // or migrated to a newly added VPS in RELAY_POOL), probe /api/relay/pool and re-lock automatically.
         if reachable.isEmpty && settings.isPaired && E2EECrypto.shared.isReady,
            let currentCloud = settings.primaryCloudURL, !currentCloud.isEmpty {
-            if let migratedURL = await RelayPoolResolver.shared.resolveReachableCloudURL(currentCloudURL: currentCloud) {
+            if let migratedURL = await RelayPoolResolver.shared.resolveReachableCloudURL(
+                currentCloudURL: currentCloud,
+                expectedEpoch: startEpoch,
+                expectedGatewayId: expectedGwId
+            ) {
+                guard !Task.isCancelled, GatewayRuntimeState.shared.epoch == startEpoch else {
+                    return settings.activeServerURL
+                }
                 settings.primaryCloudURL = migratedURL
                 settings.syncWidgetConfiguration(reloadWidget: false)
                 settings.activeServerURL = migratedURL
@@ -382,6 +394,9 @@ public final class ConnectionManager {
         // Self-heal: If primaryCloudURL is missing, discover it from /api/v1/auth/endpoints on reachable gateway
         if settings.primaryCloudURL == nil {
             for ep in reachable {
+                guard !Task.isCancelled, GatewayRuntimeState.shared.epoch == startEpoch else {
+                    return settings.activeServerURL
+                }
                 let cleanBase = ep.urlString.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
                 if let probeURL = URL(string: "\(cleanBase)/api/v1/auth/endpoints") {
                     var req = URLRequest(url: probeURL)
@@ -390,6 +405,7 @@ public final class ConnectionManager {
                         req.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
                     }
                     if let (data, resp) = try? await NetworkTransport.shared.send(request: req),
+                       GatewayRuntimeState.shared.epoch == startEpoch,
                        let http = resp as? HTTPURLResponse, http.statusCode == 200,
                        let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
                        let eps = json["endpoints"] as? [[String: Any]] {
@@ -453,7 +469,12 @@ public final class ConnectionManager {
     /// Tests a single endpoint's reachability and latency.
     /// LAN-only endpoints default to a tight 1.2s timeout so off-home Wi-Fi fails fast;
     /// public/Tailscale endpoints keep a 5.0s timeout to allow cellular TLS handshakes.
-    public static func testSingleEndpoint(urlString: String, timeout: TimeInterval? = nil) async -> EndpointHealthStatus {
+    /// When `expectedGatewayId` is provided, rejects endpoints advertising a different gateway identity.
+    public static func testSingleEndpoint(
+        urlString: String,
+        timeout: TimeInterval? = nil,
+        expectedGatewayId: String? = nil
+    ) async -> EndpointHealthStatus {
         guard let baseURL = AppSettings.normalize(raw: urlString) else {
             return EndpointHealthStatus(
                 id: urlString,
@@ -502,8 +523,30 @@ public final class ConnectionManager {
             // /healthz returns 200 when the gateway process is up.
             if httpResponse.statusCode == 200 {
                 var platform: String? = nil
+                var gatewayId: String? = nil
                 if let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
                     platform = (json["platform"] as? String) ?? (json["os"] as? String)
+                    let explicitGwId = (json["gateway_id"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines)
+                    if let explicitGwId, !explicitGwId.isEmpty {
+                        gatewayId = explicitGwId
+                    } else if let pub = json["e2ee_pub"] as? String {
+                        gatewayId = GatewayProfileStore.deriveGatewayId(fromE2EEPubKeyB64: pub)
+                    }
+                }
+                if let expected = expectedGatewayId?.trimmingCharacters(in: .whitespacesAndNewlines),
+                   !expected.isEmpty,
+                   let actual = gatewayId,
+                   !actual.isEmpty,
+                   actual != expected {
+                    return EndpointHealthStatus(
+                        id: urlString,
+                        urlString: urlString,
+                        isReachable: false,
+                        latencyMs: elapsedMs,
+                        errorMessage: String(localized: "网关身份不匹配"),
+                        platform: platform,
+                        gatewayId: actual
+                    )
                 }
                 return EndpointHealthStatus(
                     id: urlString,
@@ -511,7 +554,8 @@ public final class ConnectionManager {
                     isReachable: true,
                     latencyMs: elapsedMs,
                     errorMessage: nil,
-                    platform: platform
+                    platform: platform,
+                    gatewayId: gatewayId
                 )
             } else {
                 return EndpointHealthStatus(

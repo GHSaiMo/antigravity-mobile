@@ -116,8 +116,15 @@ public final class RelayPoolResolver: Sendable {
     /// Discovers which VPS node in `RELAY_POOL` currently serves this paired gateway.
     /// Concurrent callers for the same failed URL share one in-flight probe (single-flight).
     /// Returns the lowest-latency reachable HTTPS base URL, or nil if no pool node is online.
-    public func resolveReachableCloudURL(currentCloudURL: String?) async -> String? {
+    public func resolveReachableCloudURL(
+        currentCloudURL: String?,
+        expectedEpoch: UInt64? = nil,
+        expectedGatewayId: String? = nil
+    ) async -> String? {
+        let reqEpoch = expectedEpoch ?? GatewayRuntimeState.shared.epoch
+        let targetGwId = expectedGatewayId ?? GatewayRuntimeState.shared.activeGatewayId
         guard E2EECrypto.shared.isReady,
+              GatewayRuntimeState.shared.epoch == reqEpoch,
               let raw = currentCloudURL,
               isOfficialOrPoolHost(raw),
               Self.extractSID(from: currentCloudURL) != nil else {
@@ -126,14 +133,18 @@ public final class RelayPoolResolver: Sendable {
         let key = (currentCloudURL ?? "")
             .trimmingCharacters(in: .whitespacesAndNewlines)
             .trimmingCharacters(in: CharacterSet(charactersIn: "/"))
-            .lowercased()
+            .lowercased() + "|e:\(reqEpoch)"
 
         let task: Task<String?, Never> = inFlightResolveLock.withLock { map in
             if let existing = map[key] {
                 return existing
             }
             let created = Task<String?, Never> { [self] in
-                await self.performResolveReachableCloudURL(currentCloudURL: currentCloudURL)
+                await self.performResolveReachableCloudURL(
+                    currentCloudURL: currentCloudURL,
+                    expectedEpoch: reqEpoch,
+                    expectedGatewayId: targetGwId
+                )
             }
             map[key] = created
             return created
@@ -150,7 +161,14 @@ public final class RelayPoolResolver: Sendable {
 
     /// Discovers an active peer VPS relay node when `failedURL` returns HTTP 502/503 (`gateway_offline`),
     /// updates `AppSettings` active/primary cloud URLs, and returns the new base URL if migration succeeded.
-    public func migrateRelayHostIfNeeded(failedURL: URL) async -> URL? {
+    public func migrateRelayHostIfNeeded(
+        failedURL: URL,
+        expectedEpoch: UInt64? = nil
+    ) async -> URL? {
+        let reqEpoch = expectedEpoch ?? GatewayRuntimeState.shared.epoch
+        guard GatewayRuntimeState.shared.epoch == reqEpoch else {
+            return nil
+        }
         guard let scheme = failedURL.scheme?.lowercased(), scheme == "https",
               let failedHost = failedURL.host?.trimmingCharacters(in: CharacterSet(charactersIn: "[]")).lowercased(),
               !failedHost.isEmpty,
@@ -164,7 +182,12 @@ public final class RelayPoolResolver: Sendable {
             portSuffix = ""
         }
         let failedOrigin = "https://\(failedHost)\(portSuffix)"
-        guard let migratedStr = await resolveReachableCloudURL(currentCloudURL: failedOrigin),
+        guard let migratedStr = await resolveReachableCloudURL(
+                currentCloudURL: failedOrigin,
+                expectedEpoch: reqEpoch,
+                expectedGatewayId: GatewayRuntimeState.shared.activeGatewayId
+              ),
+              GatewayRuntimeState.shared.epoch == reqEpoch,
               let migratedURL = URL(string: migratedStr),
               let migratedHost = migratedURL.host?.trimmingCharacters(in: CharacterSet(charactersIn: "[]")).lowercased(),
               !migratedHost.isEmpty,
@@ -173,18 +196,25 @@ public final class RelayPoolResolver: Sendable {
         }
 
         E2EECrypto.shared.markHostRequiresE2EE(migratedHost)
-        await MainActor.run {
+        let applied: Bool = await MainActor.run {
+            guard GatewayRuntimeState.shared.epoch == reqEpoch else { return false }
             let settings = AppSettings.shared
             let cleanMigrated = migratedStr.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
             settings.primaryCloudURL = cleanMigrated
             settings.activeServerURL = cleanMigrated
             settings.syncWidgetConfiguration(reloadWidget: false)
+            return true
         }
-        return migratedURL
+        return applied ? migratedURL : nil
     }
 
-    private func performResolveReachableCloudURL(currentCloudURL: String?) async -> String? {
+    private func performResolveReachableCloudURL(
+        currentCloudURL: String?,
+        expectedEpoch: UInt64,
+        expectedGatewayId: String?
+    ) async -> String? {
         guard E2EECrypto.shared.isReady,
+              GatewayRuntimeState.shared.epoch == expectedEpoch,
               let raw = currentCloudURL,
               isOfficialOrPoolHost(raw),
               let sid = Self.extractSID(from: currentCloudURL) else {
@@ -196,7 +226,7 @@ public final class RelayPoolResolver: Sendable {
             .lowercased()
 
         let nodes = await fetchPoolNodes(forceRefresh: true)
-        guard !nodes.isEmpty else { return nil }
+        guard !nodes.isEmpty, GatewayRuntimeState.shared.epoch == expectedEpoch else { return nil }
 
         var candidateURLs: [String] = []
         var seen = Set<String>()
@@ -218,7 +248,10 @@ public final class RelayPoolResolver: Sendable {
         await withTaskGroup(of: EndpointHealthStatus.self) { group in
             for cand in candidateURLs {
                 group.addTask {
-                    await ConnectionManager.testSingleEndpoint(urlString: cand)
+                    await ConnectionManager.testSingleEndpoint(
+                        urlString: cand,
+                        expectedGatewayId: expectedGatewayId
+                    )
                 }
             }
             for await status in group {
@@ -226,6 +259,7 @@ public final class RelayPoolResolver: Sendable {
             }
         }
 
+        guard GatewayRuntimeState.shared.epoch == expectedEpoch else { return nil }
         let best = statuses
             .filter { $0.isReachable }
             .min(by: { $0.latencyMs < $1.latencyMs })

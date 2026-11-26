@@ -53,14 +53,21 @@ public final class NetworkTransport: Sendable {
         guard let http = response as? HTTPURLResponse, let targetURL = url ?? http.url else {
             return response
         }
-        E2EECrypto.shared.observeServerCapabilities(from: http, url: targetURL)
-        // Self-heal primary Cloud URL only when advertised by an authenticated, configured/local gateway over HTTPS
-        // AND the active gateway epoch has not changed since this request started.
         let expectedEpoch = requestEpoch ?? GatewayRuntimeState.shared.epoch
-        if let rawCloudHeader = http.value(forHTTPHeaderField: "X-Antigravity-Cloud-URL")?.trimmingCharacters(in: .whitespacesAndNewlines),
+        let epochMatches = (GatewayRuntimeState.shared.epoch == expectedEpoch)
+        let isStaleInactiveOrigin = GatewayRuntimeState.shared.isOriginOwnedByInactiveProfile(targetURL)
+        if epochMatches && !isStaleInactiveOrigin {
+            E2EECrypto.shared.observeServerCapabilities(from: http, url: targetURL)
+        }
+        // Self-heal primary Cloud URL only when advertised by an authenticated, configured/local gateway over HTTPS
+        // AND the active gateway epoch has not changed since this request started AND neither origin belongs to an inactive profile.
+        if epochMatches,
+           !isStaleInactiveOrigin,
+           let rawCloudHeader = http.value(forHTTPHeaderField: "X-Antigravity-Cloud-URL")?.trimmingCharacters(in: .whitespacesAndNewlines),
            !rawCloudHeader.isEmpty {
             let cloudHeader = rawCloudHeader.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
             if !cloudHeader.isEmpty,
+               !GatewayRuntimeState.shared.isOriginOwnedByInactiveProfile(URL(string: cloudHeader)),
                (trustedByE2EE || Self.isConfiguredOrLocalGatewayHost(targetURL.host ?? "")),
                Self.isValidAdvertisedCloudURL(cloudHeader, trustedByE2EE: trustedByE2EE) {
                 if let host = URL(string: cloudHeader)?.host, host.lowercased().hasPrefix("r-") {
@@ -68,6 +75,10 @@ public final class NetworkTransport: Sendable {
                 }
                 Task { @MainActor in
                     guard GatewayRuntimeState.shared.epoch == expectedEpoch else { return }
+                    guard !GatewayRuntimeState.shared.isOriginOwnedByInactiveProfile(targetURL),
+                          !GatewayRuntimeState.shared.isOriginOwnedByInactiveProfile(URL(string: cloudHeader)) else {
+                        return
+                    }
                     let current = AppSettings.shared.primaryCloudURL?.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
                     if current != cloudHeader {
                         AppSettings.shared.primaryCloudURL = cloudHeader
@@ -423,58 +434,69 @@ public final class NetworkTransport: Sendable {
     private func sendOverE2EEOnce(
         _ req: URLRequest,
         preferCellular: Bool,
+        reqEpoch: UInt64,
         forceLegacyJSON: Bool = false,
         retriedClockSkew: Bool = false
     ) async throws -> (data: Data, response: URLResponse, outerStatus: Int?) {
         guard let originalURL = req.url else {
             throw URLError(.badURL)
         }
+        guard GatewayRuntimeState.shared.epoch == reqEpoch else {
+            throw CancellationError()
+        }
         let wrapped = try E2EECrypto.shared.wrapHTTPRequestDetailed(req, forceLegacyJSON: forceLegacyJSON)
         let (outerData, outerResp, usedCellular) = try await sendRaw(wrapped.outerRequest, preferCellular: preferCellular)
         guard let outerHTTP = outerResp as? HTTPURLResponse else {
-            return (outerData, decorateResponse(outerResp, url: originalURL, forcedCellular: usedCellular), nil)
+            return (outerData, decorateResponse(outerResp, url: originalURL, forcedCellular: usedCellular, requestEpoch: reqEpoch), nil)
         }
         if outerHTTP.statusCode != 200 {
             if !retriedClockSkew,
+               GatewayRuntimeState.shared.epoch == reqEpoch,
                let serverTs = E2EECrypto.parseClockSkewServerTimestamp(statusCode: outerHTTP.statusCode, data: outerData) {
                 E2EECrypto.shared.recordClockSkew(host: originalURL.host ?? "", serverTsMs: serverTs)
                 return try await sendOverE2EEOnce(
                     req,
                     preferCellular: preferCellular,
+                    reqEpoch: reqEpoch,
                     forceLegacyJSON: forceLegacyJSON,
                     retriedClockSkew: true
                 )
             }
-            if wrapped.usedBinaryFrame && !forceLegacyJSON && Self.isInvalidInnerRequestError(statusCode: outerHTTP.statusCode, data: outerData) {
+            if wrapped.usedBinaryFrame && !forceLegacyJSON && GatewayRuntimeState.shared.epoch == reqEpoch && Self.isInvalidInnerRequestError(statusCode: outerHTTP.statusCode, data: outerData) {
                 if let host = originalURL.host {
                     E2EECrypto.shared.clearHostBinaryRequestSupport(host)
                 }
                 return try await sendOverE2EEOnce(
                     req,
                     preferCellular: preferCellular,
+                    reqEpoch: reqEpoch,
                     forceLegacyJSON: true,
                     retriedClockSkew: retriedClockSkew
                 )
             }
-            return (outerData, decorateResponse(outerHTTP, url: originalURL, forcedCellular: usedCellular), outerHTTP.statusCode)
+            return (outerData, decorateResponse(outerHTTP, url: originalURL, forcedCellular: usedCellular, requestEpoch: reqEpoch), outerHTTP.statusCode)
         }
-        E2EECrypto.shared.observeServerCapabilities(from: outerHTTP, url: originalURL)
+        if GatewayRuntimeState.shared.epoch == reqEpoch {
+            E2EECrypto.shared.observeServerCapabilities(from: outerHTTP, url: originalURL)
+        }
         let (innerData, innerResp) = try E2EECrypto.shared.unwrapHTTPResponse(
             encData: outerData,
             originalURL: originalURL,
             deviceID: wrapped.deviceID,
             key: wrapped.key
         )
-        return (innerData, decorateResponse(innerResp, url: originalURL, forcedCellular: usedCellular, trustedByE2EE: true), 200)
+        return (innerData, decorateResponse(innerResp, url: originalURL, forcedCellular: usedCellular, trustedByE2EE: true, requestEpoch: reqEpoch), 200)
     }
 
     /// When on Wi-Fi and a public relay fails or returns 502/503, prefer switching to local LAN
     /// directly instead of spending seconds migrating across remote VPS pool nodes.
-    private func tryLanFastFallback(for req: URLRequest) async -> (Data, URLResponse)? {
-        guard !isCellular && isWifi, !Task.isCancelled else { return nil }
+    private func tryLanFastFallback(for req: URLRequest, reqEpoch: UInt64) async -> (Data, URLResponse)? {
+        guard !isCellular && isWifi, !Task.isCancelled, GatewayRuntimeState.shared.epoch == reqEpoch else { return nil }
         guard let origHost = req.url?.host, !Self.isLocalOrPrivateHost(origHost) else { return nil }
         let switched = await ConnectionManager.shared.probeLanFastIfNeeded(force: true, timeout: 0.65)
+        guard GatewayRuntimeState.shared.epoch == reqEpoch else { return nil }
         let lanBase: URL? = await MainActor.run {
+            guard GatewayRuntimeState.shared.epoch == reqEpoch else { return nil }
             guard let lanStr = AppSettings.shared.lanServerURL?.trimmingCharacters(in: .whitespacesAndNewlines),
                   !lanStr.isEmpty,
                   let normalized = AppSettings.normalize(raw: lanStr),
@@ -490,12 +512,14 @@ public final class NetworkTransport: Sendable {
             }
             return nil
         }
-        guard let lanBase, let lanReq = Self.rewrittenRequest(req, toBaseURL: lanBase) else {
+        guard GatewayRuntimeState.shared.epoch == reqEpoch,
+              let lanBase,
+              let lanReq = Self.rewrittenRequest(req, toBaseURL: lanBase) else {
             return nil
         }
         do {
             let (data, response, usedCellular) = try await sendRaw(lanReq, preferCellular: false)
-            return (data, decorateResponse(response, url: lanReq.url, forcedCellular: usedCellular))
+            return (data, decorateResponse(response, url: lanReq.url, forcedCellular: usedCellular, requestEpoch: reqEpoch))
         } catch {
             return nil
         }
@@ -504,30 +528,35 @@ public final class NetworkTransport: Sendable {
     /// Sends an E2EE request with transparent recovery for relay-layer failures (`503 gateway_offline`,
     /// `502 gateway_unreachable`, `429 tunnel_busy`, or transient pre-response transport drops) so
     /// recoverable glitches heal silently without popping spurious errors in the UI.
-    private func sendOverE2EE(_ req: URLRequest, preferCellular: Bool) async throws -> (Data, URLResponse) {
+    private func sendOverE2EE(_ req: URLRequest, preferCellular: Bool, reqEpoch: UInt64) async throws -> (Data, URLResponse) {
         guard let originalURL = req.url else {
             throw URLError(.badURL)
         }
 
         let firstResult: (data: Data, response: URLResponse, outerStatus: Int?)
         do {
-            firstResult = try await sendOverE2EEOnce(req, preferCellular: preferCellular)
+            firstResult = try await sendOverE2EEOnce(req, preferCellular: preferCellular, reqEpoch: reqEpoch)
         } catch {
             guard !Task.isCancelled,
+                  GatewayRuntimeState.shared.epoch == reqEpoch,
                   Self.isRetryableTransportError(error),
                   Self.isIdempotentForTransientRetry(req) else {
                 throw error
             }
-            if let lanRes = await tryLanFastFallback(for: req) {
+            if let lanRes = await tryLanFastFallback(for: req, reqEpoch: reqEpoch) {
                 return lanRes
             }
-            if let migratedBase = await RelayPoolResolver.shared.migrateRelayHostIfNeeded(failedURL: originalURL),
+            if let migratedBase = await RelayPoolResolver.shared.migrateRelayHostIfNeeded(failedURL: originalURL, expectedEpoch: reqEpoch),
+               GatewayRuntimeState.shared.epoch == reqEpoch,
                let migratedReq = Self.rewrittenRequest(req, toBaseURL: migratedBase) {
-                let retried = try await sendOverE2EEOnce(migratedReq, preferCellular: preferCellular)
+                let retried = try await sendOverE2EEOnce(migratedReq, preferCellular: preferCellular, reqEpoch: reqEpoch)
                 return (retried.data, retried.response)
             }
             try await Task.sleep(nanoseconds: 250_000_000)
-            let retried = try await sendOverE2EEOnce(req, preferCellular: preferCellular)
+            guard GatewayRuntimeState.shared.epoch == reqEpoch else {
+                throw CancellationError()
+            }
+            let retried = try await sendOverE2EEOnce(req, preferCellular: preferCellular, reqEpoch: reqEpoch)
             return (retried.data, retried.response)
         }
 
@@ -537,12 +566,12 @@ public final class NetworkTransport: Sendable {
 
         let classification = Self.isOuterRelayRetryableStatus(outerStatus, data: firstResult.data)
         let canRetry = classification.retryable && (classification.preGateway || Self.isIdempotentForTransientRetry(req))
-        guard canRetry, !Task.isCancelled else {
+        guard canRetry, !Task.isCancelled, GatewayRuntimeState.shared.epoch == reqEpoch else {
             return (firstResult.data, firstResult.response)
         }
 
         // On Wi-Fi, if the cloud relay returned 502/503, immediately prefer local LAN over remote relay retry.
-        if (outerStatus == 503 || outerStatus == 502), let lanRes = await tryLanFastFallback(for: req) {
+        if (outerStatus == 503 || outerStatus == 502), let lanRes = await tryLanFastFallback(for: req, reqEpoch: reqEpoch) {
             return lanRes
         }
 
@@ -552,7 +581,10 @@ public final class NetworkTransport: Sendable {
         // 1. Fast same-node retry for 502/429/edge blips (immediately rotates onto a healthy yamux slot).
         if latestStatus != 503 {
             try await Task.sleep(nanoseconds: 250_000_000)
-            if let attempt = try? await sendOverE2EEOnce(req, preferCellular: preferCellular) {
+            guard GatewayRuntimeState.shared.epoch == reqEpoch else {
+                return (latest.data, latest.response)
+            }
+            if let attempt = try? await sendOverE2EEOnce(req, preferCellular: preferCellular, reqEpoch: reqEpoch) {
                 latest = attempt
                 if attempt.outerStatus == 200 {
                     return (attempt.data, attempt.response)
@@ -564,18 +596,20 @@ public final class NetworkTransport: Sendable {
         }
 
         // 2. Stale-relay migration via /api/relay/pool (e.g. gateway moved from lax-cf to jp1-direct).
-        if latestStatus == 503 || latestStatus == 502 {
-            if let migratedBase = await RelayPoolResolver.shared.migrateRelayHostIfNeeded(failedURL: originalURL),
+        if (latestStatus == 503 || latestStatus == 502) && GatewayRuntimeState.shared.epoch == reqEpoch {
+            if let migratedBase = await RelayPoolResolver.shared.migrateRelayHostIfNeeded(failedURL: originalURL, expectedEpoch: reqEpoch),
+               GatewayRuntimeState.shared.epoch == reqEpoch,
                let migratedReq = Self.rewrittenRequest(req, toBaseURL: migratedBase),
-               let migrated = try? await sendOverE2EEOnce(migratedReq, preferCellular: preferCellular) {
+               let migrated = try? await sendOverE2EEOnce(migratedReq, preferCellular: preferCellular, reqEpoch: reqEpoch) {
                 if migrated.outerStatus == 200 {
                     return (migrated.data, migrated.response)
                 }
                 latest = migrated
-            } else if latestStatus == 503 {
+            } else if latestStatus == 503 && GatewayRuntimeState.shared.epoch == reqEpoch {
                 // Gateway is still assigned to this relay node (brief tunnel reconnect window); retry once.
                 try await Task.sleep(nanoseconds: 800_000_000)
-                if let healed = try? await sendOverE2EEOnce(req, preferCellular: preferCellular) {
+                if GatewayRuntimeState.shared.epoch == reqEpoch,
+                   let healed = try? await sendOverE2EEOnce(req, preferCellular: preferCellular, reqEpoch: reqEpoch) {
                     latest = healed
                 }
             }
@@ -593,9 +627,11 @@ public final class NetworkTransport: Sendable {
         onProgress: (@Sendable (Double) -> Void)?,
         streamUpload: @escaping @Sendable (URLRequest, URL, (@Sendable (Double) -> Void)?) async throws -> (Data, URLResponse)
     ) async throws -> (Data, URLResponse) {
-        try await uploadOverE2EEInternal(
+        let reqEpoch = GatewayRuntimeState.shared.epoch
+        return try await uploadOverE2EEInternal(
             request: request,
             fileURL: fileURL,
+            reqEpoch: reqEpoch,
             forceLegacyJSON: false,
             onProgress: onProgress,
             streamUpload: streamUpload
@@ -605,6 +641,7 @@ public final class NetworkTransport: Sendable {
     private func uploadOverE2EEInternal(
         request: URLRequest,
         fileURL: URL,
+        reqEpoch: UInt64,
         forceLegacyJSON: Bool,
         retriedClockSkew: Bool = false,
         retriedFreshEnvelope: Bool = false,
@@ -613,6 +650,10 @@ public final class NetworkTransport: Sendable {
     ) async throws -> (Data, URLResponse) {
         guard let originalURL = request.url else {
             throw URLError(.badURL)
+        }
+        guard GatewayRuntimeState.shared.epoch == reqEpoch,
+              !GatewayRuntimeState.shared.isOriginOwnedByInactiveProfile(originalURL) else {
+            throw CancellationError()
         }
 
         let wrapped = try E2EECrypto.shared.wrapFileUploadToTempFile(
@@ -625,12 +666,14 @@ public final class NetworkTransport: Sendable {
         func attempt(_ outerReq: URLRequest) async throws -> (data: Data, response: URLResponse, outerStatus: Int?) {
             let (outerData, outerResp) = try await streamUpload(outerReq, wrapped.tempFileURL, onProgress)
             guard let outerHTTP = outerResp as? HTTPURLResponse else {
-                return (outerData, decorateResponse(outerResp, url: originalURL), nil)
+                return (outerData, decorateResponse(outerResp, url: originalURL, requestEpoch: reqEpoch), nil)
             }
             if outerHTTP.statusCode != 200 {
-                return (outerData, decorateResponse(outerHTTP, url: originalURL), outerHTTP.statusCode)
+                return (outerData, decorateResponse(outerHTTP, url: originalURL, requestEpoch: reqEpoch), outerHTTP.statusCode)
             }
-            E2EECrypto.shared.observeServerCapabilities(from: outerHTTP, url: outerReq.url ?? originalURL)
+            if GatewayRuntimeState.shared.epoch == reqEpoch {
+                E2EECrypto.shared.observeServerCapabilities(from: outerHTTP, url: outerReq.url ?? originalURL)
+            }
             let (innerData, innerResp) = try E2EECrypto.shared.unwrapHTTPResponse(
                 encData: outerData,
                 originalURL: originalURL,
@@ -638,21 +681,23 @@ public final class NetworkTransport: Sendable {
                 key: wrapped.key
             )
             onProgress?(0.95)
-            return (innerData, decorateResponse(innerResp, url: originalURL, trustedByE2EE: true), 200)
+            return (innerData, decorateResponse(innerResp, url: originalURL, trustedByE2EE: true, requestEpoch: reqEpoch), 200)
         }
 
         let firstResult: (data: Data, response: URLResponse, outerStatus: Int?)
         do {
             firstResult = try await attempt(wrapped.outerRequest)
         } catch {
-            guard !Task.isCancelled, !retriedFreshEnvelope, Self.isRetryableTransportError(error) else {
+            guard !Task.isCancelled, !retriedFreshEnvelope, GatewayRuntimeState.shared.epoch == reqEpoch, Self.isRetryableTransportError(error) else {
                 throw error
             }
-            if let migratedBase = await RelayPoolResolver.shared.migrateRelayHostIfNeeded(failedURL: originalURL),
+            if let migratedBase = await RelayPoolResolver.shared.migrateRelayHostIfNeeded(failedURL: originalURL, expectedEpoch: reqEpoch),
+               GatewayRuntimeState.shared.epoch == reqEpoch,
                let migratedReq = Self.rewrittenRequest(request, toBaseURL: migratedBase) {
                 return try await uploadOverE2EEInternal(
                     request: migratedReq,
                     fileURL: fileURL,
+                    reqEpoch: reqEpoch,
                     forceLegacyJSON: forceLegacyJSON,
                     retriedClockSkew: retriedClockSkew,
                     retriedFreshEnvelope: true,
@@ -661,9 +706,13 @@ public final class NetworkTransport: Sendable {
                 )
             }
             try await Task.sleep(nanoseconds: 300_000_000)
+            guard GatewayRuntimeState.shared.epoch == reqEpoch else {
+                throw CancellationError()
+            }
             return try await uploadOverE2EEInternal(
                 request: request,
                 fileURL: fileURL,
+                reqEpoch: reqEpoch,
                 forceLegacyJSON: forceLegacyJSON,
                 retriedClockSkew: retriedClockSkew,
                 retriedFreshEnvelope: true,
@@ -677,11 +726,13 @@ public final class NetworkTransport: Sendable {
         }
 
         if !retriedClockSkew,
+           GatewayRuntimeState.shared.epoch == reqEpoch,
            let serverTs = E2EECrypto.parseClockSkewServerTimestamp(statusCode: outerStatus, data: firstResult.data) {
             E2EECrypto.shared.recordClockSkew(host: originalURL.host ?? "", serverTsMs: serverTs)
             return try await uploadOverE2EEInternal(
                 request: request,
                 fileURL: fileURL,
+                reqEpoch: reqEpoch,
                 forceLegacyJSON: forceLegacyJSON,
                 retriedClockSkew: true,
                 retriedFreshEnvelope: retriedFreshEnvelope,
@@ -690,10 +741,11 @@ public final class NetworkTransport: Sendable {
             )
         }
 
-        if !retriedFreshEnvelope && E2EECrypto.isReplayDetectedError(statusCode: outerStatus, data: firstResult.data) {
+        if !retriedFreshEnvelope && GatewayRuntimeState.shared.epoch == reqEpoch && E2EECrypto.isReplayDetectedError(statusCode: outerStatus, data: firstResult.data) {
             return try await uploadOverE2EEInternal(
                 request: request,
                 fileURL: fileURL,
+                reqEpoch: reqEpoch,
                 forceLegacyJSON: forceLegacyJSON,
                 retriedClockSkew: retriedClockSkew,
                 retriedFreshEnvelope: true,
@@ -702,13 +754,14 @@ public final class NetworkTransport: Sendable {
             )
         }
 
-        if wrapped.usedBinaryFrame && !forceLegacyJSON && Self.isInvalidInnerRequestError(statusCode: outerStatus, data: firstResult.data) {
+        if wrapped.usedBinaryFrame && !forceLegacyJSON && GatewayRuntimeState.shared.epoch == reqEpoch && Self.isInvalidInnerRequestError(statusCode: outerStatus, data: firstResult.data) {
             if let host = originalURL.host {
                 E2EECrypto.shared.clearHostBinaryRequestSupport(host)
             }
             return try await uploadOverE2EEInternal(
                 request: request,
                 fileURL: fileURL,
+                reqEpoch: reqEpoch,
                 forceLegacyJSON: true,
                 retriedClockSkew: retriedClockSkew,
                 retriedFreshEnvelope: retriedFreshEnvelope,
@@ -718,16 +771,20 @@ public final class NetworkTransport: Sendable {
         }
 
         let classification = Self.isOuterRelayRetryableStatus(outerStatus, data: firstResult.data)
-        guard classification.retryable, !Task.isCancelled else {
+        guard classification.retryable, !Task.isCancelled, GatewayRuntimeState.shared.epoch == reqEpoch else {
             return (firstResult.data, firstResult.response)
         }
 
         // For non-preGateway blips (e.g. 502 where gateway might have already recorded req_id), re-wrap with a fresh req_id.
         if !classification.preGateway && !retriedFreshEnvelope {
             try await Task.sleep(nanoseconds: 250_000_000)
+            guard GatewayRuntimeState.shared.epoch == reqEpoch else {
+                return (firstResult.data, firstResult.response)
+            }
             return try await uploadOverE2EEInternal(
                 request: request,
                 fileURL: fileURL,
+                reqEpoch: reqEpoch,
                 forceLegacyJSON: forceLegacyJSON,
                 retriedClockSkew: retriedClockSkew,
                 retriedFreshEnvelope: true,
@@ -742,6 +799,9 @@ public final class NetworkTransport: Sendable {
         // 1. Fast same-node retry for 429 tunnel_busy (preGateway; never reached mgy replay cache).
         if latestStatus != 503 {
             try await Task.sleep(nanoseconds: 250_000_000)
+            guard GatewayRuntimeState.shared.epoch == reqEpoch else {
+                return (latest.data, latest.response)
+            }
             if let retried = try? await attempt(wrapped.outerRequest) {
                 latest = retried
                 if retried.outerStatus == 200 {
@@ -754,17 +814,19 @@ public final class NetworkTransport: Sendable {
         }
 
         // 2. Stale-relay migration via /api/relay/pool or brief 503 reconnect retry.
-        if latestStatus == 503 || latestStatus == 502 {
-            if let migratedBase = await RelayPoolResolver.shared.migrateRelayHostIfNeeded(failedURL: originalURL),
+        if (latestStatus == 503 || latestStatus == 502) && GatewayRuntimeState.shared.epoch == reqEpoch {
+            if let migratedBase = await RelayPoolResolver.shared.migrateRelayHostIfNeeded(failedURL: originalURL, expectedEpoch: reqEpoch),
+               GatewayRuntimeState.shared.epoch == reqEpoch,
                let migratedReq = Self.rewrittenRequest(wrapped.outerRequest, toBaseURL: migratedBase),
                let migrated = try? await attempt(migratedReq) {
                 if migrated.outerStatus == 200 {
                     return (migrated.data, migrated.response)
                 }
                 latest = migrated
-            } else if latestStatus == 503 {
+            } else if latestStatus == 503 && GatewayRuntimeState.shared.epoch == reqEpoch {
                 try await Task.sleep(nanoseconds: 800_000_000)
-                if let healed = try? await attempt(wrapped.outerRequest) {
+                if GatewayRuntimeState.shared.epoch == reqEpoch,
+                   let healed = try? await attempt(wrapped.outerRequest) {
                     latest = healed
                 }
             }
@@ -779,29 +841,38 @@ public final class NetworkTransport: Sendable {
     public func send(request: URLRequest, preferCellular: Bool = false) async throws -> (Data, URLResponse) {
         let reqEpoch = GatewayRuntimeState.shared.epoch
         var req = request
-        if let url = req.url, url.scheme?.lowercased() == "http" {
-            let host = url.host ?? ""
-            guard Self.isLocalOrPrivateHost(host) else {
-                throw URLError(.appTransportSecurityRequiresSecureConnection)
+        if let url = req.url {
+            if url.scheme?.lowercased() == "http" {
+                let host = url.host ?? ""
+                guard Self.isLocalOrPrivateHost(host) else {
+                    throw URLError(.appTransportSecurityRequiresSecureConnection)
+                }
+            }
+            let path = url.path
+            let isUnscopedUtilityPath = (path == "/healthz" || path.hasPrefix("/api/v1/auth/pair") || path.hasPrefix("/api/v1/e2ee/pair"))
+            if !isUnscopedUtilityPath && GatewayRuntimeState.shared.isOriginOwnedByInactiveProfile(url) {
+                throw CancellationError()
             }
         }
+        let isConfiguredOrigin = Self.isConfiguredGatewayOrigin(req.url)
         if let token = KeychainHelper.shared.read(key: .deviceToken), !token.isEmpty,
            let reqURL = req.url,
            reqURL.path != "/healthz",
-           Self.isConfiguredGatewayOrigin(reqURL) {
+           isConfiguredOrigin {
             if req.value(forHTTPHeaderField: "Authorization") == nil {
                 req.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
             }
         }
 
-        if E2EECrypto.shared.shouldEncrypt(url: req.url) {
-            return try await sendOverE2EE(req, preferCellular: preferCellular)
+        if isConfiguredOrigin && E2EECrypto.shared.shouldEncrypt(url: req.url) {
+            return try await sendOverE2EE(req, preferCellular: preferCellular, reqEpoch: reqEpoch)
         }
 
         let (data, response, usedCellular) = try await sendRaw(req, preferCellular: preferCellular)
         // Auto-recover if a custom relay domain enforces E2EE with HTTP 426 Upgrade Required
         if let http = response as? HTTPURLResponse,
            http.statusCode == 426,
+           isConfiguredOrigin,
            E2EECrypto.shared.isReady,
            let host = req.url?.host,
            !Self.isLocalOrPrivateHost(host),
@@ -810,7 +881,7 @@ public final class NetworkTransport: Sendable {
                 return (data, decorateResponse(response, url: req.url, forcedCellular: usedCellular, requestEpoch: reqEpoch))
             }
             E2EECrypto.shared.markHostRequiresE2EE(host)
-            return try await sendOverE2EE(req, preferCellular: preferCellular)
+            return try await sendOverE2EE(req, preferCellular: preferCellular, reqEpoch: reqEpoch)
         }
         // Auto-migrate if a legacy cloud/tunnel endpoint returns 502/503 while local LAN or an E2EE relay pool node is live
         // (never treat a gateway-generated 503 upstream_not_connected as an offline relay node).
@@ -821,16 +892,17 @@ public final class NetworkTransport: Sendable {
            let reqURL = req.url,
            reqURL.path != "/healthz",
            !reqURL.path.hasPrefix("/api/v1/e2ee/"),
-           Self.isConfiguredGatewayOrigin(reqURL),
+           isConfiguredOrigin,
            let host = reqURL.host,
            !Self.isLocalOrPrivateHost(host) {
-            if let lanRes = await tryLanFastFallback(for: req) {
+            if let lanRes = await tryLanFastFallback(for: req, reqEpoch: reqEpoch) {
                 return lanRes
             }
             if E2EECrypto.shared.isReady,
-               let migratedBase = await RelayPoolResolver.shared.migrateRelayHostIfNeeded(failedURL: reqURL),
+               let migratedBase = await RelayPoolResolver.shared.migrateRelayHostIfNeeded(failedURL: reqURL, expectedEpoch: reqEpoch),
+               GatewayRuntimeState.shared.epoch == reqEpoch,
                let migratedReq = Self.rewrittenRequest(req, toBaseURL: migratedBase) {
-                return try await sendOverE2EE(migratedReq, preferCellular: preferCellular)
+                return try await sendOverE2EE(migratedReq, preferCellular: preferCellular, reqEpoch: reqEpoch)
             }
         }
         return (data, decorateResponse(response, url: req.url, forcedCellular: usedCellular, requestEpoch: reqEpoch))
@@ -930,68 +1002,82 @@ public final class NetworkTransport: Sendable {
         allowE2EE: Bool? = nil,
         onProgress: (@Sendable (Double, Int64, Int64) -> Void)? = nil
     ) async throws -> (URL, HTTPURLResponse) {
+        let reqEpoch = GatewayRuntimeState.shared.epoch
         var req = request
-        if let url = req.url, url.scheme?.lowercased() == "http" {
-            let host = url.host ?? ""
-            guard Self.isLocalOrPrivateHost(host) else {
-                throw URLError(.appTransportSecurityRequiresSecureConnection)
+        if let url = req.url {
+            if url.scheme?.lowercased() == "http" {
+                let host = url.host ?? ""
+                guard Self.isLocalOrPrivateHost(host) else {
+                    throw URLError(.appTransportSecurityRequiresSecureConnection)
+                }
+            }
+            if GatewayRuntimeState.shared.isOriginOwnedByInactiveProfile(url) {
+                throw CancellationError()
             }
         }
+        let isConfiguredOrigin = Self.isConfiguredGatewayOrigin(req.url)
         if let token = KeychainHelper.shared.read(key: .deviceToken), !token.isEmpty,
            let reqURL = req.url,
            reqURL.path != "/healthz",
-           Self.isConfiguredGatewayOrigin(reqURL),
+           isConfiguredOrigin,
            req.value(forHTTPHeaderField: "Authorization") == nil {
             req.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
         }
 
-        let useE2EE = allowE2EE ?? Self.isConfiguredGatewayOrigin(req.url)
+        let useE2EE = (allowE2EE ?? isConfiguredOrigin) && isConfiguredOrigin
         if useE2EE && E2EECrypto.shared.shouldEncrypt(url: req.url) {
-            return try await downloadOverE2EE(req, onProgress: onProgress)
+            return try await downloadOverE2EE(req, reqEpoch: reqEpoch, onProgress: onProgress)
         }
 
         if Self.requiresCleartextATSBypass(req.url) {
-            return try await downloadCleartextHTTP(request: req, onProgress: onProgress)
+            return try await downloadCleartextHTTP(request: req, reqEpoch: reqEpoch, onProgress: onProgress)
         }
 
         let (tempURL, httpResp) = try await downloadViaURLSession(req, onProgress: onProgress)
         // Auto-recover if a custom relay domain enforces E2EE with HTTP 426 Upgrade Required
         if useE2EE,
            httpResp.statusCode == 426,
+           GatewayRuntimeState.shared.epoch == reqEpoch,
            E2EECrypto.shared.isReady,
            let host = req.url?.host,
            !Self.isLocalOrPrivateHost(host),
            req.url?.path.hasPrefix("/api/v1/e2ee/") != true {
             try? FileManager.default.removeItem(at: tempURL)
             E2EECrypto.shared.markHostRequiresE2EE(host)
-            return try await downloadOverE2EE(req, onProgress: onProgress)
+            return try await downloadOverE2EE(req, reqEpoch: reqEpoch, onProgress: onProgress)
         }
-        let decorated = (decorateResponse(httpResp, url: req.url) as? HTTPURLResponse) ?? httpResp
+        let decorated = (decorateResponse(httpResp, url: req.url, requestEpoch: reqEpoch) as? HTTPURLResponse) ?? httpResp
         return (tempURL, decorated)
     }
 
     private func downloadOverE2EEOnce(
         _ req: URLRequest,
+        reqEpoch: UInt64,
         onProgress: (@Sendable (Double, Int64, Int64) -> Void)?,
         retriedClockSkew: Bool = false
     ) async throws -> (fileURL: URL, response: HTTPURLResponse, outerStatus: Int) {
         guard let originalURL = req.url else {
             throw URLError(.badURL)
         }
+        guard GatewayRuntimeState.shared.epoch == reqEpoch else {
+            throw CancellationError()
+        }
         let (outerReq, deviceID, key) = try E2EECrypto.shared.wrapHTTPRequest(req)
         let (tempEncURL, outerHTTP) = try await downloadViaURLSession(outerReq, onProgress: onProgress)
         if outerHTTP.statusCode != 200 {
-            if outerHTTP.statusCode == 401 && !retriedClockSkew,
+            if outerHTTP.statusCode == 401 && !retriedClockSkew && GatewayRuntimeState.shared.epoch == reqEpoch,
                let errData = try? Data(contentsOf: tempEncURL),
                let serverTs = E2EECrypto.parseClockSkewServerTimestamp(statusCode: 401, data: errData) {
                 try? FileManager.default.removeItem(at: tempEncURL)
                 E2EECrypto.shared.recordClockSkew(host: originalURL.host ?? "", serverTsMs: serverTs)
-                return try await downloadOverE2EEOnce(req, onProgress: onProgress, retriedClockSkew: true)
+                return try await downloadOverE2EEOnce(req, reqEpoch: reqEpoch, onProgress: onProgress, retriedClockSkew: true)
             }
-            let decorated = (decorateResponse(outerHTTP, url: originalURL) as? HTTPURLResponse) ?? outerHTTP
+            let decorated = (decorateResponse(outerHTTP, url: originalURL, requestEpoch: reqEpoch) as? HTTPURLResponse) ?? outerHTTP
             return (tempEncURL, decorated, outerHTTP.statusCode)
         }
-        E2EECrypto.shared.observeServerCapabilities(from: outerHTTP, url: originalURL)
+        if GatewayRuntimeState.shared.epoch == reqEpoch {
+            E2EECrypto.shared.observeServerCapabilities(from: outerHTTP, url: originalURL)
+        }
 
         defer { try? FileManager.default.removeItem(at: tempEncURL) }
         try Task.checkCancellation()
@@ -1006,7 +1092,7 @@ public final class NetworkTransport: Sendable {
 
         let plainTempURL = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         try innerData.write(to: plainTempURL, options: .atomic)
-        let decorated = (decorateResponse(innerResp, url: originalURL, trustedByE2EE: true) as? HTTPURLResponse) ?? innerResp
+        let decorated = (decorateResponse(innerResp, url: originalURL, trustedByE2EE: true, requestEpoch: reqEpoch) as? HTTPURLResponse) ?? innerResp
         if (200...299).contains(decorated.statusCode), !innerData.isEmpty {
             let size = Int64(innerData.count)
             onProgress?(1.0, size, size)
@@ -1016,25 +1102,29 @@ public final class NetworkTransport: Sendable {
 
     private func downloadOverE2EE(
         _ req: URLRequest,
+        reqEpoch: UInt64,
         onProgress: (@Sendable (Double, Int64, Int64) -> Void)?
     ) async throws -> (URL, HTTPURLResponse) {
         guard let originalURL = req.url else {
             throw URLError(.badURL)
         }
-        var latest = try await downloadOverE2EEOnce(req, onProgress: onProgress)
+        var latest = try await downloadOverE2EEOnce(req, reqEpoch: reqEpoch, onProgress: onProgress)
         guard latest.outerStatus != 200 else {
             return (latest.fileURL, latest.response)
         }
 
         let errSnippet = (try? Data(contentsOf: latest.fileURL)) ?? Data()
         let classification = Self.isOuterRelayRetryableStatus(latest.outerStatus, data: errSnippet)
-        guard classification.retryable, !Task.isCancelled else {
+        guard classification.retryable, !Task.isCancelled, GatewayRuntimeState.shared.epoch == reqEpoch else {
             return (latest.fileURL, latest.response)
         }
 
         if latest.outerStatus != 503 {
             try await Task.sleep(nanoseconds: 250_000_000)
-            if let attempt = try? await downloadOverE2EEOnce(req, onProgress: onProgress) {
+            guard GatewayRuntimeState.shared.epoch == reqEpoch else {
+                return (latest.fileURL, latest.response)
+            }
+            if let attempt = try? await downloadOverE2EEOnce(req, reqEpoch: reqEpoch, onProgress: onProgress) {
                 try? FileManager.default.removeItem(at: latest.fileURL)
                 latest = attempt
                 if latest.outerStatus == 200 {
@@ -1043,15 +1133,17 @@ public final class NetworkTransport: Sendable {
             }
         }
 
-        if latest.outerStatus == 503 || latest.outerStatus == 502 {
-            if let migratedBase = await RelayPoolResolver.shared.migrateRelayHostIfNeeded(failedURL: originalURL),
+        if (latest.outerStatus == 503 || latest.outerStatus == 502) && GatewayRuntimeState.shared.epoch == reqEpoch {
+            if let migratedBase = await RelayPoolResolver.shared.migrateRelayHostIfNeeded(failedURL: originalURL, expectedEpoch: reqEpoch),
+               GatewayRuntimeState.shared.epoch == reqEpoch,
                let migratedReq = Self.rewrittenRequest(req, toBaseURL: migratedBase),
-               let migrated = try? await downloadOverE2EEOnce(migratedReq, onProgress: onProgress) {
+               let migrated = try? await downloadOverE2EEOnce(migratedReq, reqEpoch: reqEpoch, onProgress: onProgress) {
                 try? FileManager.default.removeItem(at: latest.fileURL)
                 latest = migrated
-            } else if latest.outerStatus == 503 {
+            } else if latest.outerStatus == 503 && GatewayRuntimeState.shared.epoch == reqEpoch {
                 try await Task.sleep(nanoseconds: 800_000_000)
-                if let healed = try? await downloadOverE2EEOnce(req, onProgress: onProgress) {
+                if GatewayRuntimeState.shared.epoch == reqEpoch,
+                   let healed = try? await downloadOverE2EEOnce(req, reqEpoch: reqEpoch, onProgress: onProgress) {
                     try? FileManager.default.removeItem(at: latest.fileURL)
                     latest = healed
                 }
@@ -1279,9 +1371,13 @@ public final class NetworkTransport: Sendable {
         fileURL: URL,
         onProgress: (@Sendable (Double) -> Void)? = nil
     ) async throws -> (Data, URLResponse) {
+        let reqEpoch = GatewayRuntimeState.shared.epoch
         var req = request
         guard let url = req.url else {
             throw URLError(.badURL)
+        }
+        guard !GatewayRuntimeState.shared.isOriginOwnedByInactiveProfile(url) else {
+            throw CancellationError()
         }
         let bareHost = (url.host ?? "").trimmingCharacters(in: CharacterSet(charactersIn: "[]"))
         guard !bareHost.isEmpty, Self.isLocalOrPrivateHost(bareHost), let port = NWEndpoint.Port(rawValue: UInt16(url.port ?? 80)) else {
@@ -1305,7 +1401,7 @@ public final class NetworkTransport: Sendable {
             fileURL: fileURL,
             onProgress: onProgress
         )
-        return (data, decorateResponse(response, url: req.url, forcedCellular: isCellular))
+        return (data, decorateResponse(response, url: req.url, forcedCellular: isCellular, requestEpoch: reqEpoch))
     }
 
     /// Streams a file upload over HTTPS via Cloudflare Anycast acceleration (`NWConnection` + TLS + SNI),
@@ -1315,9 +1411,13 @@ public final class NetworkTransport: Sendable {
         fileURL: URL,
         onProgress: (@Sendable (Double) -> Void)? = nil
     ) async throws -> (Data, URLResponse) {
+        let reqEpoch = GatewayRuntimeState.shared.epoch
         var req = request
         guard let url = req.url, url.scheme?.lowercased() == "https" else {
             throw URLError(.badURL)
+        }
+        guard !GatewayRuntimeState.shared.isOriginOwnedByInactiveProfile(url) else {
+            throw CancellationError()
         }
         let bareHost = (url.host ?? "").trimmingCharacters(in: CharacterSet(charactersIn: "[]"))
         guard !bareHost.isEmpty else {
@@ -1356,7 +1456,7 @@ public final class NetworkTransport: Sendable {
             CloudflareAnycastAccelerator.shared.reportEdgeRestricted(ip: anycastIP)
             throw URLError(.cannotConnectToHost)
         }
-        return (data, decorateResponse(response, url: req.url))
+        return (data, decorateResponse(response, url: req.url, requestEpoch: reqEpoch))
     }
 
     private static func streamFileUpload(
@@ -1406,11 +1506,16 @@ public final class NetworkTransport: Sendable {
     /// without buffering large files in memory.
     public func downloadCleartextHTTP(
         request: URLRequest,
+        reqEpoch: UInt64? = nil,
         onProgress: (@Sendable (Double, Int64, Int64) -> Void)? = nil
     ) async throws -> (URL, HTTPURLResponse) {
+        let effectiveEpoch = reqEpoch ?? GatewayRuntimeState.shared.epoch
         var req = request
         guard let url = req.url else {
             throw URLError(.badURL)
+        }
+        guard !GatewayRuntimeState.shared.isOriginOwnedByInactiveProfile(url) else {
+            throw CancellationError()
         }
         let bareHost = (url.host ?? "").trimmingCharacters(in: CharacterSet(charactersIn: "[]"))
         guard !bareHost.isEmpty, Self.isLocalOrPrivateHost(bareHost), let port = NWEndpoint.Port(rawValue: UInt16(url.port ?? 80)) else {
@@ -1568,7 +1673,7 @@ public final class NetworkTransport: Sendable {
         }
 
         guard let rawResp = HTTP11Codec.makeHTTPResponse(url: url, header: parsedHeader, decodedContentLength: written),
-              let httpResp = decorateResponse(rawResp, url: req.url, forcedCellular: isCellular) as? HTTPURLResponse else {
+              let httpResp = decorateResponse(rawResp, url: req.url, forcedCellular: isCellular, requestEpoch: effectiveEpoch) as? HTTPURLResponse else {
             throw URLError(.badServerResponse)
         }
 

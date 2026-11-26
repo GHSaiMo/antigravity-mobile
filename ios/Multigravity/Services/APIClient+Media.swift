@@ -127,7 +127,7 @@ extension APIClient {
         }
         guard (200...299).contains(httpResp.statusCode) else {
             if httpResp.statusCode == 401 {
-                postTokenRevokedIfCurrentEpoch(reqEpoch)
+                postTokenRevokedIfCurrentEpoch(reqEpoch, url: endpoint, data: data)
             }
             let msg = String(data: data, encoding: .utf8) ?? "HTTP \(httpResp.statusCode)"
             throw APIError.serverError(statusCode: httpResp.statusCode, message: msg)
@@ -233,7 +233,7 @@ extension APIClient {
             let errData = (try? Data(contentsOf: tempDownloadedURL)) ?? Data()
             try? FileManager.default.removeItem(at: tempDownloadedURL)
             if httpResp.statusCode == 401 {
-                postTokenRevokedIfCurrentEpoch(reqEpoch)
+                postTokenRevokedIfCurrentEpoch(reqEpoch, url: endpoint, data: errData)
             }
             let rawMsg = String(data: errData, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
             let msg = rawMsg.isEmpty ? "HTTP \(httpResp.statusCode)" : rawMsg
@@ -289,7 +289,7 @@ extension APIClient {
         }
         guard (200...299).contains(httpResp.statusCode) else {
             if httpResp.statusCode == 401 {
-                postTokenRevokedIfCurrentEpoch(reqEpoch)
+                postTokenRevokedIfCurrentEpoch(reqEpoch, url: endpoint, data: data)
             }
             let msg = String(data: data, encoding: .utf8) ?? "HTTP \(httpResp.statusCode)"
             throw APIError.serverError(statusCode: httpResp.statusCode, message: msg)
@@ -344,7 +344,7 @@ extension APIClient {
         }
         guard (200...299).contains(httpResp.statusCode) else {
             if httpResp.statusCode == 401 {
-                postTokenRevokedIfCurrentEpoch(reqEpoch)
+                postTokenRevokedIfCurrentEpoch(reqEpoch, url: endpoint, data: data)
             }
             let msg = String(data: data, encoding: .utf8) ?? "HTTP \(httpResp.statusCode)"
             throw APIError.serverError(statusCode: httpResp.statusCode, message: msg)

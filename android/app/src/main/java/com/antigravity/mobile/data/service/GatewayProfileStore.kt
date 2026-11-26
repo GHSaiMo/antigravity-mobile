@@ -296,6 +296,8 @@ class GatewayProfileStore private constructor(
             val existingIdx = current.indexOfFirst { existing ->
                 if (validGwId != null && (existing.gatewayId == validGwId || existing.id == validGwId)) {
                     true
+                } else if (validGwId != null && !existing.gatewayId.isNullOrBlank() && existing.gatewayId != validGwId) {
+                    false
                 } else if (cleanCloud != null && existing.primaryCloudUrl?.trimEnd('/')?.equals(cleanCloud, ignoreCase = true) == true) {
                     true
                 } else if (cleanLan != null &&
