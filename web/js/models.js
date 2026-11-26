@@ -368,7 +368,7 @@ function buildModelFamilies() {
         variantLabel = m[2].trim();
       }
     }
-    const variant = { id: opt.id, label: variantLabel, rawName: fullName, tag: opt.tag || null };
+    const variant = { id: opt.id, label: variantLabel, rawName: fullName, tag: opt.tag || null, quotaPool: opt.quotaPool || null };
     if (!map.has(familyName)) {
       order.push(familyName);
       map.set(familyName, { id: familyName, name: familyName, provider: prov, variants: [variant] });
@@ -605,6 +605,24 @@ function isModelPickerQuotaWeekly() {
   try { return localStorage.getItem(MODEL_PICKER_QUOTA_WEEKLY_KEY) === "1"; } catch (_) { return false; }
 }
 
+const CLAUDE_ORCHESTRATOR_TOKENS = ["claude", "opus", "sonnet", "haiku", "anthropic"];
+
+function orchestratorUsesClaudeQuotaPool(row) {
+  const variants = row.variants || [];
+  const explicit = variants
+    .map((v) => String(v.quotaPool || "").trim().toLowerCase())
+    .find(Boolean);
+  if (explicit === "claude") return true;
+  if (explicit === "gemini") return false;
+  const titleLower = String(row.title || "").toLowerCase();
+  if (CLAUDE_ORCHESTRATOR_TOKENS.some((tok) => titleLower.includes(tok))) return true;
+  return variants.some((v) => {
+    const idLower = String(v.id || "").toLowerCase();
+    const rawLower = String(v.rawName || "").toLowerCase();
+    return isClaudeModel(idLower) || CLAUDE_ORCHESTRATOR_TOKENS.some((tok) => idLower.includes(tok) || rawLower.includes(tok));
+  });
+}
+
 function modelPickerQuotaPercent(row) {
   if (!isModelPickerQuotaEnabled()) return null;
   const data = typeof currentCockpitQuotas !== "undefined" ? currentCockpitQuotas : null;
@@ -613,10 +631,10 @@ function modelPickerQuotaPercent(row) {
   const weekly = isModelPickerQuotaWeekly();
   const provider = String(row.provider || "");
   let bucket = null;
-  if (provider === "claude") {
+  if (provider === "claude" || (provider === "orchestrator" && orchestratorUsesClaudeQuotaPool(row))) {
     bucket = weekly ? acc.claude_weekly : (acc.claude_5h || acc.claude_weekly);
   } else if (provider === "gemini" || provider === "orchestrator") {
-    const haystack = [row.title, ...(row.variants || []).map((v) => v.id)].join(" ").toLowerCase();
+    const haystack = [row.title, ...(row.variants || []).map((v) => `${v.id || ""} ${v.rawName || ""}`)].join(" ").toLowerCase();
     if (haystack.includes("argon") && acc.gemini_4_argon) {
       bucket = acc.gemini_4_argon;
     } else {

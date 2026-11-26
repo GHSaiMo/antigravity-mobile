@@ -36,7 +36,8 @@ const (
 type ModelOption struct {
 	ID             string `json:"id"`
 	Name           string `json:"name"`
-	Provider       string `json:"provider"` // "gemini" | "claude" | "orchestrator" | "other"
+	Provider       string `json:"provider"`            // "gemini" | "claude" | "orchestrator" | "other"
+	QuotaPool      string `json:"quotaPool,omitempty"` // optional underlying quota pool for orchestrator rows ("claude" | "gemini")
 	Enum           string `json:"enum,omitempty"`
 	SupportsImages bool   `json:"supportsImages,omitempty"`
 	Thinking       bool   `json:"thinking,omitempty"`
@@ -173,6 +174,22 @@ func providerOf(modelProvider, id, displayName string) string {
 		return "gemini"
 	default:
 		return "other"
+	}
+}
+
+func quotaPoolOf(modelProvider, id, displayName string) string {
+	lower := strings.ToLower(modelProvider + " " + id + " " + displayName)
+	switch {
+	case strings.Contains(lower, "anthropic") ||
+		strings.Contains(lower, "claude") ||
+		strings.Contains(lower, "opus") ||
+		strings.Contains(lower, "sonnet") ||
+		strings.Contains(lower, "haiku"):
+		return "claude"
+	case strings.Contains(lower, "google") || strings.Contains(lower, "gemini"):
+		return "gemini"
+	default:
+		return ""
 	}
 }
 
@@ -325,10 +342,16 @@ func buildModelTables(raw map[string]upstreamModel, curatedIDs []string) (option
 		if isUnavailableModelTag(tag) || isLeavingSoon(tag) || isIgnoredModelTag(tag) {
 			tag = ""
 		}
+		prov := providerOf(m.ModelProvider, id, m.DisplayName)
+		quotaPool := ""
+		if prov == "orchestrator" {
+			quotaPool = quotaPoolOf(m.ModelProvider, id, m.DisplayName)
+		}
 		opt := ModelOption{
 			ID:             id,
 			Name:           normalizeModelDisplayName(m.DisplayName),
-			Provider:       providerOf(m.ModelProvider, id, m.DisplayName),
+			Provider:       prov,
+			QuotaPool:      quotaPool,
 			Enum:           m.Model,
 			SupportsImages: m.SupportsImages,
 			Thinking:       m.Thinking,
@@ -1082,6 +1105,13 @@ func expandOrchestratorOptions(
 			if tag == "" {
 				tag = opt.Tag
 			}
+			quotaPool := ""
+			switch opt.Provider {
+			case "claude", "gemini":
+				quotaPool = opt.Provider
+			default:
+				quotaPool = quotaPoolOf("", opt.ID, opt.Name)
+			}
 			// Intentionally leave Enum empty on the exported ModelOption so clients'
 			// id(forEnum:) never collides with the underlying regular model (e.g.
 			// MODEL_PLACEHOLDER_M532 still maps uniquely to gemini-4-neon-high).
@@ -1090,6 +1120,7 @@ func expandOrchestratorOptions(
 				ID:             synthID,
 				Name:           synthName,
 				Provider:       "orchestrator",
+				QuotaPool:      quotaPool,
 				Enum:           "",
 				SupportsImages: opt.SupportsImages,
 				Thinking:       opt.Thinking,

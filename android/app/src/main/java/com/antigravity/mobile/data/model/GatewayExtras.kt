@@ -263,7 +263,8 @@ data class ModelOption(
     val enum: String? = null,
     val supportsImages: Boolean = false,
     val thinking: Boolean = false,
-    val tag: String? = null
+    val tag: String? = null,
+    val quotaPool: String? = null
 )
 
 enum class ModelEffortRank(val rank: Int, val displayLabel: String) {
@@ -332,7 +333,8 @@ data class ModelVariant(
     val id: String,
     val label: String,
     val rawName: String,
-    val tag: String? = null
+    val tag: String? = null,
+    val quotaPool: String? = null
 ) {
     val effortRank: ModelEffortRank?
         get() = ModelEffortRank.parse(label) ?: ModelEffortRank.parse(id)
@@ -827,7 +829,8 @@ object ModelDefaults {
                 id = opt.id,
                 label = variantLabel,
                 rawName = fullName,
-                tag = opt.tag
+                tag = opt.tag,
+                quotaPool = opt.quotaPool
             )
             if (!familyMap.containsKey(familyName)) {
                 familyOrder.add(familyName)

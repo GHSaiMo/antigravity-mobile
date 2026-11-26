@@ -1005,8 +1005,14 @@ func TestHandleModels_ExpandsOrchestratorFromMendelRoles(t *testing.T) {
 	if got := byID["gemini-pro-orchestrator-neon-xhigh"].Name; got != "Orchestrator (Neon) (Extra)" {
 		t.Errorf("neon xhigh name = %q", got)
 	}
+	if got := byID["gemini-pro-orchestrator-neon-xhigh"].QuotaPool; got != "gemini" {
+		t.Errorf("neon xhigh quotaPool = %q, want gemini", got)
+	}
 	if got := byID["gemini-pro-orchestrator-opus-5-5-high"].Name; got != "Orchestrator (Opus 5.5) (High)" {
 		t.Errorf("opus 5.5 high name = %q", got)
+	}
+	if got := byID["gemini-pro-orchestrator-opus-5-5-high"].QuotaPool; got != "claude" {
+		t.Errorf("opus 5.5 high quotaPool = %q, want claude", got)
 	}
 
 	// Resolution and reverse-lookup isolation

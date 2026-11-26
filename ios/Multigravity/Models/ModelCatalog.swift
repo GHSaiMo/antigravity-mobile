@@ -12,6 +12,7 @@ public struct ModelOption: Codable, Sendable, Identifiable, Hashable {
     public var supportsImages: Bool?
     public var thinking: Bool?
     public var tag: String?
+    public var quotaPool: String? = nil
 }
 
 public enum ModelProviderKind: String, Sendable {
@@ -110,12 +111,14 @@ public struct ModelVariant: Identifiable, Hashable, Sendable {
     public var label: String
     public var rawName: String
     public var tag: String?
+    public var quotaPool: String?
 
-    public init(id: String, label: String, rawName: String, tag: String? = nil) {
+    public init(id: String, label: String, rawName: String, tag: String? = nil, quotaPool: String? = nil) {
         self.id = id
         self.label = label
         self.rawName = rawName
         self.tag = tag
+        self.quotaPool = quotaPool
     }
 
     public var effortRank: ModelEffortRank? {
@@ -774,7 +777,8 @@ public enum ModelDefaultsLogic {
                 id: opt.id,
                 label: variantLabel,
                 rawName: fullName,
-                tag: opt.tag
+                tag: opt.tag,
+                quotaPool: opt.quotaPool
             )
             
             if familyMap[familyName] == nil {

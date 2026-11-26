@@ -349,21 +349,55 @@ public final class ModelPickerQuotaCache {
 
     private init() {}
 
+    private static let claudeOrchestratorTokens = ["claude", "opus", "sonnet", "haiku", "anthropic"]
+
+    private static func usesClaudeQuotaPool(for row: ModelPickerRow) -> Bool {
+        if let explicit = row.variantsTopToBottom
+            .compactMap({ $0.quotaPool?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() })
+            .first(where: { !$0.isEmpty }) {
+            if explicit == "claude" { return true }
+            if explicit == "gemini" { return false }
+        }
+        let titleLower = row.title.lowercased()
+        if claudeOrchestratorTokens.contains(where: { titleLower.contains($0) }) {
+            return true
+        }
+        for variant in row.variantsTopToBottom {
+            let idLower = variant.id.lowercased()
+            let rawLower = variant.rawName.lowercased()
+            if ModelDefaultsLogic.isClaude(idLower)
+                || claudeOrchestratorTokens.contains(where: { idLower.contains($0) || rawLower.contains($0) }) {
+                return true
+            }
+        }
+        return false
+    }
+
+    private static func geminiBucket(for row: ModelPickerRow, in acc: CockpitAccountQuota, weekly: Bool) -> CockpitQuotaBucket? {
+        let isArgon = row.title.lowercased().contains("argon")
+            || row.variantsTopToBottom.contains { $0.id.lowercased().contains("argon") || $0.rawName.lowercased().contains("argon") }
+        if isArgon, let argon = acc.gemini4Argon {
+            return argon
+        }
+        return weekly ? acc.geminiWeekly : (acc.gemini5h ?? acc.geminiWeekly)
+    }
+
     /// 返回该行对应额度池剩余百分比（0...100）；无数据或无法归属时返回 nil。
-    /// Gemini / Orchestrator 归 Gemini 池（Argon 若网关单独下发则用 Argon 桶），Claude 归 Claude 池。
+    /// Claude 及由 Claude 驱动的 Orchestrator（如 Orch Opus / Sonnet）归 Claude 池；
+    /// 其余 Gemini / Orchestrator 归 Gemini 池（Argon 若网关单独下发则用 Argon 桶）。
     public func remainingPercent(for row: ModelPickerRow, weekly: Bool) -> Double? {
         guard let acc = account else { return nil }
         let bucket: CockpitQuotaBucket?
         switch row.providerKind {
         case .claude:
             bucket = weekly ? acc.claudeWeekly : (acc.claude5h ?? acc.claudeWeekly)
-        case .gemini, .orchestrator:
-            let isArgon = row.title.lowercased().contains("argon")
-                || row.variantsTopToBottom.contains { $0.id.lowercased().contains("argon") }
-            if isArgon, let argon = acc.gemini4Argon {
-                bucket = argon
+        case .gemini:
+            bucket = Self.geminiBucket(for: row, in: acc, weekly: weekly)
+        case .orchestrator:
+            if Self.usesClaudeQuotaPool(for: row) {
+                bucket = weekly ? acc.claudeWeekly : (acc.claude5h ?? acc.claudeWeekly)
             } else {
-                bucket = weekly ? acc.geminiWeekly : (acc.gemini5h ?? acc.geminiWeekly)
+                bucket = Self.geminiBucket(for: row, in: acc, weekly: weekly)
             }
         case .other:
             bucket = nil

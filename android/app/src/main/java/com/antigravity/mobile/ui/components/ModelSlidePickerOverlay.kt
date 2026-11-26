@@ -589,7 +589,9 @@ fun ModelSlidePickerOverlay(
                                     providerKind = row.providerKind,
                                     title = row.title,
                                     variantIds = row.variantsTopToBottom.map { it.id },
-                                    weekly = quotaWeekly
+                                    weekly = quotaWeekly,
+                                    variantRawNames = row.variantsTopToBottom.map { it.rawName },
+                                    quotaPools = row.variantsTopToBottom.map { it.quotaPool }
                                 ).takeIf { quotaEnabled }
                                 if (pct != null) {
                                     val pctColor = if (pct < 20.0) Color(0xFFE5484D) else rowColor
