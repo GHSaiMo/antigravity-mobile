@@ -700,15 +700,6 @@ public struct ChatView: View {
                 if let meter = viewModel.contextMeter {
                     let isRunning = viewModel.isRunning || viewModel.isAwaitingResponse
                     let hasPending = viewModel.pendingInteraction != nil || viewModel.canProceed
-                    let hasNotice = meter.hasCacheWarning(isRunning: isRunning, hasPendingInteraction: hasPending) || meter.isNearCompactionCeiling
-                    let hasSession = meter.hasSessionTotals
-                    let detents: Set<PresentationDetent> = {
-                        switch (hasNotice, hasSession) {
-                        case (true, true): return [.fraction(0.62), .large]
-                        case (true, false), (false, true): return [.fraction(0.52), .large]
-                        case (false, false): return [.fraction(0.42), .medium]
-                        }
-                    }()
                     ContextAuditSheetView(
                         meter: meter,
                         isRunning: isRunning,
@@ -731,8 +722,6 @@ public struct ChatView: View {
                             }
                         }
                     )
-                    .presentationDetents(detents)
-                    .presentationDragIndicator(.visible)
                 }
             }
             .overlay {
@@ -1264,6 +1253,8 @@ public struct CompactChevronsIcon: View {
 struct ContextAuditSheetView: View {
     @Environment(\.dismiss) private var dismiss
     @State private var isBreakdownExpanded: Bool = false
+    @State private var collapsedDetentHeight: CGFloat
+    @State private var selectedDetent: PresentationDetent
     let meter: ContextMeterItem
     var isRunning: Bool = false
     var hasPendingInteraction: Bool = false
@@ -1271,6 +1262,66 @@ struct ContextAuditSheetView: View {
     let onCompact: () -> Void
     let onStartNewSession: () -> Void
     var onJumpToMessage: ((String) -> Void)? = nil
+
+    init(
+        meter: ContextMeterItem,
+        isRunning: Bool = false,
+        hasPendingInteraction: Bool = false,
+        canCompact: Bool,
+        onCompact: @escaping () -> Void,
+        onStartNewSession: @escaping () -> Void,
+        onJumpToMessage: ((String) -> Void)? = nil
+    ) {
+        self.meter = meter
+        self.isRunning = isRunning
+        self.hasPendingInteraction = hasPendingInteraction
+        self.canCompact = canCompact
+        self.onCompact = onCompact
+        self.onStartNewSession = onStartNewSession
+        self.onJumpToMessage = onJumpToMessage
+        let initialHeight = Self.estimatedCollapsedHeight(
+            meter: meter,
+            isRunning: isRunning,
+            hasPendingInteraction: hasPendingInteraction
+        )
+        _collapsedDetentHeight = State(initialValue: initialHeight)
+        _selectedDetent = State(initialValue: .height(initialHeight))
+    }
+
+    private static func hasBreakdownContent(_ breakdown: ContextBreakdownSummary?) -> Bool {
+        guard let breakdown else { return false }
+        return !(breakdown.categories ?? []).isEmpty || !(breakdown.topConsumers ?? []).isEmpty
+    }
+
+    private static func estimatedCollapsedHeight(
+        meter: ContextMeterItem,
+        isRunning: Bool,
+        hasPendingInteraction: Bool
+    ) -> CGFloat {
+        let hasNotice = meter.hasCacheWarning(
+            isRunning: isRunning,
+            hasPendingInteraction: hasPendingInteraction
+        ) || meter.isNearCompactionCeiling
+        var height: CGFloat = 372
+        if meter.hasSessionTotals { height += 78 }
+        if hasNotice { height += 88 }
+        if hasBreakdownContent(meter.breakdown) { height += 68 }
+        return height
+    }
+
+    private var breakdownExpandedBinding: Binding<Bool> {
+        Binding(
+            get: { isBreakdownExpanded },
+            set: { newValue in
+                withAnimation(.easeInOut(duration: 0.28)) {
+                    isBreakdownExpanded = newValue
+                    if newValue {
+                        selectedDetent = .large
+                    }
+                }
+            }
+        )
+    }
 
     private var clampedPct: Double {
         min(max(meter.percentage, 0), 100)
@@ -1484,8 +1535,8 @@ struct ContextAuditSheetView: View {
                 }
 
                 if let breakdown = meter.breakdown,
-                   !(breakdown.categories ?? []).isEmpty || !(breakdown.topConsumers ?? []).isEmpty {
-                    DisclosureGroup(isExpanded: $isBreakdownExpanded) {
+                   Self.hasBreakdownContent(breakdown) {
+                    DisclosureGroup(isExpanded: breakdownExpandedBinding) {
                         VStack(alignment: .leading, spacing: 10) {
                             if let cats = breakdown.categories, !cats.isEmpty {
                                 GeometryReader { geo in
@@ -1571,7 +1622,9 @@ struct ContextAuditSheetView: View {
                             Text("上下文占用分布")
                                 .font(.system(size: 13, weight: .semibold))
                                 .foregroundColor(.primary)
+                            Spacer(minLength: 0)
                         }
+                        .contentShape(Rectangle())
                     }
                     .padding(14)
                     .background(Color(uiColor: .secondarySystemGroupedBackground))
@@ -1581,9 +1634,20 @@ struct ContextAuditSheetView: View {
             .padding(.horizontal, 20)
             .padding(.top, 52)
             .padding(.bottom, 28)
+            .onGeometryChange(for: CGFloat.self) { proxy in
+                ceil(proxy.size.height)
+            } action: { newHeight in
+                guard !isBreakdownExpanded, selectedDetent != .large, newHeight > 100 else { return }
+                let target = max(newHeight, 280)
+                guard abs(target - collapsedDetentHeight) >= 1 else { return }
+                collapsedDetentHeight = target
+                selectedDetent = .height(target)
+            }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         .background(Color(uiColor: .systemGroupedBackground))
+        .presentationDetents([.height(collapsedDetentHeight), .large], selection: $selectedDetent)
+        .presentationDragIndicator(.visible)
     }
 
     private static func breakdownColor(for key: String) -> Color {
