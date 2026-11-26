@@ -204,7 +204,6 @@ type Proxy struct {
 	nextPrompt          nextPromptEngine
 	lsModelResponseHook func(ctx context.Context, prompt, modelEnum string) (string, error)
 	titleWriteHook      func(ctx context.Context, cascadeID, title string) error
-	summariesFetchHook  func(ctx context.Context) (map[string]map[string]interface{}, error)
 }
 
 const activeUserStatusTTL = 30 * time.Second
@@ -952,12 +951,6 @@ func (p *Proxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	case r.URL.Path == "/gateway/ai-assist/prefs":
 		p.HandleAIAssistPrefs(w, r)
-		return
-	case r.URL.Path == "/gateway/ai-assist/translate-titles":
-		p.HandleTranslateTitles(w, r)
-		return
-	case r.URL.Path == "/gateway/ai-assist/restore-titles":
-		p.HandleRestoreTitles(w, r)
 		return
 	// Phase 4 native feature routes (BrowserViewer, Remoting/SSH, Marketplace, Plugin/MCP OAuth, Desktop Update, Code Search, Artifact Snapshots, Worktree PR, Star)
 	case strings.HasPrefix(r.URL.Path, "/gateway/browser/"):

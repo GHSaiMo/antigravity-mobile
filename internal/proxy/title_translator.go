@@ -4,11 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"io"
 	"log/slog"
-	"net/http"
-	"os"
-	"path/filepath"
 	"sort"
 	"strconv"
 	"strings"
@@ -17,76 +13,44 @@ import (
 	"unicode"
 	"unicode/utf8"
 
-	"antigravity-mobile/internal/config"
 	"antigravity-mobile/internal/i18n"
 )
 
 const (
 	titleTranslateBatchSize     = 12
-	titleTranslateDebounce      = 2 * time.Second
 	titleTranslateFailBackoff   = 10 * time.Minute
-	titleAutoMaxAge             = 24 * time.Hour
 	titleTranslateSingleTimeout = 15 * time.Second
 	titleTranslateBatchTimeout  = 25 * time.Second
 	maxTranslatedTitleRunes     = 80
 )
 
-type titleTranslationRecord struct {
-	OriginalTitle   string `json:"originalTitle"`
-	TranslatedTitle string `json:"translatedTitle"`
-	TargetLang      string `json:"targetLang"`
-	UserEdited      bool   `json:"userEdited,omitempty"`
-	UpdatedAt       string `json:"updatedAt"`
-}
-
-// TitleTranslateBatchState tracks progress/result of an explicit batch translation run.
-type TitleTranslateBatchState struct {
-	Running        bool   `json:"running"`
-	Scanned        int    `json:"scanned"`
-	Translated     int    `json:"translated"`
-	Skipped        int    `json:"skipped"`
-	Failed         int    `json:"failed"`
-	TargetLang     string `json:"targetLang,omitempty"`
-	TargetLangName string `json:"targetLangName,omitempty"`
-	FinishedAt     string `json:"finishedAt,omitempty"`
-	Error          string `json:"error,omitempty"`
-}
+var titleTranslateDebounce = 2 * time.Second
 
 type titleCandidate struct {
-	CascadeID     string
-	SourceTitle   string
-	CurrentTitle  string
-	HasUserTitle  bool
-	LastModTime   time.Time
-	Archived      bool
-	OriginalSaved string
+	CascadeID    string
+	SourceTitle  string
+	CurrentTitle string
+	LastModTime  time.Time
 }
 
 type titleTranslatorState struct {
 	mu           sync.Mutex
-	loaded       bool
-	ledgerPath   string
-	ledger       map[string]titleTranslationRecord
+	baselineIDs  map[string]bool // existing cascade IDs snapshot when enabled; never modified
+	handled      map[string]bool // cascade IDs already translated or manually renamed
 	failBackoff  map[string]time.Time
 	pendingAuto  map[string]titleCandidate
 	inFlightAuto map[string]bool
 	debounceTmr  *time.Timer
 	autoRunning  bool
-	batchRunning bool
-	lastBatch    *TitleTranslateBatchState
 }
 
-func titleLedgerFilePath() string {
-	return filepath.Join(config.GetDataDir(), "title_translations.json")
-}
-
-func (ts *titleTranslatorState) ensureLoadedLocked() {
-	want := titleLedgerFilePath()
-	if ts.loaded && ts.ledgerPath == want {
-		return
+func (ts *titleTranslatorState) ensureInitLocked() {
+	if ts.baselineIDs == nil {
+		ts.baselineIDs = make(map[string]bool)
 	}
-	ts.ledgerPath = want
-	ts.ledger = make(map[string]titleTranslationRecord)
+	if ts.handled == nil {
+		ts.handled = make(map[string]bool)
+	}
 	if ts.failBackoff == nil {
 		ts.failBackoff = make(map[string]time.Time)
 	}
@@ -96,82 +60,68 @@ func (ts *titleTranslatorState) ensureLoadedLocked() {
 	if ts.inFlightAuto == nil {
 		ts.inFlightAuto = make(map[string]bool)
 	}
-	ts.loaded = true
-
-	data, err := os.ReadFile(want)
-	if err != nil {
-		return
-	}
-	var parsed map[string]titleTranslationRecord
-	if err := json.Unmarshal(data, &parsed); err != nil {
-		slog.Warn("[TitleTranslate] Failed to parse title_translations.json, starting fresh", "err", err)
-		return
-	}
-	if parsed != nil {
-		ts.ledger = parsed
-	}
 }
 
-func (ts *titleTranslatorState) saveLedgerLocked() {
-	if ts.ledgerPath == "" {
+// onTitleTranslateEnabled snapshots currently known cascade IDs so previously existing
+// conversations are never touched, and only future conversations get auto-translated.
+func (p *Proxy) onTitleTranslateEnabled() {
+	if p == nil {
 		return
 	}
-	if err := os.MkdirAll(filepath.Dir(ts.ledgerPath), 0700); err != nil {
-		return
-	}
-	data, err := json.MarshalIndent(ts.ledger, "", "  ")
-	if err != nil {
-		return
-	}
-	tmp := ts.ledgerPath + ".tmp"
-	if err := os.WriteFile(tmp, append(data, '\n'), 0600); err != nil {
-		return
-	}
-	if err := os.Rename(tmp, ts.ledgerPath); err != nil {
-		_ = os.Remove(tmp)
-	}
-}
-
-func (ts *titleTranslatorState) RestorableCount() int {
-	ts.mu.Lock()
-	defer ts.mu.Unlock()
-	ts.ensureLoadedLocked()
-	count := 0
-	for _, rec := range ts.ledger {
-		if !rec.UserEdited && rec.OriginalTitle != "" && rec.TranslatedTitle != "" && rec.OriginalTitle != rec.TranslatedTitle {
-			count++
+	var existingIDs []string
+	p.allTrajectories.mu.Lock()
+	if p.allTrajectories.parsed != nil && len(p.allTrajectories.parsed.sortedIDs) > 0 {
+		existingIDs = append(existingIDs, p.allTrajectories.parsed.sortedIDs...)
+	} else if len(p.allTrajectories.entries) > 0 {
+		existingIDs = make([]string, 0, len(p.allTrajectories.entries))
+		for id := range p.allTrajectories.entries {
+			existingIDs = append(existingIDs, id)
 		}
 	}
-	return count
-}
+	p.allTrajectories.mu.Unlock()
 
-func (ts *titleTranslatorState) BatchSnapshot() *TitleTranslateBatchState {
+	ts := &p.titleTranslator
 	ts.mu.Lock()
 	defer ts.mu.Unlock()
-	if ts.lastBatch == nil {
-		return nil
+	ts.ensureInitLocked()
+	ts.baselineIDs = make(map[string]bool, len(existingIDs))
+	for _, id := range existingIDs {
+		ts.baselineIDs[id] = true
 	}
-	cp := *ts.lastBatch
-	return &cp
+	ts.pendingAuto = make(map[string]titleCandidate)
+	ts.failBackoff = make(map[string]time.Time)
+	if ts.debounceTmr != nil {
+		ts.debounceTmr.Stop()
+		ts.debounceTmr = nil
+	}
+}
+
+func (p *Proxy) onTitleTranslateDisabled() {
+	if p == nil {
+		return
+	}
+	ts := &p.titleTranslator
+	ts.mu.Lock()
+	defer ts.mu.Unlock()
+	ts.pendingAuto = make(map[string]titleCandidate)
+	if ts.debounceTmr != nil {
+		ts.debounceTmr.Stop()
+		ts.debounceTmr = nil
+	}
 }
 
 // MarkConversationTitleUserEdited records that the user manually renamed cascadeID so
-// auto-translation and batch translation will never overwrite their custom title.
-func (p *Proxy) MarkConversationTitleUserEdited(cascadeID, customTitle string) {
+// auto-translation will never overwrite their custom title.
+func (p *Proxy) MarkConversationTitleUserEdited(cascadeID, _ string) {
 	if p == nil || strings.TrimSpace(cascadeID) == "" {
 		return
 	}
 	ts := &p.titleTranslator
 	ts.mu.Lock()
 	defer ts.mu.Unlock()
-	ts.ensureLoadedLocked()
-	rec := ts.ledger[cascadeID]
-	rec.UserEdited = true
-	rec.TranslatedTitle = strings.TrimSpace(customTitle)
-	rec.UpdatedAt = time.Now().UTC().Format(time.RFC3339)
-	ts.ledger[cascadeID] = rec
+	ts.ensureInitLocked()
+	ts.handled[cascadeID] = true
 	delete(ts.pendingAuto, cascadeID)
-	ts.saveLedgerLocked()
 }
 
 var commonLangEnglishNames = map[string]string{
@@ -262,12 +212,30 @@ func isEnglishLangTag(code string) bool {
 	return lower == "en" || strings.HasPrefix(lower, "en-")
 }
 
+func parseSummaryTimestamp(raw interface{}) (time.Time, bool) {
+	s, ok := raw.(string)
+	if !ok {
+		return time.Time{}, false
+	}
+	s = strings.TrimSpace(s)
+	if s == "" {
+		return time.Time{}, false
+	}
+	if parsed, err := time.Parse(time.RFC3339Nano, s); err == nil {
+		return parsed, true
+	}
+	if parsed, err := time.Parse(time.RFC3339, s); err == nil {
+		return parsed, true
+	}
+	return time.Time{}, false
+}
+
 func isPlaceholderOrRawPromptTitle(title string) bool {
 	t := strings.TrimSpace(title)
 	if t == "" || t == "未命名会话" || t == "当前会话" || strings.EqualFold(t, "Untitled") || strings.EqualFold(t, "New Chat") {
 		return true
 	}
-	// Raw unsummarized prompt fragments often start with slash commands/paths or contain filesystem paths/backticks.
+	// Raw unsummarized prompt fragments often start with slash commands/paths or contain filesystem paths.
 	if strings.HasPrefix(t, "/") || strings.Contains(t, "/Users/") || strings.Contains(t, "/home/") || strings.Contains(t, `C:\`) {
 		return true
 	}
@@ -397,8 +365,6 @@ func isTranslationAcceptable(source, translated, targetLang string) bool {
 // titleNeedsTranslation determines whether title should be sent to the model for targetLang.
 // For non-Latin scripts (Chinese, Japanese, Korean, Cyrillic, Arabic, Thai, Hebrew), fast Unicode script
 // checks skip titles that are already in the target language with zero model calls.
-// For Latin-script languages (Portuguese, Spanish, French, German, etc.), unseen titles are sent to the
-// model (with an instruction to return already-localized titles unchanged) and recorded in the ledger.
 func titleNeedsTranslation(title, targetLang string) bool {
 	t := strings.TrimSpace(title)
 	if isPlaceholderOrRawPromptTitle(t) {
@@ -428,7 +394,6 @@ func titleNeedsTranslation(title, targetLang string) bool {
 		}
 		return latinCount >= 3 || hangulCount > 0 || cyrillicCount > 0 || arabicCount > 0 || thaiCount > 0
 	case "ja":
-		// Japanese titles typically contain Hiragana/Katakana.
 		if kanaCount >= 1 {
 			return false
 		}
@@ -459,13 +424,11 @@ func titleNeedsTranslation(title, targetLang string) bool {
 		}
 		return latinCount >= 3 || hanCount >= 2
 	default:
-		// Latin-script languages (pt, es, fr, de, it, nl, vi, id, pl, tr, ...):
-		// require at least some alphabetic content; ledger guarantees one-time processing.
 		return latinCount >= 3 || hanCount >= 2 || kanaCount > 0 || hangulCount > 0
 	}
 }
 
-func extractTitleCandidate(id string, s map[string]interface{}, ledger map[string]titleTranslationRecord, targetLang string, includeArchived bool) (titleCandidate, bool) {
+func extractFutureTitleCandidate(id string, s map[string]interface{}, enabledAt time.Time, targetLang string) (titleCandidate, bool) {
 	if id == "" || !cascadeIDRe.MatchString(id) || IsDeletedCascade(id) {
 		return titleCandidate{}, false
 	}
@@ -488,74 +451,57 @@ func extractTitleCandidate(id string, s map[string]interface{}, ledger map[strin
 			archived = true
 		}
 	}
-	if archived && !includeArchived {
+	if archived {
 		return titleCandidate{}, false
+	}
+
+	// Only translate conversations created AFTER title translation was enabled.
+	// Never touch pre-existing conversations even if they receive new messages later.
+	createdAt, hasCreated := parseSummaryTimestamp(s["createdTime"])
+	modTime, hasMod := parseSummaryTimestamp(s["lastModifiedTime"])
+	if !enabledAt.IsZero() {
+		if hasCreated {
+			if createdAt.Before(enabledAt) {
+				return titleCandidate{}, false
+			}
+		} else if hasMod {
+			if modTime.Before(enabledAt) {
+				return titleCandidate{}, false
+			}
+		} else {
+			return titleCandidate{}, false
+		}
 	}
 
 	summaryTitle := ""
 	if sm, ok := s["summary"].(string); ok {
 		summaryTitle = strings.TrimSpace(sm)
 	}
+	// If annotations.title already differs from upstream summary, the title was either
+	// manually renamed by the user or already overwritten by a prior translation.
+	if annTitle != "" && summaryTitle != "" && annTitle != summaryTitle {
+		return titleCandidate{}, false
+	}
+
 	effectiveTitle := annTitle
 	if effectiveTitle == "" {
 		effectiveTitle = summaryTitle
 	}
-	if isPlaceholderOrRawPromptTitle(effectiveTitle) {
+	if !titleNeedsTranslation(effectiveTitle, targetLang) {
 		return titleCandidate{}, false
-	}
-
-	rec, hasRec := ledger[id]
-	if hasRec && rec.UserEdited {
-		return titleCandidate{}, false
-	}
-
-	// Detect pre-existing manual rename: upstream annotations.title differs from upstream summary,
-	// AND does not match a translation we previously wrote.
-	if annTitle != "" && summaryTitle != "" && annTitle != summaryTitle {
-		if !hasRec || rec.TranslatedTitle != annTitle {
-			return titleCandidate{}, false
-		}
-	}
-
-	// Determine the clean original title to translate from (avoid double-translation across language switches).
-	// Also self-heal stale ledger entries from earlier runs where a model echoed/truncated untranslated English.
-	sourceTitle := effectiveTitle
-	if hasRec && rec.OriginalTitle != "" && rec.TranslatedTitle == effectiveTitle {
-		if strings.EqualFold(rec.TargetLang, targetLang) && isTranslationAcceptable(rec.OriginalTitle, rec.TranslatedTitle, targetLang) {
-			return titleCandidate{}, false // already validly translated for this target language
-		}
-		sourceTitle = rec.OriginalTitle
-	} else if hasRec && rec.OriginalTitle == effectiveTitle && strings.EqualFold(rec.TargetLang, targetLang) {
-		if isTranslationAcceptable(rec.OriginalTitle, effectiveTitle, targetLang) {
-			return titleCandidate{}, false // idempotent skip (e.g. already-localized Latin-script title)
-		}
-	}
-
-	if !titleNeedsTranslation(sourceTitle, targetLang) {
-		return titleCandidate{}, false
-	}
-
-	var modTime time.Time
-	if rawMod, ok := s["lastModifiedTime"].(string); ok && rawMod != "" {
-		if parsed, err := time.Parse(time.RFC3339Nano, rawMod); err == nil {
-			modTime = parsed
-		} else if parsed, err := time.Parse(time.RFC3339, rawMod); err == nil {
-			modTime = parsed
-		}
 	}
 
 	return titleCandidate{
-		CascadeID:     id,
-		SourceTitle:   sourceTitle,
-		CurrentTitle:  effectiveTitle,
-		LastModTime:   modTime,
-		Archived:      archived,
-		OriginalSaved: rec.OriginalTitle,
+		CascadeID:    id,
+		SourceTitle:  effectiveTitle,
+		CurrentTitle: effectiveTitle,
+		LastModTime:  modTime,
 	}, true
 }
 
-// MaybeAutoTranslateSummaries inspects visible conversation summaries from GetAllCascadeTrajectories
-// and asynchronously schedules debounced translation for newly generated recent titles when enabled.
+// MaybeAutoTranslateSummaries inspects conversation summaries from GetAllCascadeTrajectories
+// and asynchronously overwrites English titles of newly created conversations (created after
+// the option was enabled) with translated titles directly in Antigravity.
 func (p *Proxy) MaybeAutoTranslateSummaries(summaries map[string]map[string]interface{}) {
 	if p == nil || len(summaries) == 0 {
 		return
@@ -571,33 +517,30 @@ func (p *Proxy) MaybeAutoTranslateSummaries(summaries map[string]map[string]inte
 	if !p.IsAIAssistAvailable() {
 		return
 	}
+	enabledAt, ok := parseSummaryTimestamp(prefs.TitleTranslateEnabledAt)
+	if !ok {
+		return
+	}
 
 	now := time.Now()
-	cutoff := now.Add(-titleAutoMaxAge)
-
 	ts := &p.titleTranslator
 	ts.mu.Lock()
 	defer ts.mu.Unlock()
-	ts.ensureLoadedLocked()
+	ts.ensureInitLocked()
 
 	added := 0
 	for id, s := range summaries {
+		if ts.baselineIDs[id] || ts.handled[id] || ts.inFlightAuto[id] {
+			continue
+		}
 		if retryAt, backedOff := ts.failBackoff[id]; backedOff && now.Before(retryAt) {
 			continue
 		}
 		if _, queued := ts.pendingAuto[id]; queued {
 			continue
 		}
-		if ts.inFlightAuto[id] {
-			continue
-		}
-		cand, ok := extractTitleCandidate(id, s, ts.ledger, targetLang, false)
-		if !ok {
-			continue
-		}
-		// Auto-translation only touches recent conversations so enabling the toggle never
-		// surprises the user by mass-rewriting ancient history (history uses the explicit button).
-		if !cand.LastModTime.IsZero() && cand.LastModTime.Before(cutoff) {
+		cand, eligible := extractFutureTitleCandidate(id, s, enabledAt, targetLang)
+		if !eligible {
 			continue
 		}
 		ts.pendingAuto[id] = cand
@@ -618,7 +561,7 @@ func (p *Proxy) MaybeAutoTranslateSummaries(summaries map[string]map[string]inte
 func (p *Proxy) drainAutoTitleQueue(targetLang, targetLangName string) {
 	ts := &p.titleTranslator
 	ts.mu.Lock()
-	ts.ensureLoadedLocked()
+	ts.ensureInitLocked()
 	if ts.autoRunning || len(ts.pendingAuto) == 0 {
 		ts.mu.Unlock()
 		return
@@ -809,8 +752,7 @@ func (p *Proxy) translateAndApplyCandidates(ctx context.Context, candidates []ti
 		}
 	}
 
-	// Retry any missing, malformed, or untranslated-echo items using a stronger fallback model
-	// (single batch retry first when >=2 items need retry, then single-item fallback for stragglers).
+	// Retry any missing, malformed, or untranslated-echo items using a stronger fallback model.
 	if len(retryIndices) > 0 {
 		fbModel := p.ResolveAIAssistFallbackModel(ctx, primaryModel.Enum)
 		fbName := primaryModel.ID
@@ -877,7 +819,7 @@ func (p *Proxy) translateAndApplyCandidates(ctx context.Context, candidates []ti
 			failed++
 			continue
 		}
-		applied, err := p.applyTranslatedTitle(ctx, c, newTitle, targetLang)
+		applied, err := p.applyTranslatedTitle(ctx, c, newTitle)
 		if err != nil {
 			p.markTitleBackoff(c.CascadeID)
 			failed++
@@ -890,7 +832,7 @@ func (p *Proxy) translateAndApplyCandidates(ctx context.Context, candidates []ti
 			translated++
 		}
 	}
-	slog.Info("[TitleTranslate] Batch processed",
+	slog.Info("[TitleTranslate] Auto-translate batch processed",
 		"model", primaryModel.ID, "target_lang", targetLang,
 		"candidates", len(candidates), "translated", translated, "failed", failed, "retried", len(retryIndices))
 	return translated, failed, firstErr
@@ -899,25 +841,20 @@ func (p *Proxy) translateAndApplyCandidates(ctx context.Context, candidates []ti
 func (p *Proxy) markTitleBackoff(cascadeID string) {
 	ts := &p.titleTranslator
 	ts.mu.Lock()
-	ts.ensureLoadedLocked()
+	ts.ensureInitLocked()
 	ts.failBackoff[cascadeID] = time.Now().Add(titleTranslateFailBackoff)
 	ts.mu.Unlock()
 }
 
-func (p *Proxy) applyTranslatedTitle(ctx context.Context, cand titleCandidate, translatedTitle, targetLang string) (bool, error) {
+func (p *Proxy) applyTranslatedTitle(ctx context.Context, cand titleCandidate, translatedTitle string) (bool, error) {
 	ts := &p.titleTranslator
 	ts.mu.Lock()
-	ts.ensureLoadedLocked()
-	if existing, ok := ts.ledger[cand.CascadeID]; ok && existing.UserEdited {
+	ts.ensureInitLocked()
+	if ts.handled[cand.CascadeID] {
 		ts.mu.Unlock()
 		return false, nil
 	}
 	ts.mu.Unlock()
-
-	original := cand.OriginalSaved
-	if original == "" {
-		original = cand.SourceTitle
-	}
 
 	didUpdateTitle := translatedTitle != cand.CurrentTitle && translatedTitle != ""
 	if didUpdateTitle {
@@ -927,19 +864,9 @@ func (p *Proxy) applyTranslatedTitle(ctx context.Context, cand titleCandidate, t
 	}
 
 	ts.mu.Lock()
-	ts.ensureLoadedLocked()
-	// Re-check userEdited in case a manual rename raced while the RPC was in-flight.
-	if existing, ok := ts.ledger[cand.CascadeID]; !ok || !existing.UserEdited {
-		ts.ledger[cand.CascadeID] = titleTranslationRecord{
-			OriginalTitle:   original,
-			TranslatedTitle: translatedTitle,
-			TargetLang:      targetLang,
-			UserEdited:      false,
-			UpdatedAt:       time.Now().UTC().Format(time.RFC3339),
-		}
-		delete(ts.failBackoff, cand.CascadeID)
-		ts.saveLedgerLocked()
-	}
+	ts.ensureInitLocked()
+	ts.handled[cand.CascadeID] = true
+	delete(ts.failBackoff, cand.CascadeID)
 	ts.mu.Unlock()
 	return didUpdateTitle, nil
 }
@@ -969,246 +896,4 @@ func (p *Proxy) writeUpstreamConversationTitle(ctx context.Context, cascadeID, t
 	setCachedCascadeTitle(cascadeID, title)
 	writeAnnotationTitle(cascadeID, title)
 	return nil
-}
-
-func (p *Proxy) fetchRawTrajectorySummariesMap(ctx context.Context) (map[string]map[string]interface{}, error) {
-	if p.summariesFetchHook != nil {
-		return p.summariesFetchHook(ctx)
-	}
-	port, token := p.ActiveUpstream()
-	if port <= 0 {
-		return nil, fmt.Errorf("no active Antigravity upstream")
-	}
-	raw, err := p.fetchAllTrajectoriesRaw(ctx, port, token)
-	if err != nil {
-		return nil, err
-	}
-	var parsed struct {
-		TrajectorySummaries map[string]map[string]interface{} `json:"trajectorySummaries"`
-	}
-	if err := json.Unmarshal(raw, &parsed); err != nil {
-		return nil, err
-	}
-	if parsed.TrajectorySummaries == nil {
-		return map[string]map[string]interface{}{}, nil
-	}
-	return parsed.TrajectorySummaries, nil
-}
-
-// HandleTranslateTitles serves POST /gateway/ai-assist/translate-titles.
-// It scans non-archived main conversations, translates titles needing localization in batches of 12,
-// and writes translated titles natively back via UpdateConversationAnnotations.
-func (p *Proxy) HandleTranslateTitles(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodPost {
-		http.Error(w, `{"error":"Method not allowed"}`, http.StatusMethodNotAllowed)
-		return
-	}
-	var req struct {
-		TargetLang      string `json:"targetLang,omitempty"`
-		TargetLangName  string `json:"targetLangName,omitempty"`
-		IncludeArchived bool   `json:"includeArchived,omitempty"`
-	}
-	if r.Body != nil {
-		_ = json.NewDecoder(io.LimitReader(r.Body, 32*1024)).Decode(&req)
-	}
-
-	prefs := p.AIAssistPrefs()
-	rawLang := strings.TrimSpace(req.TargetLang)
-	rawName := strings.TrimSpace(req.TargetLangName)
-	if rawLang == "" {
-		rawLang = prefs.TitleTranslateLang
-		rawName = prefs.TitleTranslateLangName
-	}
-	targetLang, targetLangName := normalizeTitleTargetLang(rawLang, rawName)
-	if isEnglishLangTag(targetLang) {
-		writeJSONError(w, "target language is English; translation not needed", http.StatusBadRequest)
-		return
-	}
-
-	ts := &p.titleTranslator
-	ts.mu.Lock()
-	if ts.batchRunning {
-		snap := ts.lastBatch
-		ts.mu.Unlock()
-		writeJSONOK(w, map[string]interface{}{
-			"ok":             true,
-			"alreadyRunning": true,
-			"batchStatus":    snap,
-		})
-		return
-	}
-	ts.batchRunning = true
-	ts.lastBatch = &TitleTranslateBatchState{
-		Running:        true,
-		TargetLang:     targetLang,
-		TargetLangName: targetLangName,
-	}
-	ts.mu.Unlock()
-
-	defer func() {
-		ts.mu.Lock()
-		ts.batchRunning = false
-		if ts.lastBatch != nil {
-			ts.lastBatch.Running = false
-			ts.lastBatch.FinishedAt = time.Now().UTC().Format(time.RFC3339)
-		}
-		ts.mu.Unlock()
-	}()
-
-	summaries, err := p.fetchRawTrajectorySummariesMap(r.Context())
-	if err != nil {
-		ts.mu.Lock()
-		ts.lastBatch.Error = err.Error()
-		ts.mu.Unlock()
-		writeJSONError(w, "failed to load conversations: "+err.Error(), http.StatusBadGateway)
-		return
-	}
-
-	ts.mu.Lock()
-	ts.ensureLoadedLocked()
-	ledgerSnap := make(map[string]titleTranslationRecord, len(ts.ledger))
-	for k, v := range ts.ledger {
-		ledgerSnap[k] = v
-	}
-	ts.mu.Unlock()
-
-	var candidates []titleCandidate
-	scanned := 0
-	skipped := 0
-	for id, s := range summaries {
-		if IsDeletedCascade(id) || isSubagentTrajectoryMap(s, id) || isSideQuestionTrajectoryMap(s, id) {
-			continue
-		}
-		scanned++
-		cand, ok := extractTitleCandidate(id, s, ledgerSnap, targetLang, req.IncludeArchived)
-		if !ok {
-			skipped++
-			continue
-		}
-		candidates = append(candidates, cand)
-	}
-
-	// Process newest conversations first.
-	sort.Slice(candidates, func(i, j int) bool {
-		return candidates[i].LastModTime.After(candidates[j].LastModTime)
-	})
-
-	totalTranslated := 0
-	totalFailed := 0
-	var lastErr error
-
-	for start := 0; start < len(candidates); start += titleTranslateBatchSize {
-		end := start + titleTranslateBatchSize
-		if end > len(candidates) {
-			end = len(candidates)
-		}
-		bCtx, cancel := context.WithTimeout(r.Context(), titleTranslateBatchTimeout)
-		tr, fl, bErr := p.translateAndApplyCandidates(bCtx, candidates[start:end], targetLang, targetLangName)
-		cancel()
-		totalTranslated += tr
-		totalFailed += fl
-		if bErr != nil {
-			lastErr = bErr
-		}
-		ts.mu.Lock()
-		ts.lastBatch.Scanned = scanned
-		ts.lastBatch.Translated = totalTranslated
-		ts.lastBatch.Skipped = skipped
-		ts.lastBatch.Failed = totalFailed
-		ts.mu.Unlock()
-	}
-
-	ts.mu.Lock()
-	ts.lastBatch.Scanned = scanned
-	ts.lastBatch.Translated = totalTranslated
-	ts.lastBatch.Skipped = skipped
-	ts.lastBatch.Failed = totalFailed
-	if lastErr != nil && totalTranslated == 0 {
-		ts.lastBatch.Error = lastErr.Error()
-	}
-	ts.mu.Unlock()
-
-	if totalTranslated > 0 {
-		p.invalidateAllTrajectories()
-	}
-
-	slog.Info("[TitleTranslate] Manual batch finished",
-		"target_lang", targetLang, "scanned", scanned, "candidates", len(candidates),
-		"translated", totalTranslated, "skipped", skipped, "failed", totalFailed, "restorable", ts.RestorableCount())
-
-	resp := map[string]interface{}{
-		"ok":              lastErr == nil || totalTranslated > 0,
-		"scanned":         scanned,
-		"translated":      totalTranslated,
-		"skipped":         skipped,
-		"failed":          totalFailed,
-		"targetLang":      targetLang,
-		"targetLangName":  targetLangName,
-		"translatedCount": ts.RestorableCount(),
-	}
-	if lastErr != nil {
-		resp["error"] = lastErr.Error()
-	}
-	writeJSONOK(w, resp)
-}
-
-// HandleRestoreTitles serves POST /gateway/ai-assist/restore-titles.
-// It restores previously translated (non-user-edited) titles back to their original titles.
-func (p *Proxy) HandleRestoreTitles(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodPost {
-		http.Error(w, `{"error":"Method not allowed"}`, http.StatusMethodNotAllowed)
-		return
-	}
-	ts := &p.titleTranslator
-	ts.mu.Lock()
-	ts.ensureLoadedLocked()
-	targets := make([]struct {
-		id       string
-		original string
-	}, 0, len(ts.ledger))
-	for id, rec := range ts.ledger {
-		if rec.UserEdited || rec.OriginalTitle == "" || rec.OriginalTitle == rec.TranslatedTitle {
-			continue
-		}
-		if IsDeletedCascade(id) {
-			continue
-		}
-		targets = append(targets, struct {
-			id       string
-			original string
-		}{id: id, original: rec.OriginalTitle})
-	}
-	ts.mu.Unlock()
-
-	restored := 0
-	failed := 0
-	var restoredIDs []string
-	for _, item := range targets {
-		if err := p.writeUpstreamConversationTitle(r.Context(), item.id, item.original); err != nil {
-			failed++
-			continue
-		}
-		restored++
-		restoredIDs = append(restoredIDs, item.id)
-	}
-
-	if len(restoredIDs) > 0 {
-		ts.mu.Lock()
-		ts.ensureLoadedLocked()
-		for _, id := range restoredIDs {
-			delete(ts.ledger, id)
-		}
-		ts.saveLedgerLocked()
-		ts.mu.Unlock()
-		p.invalidateAllTrajectories()
-	}
-
-	slog.Info("[TitleTranslate] Restore finished", "restored", restored, "failed", failed, "remaining", ts.RestorableCount())
-
-	writeJSONOK(w, map[string]interface{}{
-		"ok":              failed == 0 || restored > 0,
-		"restored":        restored,
-		"failed":          failed,
-		"translatedCount": ts.RestorableCount(),
-	})
 }

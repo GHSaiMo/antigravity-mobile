@@ -4,24 +4,21 @@ import UIKit
 struct AIAssistSettingsView: View {
     @State private var manager = AIAssistManager.shared
     @State private var settings = AppSettings.shared
-    @State private var showRestoreConfirm = false
 
     private var devLang: DeviceTitleTargetLanguage { manager.deviceLanguage }
 
-    private var activeTargetEnglishName: String {
-        if !devLang.isEnglish {
-            return devLang.englishDisplayName
+    private var translationSectionHeader: String {
+        switch devLang.kind {
+        case .simplifiedChinese, .traditionalChinese:
+            return "智能翻译"
+        case .japanese:
+            return "スマート翻訳"
+        default:
+            return "Smart Translation"
         }
-        if let name = manager.prefs.titleTranslateLangName, !name.isEmpty {
-            return name
-        }
-        if !manager.resolvedLangName.isEmpty {
-            return manager.resolvedLangName
-        }
-        return "Local Language"
     }
 
-    private var titleSectionHeader: String {
+    private var titleToggleLabel: String {
         switch devLang.kind {
         case .simplifiedChinese, .traditionalChinese:
             return "会话标题翻译"
@@ -32,71 +29,16 @@ struct AIAssistSettingsView: View {
         }
     }
 
-    private var titleToggleLabel: String {
-        switch devLang.kind {
-        case .simplifiedChinese:
-            return "自动翻译为简体中文"
-        case .traditionalChinese:
-            return "自动翻译为繁体中文"
-        case .japanese:
-            return "英語タイトルを日本語に自動翻訳"
-        default:
-            return "Auto-translate to \(activeTargetEnglishName)"
-        }
-    }
-
     private var titleToggleSubtitle: String {
         switch devLang.kind {
-        case .simplifiedChinese, .traditionalChinese:
-            return "Google 生成英文标题后自动翻译并同步到桌面与手机"
+        case .simplifiedChinese:
+            return "新会话生成英文标题后自动翻译为简体中文并覆盖"
+        case .traditionalChinese:
+            return "新会话生成英文标题后自动翻译为繁体中文并覆盖"
         case .japanese:
-            return "Google 生成の英語タイトルを自動翻訳しデスクトップと同期"
+            return "新しい会話の英語タイトルを日本語に自動翻訳して上書き"
         default:
-            return "Translate English titles into \(activeTargetEnglishName) and sync across desktop & mobile"
-        }
-    }
-
-    private var batchButtonLabel: String {
-        switch devLang.kind {
-        case .simplifiedChinese, .traditionalChinese:
-            return "立即翻译历史英文标题"
-        case .japanese:
-            return "過去の英語タイトルを一括翻訳"
-        default:
-            return "Translate Existing Titles to \(activeTargetEnglishName)"
-        }
-    }
-
-    private var restoreButtonLabel: String {
-        switch devLang.kind {
-        case .simplifiedChinese, .traditionalChinese:
-            return "还原已翻译标题（\(manager.translatedCount)）"
-        case .japanese:
-            return "翻訳済みタイトルを元に戻す（\(manager.translatedCount)）"
-        default:
-            return "Restore Original Titles (\(manager.translatedCount))"
-        }
-    }
-
-    private var titleSectionFooter: String {
-        switch devLang.kind {
-        case .simplifiedChinese, .traditionalChinese:
-            return "仅翻译未归档活跃会话，不会覆盖手动重命名的标题；翻译结果直接写回 Antigravity，桌面端与手机端同步生效。"
-        case .japanese:
-            return "アーカイブ済みを除く会話のみ対象。手動変更したタイトルは上書きされず、デスクトップと同期されます。"
-        default:
-            return "Applies to active non-archived conversations only. Manually renamed titles are preserved."
-        }
-    }
-
-    private var liveSectionHeader: String {
-        switch devLang.kind {
-        case .simplifiedChinese, .traditionalChinese:
-            return "进度与状态翻译"
-        case .japanese:
-            return "進捗・ステータスの翻訳"
-        default:
-            return "Progress & Status Translation"
+            return "Auto-translate new English titles into \(devLang.englishDisplayName)"
         }
     }
 
@@ -120,7 +62,7 @@ struct AIAssistSettingsView: View {
         case .japanese:
             return "英語のタスクリストを日本語に翻訳（Dynamic Island 含む）"
         default:
-            return "Translate English checklist steps into \(activeTargetEnglishName) (incl. Live Activity)"
+            return "Translate English checklist steps into \(devLang.englishDisplayName) (incl. Live Activity)"
         }
     }
 
@@ -144,28 +86,28 @@ struct AIAssistSettingsView: View {
         case .japanese:
             return "実行中の英語ステータスを日本語に翻訳（Dynamic Island 含む）"
         default:
-            return "Translate live working status into \(activeTargetEnglishName) (incl. Live Activity)"
+            return "Translate live working status into \(devLang.englishDisplayName) (incl. Live Activity)"
         }
     }
 
-    private var liveSectionFooter: String {
+    private var translationSectionFooter: String {
         switch devLang.kind {
         case .simplifiedChinese, .traditionalChinese:
-            return "仅在客户端与灵动岛展示译文，不修改桌面端原始记录；相同条目本地缓存复用，随时可独立开关。"
+            return "标题翻译仅覆盖开启后的新会话，不改动已有会话；步骤与状态仅在客户端与灵动岛展示译文，不修改桌面端原始记录。"
         case .japanese:
-            return "クライアントと Dynamic Island の表示のみ翻訳され、デスクトップの元記録は変更されません。同じ項目はキャッシュで再利用されます。"
+            return "タイトル翻訳はオン後の新しい会話のみ上書き同期されます（既存会話は変更しません）。ステップ・状況は表示のみ翻訳され、元の記録は保持されます。"
         default:
-            return "Translates display on mobile, Web, and Live Activity only without modifying desktop history. Cached locally for reuse."
+            return "Title translation overwrites new conversations going forward without modifying existing ones. Step and status translations are display-only."
         }
     }
 
     var body: some View {
         Form {
-            // MARK: - 1. 会话标题翻译 (英文区默认隐藏；若网关已开启则兜底展示以便关闭)
-            if manager.shouldShowTitleTranslation {
+            // MARK: - 1. 智能翻译 (仅非英文用户可见，统一收拢三个翻译开关)
+            if manager.shouldShowSmartTranslation {
                 Section(
-                    header: Text(titleSectionHeader),
-                    footer: Text(titleSectionFooter)
+                    header: Text(translationSectionHeader),
+                    footer: Text(translationSectionFooter)
                 ) {
                     Toggle(isOn: Binding(
                         get: { manager.prefs.titleTranslateEnabled },
@@ -183,54 +125,6 @@ struct AIAssistSettingsView: View {
                     }
                     .disabled(settings.isDemoMode || !manager.isAvailable)
 
-                    if !devLang.isEnglish {
-                        Button {
-                            UIImpactFeedbackGenerator(style: .light).impactOccurred()
-                            Task { await manager.translateExistingTitles() }
-                        } label: {
-                            HStack {
-                                Text(batchButtonLabel)
-                                    .foregroundColor((settings.isDemoMode || !manager.isAvailable || manager.isTranslatingBatch) ? .secondary : .indigo)
-                                Spacer()
-                                if manager.isTranslatingBatch {
-                                    ProgressView()
-                                        .scaleEffect(0.85)
-                                }
-                            }
-                        }
-                        .disabled(settings.isDemoMode || !manager.isAvailable || manager.isTranslatingBatch)
-                    }
-
-                    if manager.translatedCount > 0 {
-                        Button(role: .destructive) {
-                            showRestoreConfirm = true
-                        } label: {
-                            HStack {
-                                Text(restoreButtonLabel)
-                                Spacer()
-                                if manager.isRestoringTitles {
-                                    ProgressView()
-                                        .scaleEffect(0.85)
-                                }
-                            }
-                        }
-                        .disabled(settings.isDemoMode || manager.isRestoringTitles || manager.isTranslatingBatch)
-                    }
-
-                    if let feedback = manager.batchFeedback, !feedback.isEmpty {
-                        Text(feedback)
-                            .font(.caption)
-                            .foregroundColor(manager.batchFeedbackIsError ? .red : .secondary)
-                    }
-                }
-            }
-
-            // MARK: - 1.5 进度与状态翻译 (英文区默认隐藏；若网关已开启则兜底展示以便关闭)
-            if manager.shouldShowLiveTranslation {
-                Section(
-                    header: Text(liveSectionHeader),
-                    footer: Text(liveSectionFooter)
-                ) {
                     Toggle(isOn: Binding(
                         get: { manager.prefs.stepPlanTranslateEnabled },
                         set: { newVal in
@@ -326,14 +220,6 @@ struct AIAssistSettingsView: View {
         .navigationBarTitleDisplayMode(.inline)
         .task {
             await manager.fetchStatus()
-        }
-        .alert(String(localized: "还原原始标题"), isPresented: $showRestoreConfirm) {
-            Button(String(localized: "取消"), role: .cancel) {}
-            Button(String(localized: "还原"), role: .destructive) {
-                Task { await manager.restoreOriginalTitles() }
-            }
-        } message: {
-            Text("将把此前自动或批量翻译的会话标题恢复为原始标题（手动重命名的会话不受影响）。")
         }
     }
 }

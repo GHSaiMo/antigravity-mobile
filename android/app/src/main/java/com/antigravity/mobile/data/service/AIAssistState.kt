@@ -19,55 +19,18 @@ data class AIAssistPrefsPayload(
 )
 
 @Serializable
-data class AIAssistBatchStatusPayload(
-    val running: Boolean = false,
-    val scanned: Int = 0,
-    val translated: Int = 0,
-    val skipped: Int = 0,
-    val failed: Int = 0,
-    val targetLang: String = "",
-    val targetLangName: String = "",
-    val finishedAt: String = "",
-    val error: String = ""
-)
-
-@Serializable
 data class AIAssistStatusPayload(
     val prefs: AIAssistPrefsPayload = AIAssistPrefsPayload(),
     val modelId: String = "",
     val modelName: String = "Gemini 3.5 Flash Lite",
     val resolvedLang: String = "",
     val resolvedLangName: String = "",
-    val translatedCount: Int = 0,
-    val batchStatus: AIAssistBatchStatusPayload? = null,
     val available: Boolean = true
 )
 
-@Serializable
-data class AIAssistTranslateResultPayload(
-    val ok: Boolean = false,
-    val alreadyRunning: Boolean = false,
-    val scanned: Int = 0,
-    val translated: Int = 0,
-    val skipped: Int = 0,
-    val failed: Int = 0,
-    val targetLang: String = "",
-    val targetLangName: String = "",
-    val translatedCount: Int = 0,
-    val error: String = ""
-)
-
-@Serializable
-data class AIAssistRestoreResultPayload(
-    val ok: Boolean = false,
-    val restored: Int = 0,
-    val failed: Int = 0,
-    val translatedCount: Int = 0
-)
-
 /**
- * Resolves the user's true device/app language for adaptive Title Translation UI:
- * - English (`en*`): hidden unless gateway already has title translation enabled.
+ * Resolves the user's true device/app language for adaptive Smart Translation UI:
+ * - English (`en*`): Smart Translation module is hidden.
  * - Chinese (`zh-Hans` / `zh-Hant`) & Japanese (`ja`): native localized menu.
  * - Other non-English languages (`pt-BR`, `ko`, `es`, `fr`, ...): English UI dynamically naming the language.
  */
@@ -85,12 +48,7 @@ data class DeviceTitleTargetLanguage(
     }
 
     val isEnglish: Boolean get() = kind == Kind.ENGLISH
-
-    fun shouldShowTitleTranslation(prefs: AIAssistPrefsPayload): Boolean =
-        !isEnglish || prefs.titleTranslateEnabled
-
-    fun shouldShowLiveTranslation(prefs: AIAssistPrefsPayload): Boolean =
-        !isEnglish || prefs.stepPlanTranslateEnabled || prefs.focusTranslateEnabled
+    val shouldShowSmartTranslation: Boolean get() = !isEnglish
 
     companion object {
         fun current(): DeviceTitleTargetLanguage {
@@ -142,10 +100,6 @@ object AIAssistCache {
 
     fun updatePrefs(prefs: AIAssistPrefsPayload) {
         _statusFlow.value = _statusFlow.value.copy(prefs = prefs)
-    }
-
-    fun updateTranslatedCount(count: Int) {
-        _statusFlow.value = _statusFlow.value.copy(translatedCount = count)
     }
 
     suspend fun refresh(apiClient: ApiClient?): Result<AIAssistStatusPayload> {

@@ -1760,58 +1760,6 @@ class ApiClient(
         }
     }
 
-    suspend fun translateExistingTitles(targetLang: String, targetLangName: String): Result<AIAssistTranslateResultPayload> = withContext(Dispatchers.IO) {
-        val baseUrl = currentBaseUrl ?: return@withContext Result.failure(IllegalStateException("未配置网关地址".loc))
-        val url = "$baseUrl/gateway/ai-assist/translate-titles"
-        val payload = buildJsonObject {
-            put("targetLang", targetLang)
-            put("targetLangName", targetLangName)
-            put("includeArchived", false)
-        }
-        try {
-            val batchClient = client.newBuilder()
-                .readTimeout(60, TimeUnit.SECONDS)
-                .writeTimeout(15, TimeUnit.SECONDS)
-                .build()
-            val req = buildAuthorizedRequest(url)
-                .post(payload.toString().toRequestBody(jsonMediaType))
-                .build()
-            batchClient.newCall(req).await().use { response ->
-                val bodyStr = response.body?.string().orEmpty()
-                if (!response.isSuccessful) {
-                    return@withContext Result.failure(RuntimeException("HTTP ${response.code}"))
-                }
-                Result.success(json.decodeFromString<AIAssistTranslateResultPayload>(bodyStr))
-            }
-        } catch (e: Exception) {
-            Log.w("ApiClient", "translateExistingTitles error: ${e.message}")
-            Result.failure(e)
-        }
-    }
-
-    suspend fun restoreOriginalTitles(): Result<AIAssistRestoreResultPayload> = withContext(Dispatchers.IO) {
-        val baseUrl = currentBaseUrl ?: return@withContext Result.failure(IllegalStateException("未配置网关地址".loc))
-        val url = "$baseUrl/gateway/ai-assist/restore-titles"
-        try {
-            val batchClient = client.newBuilder()
-                .readTimeout(30, TimeUnit.SECONDS)
-                .build()
-            val req = buildAuthorizedRequest(url)
-                .post("{}".toRequestBody(jsonMediaType))
-                .build()
-            batchClient.newCall(req).await().use { response ->
-                val bodyStr = response.body?.string().orEmpty()
-                if (!response.isSuccessful) {
-                    return@withContext Result.failure(RuntimeException("HTTP ${response.code}"))
-                }
-                Result.success(json.decodeFromString<AIAssistRestoreResultPayload>(bodyStr))
-            }
-        } catch (e: Exception) {
-            Log.w("ApiClient", "restoreOriginalTitles error: ${e.message}")
-            Result.failure(e)
-        }
-    }
-
     data class GatewayStatusMeta(
         val gatewayId: String? = null,
         val gatewayName: String? = null,

@@ -1039,9 +1039,10 @@ private fun MainSettingsContent(
                 HorizontalDivider(color = colors.separator.copy(alpha = 0.4f), thickness = 0.5.dp)
                 val devLangForSummary = com.antigravity.mobile.data.service.DeviceTitleTargetLanguage.current()
                 val aiSummary = run {
-                    val titleOn = devLangForSummary.shouldShowTitleTranslation(aiAssistStatus.prefs) && aiAssistStatus.prefs.titleTranslateEnabled
-                    val stepOn = devLangForSummary.shouldShowLiveTranslation(aiAssistStatus.prefs) && aiAssistStatus.prefs.stepPlanTranslateEnabled
-                    val focusOn = devLangForSummary.shouldShowLiveTranslation(aiAssistStatus.prefs) && aiAssistStatus.prefs.focusTranslateEnabled
+                    val showTrans = devLangForSummary.shouldShowSmartTranslation
+                    val titleOn = showTrans && aiAssistStatus.prefs.titleTranslateEnabled
+                    val stepOn = showTrans && aiAssistStatus.prefs.stepPlanTranslateEnabled
+                    val focusOn = showTrans && aiAssistStatus.prefs.focusTranslateEnabled
                     val nextOn = aiAssistStatus.prefs.nextPromptEnabled
                     val enabledCount = listOf(titleOn, stepOn, focusOn, nextOn).count { it }
                     when {
@@ -2788,64 +2789,25 @@ private fun AIAssistSubpageContent(
         com.antigravity.mobile.data.service.DeviceTitleTargetLanguage.current()
     }
     val prefs = status.prefs
-    val showTitleSection = devLang.shouldShowTitleTranslation(prefs)
-    val showLiveSection = devLang.shouldShowLiveTranslation(prefs)
+    val showSmartTranslation = devLang.shouldShowSmartTranslation
 
-    var isTranslatingBatch by remember { mutableStateOf(false) }
-    var isRestoringTitles by remember { mutableStateOf(false) }
-    var batchFeedback by remember { mutableStateOf<String?>(null) }
-    var batchFeedbackIsError by remember { mutableStateOf(false) }
-    var showRestoreConfirm by remember { mutableStateOf(false) }
-
-    val activeTargetEnglishName = when {
-        !devLang.isEnglish -> devLang.englishDisplayName
-        prefs.titleTranslateLangName.isNotBlank() -> prefs.titleTranslateLangName
-        status.resolvedLangName.isNotBlank() -> status.resolvedLangName
-        else -> "Local Language"
+    val translationSectionHeader = when (devLang.kind) {
+        com.antigravity.mobile.data.service.DeviceTitleTargetLanguage.Kind.SIMPLIFIED_CHINESE,
+        com.antigravity.mobile.data.service.DeviceTitleTargetLanguage.Kind.TRADITIONAL_CHINESE -> "智能翻译"
+        com.antigravity.mobile.data.service.DeviceTitleTargetLanguage.Kind.JAPANESE -> "スマート翻訳"
+        else -> "Smart Translation"
     }
-
-    val titleSectionHeader = when (devLang.kind) {
+    val titleToggleLabel = when (devLang.kind) {
         com.antigravity.mobile.data.service.DeviceTitleTargetLanguage.Kind.SIMPLIFIED_CHINESE,
         com.antigravity.mobile.data.service.DeviceTitleTargetLanguage.Kind.TRADITIONAL_CHINESE -> "会话标题翻译"
         com.antigravity.mobile.data.service.DeviceTitleTargetLanguage.Kind.JAPANESE -> "会話タイトルの翻訳"
         else -> "Conversation Title Translation"
     }
-    val titleToggleLabel = when (devLang.kind) {
-        com.antigravity.mobile.data.service.DeviceTitleTargetLanguage.Kind.SIMPLIFIED_CHINESE -> "自动翻译为简体中文"
-        com.antigravity.mobile.data.service.DeviceTitleTargetLanguage.Kind.TRADITIONAL_CHINESE -> "自动翻译为繁体中文"
-        com.antigravity.mobile.data.service.DeviceTitleTargetLanguage.Kind.JAPANESE -> "英語タイトルを日本語に自動翻訳"
-        else -> "Auto-translate to $activeTargetEnglishName"
-    }
     val titleToggleSubtitle = when (devLang.kind) {
-        com.antigravity.mobile.data.service.DeviceTitleTargetLanguage.Kind.SIMPLIFIED_CHINESE,
-        com.antigravity.mobile.data.service.DeviceTitleTargetLanguage.Kind.TRADITIONAL_CHINESE -> "Google 生成英文标题后自动翻译并同步到桌面与手机"
-        com.antigravity.mobile.data.service.DeviceTitleTargetLanguage.Kind.JAPANESE -> "Google 生成の英語タイトルを自動翻訳しデスクトップと同期"
-        else -> "Translate English titles into $activeTargetEnglishName and sync across desktop & mobile"
-    }
-    val batchButtonLabel = when (devLang.kind) {
-        com.antigravity.mobile.data.service.DeviceTitleTargetLanguage.Kind.SIMPLIFIED_CHINESE,
-        com.antigravity.mobile.data.service.DeviceTitleTargetLanguage.Kind.TRADITIONAL_CHINESE -> "立即翻译历史英文标题"
-        com.antigravity.mobile.data.service.DeviceTitleTargetLanguage.Kind.JAPANESE -> "過去の英語タイトルを一括翻訳"
-        else -> "Translate Existing Titles to $activeTargetEnglishName"
-    }
-    val restoreButtonLabel = when (devLang.kind) {
-        com.antigravity.mobile.data.service.DeviceTitleTargetLanguage.Kind.SIMPLIFIED_CHINESE,
-        com.antigravity.mobile.data.service.DeviceTitleTargetLanguage.Kind.TRADITIONAL_CHINESE -> "还原已翻译标题（${status.translatedCount}）"
-        com.antigravity.mobile.data.service.DeviceTitleTargetLanguage.Kind.JAPANESE -> "翻訳済みタイトルを元に戻す（${status.translatedCount}）"
-        else -> "Restore Original Titles (${status.translatedCount})"
-    }
-    val titleSectionFooter = when (devLang.kind) {
-        com.antigravity.mobile.data.service.DeviceTitleTargetLanguage.Kind.SIMPLIFIED_CHINESE,
-        com.antigravity.mobile.data.service.DeviceTitleTargetLanguage.Kind.TRADITIONAL_CHINESE -> "仅翻译未归档活跃会话，不会覆盖手动重命名的标题；翻译结果直接写回 Antigravity，桌面端与手机端同步生效。"
-        com.antigravity.mobile.data.service.DeviceTitleTargetLanguage.Kind.JAPANESE -> "アーカイブ済みを除く会話のみ対象。手動変更したタイトルは上書きされず、デスクトップと同期されます。"
-        else -> "Applies to active non-archived conversations only. Manually renamed titles are preserved."
-    }
-
-    val liveSectionHeader = when (devLang.kind) {
-        com.antigravity.mobile.data.service.DeviceTitleTargetLanguage.Kind.SIMPLIFIED_CHINESE,
-        com.antigravity.mobile.data.service.DeviceTitleTargetLanguage.Kind.TRADITIONAL_CHINESE -> "进度与状态翻译"
-        com.antigravity.mobile.data.service.DeviceTitleTargetLanguage.Kind.JAPANESE -> "進捗・ステータスの翻訳"
-        else -> "Progress & Status Translation"
+        com.antigravity.mobile.data.service.DeviceTitleTargetLanguage.Kind.SIMPLIFIED_CHINESE -> "新会话生成英文标题后自动翻译为简体中文并覆盖"
+        com.antigravity.mobile.data.service.DeviceTitleTargetLanguage.Kind.TRADITIONAL_CHINESE -> "新会话生成英文标题后自动翻译为繁体中文并覆盖"
+        com.antigravity.mobile.data.service.DeviceTitleTargetLanguage.Kind.JAPANESE -> "新しい会話の英語タイトルを日本語に自動翻訳して上書き"
+        else -> "Auto-translate new English titles into ${devLang.englishDisplayName}"
     }
     val stepPlanToggleLabel = when (devLang.kind) {
         com.antigravity.mobile.data.service.DeviceTitleTargetLanguage.Kind.SIMPLIFIED_CHINESE,
@@ -2857,7 +2819,7 @@ private fun AIAssistSubpageContent(
         com.antigravity.mobile.data.service.DeviceTitleTargetLanguage.Kind.SIMPLIFIED_CHINESE -> "将英文待办步骤翻译为简体中文"
         com.antigravity.mobile.data.service.DeviceTitleTargetLanguage.Kind.TRADITIONAL_CHINESE -> "将英文待办步骤翻译为繁体中文"
         com.antigravity.mobile.data.service.DeviceTitleTargetLanguage.Kind.JAPANESE -> "英語のタスクリストを日本語に自動翻訳"
-        else -> "Translate English checklist steps into $activeTargetEnglishName"
+        else -> "Translate English checklist steps into ${devLang.englishDisplayName}"
     }
     val focusToggleLabel = when (devLang.kind) {
         com.antigravity.mobile.data.service.DeviceTitleTargetLanguage.Kind.SIMPLIFIED_CHINESE,
@@ -2869,13 +2831,13 @@ private fun AIAssistSubpageContent(
         com.antigravity.mobile.data.service.DeviceTitleTargetLanguage.Kind.SIMPLIFIED_CHINESE -> "将执行中的英文状态摘要翻译为简体中文"
         com.antigravity.mobile.data.service.DeviceTitleTargetLanguage.Kind.TRADITIONAL_CHINESE -> "将执行中的英文状态摘要翻译为繁体中文"
         com.antigravity.mobile.data.service.DeviceTitleTargetLanguage.Kind.JAPANESE -> "実行中の英語ステータスを日本語に自動翻訳"
-        else -> "Translate live working status into $activeTargetEnglishName"
+        else -> "Translate live working status into ${devLang.englishDisplayName}"
     }
-    val liveSectionFooter = when (devLang.kind) {
+    val translationSectionFooter = when (devLang.kind) {
         com.antigravity.mobile.data.service.DeviceTitleTargetLanguage.Kind.SIMPLIFIED_CHINESE,
-        com.antigravity.mobile.data.service.DeviceTitleTargetLanguage.Kind.TRADITIONAL_CHINESE -> "仅在客户端与灵动岛展示译文，不修改桌面端原始记录；相同条目本地缓存复用，随时可独立开关。"
-        com.antigravity.mobile.data.service.DeviceTitleTargetLanguage.Kind.JAPANESE -> "クライアント表示のみ翻訳され、デスクトップの元記録は変更されません。同じ項目はキャッシュで再利用されます。"
-        else -> "Translates display on mobile, Web, and Live Activity only without modifying desktop history. Cached locally for reuse."
+        com.antigravity.mobile.data.service.DeviceTitleTargetLanguage.Kind.TRADITIONAL_CHINESE -> "标题翻译仅覆盖开启后的新会话，不改动已有会话；步骤与状态仅在客户端展示译文，不修改桌面端原始记录。"
+        com.antigravity.mobile.data.service.DeviceTitleTargetLanguage.Kind.JAPANESE -> "タイトル翻訳はオン後の新しい会話のみ上書き同期されます（既存会話は変更しません）。ステップ・状況は表示のみ翻訳され、元の記録は保持されます。"
+        else -> "Title translation overwrites new conversations going forward without modifying existing ones. Step and status translations are display-only."
     }
 
     fun applyPatch(optimistic: com.antigravity.mobile.data.service.AIAssistPrefsPayload, patch: kotlinx.serialization.json.JsonObject) {
@@ -2908,10 +2870,10 @@ private fun AIAssistSubpageContent(
             .navigationBarsPadding(),
         verticalArrangement = Arrangement.spacedBy(20.dp)
     ) {
-        if (showTitleSection) {
+        if (showSmartTranslation) {
             SettingsSection(
-                title = titleSectionHeader,
-                footer = titleSectionFooter
+                title = translationSectionHeader,
+                footer = translationSectionFooter
             ) {
                 Column(
                     modifier = Modifier
@@ -2947,139 +2909,8 @@ private fun AIAssistSubpageContent(
                         }
                     )
 
-                    if (!devLang.isEnglish) {
-                        HorizontalDivider(color = colors.separator.copy(alpha = 0.35f), thickness = 0.5.dp, modifier = Modifier.padding(start = 16.dp))
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .clickable(enabled = isPaired && status.available && !isTranslatingBatch) {
-                                    haptic.light()
-                                    isTranslatingBatch = true
-                                    batchFeedback = null
-                                    batchFeedbackIsError = false
-                                    scope.launch {
-                                        val res = ApiClient.defaultInstance?.translateExistingTitles(
-                                            targetLang = devLang.bcp47Tag,
-                                            targetLangName = devLang.englishDisplayName
-                                        )
-                                        isTranslatingBatch = false
-                                        if (res != null && res.isSuccess) {
-                                            val r = res.getOrThrow()
-                                            com.antigravity.mobile.data.service.AIAssistCache.updateTranslatedCount(r.translatedCount)
-                                            batchFeedbackIsError = r.translated == 0 && r.failed > 0
-                                            batchFeedback = when {
-                                                r.alreadyRunning -> when (devLang.kind) {
-                                                    com.antigravity.mobile.data.service.DeviceTitleTargetLanguage.Kind.SIMPLIFIED_CHINESE,
-                                                    com.antigravity.mobile.data.service.DeviceTitleTargetLanguage.Kind.TRADITIONAL_CHINESE -> "后台正在翻译中，请稍候"
-                                                    com.antigravity.mobile.data.service.DeviceTitleTargetLanguage.Kind.JAPANESE -> "翻訳処理が実行中です"
-                                                    else -> "Translation is already running in the background"
-                                                }
-                                                r.translated == 0 && r.failed == 0 -> when (devLang.kind) {
-                                                    com.antigravity.mobile.data.service.DeviceTitleTargetLanguage.Kind.SIMPLIFIED_CHINESE,
-                                                    com.antigravity.mobile.data.service.DeviceTitleTargetLanguage.Kind.TRADITIONAL_CHINESE -> "所有活跃会话标题已是目标语言（跳过 ${r.skipped} 条）"
-                                                    com.antigravity.mobile.data.service.DeviceTitleTargetLanguage.Kind.JAPANESE -> "翻訳対象の英語タイトルはありませんでした（${r.skipped} 件スキップ）"
-                                                    else -> "All active titles are already up to date (${r.skipped} skipped)"
-                                                }
-                                                else -> when (devLang.kind) {
-                                                    com.antigravity.mobile.data.service.DeviceTitleTargetLanguage.Kind.SIMPLIFIED_CHINESE,
-                                                    com.antigravity.mobile.data.service.DeviceTitleTargetLanguage.Kind.TRADITIONAL_CHINESE ->
-                                                        if (r.failed > 0) "已翻译 ${r.translated} 条，跳过 ${r.skipped} 条，失败 ${r.failed} 条"
-                                                        else "已翻译 ${r.translated} 条标题，跳过 ${r.skipped} 条"
-                                                    com.antigravity.mobile.data.service.DeviceTitleTargetLanguage.Kind.JAPANESE ->
-                                                        if (r.failed > 0) "${r.translated} 件翻訳、${r.skipped} 件スキップ、${r.failed} 件失敗"
-                                                        else "${r.translated} 件のタイトルを翻訳しました（${r.skipped} 件スキップ）"
-                                                    else ->
-                                                        if (r.failed > 0) "Translated ${r.translated}, skipped ${r.skipped}, failed ${r.failed}"
-                                                        else "Translated ${r.translated} titles (${r.skipped} skipped)"
-                                                }
-                                            }
-                                        } else {
-                                            batchFeedbackIsError = true
-                                            batchFeedback = when (L10n.currentLang) {
-                                                L10n.AppLang.EN -> "Translation failed. Check gateway connection."
-                                                L10n.AppLang.JA -> "翻訳に失敗しました。接続を確認してください。"
-                                                L10n.AppLang.ZH -> "翻译失败，请确认网关已连接 Antigravity"
-                                            }
-                                        }
-                                    }
-                                }
-                                .padding(horizontal = 16.dp, vertical = 14.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.SpaceBetween
-                        ) {
-                            Text(
-                                text = batchButtonLabel,
-                                color = if (isPaired && status.available && !isTranslatingBatch) colors.accentIndigo else colors.textMuted,
-                                fontSize = 14.5.sp,
-                                fontWeight = FontWeight.Medium,
-                                modifier = Modifier.weight(1f)
-                            )
-                            if (isTranslatingBatch) {
-                                CircularProgressIndicator(
-                                    modifier = Modifier.size(16.dp),
-                                    strokeWidth = 2.dp,
-                                    color = colors.accentIndigo
-                                )
-                            }
-                        }
-                    }
+                    HorizontalDivider(color = colors.separator.copy(alpha = 0.35f), thickness = 0.5.dp, modifier = Modifier.padding(start = 16.dp))
 
-                    if (status.translatedCount > 0) {
-                        HorizontalDivider(color = colors.separator.copy(alpha = 0.35f), thickness = 0.5.dp, modifier = Modifier.padding(start = 16.dp))
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .clickable(enabled = isPaired && !isRestoringTitles && !isTranslatingBatch) {
-                                    haptic.light()
-                                    showRestoreConfirm = true
-                                }
-                                .padding(horizontal = 16.dp, vertical = 14.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.SpaceBetween
-                        ) {
-                            Text(
-                                text = restoreButtonLabel,
-                                color = colors.accentRed,
-                                fontSize = 14.5.sp,
-                                fontWeight = FontWeight.Medium,
-                                modifier = Modifier.weight(1f)
-                            )
-                            if (isRestoringTitles) {
-                                CircularProgressIndicator(
-                                    modifier = Modifier.size(16.dp),
-                                    strokeWidth = 2.dp,
-                                    color = colors.accentRed
-                                )
-                            }
-                        }
-                    }
-
-                    if (!batchFeedback.isNullOrBlank()) {
-                        HorizontalDivider(color = colors.separator.copy(alpha = 0.35f), thickness = 0.5.dp, modifier = Modifier.padding(start = 16.dp))
-                        Text(
-                            text = batchFeedback.orEmpty(),
-                            color = if (batchFeedbackIsError) colors.accentRed else colors.textSecondary,
-                            fontSize = 12.sp,
-                            lineHeight = 16.sp,
-                            modifier = Modifier.padding(horizontal = 16.dp, vertical = 10.dp)
-                        )
-                    }
-                }
-            }
-        }
-
-        if (showLiveSection) {
-            SettingsSection(
-                title = liveSectionHeader,
-                footer = liveSectionFooter
-            ) {
-                Column(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .clip(RoundedCornerShape(12.dp))
-                        .background(colors.surface)
-                        .border(0.5.dp, colors.border, RoundedCornerShape(12.dp))
-                ) {
                     CompactSubpageToggleRow(
                         title = stepPlanToggleLabel,
                         subtitle = stepPlanToggleSubtitle,
@@ -3266,79 +3097,5 @@ private fun AIAssistSubpageContent(
         }
 
         Spacer(modifier = Modifier.height(16.dp))
-    }
-
-    if (showRestoreConfirm) {
-        AlertDialog(
-            onDismissRequest = { showRestoreConfirm = false },
-            title = {
-                Text(
-                    text = when (L10n.currentLang) {
-                        L10n.AppLang.EN -> "Restore Original Titles"
-                        L10n.AppLang.JA -> "元のタイトルを復元"
-                        L10n.AppLang.ZH -> "还原原始标题"
-                    },
-                    color = colors.textPrimary,
-                    fontWeight = FontWeight.Bold
-                )
-            },
-            text = {
-                Text(
-                    text = when (L10n.currentLang) {
-                        L10n.AppLang.EN -> "Restore titles previously translated by AI Assist back to their original text (manually renamed titles are preserved)."
-                        L10n.AppLang.JA -> "自動・一括翻訳された会話タイトルを元の英語タイトルに戻します（手動変更したタイトルは維持されます）。"
-                        L10n.AppLang.ZH -> "将把此前自动或批量翻译的会话标题恢复为原始标题（手动重命名的会话不受影响）。"
-                    },
-                    color = colors.textSecondary,
-                    fontSize = 14.sp
-                )
-            },
-            confirmButton = {
-                TextButton(
-                    onClick = {
-                        showRestoreConfirm = false
-                        isRestoringTitles = true
-                        batchFeedback = null
-                        batchFeedbackIsError = false
-                        scope.launch {
-                            val res = ApiClient.defaultInstance?.restoreOriginalTitles()
-                            isRestoringTitles = false
-                            if (res != null && res.isSuccess) {
-                                val r = res.getOrThrow()
-                                com.antigravity.mobile.data.service.AIAssistCache.updateTranslatedCount(r.translatedCount)
-                                batchFeedback = when (devLang.kind) {
-                                    com.antigravity.mobile.data.service.DeviceTitleTargetLanguage.Kind.SIMPLIFIED_CHINESE,
-                                    com.antigravity.mobile.data.service.DeviceTitleTargetLanguage.Kind.TRADITIONAL_CHINESE -> "已还原 ${r.restored} 条原始标题"
-                                    com.antigravity.mobile.data.service.DeviceTitleTargetLanguage.Kind.JAPANESE -> "${r.restored} 件の元のタイトルを復元しました"
-                                    else -> "Restored ${r.restored} original titles"
-                                }
-                            } else {
-                                batchFeedbackIsError = true
-                                batchFeedback = when (L10n.currentLang) {
-                                    L10n.AppLang.EN -> "Restore failed. Check gateway connection."
-                                    L10n.AppLang.JA -> "復元に失敗しました。"
-                                    L10n.AppLang.ZH -> "还原失败，请检查网关连接"
-                                }
-                            }
-                        }
-                    }
-                ) {
-                    Text(
-                        text = when (L10n.currentLang) {
-                            L10n.AppLang.EN -> "Restore"
-                            L10n.AppLang.JA -> "復元"
-                            L10n.AppLang.ZH -> "还原"
-                        },
-                        color = colors.accentRed,
-                        fontWeight = FontWeight.SemiBold
-                    )
-                }
-            },
-            dismissButton = {
-                TextButton(onClick = { showRestoreConfirm = false }) {
-                    Text("取消".loc, color = colors.textSecondary)
-                }
-            }
-        )
     }
 }

@@ -1,7 +1,6 @@
 package proxy
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"net/http"
@@ -58,11 +57,25 @@ func TestAIAssistPrefs_DefaultsAndPersistence(t *testing.T) {
 	if !reloaded.TitleTranslateEnabled || !reloaded.StepPlanTranslateEnabled || !reloaded.FocusTranslateEnabled || !reloaded.NextPromptEnabled {
 		t.Fatalf("expected persisted enabled flags, got %+v", reloaded)
 	}
+	if reloaded.TitleTranslateEnabledAt == "" {
+		t.Fatalf("expected persisted titleTranslateEnabledAt watermark when enabled, got %+v", reloaded)
+	}
 	if reloaded.TitleTranslateLang != "pt-BR" || reloaded.TitleTranslateLangName != "Portuguese" {
 		t.Fatalf("expected persisted target language pt-BR/Portuguese, got %+v", reloaded)
 	}
 	if reloaded.NextPromptTapAction != NextPromptTapSend {
 		t.Fatalf("expected persisted tap action 'send', got %q", reloaded.NextPromptTapAction)
+	}
+
+	// Disabling title translation clears the watermark
+	req3 := httptest.NewRequest(http.MethodPost, "/gateway/ai-assist/prefs", strings.NewReader(`{"titleTranslateEnabled":false}`))
+	rec3 := httptest.NewRecorder()
+	p2.HandleAIAssistPrefs(rec3, req3)
+	if rec3.Code != http.StatusOK {
+		t.Fatalf("POST disable status = %d: %s", rec3.Code, rec3.Body.String())
+	}
+	if p2.AIAssistPrefs().TitleTranslateEnabledAt != "" {
+		t.Fatalf("expected titleTranslateEnabledAt cleared on disable, got %+v", p2.AIAssistPrefs())
 	}
 }
 
@@ -106,14 +119,35 @@ func TestTitleNeedsTranslation_MultiLocaleRules(t *testing.T) {
 	}
 }
 
-func TestTitleTranslator_BatchTranslatePreserveUserRenameAndRestore(t *testing.T) {
+func TestTitleTranslator_FutureOnlyOverwriteAndSkipExisting(t *testing.T) {
 	t.Setenv("MULTIGRAVITY_DATA_DIR", t.TempDir())
 	t.Setenv("HOME", t.TempDir())
 
+	oldDebounce := titleTranslateDebounce
+	titleTranslateDebounce = 15 * time.Millisecond
+	t.Cleanup(func() { titleTranslateDebounce = oldDebounce })
+
 	p := NewProxy(inspector.NewInspector(time.Second))
+
+	// Seed an existing cached conversation ID (without createdTime) before enabling title translation.
+	p.allTrajectories.mu.Lock()
+	p.allTrajectories.parsed = &allTrajectoriesParsed{
+		sortedIDs: []string{"conv-baseline-no-created"},
+	}
+	p.allTrajectories.mu.Unlock()
+
+	// Enable title translation via prefs handler (stamps enabledAt & captures baselineIDs).
+	enableReq := httptest.NewRequest(http.MethodPost, "/gateway/ai-assist/prefs",
+		strings.NewReader(`{"titleTranslateEnabled":true,"titleTranslateLang":"zh-Hans","titleTranslateLangName":"Simplified Chinese"}`))
+	enableRec := httptest.NewRecorder()
+	p.HandleAIAssistPrefs(enableRec, enableReq)
+	if enableRec.Code != http.StatusOK {
+		t.Fatalf("enable prefs status = %d: %s", enableRec.Code, enableRec.Body.String())
+	}
 
 	var mu sync.Mutex
 	written := map[string]string{}
+	doneCh := make(chan struct{}, 2)
 	p.titleWriteHook = func(ctx context.Context, cascadeID, title string) error {
 		mu.Lock()
 		written[cascadeID] = title
@@ -121,55 +155,18 @@ func TestTitleTranslator_BatchTranslatePreserveUserRenameAndRestore(t *testing.T
 		return nil
 	}
 
-	nowStr := time.Now().UTC().Format(time.RFC3339)
-	p.summariesFetchHook = func(ctx context.Context) (map[string]map[string]interface{}, error) {
-		return map[string]map[string]interface{}{
-			"conv-en-1": {
-				"summary":          "Antigravity Context Viewer Prompt Principles",
-				"annotations":      map[string]interface{}{"title": "Antigravity Context Viewer Prompt Principles"},
-				"lastModifiedTime": nowStr,
-			},
-			"conv-en-archived": {
-				"summary":          "Old Archived English Chat",
-				"annotations":      map[string]interface{}{"title": "Old Archived English Chat", "archived": true},
-				"lastModifiedTime": nowStr,
-			},
-			"conv-user-renamed": {
-				"summary":          "Auto Generated English Title",
-				"annotations":      map[string]interface{}{"title": "My Custom English Name"},
-				"lastModifiedTime": nowStr,
-			},
-			"conv-zh-already": {
-				"summary":          "中东地缘局势分析",
-				"annotations":      map[string]interface{}{"title": "中东地缘局势分析"},
-				"lastModifiedTime": nowStr,
-			},
-			"conv-subagent": {
-				"summary":            "Research subagent task",
-				"trajectoryMetadata": map[string]interface{}{"parentConversationId": "conv-en-1"},
-				"lastModifiedTime":   nowStr,
-			},
-			"conv-en-2": {
-				"summary":          "Debug Xcode Wireless Connection",
-				"annotations":      map[string]interface{}{"title": "Debug Xcode Wireless Connection"},
-				"lastModifiedTime": nowStr,
-			},
-			"conv-en-3": {
-				"summary":          "Optimize Stream Delta Cache",
-				"annotations":      map[string]interface{}{"title": "Optimize Stream Delta Cache"},
-				"lastModifiedTime": nowStr,
-			},
-		}, nil
-	}
-
 	modelCalls := 0
 	p.lsModelResponseHook = func(ctx context.Context, prompt, modelEnum string) (string, error) {
+		mu.Lock()
 		modelCalls++
-		if !strings.Contains(prompt, "Simplified Chinese") {
-			t.Errorf("expected Simplified Chinese in prompt, got: %s", prompt)
-		}
+		mu.Unlock()
+		defer func() {
+			select {
+			case doneCh <- struct{}{}:
+			default:
+			}
+		}()
 		if strings.Contains(prompt, "Input JSON:") {
-			// Batch prompt: return mapped translations keyed by 1-based index matching input order
 			out := map[string]string{}
 			var items []struct {
 				ID    string `json:"id"`
@@ -191,89 +188,115 @@ func TestTitleTranslator_BatchTranslatePreserveUserRenameAndRestore(t *testing.T
 		return "Antigravity Context Viewer 提示词原则", nil
 	}
 
-	// Mark conv-en-2 as manually edited first -> should be skipped!
-	p.MarkConversationTitleUserEdited("conv-en-2", "Debug Xcode Wireless Connection")
+	// Mark conv-future-edited as manually renamed -> must never be overwritten.
+	p.MarkConversationTitleUserEdited("conv-future-edited", "Debug Xcode Wireless Connection")
 
-	// Run batch translation (default includeArchived=false)
-	req := httptest.NewRequest(http.MethodPost, "/gateway/ai-assist/translate-titles",
-		bytes.NewBufferString(`{"targetLang":"zh-Hans","targetLangName":"Simplified Chinese"}`))
-	rec := httptest.NewRecorder()
-	p.HandleTranslateTitles(rec, req)
-	if rec.Code != http.StatusOK {
-		t.Fatalf("translate-titles status = %d: %s", rec.Code, rec.Body.String())
+	beforeStr := time.Now().Add(-5 * time.Minute).UTC().Format(time.RFC3339Nano)
+	futureStr := time.Now().Add(5 * time.Second).UTC().Format(time.RFC3339Nano)
+
+	summaries := map[string]map[string]interface{}{
+		// Existing conversation created before toggle -> MUST NOT be touched even if lastModifiedTime is newer!
+		"conv-old-active": {
+			"summary":          "Old Conversation Updated After Enable",
+			"createdTime":      beforeStr,
+			"lastModifiedTime": futureStr,
+		},
+		// Existing baseline conversation without createdTime -> MUST NOT be touched!
+		"conv-baseline-no-created": {
+			"summary":          "Baseline Existing Conversation Without CreatedTime",
+			"lastModifiedTime": futureStr,
+		},
+		// Future archived conversation -> skip
+		"conv-future-archived": {
+			"summary":          "Future Archived Chat",
+			"annotations":      map[string]interface{}{"title": "Future Archived Chat", "archived": true},
+			"createdTime":      futureStr,
+			"lastModifiedTime": futureStr,
+		},
+		// Future manually renamed conversation -> skip
+		"conv-future-renamed": {
+			"summary":          "Auto Generated English Title",
+			"annotations":      map[string]interface{}{"title": "My Custom English Name"},
+			"createdTime":      futureStr,
+			"lastModifiedTime": futureStr,
+		},
+		// Future user-edited via mobile -> skip
+		"conv-future-edited": {
+			"summary":          "Debug Xcode Wireless Connection",
+			"createdTime":      futureStr,
+			"lastModifiedTime": futureStr,
+		},
+		// Future already-Chinese conversation -> skip
+		"conv-future-zh": {
+			"summary":          "中东地缘局势分析",
+			"createdTime":      futureStr,
+			"lastModifiedTime": futureStr,
+		},
+		// Future subagent -> skip
+		"conv-future-subagent": {
+			"summary":            "Research subagent task",
+			"trajectoryMetadata": map[string]interface{}{"parentConversationId": "conv-future-1"},
+			"createdTime":        futureStr,
+			"lastModifiedTime":   futureStr,
+		},
+		// Future eligible conversations -> MUST translate and overwrite!
+		"conv-future-1": {
+			"summary":          "Antigravity Context Viewer Prompt Principles",
+			"createdTime":      futureStr,
+			"lastModifiedTime": futureStr,
+		},
+		"conv-future-2": {
+			"summary":          "Optimize Stream Delta Cache",
+			"annotations":      map[string]interface{}{"title": "Optimize Stream Delta Cache"},
+			"createdTime":      futureStr,
+			"lastModifiedTime": futureStr,
+		},
 	}
 
-	var res struct {
-		OK              bool `json:"ok"`
-		Scanned         int  `json:"scanned"`
-		Translated      int  `json:"translated"`
-		Skipped         int  `json:"skipped"`
-		Failed          int  `json:"failed"`
-		TranslatedCount int  `json:"translatedCount"`
+	p.MaybeAutoTranslateSummaries(summaries)
+
+	select {
+	case <-doneCh:
+	case <-time.After(3 * time.Second):
+		t.Fatal("timed out waiting for auto title translation")
 	}
-	if err := json.Unmarshal(rec.Body.Bytes(), &res); err != nil {
-		t.Fatalf("unmarshal translate-titles: %v", err)
+
+	// Wait briefly for writes to commit after model hook returns
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		mu.Lock()
+		n := len(written)
+		mu.Unlock()
+		if n >= 2 {
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
 	}
-	if !res.OK || res.Translated != 2 || res.Failed != 0 || res.TranslatedCount != 2 {
-		t.Fatalf("unexpected translate result: %+v (body=%s)", res, rec.Body.String())
-	}
-	if modelCalls != 1 {
-		t.Fatalf("expected 1 batched model call for 2 eligible items, got %d", modelCalls)
-	}
+
 	mu.Lock()
-	gotTitle := written["conv-en-1"]
-	gotTitle3 := written["conv-en-3"]
-	_, wroteArchived := written["conv-en-archived"]
-	_, wroteCustom := written["conv-user-renamed"]
-	_, wroteEdited := written["conv-en-2"]
+	got1 := written["conv-future-1"]
+	got2 := written["conv-future-2"]
+	totalWritten := len(written)
+	callsAfterFirst := modelCalls
 	mu.Unlock()
-	if gotTitle != "Antigravity Context Viewer 提示词原则" || gotTitle3 != "优化 Stream Delta 缓存" {
-		t.Fatalf("unexpected translated titles: conv-en-1=%q conv-en-3=%q", gotTitle, gotTitle3)
+
+	if totalWritten != 2 || got1 != "Antigravity Context Viewer 提示词原则" || got2 != "优化 Stream Delta 缓存" {
+		t.Fatalf("unexpected written titles (count=%d): %+v", totalWritten, written)
 	}
-	if wroteArchived || wroteCustom || wroteEdited {
-		t.Fatalf("must not translate archived/user-renamed/user-edited conversations: %+v", written)
+	if callsAfterFirst != 1 {
+		t.Fatalf("expected 1 batched model call for 2 future conversations, got %d", callsAfterFirst)
 	}
 
-	// Re-running batch translation must be idempotent (0 model calls)
-	prevCalls := modelCalls
-	// Update mock summaries to reflect translated conv-en-1 & conv-en-3
-	p.summariesFetchHook = func(ctx context.Context) (map[string]map[string]interface{}, error) {
-		return map[string]map[string]interface{}{
-			"conv-en-1": {
-				"summary":          "Antigravity Context Viewer Prompt Principles",
-				"annotations":      map[string]interface{}{"title": gotTitle},
-				"lastModifiedTime": nowStr,
-			},
-			"conv-en-3": {
-				"summary":          "Optimize Stream Delta Cache",
-				"annotations":      map[string]interface{}{"title": gotTitle3},
-				"lastModifiedTime": nowStr,
-			},
-		}, nil
-	}
-	req2 := httptest.NewRequest(http.MethodPost, "/gateway/ai-assist/translate-titles",
-		bytes.NewBufferString(`{"targetLang":"zh-Hans"}`))
-	rec2 := httptest.NewRecorder()
-	p.HandleTranslateTitles(rec2, req2)
-	if modelCalls != prevCalls {
-		t.Fatalf("expected idempotent 0 additional model calls, got %d", modelCalls-prevCalls)
-	}
-
-	// Restore titles must put original English title back
-	reqRestore := httptest.NewRequest(http.MethodPost, "/gateway/ai-assist/restore-titles", nil)
-	recRestore := httptest.NewRecorder()
-	p.HandleRestoreTitles(recRestore, reqRestore)
-	if recRestore.Code != http.StatusOK {
-		t.Fatalf("restore-titles status = %d: %s", recRestore.Code, recRestore.Body.String())
-	}
+	// Re-observing the same summaries (including with overwritten annotations.title) must issue 0 extra model calls.
+	summaries["conv-future-1"]["annotations"] = map[string]interface{}{"title": got1}
+	summaries["conv-future-2"]["annotations"] = map[string]interface{}{"title": got2}
+	p.MaybeAutoTranslateSummaries(summaries)
+	time.Sleep(50 * time.Millisecond)
 	mu.Lock()
-	restoredTitle := written["conv-en-1"]
+	callsAfterSecond := modelCalls
 	mu.Unlock()
-	if restoredTitle != "Antigravity Context Viewer Prompt Principles" {
-		t.Fatalf("expected restored original title, got %q", restoredTitle)
-	}
-	if p.titleTranslator.RestorableCount() != 0 {
-		t.Fatalf("expected 0 restorable entries after restore, got %d", p.titleTranslator.RestorableCount())
+	if callsAfterSecond != callsAfterFirst {
+		t.Fatalf("expected 0 extra model calls on re-observation, got %d", callsAfterSecond-callsAfterFirst)
 	}
 }
 
@@ -570,7 +593,7 @@ func TestLiveTextTranslator_SeparateTogglesCopyOnWriteAndLiveActivity(t *testing
 	}
 }
 
-func TestTitleTranslator_OutputValidationFallbackNoTruncationAndSelfHeal(t *testing.T) {
+func TestTitleTranslator_OutputValidationFallbackAndNoTruncation(t *testing.T) {
 	t.Setenv("MULTIGRAVITY_DATA_DIR", t.TempDir())
 	t.Setenv("HOME", t.TempDir())
 
@@ -608,47 +631,12 @@ func TestTitleTranslator_OutputValidationFallbackNoTruncationAndSelfHeal(t *test
 		return nil
 	}
 
-	nowStr := time.Now().UTC().Format(time.RFC3339)
-	// Seed a stale corrupted ledger (truncated English + unchanged English) from an earlier buggy run.
-	p.titleTranslator.mu.Lock()
-	p.titleTranslator.ensureLoadedLocked()
-	p.titleTranslator.ledger["conv-echo-1"] = titleTranslationRecord{
-		OriginalTitle:   "Antigravity Context Viewer Mobile Features",
-		TranslatedTitle: "Antigravity Context Viewer Mobile Fe...",
-		TargetLang:      "zh-Hans",
-		UpdatedAt:       nowStr,
-	}
-	p.titleTranslator.ledger["conv-echo-2"] = titleTranslationRecord{
-		OriginalTitle:   "Draft Message To Advisor",
-		TranslatedTitle: "Draft Message To Advisor",
-		TargetLang:      "zh-Hans",
-		UpdatedAt:       nowStr,
-	}
-	p.titleTranslator.saveLedgerLocked()
-	p.titleTranslator.mu.Unlock()
-
-	p.summariesFetchHook = func(ctx context.Context) (map[string]map[string]interface{}, error) {
-		return map[string]map[string]interface{}{
-			"conv-echo-1": {
-				"summary":          "Antigravity Context Viewer Mobile Fe...",
-				"annotations":      map[string]interface{}{"title": "Antigravity Context Viewer Mobile Fe..."},
-				"lastModifiedTime": nowStr,
-			},
-			"conv-echo-2": {
-				"summary":          "Draft Message To Advisor",
-				"annotations":      map[string]interface{}{"title": "Draft Message To Advisor"},
-				"lastModifiedTime": nowStr,
-			},
-		}, nil
-	}
-
 	var seenModels []string
 	p.lsModelResponseHook = func(ctx context.Context, prompt, modelEnum string) (string, error) {
 		mu.Lock()
 		seenModels = append(seenModels, modelEnum)
 		mu.Unlock()
 		if modelEnum == "MODEL_PLACEHOLDER_M198" {
-			// Simulate Flash Lite echoing verbatim English
 			var items []struct {
 				ID    string `json:"id"`
 				Title string `json:"title"`
@@ -662,7 +650,6 @@ func TestTitleTranslator_OutputValidationFallbackNoTruncationAndSelfHeal(t *test
 			b, _ := json.Marshal(out)
 			return string(b), nil
 		}
-		// Fallback model translates cleanly using the self-healed untruncated OriginalTitle
 		var items []struct {
 			ID    string `json:"id"`
 			Title string `json:"title"`
@@ -681,25 +668,13 @@ func TestTitleTranslator_OutputValidationFallbackNoTruncationAndSelfHeal(t *test
 		return string(b), nil
 	}
 
-	req := httptest.NewRequest(http.MethodPost, "/gateway/ai-assist/translate-titles",
-		bytes.NewBufferString(`{"targetLang":"zh-Hans","targetLangName":"Simplified Chinese"}`))
-	rec := httptest.NewRecorder()
-	p.HandleTranslateTitles(rec, req)
-	if rec.Code != http.StatusOK {
-		t.Fatalf("translate-titles status = %d: %s", rec.Code, rec.Body.String())
+	candidates := []titleCandidate{
+		{CascadeID: "conv-echo-1", SourceTitle: "Antigravity Context Viewer Mobile Features", CurrentTitle: "Antigravity Context Viewer Mobile Features"},
+		{CascadeID: "conv-echo-2", SourceTitle: "Draft Message To Advisor", CurrentTitle: "Draft Message To Advisor"},
 	}
-
-	var res struct {
-		OK              bool `json:"ok"`
-		Translated      int  `json:"translated"`
-		Failed          int  `json:"failed"`
-		TranslatedCount int  `json:"translatedCount"`
-	}
-	if err := json.Unmarshal(rec.Body.Bytes(), &res); err != nil {
-		t.Fatalf("unmarshal: %v", err)
-	}
-	if !res.OK || res.Translated != 2 || res.Failed != 0 || res.TranslatedCount != 2 {
-		t.Fatalf("expected 2 self-healed & fallback-translated titles, got %+v (body=%s)", res, rec.Body.String())
+	translated, failed, err := p.translateAndApplyCandidates(context.Background(), candidates, "zh-Hans", "Simplified Chinese")
+	if err != nil || translated != 2 || failed != 0 {
+		t.Fatalf("expected 2 fallback-translated titles, got translated=%d failed=%d err=%v", translated, failed, err)
 	}
 	mu.Lock()
 	got1, got2 := written["conv-echo-1"], written["conv-echo-2"]
@@ -712,39 +687,22 @@ func TestTitleTranslator_OutputValidationFallbackNoTruncationAndSelfHeal(t *test
 		t.Fatalf("expected primary M198 followed by non-Lite fallback model, got %v", modelsUsed)
 	}
 
-	// 4. If ALL models echo untranslated English, must NOT pollute ledger or overwrite titles.
+	// 4. If ALL models echo untranslated English, must NOT overwrite titles.
 	p2 := NewProxy(inspector.NewInspector(time.Second))
-	t.Setenv("MULTIGRAVITY_DATA_DIR", t.TempDir())
 	wroteAny := false
 	p2.titleWriteHook = func(ctx context.Context, cascadeID, title string) error {
 		wroteAny = true
 		return nil
 	}
-	p2.summariesFetchHook = func(ctx context.Context) (map[string]map[string]interface{}, error) {
-		return map[string]map[string]interface{}{
-			"conv-fail-1": {
-				"summary":          "Multigravity Cross Platform Routine Inspection And Review",
-				"annotations":      map[string]interface{}{"title": "Multigravity Cross Platform Routine Inspection And Review"},
-				"lastModifiedTime": nowStr,
-			},
-		}, nil
-	}
 	p2.lsModelResponseHook = func(ctx context.Context, prompt, modelEnum string) (string, error) {
 		return "Multigravity Cross Platform Routine Inspection And Review", nil
 	}
 
-	reqFail := httptest.NewRequest(http.MethodPost, "/gateway/ai-assist/translate-titles",
-		bytes.NewBufferString(`{"targetLang":"zh-Hans","targetLangName":"Simplified Chinese"}`))
-	recFail := httptest.NewRecorder()
-	p2.HandleTranslateTitles(recFail, reqFail)
-	var failRes struct {
-		Translated      int `json:"translated"`
-		Failed          int `json:"failed"`
-		TranslatedCount int `json:"translatedCount"`
-	}
-	_ = json.Unmarshal(recFail.Body.Bytes(), &failRes)
-	if wroteAny || failRes.Translated != 0 || failRes.Failed != 1 || failRes.TranslatedCount != 0 {
-		t.Fatalf("expected untranslated echo to fail cleanly without writing, wroteAny=%v res=%+v", wroteAny, failRes)
+	trFail, flFail, _ := p2.translateAndApplyCandidates(context.Background(), []titleCandidate{
+		{CascadeID: "conv-fail-1", SourceTitle: "Multigravity Cross Platform Routine Inspection And Review", CurrentTitle: "Multigravity Cross Platform Routine Inspection And Review"},
+	}, "zh-Hans", "Simplified Chinese")
+	if wroteAny || trFail != 0 || flFail != 1 {
+		t.Fatalf("expected untranslated echo to fail cleanly without writing, wroteAny=%v tr=%d fl=%d", wroteAny, trFail, flFail)
 	}
 }
 

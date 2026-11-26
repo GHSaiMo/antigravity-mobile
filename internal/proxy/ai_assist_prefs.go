@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"time"
 
 	"antigravity-mobile/internal/config"
 	"antigravity-mobile/internal/i18n"
@@ -23,8 +24,9 @@ const (
 // All capabilities default to opt-in (false) so no extra model calls are issued unexpectedly.
 type AIAssistPrefs struct {
 	TitleTranslateEnabled    bool   `json:"titleTranslateEnabled"`
-	TitleTranslateLang       string `json:"titleTranslateLang,omitempty"`     // BCP-47 tag (e.g. "zh-Hans", "ja", "pt-BR"), empty = auto
-	TitleTranslateLangName   string `json:"titleTranslateLangName,omitempty"` // English display name (e.g. "Simplified Chinese", "Portuguese")
+	TitleTranslateEnabledAt  string `json:"titleTranslateEnabledAt,omitempty"` // RFC3339 timestamp; only conversations created after enabling are auto-translated
+	TitleTranslateLang       string `json:"titleTranslateLang,omitempty"`      // BCP-47 tag (e.g. "zh-Hans", "ja", "pt-BR"), empty = auto
+	TitleTranslateLangName   string `json:"titleTranslateLangName,omitempty"`  // English display name (e.g. "Simplified Chinese", "Portuguese")
 	StepPlanTranslateEnabled bool   `json:"stepPlanTranslateEnabled"`
 	FocusTranslateEnabled    bool   `json:"focusTranslateEnabled"`
 	NextPromptEnabled        bool   `json:"nextPromptEnabled"`
@@ -44,14 +46,12 @@ type AIAssistPrefsPatch struct {
 
 // AIAssistStatusResponse is returned by GET and POST /gateway/ai-assist/prefs.
 type AIAssistStatusResponse struct {
-	Prefs            AIAssistPrefs             `json:"prefs"`
-	ModelID          string                    `json:"modelId"`
-	ModelName        string                    `json:"modelName"`
-	ResolvedLang     string                    `json:"resolvedLang"`
-	ResolvedLangName string                    `json:"resolvedLangName"`
-	TranslatedCount  int                       `json:"translatedCount"`
-	BatchStatus      *TitleTranslateBatchState `json:"batchStatus,omitempty"`
-	Available        bool                      `json:"available"`
+	Prefs            AIAssistPrefs `json:"prefs"`
+	ModelID          string        `json:"modelId"`
+	ModelName        string        `json:"modelName"`
+	ResolvedLang     string        `json:"resolvedLang"`
+	ResolvedLangName string        `json:"resolvedLangName"`
+	Available        bool          `json:"available"`
 }
 
 type aiAssistPrefsStore struct {
@@ -75,8 +75,14 @@ func defaultAIAssistPrefs() AIAssistPrefs {
 	if tapAction != NextPromptTapSend {
 		tapAction = NextPromptTapFill
 	}
+	titleEnabled := envBoolDefaultFalse("MGY_AI_TITLE_TRANSLATE")
+	enabledAt := ""
+	if titleEnabled {
+		enabledAt = time.Now().UTC().Format(time.RFC3339Nano)
+	}
 	return AIAssistPrefs{
-		TitleTranslateEnabled:    envBoolDefaultFalse("MGY_AI_TITLE_TRANSLATE"),
+		TitleTranslateEnabled:    titleEnabled,
+		TitleTranslateEnabledAt:  enabledAt,
 		StepPlanTranslateEnabled: envBoolDefaultFalse("MGY_AI_STEP_PLAN_TRANSLATE"),
 		FocusTranslateEnabled:    envBoolDefaultFalse("MGY_AI_FOCUS_TRANSLATE"),
 		NextPromptEnabled:        envBoolDefaultFalse("MGY_AI_NEXT_PROMPT"),
@@ -95,6 +101,28 @@ func normalizeTapAction(raw string) string {
 	return NextPromptTapFill
 }
 
+func (s *aiAssistPrefsStore) saveLocked() error {
+	if s.path == "" {
+		return nil
+	}
+	if err := os.MkdirAll(filepath.Dir(s.path), 0700); err != nil {
+		return err
+	}
+	data, err := json.MarshalIndent(s.prefs, "", "  ")
+	if err != nil {
+		return err
+	}
+	tmp := s.path + ".tmp"
+	if err := os.WriteFile(tmp, append(data, '\n'), 0600); err != nil {
+		return err
+	}
+	if err := os.Rename(tmp, s.path); err != nil {
+		_ = os.Remove(tmp)
+		return err
+	}
+	return nil
+}
+
 func (s *aiAssistPrefsStore) ensureLoadedLocked() {
 	wantPath := aiAssistPrefsFilePath()
 	if s.loaded && s.path == wantPath {
@@ -108,12 +136,26 @@ func (s *aiAssistPrefsStore) ensureLoadedLocked() {
 	if err != nil {
 		return
 	}
-	var patch AIAssistPrefsPatch
-	if err := json.Unmarshal(data, &patch); err != nil {
+	var disk struct {
+		AIAssistPrefsPatch
+		TitleTranslateEnabledAt string `json:"titleTranslateEnabledAt,omitempty"`
+	}
+	if err := json.Unmarshal(data, &disk); err != nil {
 		slog.Warn("[AIAssist] Failed to parse ai_assist_prefs.json, using defaults", "err", err)
 		return
 	}
-	applyAIAssistPrefsPatch(&s.prefs, patch)
+	applyAIAssistPrefsPatch(&s.prefs, disk.AIAssistPrefsPatch)
+	if s.prefs.TitleTranslateEnabled {
+		if _, ok := parseSummaryTimestamp(disk.TitleTranslateEnabledAt); ok {
+			s.prefs.TitleTranslateEnabledAt = strings.TrimSpace(disk.TitleTranslateEnabledAt)
+		} else {
+			// Backfill a "now" watermark on upgrade so previously existing conversations are never rewritten.
+			s.prefs.TitleTranslateEnabledAt = time.Now().UTC().Format(time.RFC3339Nano)
+			_ = s.saveLocked()
+		}
+	} else {
+		s.prefs.TitleTranslateEnabledAt = ""
+	}
 }
 
 func applyAIAssistPrefsPatch(dst *AIAssistPrefs, patch AIAssistPrefsPatch) {
@@ -161,25 +203,19 @@ func (s *aiAssistPrefsStore) Update(patch AIAssistPrefsPatch) (AIAssistPrefs, er
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.ensureLoadedLocked()
+	wasEnabled := s.prefs.TitleTranslateEnabled
 	applyAIAssistPrefsPatch(&s.prefs, patch)
+	if s.prefs.TitleTranslateEnabled {
+		if !wasEnabled || strings.TrimSpace(s.prefs.TitleTranslateEnabledAt) == "" {
+			s.prefs.TitleTranslateEnabledAt = time.Now().UTC().Format(time.RFC3339Nano)
+		}
+	} else {
+		s.prefs.TitleTranslateEnabledAt = ""
+	}
 	out := s.prefs
 
-	if s.path != "" {
-		if err := os.MkdirAll(filepath.Dir(s.path), 0700); err != nil {
-			return out, err
-		}
-		data, err := json.MarshalIndent(out, "", "  ")
-		if err != nil {
-			return out, err
-		}
-		tmp := s.path + ".tmp"
-		if err := os.WriteFile(tmp, append(data, '\n'), 0600); err != nil {
-			return out, err
-		}
-		if err := os.Rename(tmp, s.path); err != nil {
-			_ = os.Remove(tmp)
-			return out, err
-		}
+	if err := s.saveLocked(); err != nil {
+		return out, err
 	}
 	return out, nil
 }
@@ -207,8 +243,6 @@ func (p *Proxy) buildAIAssistStatus(r *http.Request) AIAssistStatusResponse {
 		ModelName:        model.Name,
 		ResolvedLang:     resolvedLang,
 		ResolvedLangName: resolvedLangName,
-		TranslatedCount:  p.titleTranslator.RestorableCount(),
-		BatchStatus:      p.titleTranslator.BatchSnapshot(),
 		Available:        p.IsAIAssistAvailable(),
 	}
 }
@@ -229,6 +263,11 @@ func (p *Proxy) HandleAIAssistPrefs(w http.ResponseWriter, r *http.Request) {
 		if err != nil {
 			writeJSONError(w, "failed to save preferences: "+err.Error(), http.StatusInternalServerError)
 			return
+		}
+		if !prev.TitleTranslateEnabled && updated.TitleTranslateEnabled {
+			p.onTitleTranslateEnabled()
+		} else if prev.TitleTranslateEnabled && !updated.TitleTranslateEnabled {
+			p.onTitleTranslateDisabled()
 		}
 		// If next-prompt suggestions were disabled, immediately clear cached suggestions and notify active streams.
 		if prev.NextPromptEnabled && !updated.NextPromptEnabled {
