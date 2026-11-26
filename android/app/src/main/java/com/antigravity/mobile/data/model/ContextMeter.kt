@@ -4,6 +4,28 @@ import kotlinx.serialization.Serializable
 import java.time.Instant
 
 @Serializable
+data class ContextBreakdownCategory(
+    val key: String = "",
+    val tokens: Long = 0L,
+    val percent: Double = 0.0
+)
+
+@Serializable
+data class ContextTopConsumer(
+    val stepIndex: Int = 0,
+    val messageId: String? = null,
+    val kind: String = "",
+    val label: String = "",
+    val tokens: Long = 0L
+)
+
+@Serializable
+data class ContextBreakdownSummary(
+    val categories: List<ContextBreakdownCategory> = emptyList(),
+    val topConsumers: List<ContextTopConsumer> = emptyList()
+)
+
+@Serializable
 data class ContextMeterItem(
     val usedTokens: Long = 0,
     val maxTokens: Long = 200000,
@@ -29,7 +51,11 @@ data class ContextMeterItem(
     val sessionThinkingTokens: Long = 0,
     val sessionTotalTokens: Long = 0,
     val sessionCacheHitRate: Double? = null,
-    val sessionCostUsd: Double = 0.0
+    val sessionCostUsd: Double = 0.0,
+    val compacted: Boolean = false,
+    val checkpointCount: Int = 0,
+    val lastCheckpointStep: Int? = null,
+    val breakdown: ContextBreakdownSummary? = null
 ) {
     /**
      * 兼容新旧网关：优先使用网关返回的命中率，缺失时基于最近一步 input + cacheRead 本地计算。

@@ -281,14 +281,17 @@ func BuildQuotaResponse(live *AccountQuota, liveEmail string) (*CockpitQuotaResp
 				}
 			}
 		}
+		ApplyQuotaTokenEstimates(&out, time.Now())
 		return &out, nil
 	}
-	return &CockpitQuotaResponse{
+	res := &CockpitQuotaResponse{
 		CurrentAccount:   live,
 		Accounts:         []AccountQuota{},
 		UpdatedAt:        time.Now().UnixMilli(),
 		Source:           "live",
 		CockpitInstalled: false,
 		CockpitHint:      CockpitInstallHint,
-	}, nil
+	}
+	ApplyQuotaTokenEstimates(res, time.Now())
+	return res, nil
 }

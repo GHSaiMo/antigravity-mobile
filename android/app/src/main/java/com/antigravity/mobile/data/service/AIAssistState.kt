@@ -15,7 +15,8 @@ data class AIAssistPrefsPayload(
     val stepPlanTranslateEnabled: Boolean = false,
     val focusTranslateEnabled: Boolean = false,
     val nextPromptEnabled: Boolean = false,
-    val nextPromptTapAction: String = "fill"
+    val nextPromptTapAction: String = "fill",
+    val postCompactRehydrateEnabled: Boolean = false
 )
 
 @Serializable
@@ -25,7 +26,8 @@ data class AIAssistStatusPayload(
     val modelName: String = "Gemini 3.5 Flash Lite",
     val resolvedLang: String = "",
     val resolvedLangName: String = "",
-    val available: Boolean = true
+    val available: Boolean = true,
+    val rehydrateHookInstalled: Boolean = false
 )
 
 /**

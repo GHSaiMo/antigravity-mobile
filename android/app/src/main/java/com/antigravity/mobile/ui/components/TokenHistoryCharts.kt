@@ -482,9 +482,11 @@ fun TokenDailyBarsChartContent(
 fun TokenModelBreakdownChartContent(
     dailyMatrix: List<DailyTokenRecord>,
     colors: AppColors,
+    modelSummary: List<com.antigravity.mobile.data.model.ModelTokenBreakdown> = emptyList(),
     onOpenAllModels: (() -> Unit)? = null
 ) {
     val series = remember(dailyMatrix) { TokenHistoryChartData.buildModelBreakdown(dailyMatrix) }
+    val speedByModel = remember(modelSummary) { modelSummary.associateBy { it.model } }
     val canOpen = onOpenAllModels != null && series.slices.isNotEmpty()
 
     Column(
@@ -592,6 +594,16 @@ fun TokenModelBreakdownChartContent(
                                 overflow = TextOverflow.Ellipsis,
                                 modifier = Modifier.weight(1f)
                             )
+                            val medianTps = if (!slice.isOther) speedByModel[slice.name]?.medianTps ?: 0.0 else 0.0
+                            if (medianTps > 0.1) {
+                                Text(
+                                    text = String.format(Locale.US, "%.0ft/s", medianTps),
+                                    fontSize = 9.5.sp,
+                                    fontFamily = FontFamily.Monospace,
+                                    color = colors.textMuted,
+                                    maxLines = 1
+                                )
+                            }
                             Text(
                                 text = formatTokensCompact(slice.tokens),
                                 fontSize = 11.sp,
@@ -761,6 +773,7 @@ fun TokenHistoryChartCarouselCard(
     selectedChart: TokenHistoryChartType,
     onSelectDate: (String) -> Unit,
     onUserSelectChart: (TokenHistoryChartType) -> Unit,
+    modelSummary: List<com.antigravity.mobile.data.model.ModelTokenBreakdown> = emptyList(),
     onOpenAllModels: (() -> Unit)? = null
 ) {
     val colors = AntigravityTheme.colors
@@ -821,6 +834,7 @@ fun TokenHistoryChartCarouselCard(
                     TokenHistoryChartType.MODEL_BREAKDOWN -> TokenModelBreakdownChartContent(
                         dailyMatrix = dailyMatrix,
                         colors = colors,
+                        modelSummary = modelSummary,
                         onOpenAllModels = onOpenAllModels
                     )
                     TokenHistoryChartType.HEATMAP -> TokenHeatmapGridChartContent(

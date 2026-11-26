@@ -532,10 +532,12 @@ function initApp() {
       focusTranslateEnabled: false,
       nextPromptEnabled: false,
       nextPromptTapAction: "fill",
+      postCompactRehydrateEnabled: false,
     },
     modelName: "Gemini 3.5 Flash Lite",
     resolvedLangName: "",
     available: true,
+    rehydrateHookInstalled: false,
     loadedAt: 0,
   };
 
@@ -589,7 +591,8 @@ function initApp() {
       const stepOn = showSmartTranslation && Boolean(p.stepPlanTranslateEnabled);
       const focusOn = showSmartTranslation && Boolean(p.focusTranslateEnabled);
       const nextOn = Boolean(p.nextPromptEnabled);
-      const count = [titleOn, stepOn, focusOn, nextOn].filter(Boolean).length;
+      const rehydrateOn = Boolean(p.postCompactRehydrateEnabled);
+      const count = [titleOn, stepOn, focusOn, nextOn, rehydrateOn].filter(Boolean).length;
       let label = uiLang === "en" ? "Off" : (uiLang === "ja" ? "オフ" : "已关闭");
       if (count >= 2) {
         label = uiLang === "en" ? `${count} Enabled` : (uiLang === "ja" ? `${count} 件有効` : `已开启 ${count} 项`);
@@ -601,6 +604,8 @@ function initApp() {
         label = uiLang === "en" ? "Status Translation" : (uiLang === "ja" ? "ステータス翻訳" : "状态翻译");
       } else if (nextOn) {
         label = uiLang === "en" ? "Prompt Suggestions" : (uiLang === "ja" ? "プロンプト提案" : "提示词建议");
+      } else if (rehydrateOn) {
+        label = uiLang === "en" ? "Context Rehydration" : (uiLang === "ja" ? "圧縮後コンテキスト復元" : "压缩后回灌");
       }
       summaryEl.textContent = label;
     }
@@ -676,6 +681,23 @@ function initApp() {
     if (tapRow) tapRow.classList.toggle("hidden", !p.nextPromptEnabled);
     if (tapSel) tapSel.value = p.nextPromptTapAction === "send" ? "send" : "fill";
 
+    const chkRehydrate = document.getElementById("settings-ai-rehydrate");
+    if (chkRehydrate) {
+      chkRehydrate.checked = Boolean(p.postCompactRehydrateEnabled);
+    }
+    const rehydrateDesc = document.getElementById("settings-ai-rehydrate-desc");
+    if (rehydrateDesc) {
+      if (p.postCompactRehydrateEnabled && aiAssistState.rehydrateHookInstalled) {
+        rehydrateDesc.textContent = uiLang === "en"
+          ? "PreInvocation hook installed in hooks.json"
+          : (uiLang === "ja" ? "hooks.json に登録済み" : "已在本机 hooks.json 注册生效");
+      } else {
+        rehydrateDesc.textContent = uiLang === "en"
+          ? "Preserve recent intent & edited files after compaction"
+          : (uiLang === "ja" ? "圧縮後の文脈欠落を防ぐネイティブフック" : "压缩后保留近期上下文与编辑文件要点");
+      }
+    }
+
     const modelEl = document.getElementById("settings-ai-model-name");
     if (modelEl) modelEl.textContent = aiAssistState.modelName || "Gemini 3.5 Flash Lite";
 
@@ -716,6 +738,7 @@ function initApp() {
             if (data.modelName) aiAssistState.modelName = data.modelName;
             aiAssistState.resolvedLangName = data.resolvedLangName || "";
             aiAssistState.available = data.available !== false;
+            aiAssistState.rehydrateHookInstalled = Boolean(data.rehydrateHookInstalled);
             aiAssistState.loadedAt = Date.now();
           }
         }
@@ -743,6 +766,7 @@ function initApp() {
           if (data.modelName) aiAssistState.modelName = data.modelName;
           aiAssistState.resolvedLangName = data.resolvedLangName || "";
           aiAssistState.available = data.available !== false;
+          aiAssistState.rehydrateHookInstalled = Boolean(data.rehydrateHookInstalled);
           aiAssistState.loadedAt = Date.now();
         }
         syncAIAssistUI();
@@ -788,6 +812,9 @@ function initApp() {
   });
   document.getElementById("settings-ai-next-prompt-tap")?.addEventListener("change", (e) => {
     window.AIAssist.patch({ nextPromptTapAction: e.target.value === "send" ? "send" : "fill" });
+  });
+  document.getElementById("settings-ai-rehydrate")?.addEventListener("change", (e) => {
+    window.AIAssist.patch({ postCompactRehydrateEnabled: Boolean(e.target.checked) });
   });
   window.addEventListener("mgy:languagechange", () => syncAIAssistUI());
   syncAIAssistUI();

@@ -16,6 +16,7 @@ let currentCockpitQuotas = null;
 
 const QUOTA_BUCKET_KEY = "cockpit_selected_quota_bucket";
 const QUOTA_BUCKET_TITLES = {
+  auto: "自动最紧",
   gemini_5h: "Gemini · 5h",
   gemini_weekly: "Gemini · Weekly",
   claude_5h: "Claude · 5h",
@@ -34,6 +35,19 @@ function isFreeAccount(acc) {
 
 function resolveAccountQuotaDisplay(acc, preferredKey) {
   if (!acc) return null;
+  const fallbackOrder = isFreeAccount(acc)
+    ? ["gemini_weekly", "claude_weekly"]
+    : ["gemini_5h", "gemini_weekly", "claude_5h", "claude_weekly"];
+  if (preferredKey === "auto") {
+    let tightest = null;
+    for (const key of fallbackOrder) {
+      if (!acc[key]) continue;
+      if (!tightest || (acc[key].remaining_percent || 0) < (tightest.bucket.remaining_percent || 0)) {
+        tightest = { key, title: QUOTA_BUCKET_TITLES[key], bucket: acc[key] };
+      }
+    }
+    return tightest;
+  }
   if (preferredKey && QUOTA_BUCKET_TITLES[preferredKey] && acc[preferredKey]) {
     return {
       key: preferredKey,
@@ -41,9 +55,6 @@ function resolveAccountQuotaDisplay(acc, preferredKey) {
       bucket: acc[preferredKey]
     };
   }
-  const fallbackOrder = isFreeAccount(acc)
-    ? ["gemini_weekly", "claude_weekly"]
-    : ["gemini_5h", "gemini_weekly", "claude_5h", "claude_weekly"];
   for (const key of fallbackOrder) {
     if (acc[key]) {
       return {
@@ -323,7 +334,21 @@ function renderPacedMetricBox(title, titleClass, bucket, tier, options = {}) {
     }
   }
   const resetText = getQuotaResetDisplayText(bucket);
-  const fullTitle = `${resetText}${paceTooltip}`;
+  let estTooltip = "";
+  if (bucket && ((bucket.est_cycle_used_tokens || 0) > 0 || bucket.est_reliable)) {
+    const usedStr = formatTokensCompact(bucket.est_cycle_used_tokens || 0);
+    const remStr = bucket.est_reliable && (bucket.est_remaining_tokens || 0) > 0
+      ? formatTokensCompact(bucket.est_remaining_tokens)
+      : "";
+    if (window.I18n?.isZh?.()) {
+      estTooltip = `\n• 本周期观测已耗：~${usedStr}` + (remStr ? `\n• 本周期估算约剩：~${remStr}` : "");
+    } else if (window.I18n?.isJa?.()) {
+      estTooltip = `\n• 今周期の観測消費量：~${usedStr}` + (remStr ? `\n• 残り推定トークン：~${remStr}` : "");
+    } else {
+      estTooltip = `\n• Observed cycle used: ~${usedStr}` + (remStr ? `\n• Estimated remaining: ~${remStr}` : "");
+    }
+  }
+  const fullTitle = `${resetText}${paceTooltip}${estTooltip}`;
   const extraClasses = [
     isSelectable ? "is-selectable" : "",
     isSelected ? "is-selected" : ""
@@ -491,6 +516,14 @@ function renderQuotaSheet(data) {
     footerEl.textContent = `${updatedLabel} ${new Date(data.updated_at).toLocaleTimeString()}`;
   }
 
+  const autoBtn = document.getElementById("btn-quota-auto-tightest");
+  if (autoBtn) {
+    const isAuto = selectedQuotaBucket === "auto";
+    autoBtn.classList.toggle("active", isAuto);
+    const lang = window.I18n?.getLang?.() || "zh";
+    autoBtn.textContent = lang === "en" ? "Auto Tightest" : (lang === "ja" ? "自動最小" : "自动最紧");
+  }
+
   const currentContainer = document.getElementById("quota-current-card");
   if (currentContainer) {
     currentContainer.innerHTML = "";
@@ -576,7 +609,113 @@ function renderQuotaSheet(data) {
         otherContainer.appendChild(buildAccountQuotaCard(acc, false));
       });
     }
+
+    const autoWrap = document.getElementById("quota-auto-switch-wrap");
+    if (autoWrap) {
+      const showAutoSwitch = data.cockpit_installed !== false && otherAccounts.length > 0;
+      autoWrap.classList.toggle("hidden", !showAutoSwitch);
+      if (showAutoSwitch) {
+        loadAndRenderAutoSwitchCard(autoWrap);
+      }
+    }
   }
+}
+
+let cachedAutoSwitchState = null;
+
+async function loadAndRenderAutoSwitchCard(container, force = false) {
+  if (!container) return;
+  if (!cachedAutoSwitchState || force) {
+    try {
+      const resp = await fetch("/api/v1/cockpit/auto-switch");
+      if (resp.ok) {
+        cachedAutoSwitchState = await resp.json();
+      }
+    } catch (_) {}
+  }
+  renderAutoSwitchCard(container, cachedAutoSwitchState);
+}
+
+function renderAutoSwitchCard(container, state) {
+  if (!container) return;
+  const cfg = state?.config || { enabled: false, target_bucket: "gemini_5h", threshold_percent: 10, wait_until_idle: true };
+  const st = state?.status || { state: "disabled", reason: "" };
+  const lang = window.I18n?.getLang?.() || "zh";
+  const wasOpen = Boolean(container.querySelector("details")?.open);
+  const titleText = lang === "en" ? "Threshold Auto-Switch" : (lang === "ja" ? "しきい値自動切替" : "阈值自动切号");
+  const statusMap = {
+    watching: lang === "en" ? "Watching" : (lang === "ja" ? "監視中" : "监控中"),
+    pending_debounce: lang === "en" ? "Pending" : (lang === "ja" ? "確認中" : "防抖确认"),
+    cooldown: lang === "en" ? "Cooldown" : (lang === "ja" ? "クールダウン" : "冷却中"),
+    waiting_idle: lang === "en" ? "Waiting Idle" : (lang === "ja" ? "待機中" : "等待空闲"),
+    no_candidates: lang === "en" ? "No Backup" : (lang === "ja" ? "候補なし" : "无可用备号"),
+    switched: lang === "en" ? "Switched" : (lang === "ja" ? "切替済" : "已切换"),
+    error: lang === "en" ? "Error" : (lang === "ja" ? "エラー" : "切换异常"),
+    disabled: lang === "en" ? "Off" : (lang === "ja" ? "オフ" : "已关闭"),
+  };
+  const statusLabel = statusMap[st.state] || statusMap.disabled;
+  const buckets = [
+    ["gemini_5h", "Gemini · 5h"],
+    ["gemini_weekly", "Gemini · Weekly"],
+    ["claude_5h", "Claude · 5h"],
+    ["claude_weekly", "Claude · Weekly"],
+  ];
+  const thresholds = [5, 10, 15, 20, 30];
+
+  container.innerHTML = `
+    <details class="quota-autoswitch-details"${wasOpen ? " open" : ""}>
+      <summary class="quota-autoswitch-summary">
+        <span>${escapeHtml(titleText)}</span>
+        <span class="quota-autoswitch-badge ${cfg.enabled ? "on" : ""}">${escapeHtml(statusLabel)}</span>
+      </summary>
+      <div class="quota-autoswitch-body">
+        <label class="quota-autoswitch-row">
+          <span>${lang === "en" ? "Enable Auto-Switch" : (lang === "ja" ? "自動切替を有効にする" : "启用阈值自动切换")}</span>
+          <input type="checkbox" class="ios-switch-input" data-as-field="enabled"${cfg.enabled ? " checked" : ""} />
+        </label>
+        <div class="quota-autoswitch-sublabel">${lang === "en" ? "Monitored Bucket" : (lang === "ja" ? "監視バケット" : "监控额度维度")}</div>
+        <div class="quota-autoswitch-chips">
+          ${buckets.map(([k, lbl]) => `<button type="button" class="quota-as-chip ${cfg.target_bucket === k ? "active" : ""}" data-as-bucket="${k}">${escapeHtml(lbl)}</button>`).join("")}
+        </div>
+        <div class="quota-autoswitch-sublabel">${lang === "en" ? "Switch Below Remaining (%)" : (lang === "ja" ? "残量しきい値 (%)" : "剩余低于阈值时切换")}</div>
+        <div class="quota-autoswitch-chips">
+          ${thresholds.map((p) => `<button type="button" class="quota-as-chip ${Math.round(cfg.threshold_percent || 10) === p ? "active-warn" : ""}" data-as-thresh="${p}">≤${p}%</button>`).join("")}
+        </div>
+        <label class="quota-autoswitch-row">
+          <span>${lang === "en" ? "Wait Until Idle" : (lang === "ja" ? "実行完了まで待機" : "仅在空闲时切换")}</span>
+          <input type="checkbox" class="ios-switch-input" data-as-field="wait_until_idle"${cfg.wait_until_idle !== false ? " checked" : ""} />
+        </label>
+        ${st.reason ? `<div class="quota-autoswitch-reason">${escapeHtml(st.reason)}</div>` : ""}
+      </div>
+    </details>
+  `;
+
+  async function patchAutoSwitch(patch) {
+    try {
+      const resp = await fetch("/api/v1/cockpit/auto-switch", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(patch),
+      });
+      if (resp.ok) {
+        cachedAutoSwitchState = await resp.json();
+        renderAutoSwitchCard(container, cachedAutoSwitchState);
+      }
+    } catch (_) {}
+  }
+
+  container.querySelector('[data-as-field="enabled"]')?.addEventListener("change", (e) => {
+    patchAutoSwitch({ enabled: Boolean(e.target.checked) });
+  });
+  container.querySelector('[data-as-field="wait_until_idle"]')?.addEventListener("change", (e) => {
+    patchAutoSwitch({ wait_until_idle: Boolean(e.target.checked) });
+  });
+  container.querySelectorAll("[data-as-bucket]").forEach((btn) => {
+    btn.addEventListener("click", () => patchAutoSwitch({ target_bucket: btn.getAttribute("data-as-bucket") }));
+  });
+  container.querySelectorAll("[data-as-thresh]").forEach((btn) => {
+    btn.addEventListener("click", () => patchAutoSwitch({ threshold_percent: Number(btn.getAttribute("data-as-thresh")) }));
+  });
 }
 
 function openQuotaSheet() {
@@ -631,6 +770,21 @@ function initQuotaModule() {
       localStorage.setItem("cockpit_email_masked", isCockpitEmailMasked ? "true" : "false");
       maskBtn.classList.toggle("active", isCockpitEmailMasked);
       if (currentCockpitQuotas) {
+        renderQuotaSheet(currentCockpitQuotas);
+      }
+    });
+  }
+
+  const autoTightestBtn = document.getElementById("btn-quota-auto-tightest");
+  if (autoTightestBtn) {
+    autoTightestBtn.addEventListener("click", () => {
+      const cur = currentCockpitQuotas?.current_account;
+      selectedQuotaBucket = selectedQuotaBucket === "auto"
+        ? (isFreeAccount(cur) ? "gemini_weekly" : "gemini_5h")
+        : "auto";
+      localStorage.setItem(QUOTA_BUCKET_KEY, selectedQuotaBucket);
+      if (currentCockpitQuotas) {
+        renderQuotaStatusBar(currentCockpitQuotas);
         renderQuotaSheet(currentCockpitQuotas);
       }
     });
@@ -811,7 +965,12 @@ function renderTokenHistory(data) {
   if (last7dEl) last7dEl.textContent = formatTokensCompact(s.last_7d_tokens);
   if (totalEl) totalEl.textContent = formatTokensCompact(s.total_tokens);
   if (costUsdEl) costUsdEl.textContent = "$" + (s.estimated_cost_usd || 0).toFixed(2);
-  if (costCnyEl) costCnyEl.textContent = "≈ ¥" + (s.estimated_cost_cny || 0).toFixed(2);
+  if (costCnyEl) {
+    const roiPart = (s.monthly_roi_multiple > 0 && s.plan_tier)
+      ? ` · ${s.plan_tier} ${Number(s.monthly_roi_multiple).toFixed(1)}x`
+      : "";
+    costCnyEl.textContent = "≈ ¥" + (s.estimated_cost_cny || 0).toFixed(2) + roiPart;
+  }
 
   const deskPct = s.total_tokens > 0 ? Math.round((s.desktop_tokens / s.total_tokens) * 100) : 0;
   const cliPct = s.total_tokens > 0 ? Math.round((s.cli_tokens / s.total_tokens) * 100) : 0;
@@ -950,16 +1109,24 @@ function renderInspector(rec) {
         .filter(([, tokens]) => tokens > 0)
         .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]));
       const detailsMap = rec.model_details || {};
+      const speedMap = {};
+      if (currentTokenHistory && Array.isArray(currentTokenHistory.model_summary)) {
+        currentTokenHistory.model_summary.forEach((m) => {
+          if (m && m.model && m.median_tps > 0.1) speedMap[m.model] = m;
+        });
+      }
       sortedModels.forEach(([modelName, tokens]) => {
         const tag = document.createElement("div");
         tag.className = "inspector-model-tag";
         const detail = detailsMap[modelName];
+        const sp = speedMap[modelName];
+        const speedStr = sp ? ` · ${Math.round(sp.median_tps)}t/s` : "";
         if (detail && (detail.input > 0 || detail.output > 0 || detail.cache_read > 0)) {
           const thinkPart = detail.thinking > 0 ? ` · Think ${formatTokensCompact(detail.thinking)}` : "";
-          tag.title = `${modelName}: In ${formatTokensCompact(detail.input)} · Cache ${formatTokensCompact(detail.cache_read)} · Out ${formatTokensCompact(detail.output)}${thinkPart}`;
-          tag.innerHTML = `<span>${escapeHtml(modelName)}</span><strong>${tokens.toLocaleString()}</strong><small style="opacity:0.7;margin-left:6px;font-family:monospace;">In ${formatTokensCompact(detail.input)} / Out ${formatTokensCompact(detail.output)}</small>`;
+          tag.title = `${modelName}: In ${formatTokensCompact(detail.input)} · Cache ${formatTokensCompact(detail.cache_read)} · Out ${formatTokensCompact(detail.output)}${thinkPart}${speedStr}`;
+          tag.innerHTML = `<span>${escapeHtml(modelName)}</span><strong>${tokens.toLocaleString()}</strong><small style="opacity:0.7;margin-left:6px;font-family:monospace;">In ${formatTokensCompact(detail.input)} / Out ${formatTokensCompact(detail.output)}${escapeHtml(speedStr)}</small>`;
         } else {
-          tag.innerHTML = `<span>${escapeHtml(modelName)}</span><strong>${tokens.toLocaleString()}</strong>`;
+          tag.innerHTML = `<span>${escapeHtml(modelName)}</span><strong>${tokens.toLocaleString()}</strong>${speedStr ? `<small style="opacity:0.7;margin-left:6px;font-family:monospace;">${escapeHtml(speedStr.slice(3))}</small>` : ""}`;
         }
         modelsContainer.appendChild(tag);
       });

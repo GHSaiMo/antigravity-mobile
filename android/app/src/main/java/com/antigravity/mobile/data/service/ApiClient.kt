@@ -529,6 +529,41 @@ class ApiClient(
         }
     }
 
+    suspend fun fetchAutoSwitchConfig(): Result<AutoSwitchResponse> = withContext(Dispatchers.IO) {
+        val baseUrl = currentBaseUrl ?: return@withContext Result.failure(IllegalStateException("未配置网关地址".loc))
+        val url = "$baseUrl/api/v1/cockpit/auto-switch"
+        try {
+            val req = buildAuthorizedRequest(url).get().build()
+            client.newCall(req).await().use { response ->
+                if (!response.isSuccessful) {
+                    return@withContext Result.failure(RuntimeException("HTTP ${response.code}"))
+                }
+                val bodyStr = response.body?.string() ?: "{}"
+                Result.success(json.decodeFromString<AutoSwitchResponse>(bodyStr))
+            }
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
+    suspend fun updateAutoSwitchConfig(patch: JsonObject): Result<AutoSwitchResponse> = withContext(Dispatchers.IO) {
+        val baseUrl = currentBaseUrl ?: return@withContext Result.failure(IllegalStateException("未配置网关地址".loc))
+        val url = "$baseUrl/api/v1/cockpit/auto-switch"
+        try {
+            val body = patch.toString().toRequestBody(jsonMediaType)
+            val req = buildAuthorizedRequest(url).post(body).build()
+            client.newCall(req).await().use { response ->
+                if (!response.isSuccessful) {
+                    return@withContext Result.failure(RuntimeException("HTTP ${response.code}"))
+                }
+                val bodyStr = response.body?.string() ?: "{}"
+                Result.success(json.decodeFromString<AutoSwitchResponse>(bodyStr))
+            }
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
     /**
      * Fetch workspace projects from gateway
      */

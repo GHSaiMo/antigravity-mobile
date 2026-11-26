@@ -1496,7 +1496,8 @@ nonisolated public final class QuotaWidgetStore: Sendable {
         let hasGemini = gShort != nil || gWeekly != nil
         guard hasClaude || hasGemini else { return }
 
-        let preferClaude = (preferredBucket == .claude5h || preferredBucket == .claudeWeekly)
+        let resolvedKind = acc.resolvedQuotaDisplay(preferred: preferredBucket)?.kind ?? preferredBucket
+        let preferClaude = (resolvedKind == .claude5h || resolvedKind == .claudeWeekly)
         let useClaude = preferClaude ? hasClaude : !hasGemini && hasClaude
         let shortSnap = useClaude ? cShort : gShort
         let weeklySnap = useClaude ? cWeekly : gWeekly

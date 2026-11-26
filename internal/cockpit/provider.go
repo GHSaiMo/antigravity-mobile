@@ -26,10 +26,14 @@ import (
 
 // QuotaMetric represents an individual quota dimension (percentage + reset time).
 type QuotaMetric struct {
-	RemainingFraction float64 `json:"remaining_fraction"`
-	RemainingPercent  float64 `json:"remaining_percent"`
-	ResetTime         string  `json:"reset_time"`
-	ResetFriendly     string  `json:"reset_friendly"`
+	RemainingFraction  float64 `json:"remaining_fraction"`
+	RemainingPercent   float64 `json:"remaining_percent"`
+	ResetTime          string  `json:"reset_time"`
+	ResetFriendly      string  `json:"reset_friendly"`
+	EstCycleUsedTokens int64   `json:"est_cycle_used_tokens,omitempty"`
+	EstRemainingTokens int64   `json:"est_remaining_tokens,omitempty"`
+	EstTotalTokens     int64   `json:"est_total_tokens,omitempty"`
+	EstReliable        bool    `json:"est_reliable,omitempty"`
 }
 
 // AccountQuota represents an Antigravity account and its quota dimensions.

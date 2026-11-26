@@ -5148,6 +5148,82 @@ function renderAuditSheetContent(meter) {
     }
   }
 
+  const compactedBadge = document.getElementById("audit-compacted-badge");
+  if (compactedBadge) {
+    compactedBadge.classList.toggle("hidden", !meter.compacted);
+  }
+
+  const breakdownDetails = document.getElementById("audit-breakdown-details");
+  const breakdownBody = document.getElementById("audit-breakdown-body");
+  if (breakdownDetails && breakdownBody) {
+    const bd = meter.breakdown;
+    const cats = bd && Array.isArray(bd.categories) ? bd.categories : [];
+    const tops = bd && Array.isArray(bd.topConsumers) ? bd.topConsumers : [];
+    if (cats.length > 0) {
+      breakdownDetails.classList.remove("hidden");
+      const lang = window.I18n?.getLang?.() || "zh";
+      const catMeta = {
+        tools: { color: "#ff9500", label: lang === "en" ? "Tools & Output" : (lang === "ja" ? "ツール出力" : "工具与命令") },
+        conversation: { color: "#007aff", label: lang === "en" ? "Conversation" : (lang === "ja" ? "会話履歴" : "对话正文") },
+        thinking: { color: "#af52de", label: lang === "en" ? "Thinking" : (lang === "ja" ? "思考プロセス" : "深度思考") },
+        system_attachments: { color: "#0ea5e9", label: lang === "en" ? "System & Files" : (lang === "ja" ? "システム・添付" : "系统与附件") }
+      };
+      const fmtTok = (n) => (typeof formatTokensCompact === "function" ? formatTokensCompact(n) : String(n || 0));
+      const barSegs = cats
+        .filter((c) => (Number(c.percent) || 0) > 0.2)
+        .map((c) => {
+          const meta = catMeta[c.key] || { color: "#8e8e93", label: c.key };
+          return `<span class="audit-breakdown-seg" style="flex:${Math.max(1.5, Number(c.percent) || 0)};background:${meta.color};"></span>`;
+        })
+        .join("");
+      const catRows = cats
+        .map((c) => {
+          const meta = catMeta[c.key] || { color: "#8e8e93", label: c.key };
+          return `
+            <div class="audit-breakdown-cat-row">
+              <span class="audit-cat-dot" style="background:${meta.color};"></span>
+              <span class="audit-cat-name">${escapeHtml(meta.label)}</span>
+              <strong class="audit-cat-val">${escapeHtml(fmtTok(c.tokens))}</strong>
+              <span class="audit-cat-pct">${Math.round(Number(c.percent) || 0)}%</span>
+            </div>
+          `;
+        })
+        .join("");
+      let topHtml = "";
+      if (tops.length > 0) {
+        const topTitle = lang === "en" ? "Top 3 Heaviest Steps" : (lang === "ja" ? "消費量 Top 3 ステップ" : "占用最高 Top 3");
+        const topRows = tops.slice(0, 3).map((item, idx) => {
+          const stepAttr = Number.isFinite(Number(item.stepIndex)) ? ` data-step-index="${Number(item.stepIndex)}"` : "";
+          const msgAttr = item.messageId ? ` data-msg-id="${escapeHtml(item.messageId)}"` : "";
+          return `
+            <button type="button" class="audit-consumer-row"${stepAttr}${msgAttr}>
+              <span class="audit-consumer-rank">#${idx + 1}</span>
+              <span class="audit-consumer-label">${escapeHtml(item.label || item.kind || "Step")}</span>
+              <span class="audit-consumer-tok">~${escapeHtml(fmtTok(item.tokens))}</span>
+            </button>
+          `;
+        }).join("");
+        topHtml = `<div class="audit-top-title">${escapeHtml(topTitle)}</div><div class="audit-top-list">${topRows}</div>`;
+      }
+      breakdownBody.innerHTML = `<div class="audit-breakdown-bar">${barSegs}</div><div class="audit-breakdown-cats">${catRows}</div>${topHtml}`;
+      breakdownBody.querySelectorAll(".audit-consumer-row").forEach((btn) => {
+        btn.addEventListener("click", () => {
+          const stepIdx = btn.getAttribute("data-step-index");
+          closeAuditSheet();
+          if (stepIdx !== null) {
+            const target = document.querySelector(`#chat-messages [data-step-index="${CSS.escape(stepIdx)}"]`);
+            if (target) {
+              target.scrollIntoView({ behavior: "smooth", block: "center" });
+            }
+          }
+        });
+      });
+    } else {
+      breakdownDetails.classList.add("hidden");
+      breakdownBody.innerHTML = "";
+    }
+  }
+
   if (noticeEl) {
     const noticeText = formatCacheNoticeWeb(diag, meter);
     if (noticeText) {

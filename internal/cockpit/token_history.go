@@ -21,16 +21,19 @@ import (
 	"antigravity-mobile/internal/procutil"
 )
 
-// ModelTokenBreakdown represents per-model token usage and reference cost.
+// ModelTokenBreakdown represents per-model token usage, reference cost, and 7-day speed medians.
 type ModelTokenBreakdown struct {
-	Model     string  `json:"model"`
-	Total     int64   `json:"total"`
-	Input     int64   `json:"input"`
-	Output    int64   `json:"output"`
-	CacheRead int64   `json:"cache_read"`
-	Thinking  int64   `json:"thinking"`
-	Steps     int     `json:"steps"`
-	CostUSD   float64 `json:"cost_usd"`
+	Model        string  `json:"model"`
+	Total        int64   `json:"total"`
+	Input        int64   `json:"input"`
+	Output       int64   `json:"output"`
+	CacheRead    int64   `json:"cache_read"`
+	Thinking     int64   `json:"thinking"`
+	Steps        int     `json:"steps"`
+	CostUSD      float64 `json:"cost_usd"`
+	MedianTPS    float64 `json:"median_tps,omitempty"`
+	MedianTTFT   float64 `json:"median_ttft_sec,omitempty"`
+	SpeedSamples int     `json:"speed_samples,omitempty"`
 }
 
 // DailyTokenRecord represents the aggregated token usage and cost for a single calendar day.
@@ -49,15 +52,20 @@ type DailyTokenRecord struct {
 
 // TokenHistorySummary represents overall high-level statistics across all sessions.
 type TokenHistorySummary struct {
-	TotalTokens      int64   `json:"total_tokens"`
-	TodayTokens      int64   `json:"today_tokens"`
-	Last7dTokens     int64   `json:"last_7d_tokens"`
-	DesktopTokens    int64   `json:"desktop_tokens"`
-	CLITokens        int64   `json:"cli_tokens"`
-	EstimatedCostUSD float64 `json:"estimated_cost_usd"`
-	EstimatedCostCNY float64 `json:"estimated_cost_cny"`
-	ActiveDays       int     `json:"active_days"`
-	TotalSteps       int     `json:"total_steps"`
+	TotalTokens        int64   `json:"total_tokens"`
+	TodayTokens        int64   `json:"today_tokens"`
+	Last7dTokens       int64   `json:"last_7d_tokens"`
+	ThisMonthTokens    int64   `json:"this_month_tokens,omitempty"`
+	ThisMonthCostUSD   float64 `json:"this_month_cost_usd,omitempty"`
+	DesktopTokens      int64   `json:"desktop_tokens"`
+	CLITokens          int64   `json:"cli_tokens"`
+	EstimatedCostUSD   float64 `json:"estimated_cost_usd"`
+	EstimatedCostCNY   float64 `json:"estimated_cost_cny"`
+	PlanTier           string  `json:"plan_tier,omitempty"`
+	PlanMonthlyUSD     float64 `json:"plan_monthly_usd,omitempty"`
+	MonthlyROIMultiple float64 `json:"monthly_roi_multiple,omitempty"`
+	ActiveDays         int     `json:"active_days"`
+	TotalSteps         int     `json:"total_steps"`
 }
 
 // TokenHistoryResponse is the full payload returned to the frontend.
@@ -87,11 +95,12 @@ type transcriptJob struct {
 	dbOnly bool
 }
 
-const currentTokenHistoryLedgerVersion = 4
+const currentTokenHistoryLedgerVersion = 5
 
 type parsedTranscriptRecord struct {
 	stepIndex int
 	dateKey   string
+	ts        time.Time
 	input     int64
 	output    int64
 	cacheRead int64
@@ -110,42 +119,7 @@ var (
 	cachedLedgerPath  string
 )
 
-// CalculateCostUSD calculates reference pay-as-you-go cost according to standard model rate cards.
-func CalculateCostUSD(model string, input, cacheRead, output int64) float64 {
-	m := strings.ToLower(model)
-	var inRate, cacheRate, outRate float64
-
-	switch {
-	case strings.Contains(m, "claude") && strings.Contains(m, "opus"):
-		inRate = 5.0 / 1e6
-		cacheRate = 0.5 / 1e6
-		outRate = 25.0 / 1e6
-	case strings.Contains(m, "claude"):
-		inRate = 3.0 / 1e6
-		cacheRate = 0.3 / 1e6
-		outRate = 15.0 / 1e6
-	case strings.Contains(m, "gpt-4o"):
-		inRate = 2.5 / 1e6
-		cacheRate = 1.25 / 1e6
-		outRate = 10.0 / 1e6
-	case strings.Contains(m, "flash"):
-		inRate = 0.075 / 1e6
-		cacheRate = 0.01875 / 1e6
-		outRate = 0.30 / 1e6
-	case strings.Contains(m, "pro") || strings.Contains(m, "gemini"):
-		inRate = 1.25 / 1e6
-		cacheRate = 0.3125 / 1e6
-		outRate = 5.00 / 1e6
-	default:
-		// Default blended rate
-		inRate = 1.0 / 1e6
-		cacheRate = 0.25 / 1e6
-		outRate = 4.0 / 1e6
-	}
-
-	cost := float64(input)*inRate + float64(cacheRead)*cacheRate + float64(output)*outRate
-	return cost
-}
+// CalculateCostUSD is defined in pricing.go using dynamic models.dev rates + built-in 2026 rate card.
 
 // isSafeConvID validates conversation/cascade identifiers before joining paths or querying SQLite.
 func isSafeConvID(s string) bool {
@@ -201,18 +175,28 @@ type transcriptContentEnvelope struct {
 	Content string `json:"content"`
 }
 
+func parseTranscriptTimestamp(createdAt string) (time.Time, bool) {
+	if len(createdAt) < 10 {
+		return time.Time{}, false
+	}
+	if t, err := time.Parse(time.RFC3339Nano, createdAt); err == nil {
+		return t, true
+	} else if t, err := time.Parse(time.RFC3339, createdAt); err == nil {
+		return t, true
+	} else if t, err := time.Parse("2006-01-02T15:04:05Z07:00", createdAt); err == nil {
+		return t, true
+	} else if t, err := time.ParseInLocation("2006-01-02T15:04:05", createdAt, time.Local); err == nil {
+		return t, true
+	}
+	return time.Time{}, false
+}
+
 func parseTranscriptDateKey(createdAt string) string {
 	if len(createdAt) < 10 {
 		return ""
 	}
-	if t, err := time.Parse(time.RFC3339Nano, createdAt); err == nil {
+	if t, ok := parseTranscriptTimestamp(createdAt); ok {
 		return t.Local().Format("2006-01-02")
-	} else if t, err := time.Parse(time.RFC3339, createdAt); err == nil {
-		return t.Local().Format("2006-01-02")
-	} else if t, err := time.Parse("2006-01-02T15:04:05Z07:00", createdAt); err == nil {
-		return t.Local().Format("2006-01-02")
-	} else if t, err := time.ParseInLocation("2006-01-02T15:04:05", createdAt, time.Local); err == nil {
-		return t.Format("2006-01-02")
 	}
 	return createdAt[:10]
 }
@@ -417,9 +401,11 @@ func parseTranscriptFileCached(filePath, convID, source string, cache *tokenHist
 
 		tot := inp + outp + capTokens
 		if tot > 0 && dateKey != "" {
+			parsedTS, _ := parseTranscriptTimestamp(step.CreatedAt)
 			records = append(records, parsedTranscriptRecord{
 				stepIndex: stepIndex,
 				dateKey:   dateKey,
+				ts:        parsedTS,
 				input:     inp,
 				output:    outp,
 				cacheRead: capTokens,
@@ -455,6 +441,19 @@ func parseTranscriptFileCached(filePath, convID, source string, cache *tokenHist
 
 	if len(records) > 0 && convID != "" {
 		backfillThinkingFromGenMetadata(records, convID, source, cache)
+	}
+
+	// Feed recent (<= 8d) timestamped records into the quota pool usage event log so
+	// bucket token estimates calibrate even across restarts without extra disk scans.
+	recentCutoff := time.Now().Add(-poolUsageRetention)
+	for _, r := range records {
+		if !r.ts.IsZero() && r.ts.After(recentCutoff) && r.model != "" {
+			rid := r.callID
+			if rid == "" && convID != "" && r.stepIndex >= 0 {
+				rid = convID + ":" + strconv.Itoa(r.stepIndex)
+			}
+			RecordPoolUsageEvent(r.ts, r.model, r.input, r.cacheRead, r.output, rid)
+		}
 	}
 
 	return records
@@ -2482,8 +2481,43 @@ func roundCost4(v float64) float64 {
 	return float64(int(v*10000+0.5)) / 10000
 }
 
+func repriceLedgerSessions(ledger *tokenHistoryLedger) bool {
+	if ledger == nil {
+		return false
+	}
+	changed := false
+	for key, sess := range ledger.Sessions {
+		for dateKey, day := range sess.Days {
+			if len(day.ModelDetails) == 0 {
+				continue
+			}
+			var dayCost float64
+			for modelKey, md := range day.ModelDetails {
+				if md == nil {
+					continue
+				}
+				newCost := CalculateCostUSD(modelKey, md.Input, md.CacheRead, md.Output)
+				if math.Abs(md.CostUSD-newCost) > 1e-6 {
+					md.CostUSD = newCost
+					changed = true
+				}
+				dayCost += newCost
+			}
+			if math.Abs(day.CostUSD-dayCost) > 1e-6 {
+				day.CostUSD = dayCost
+				sess.Days[dateKey] = day
+				changed = true
+			}
+		}
+		ledger.Sessions[key] = sess
+	}
+	return changed
+}
+
 // GetTokenHistory collects and aggregates token history across all live and archived sessions.
 func GetTokenHistory(forceRefresh bool) (*TokenHistoryResponse, error) {
+	MaybeRefreshDynamicPricingAsync()
+
 	historyMu.Lock()
 	defer historyMu.Unlock()
 
@@ -2518,6 +2552,9 @@ func GetTokenHistory(forceRefresh bool) (*TokenHistoryResponse, error) {
 		dirty = true
 	}
 	if ledger.Version < currentTokenHistoryLedgerVersion {
+		if repriceLedgerSessions(ledger) {
+			dirty = true
+		}
 		ledger.Version = currentTokenHistoryLedgerVersion
 		dirty = true
 	}
@@ -2531,12 +2568,13 @@ func GetTokenHistory(forceRefresh bool) (*TokenHistoryResponse, error) {
 	dailyMap := make(map[string]*DailyTokenRecord)
 	modelTotals := make(map[string]*ModelTokenBreakdown)
 	var totalTokens, desktopTokens, cliTokens int64
-	var totalCostUSD float64
+	var totalCostUSD, thisMonthCostUSD float64
 	var totalSteps int
 
 	todayKey := now.Format("2006-01-02")
 	sevenDaysAgo := now.AddDate(0, 0, -7).Format("2006-01-02")
-	var todayTokens, last7dTokens int64
+	monthPrefix := now.Format("2006-01")
+	var todayTokens, last7dTokens, thisMonthTokens int64
 
 	for _, sess := range ledger.Sessions {
 		for dateKey, dayRec := range sess.Days {
@@ -2629,6 +2667,10 @@ func GetTokenHistory(forceRefresh bool) (*TokenHistoryResponse, error) {
 			if dateKey >= sevenDaysAgo {
 				last7dTokens += dayRec.Total
 			}
+			if strings.HasPrefix(dateKey, monthPrefix) {
+				thisMonthTokens += dayRec.Total
+				thisMonthCostUSD += dayRec.CostUSD
+			}
 		}
 	}
 
@@ -2655,10 +2697,16 @@ func GetTokenHistory(forceRefresh bool) (*TokenHistoryResponse, error) {
 		dailyMatrix = append(dailyMatrix, rec)
 	}
 
+	speedByModel := SnapshotModelSpeedStats()
 	modelSummary := make([]ModelTokenBreakdown, 0, len(modelTotals))
 	for _, v := range modelTotals {
 		cp := *v
 		cp.CostUSD = roundCost4(cp.CostUSD)
+		if sp, ok := speedByModel[cp.Model]; ok && sp.Samples > 0 {
+			cp.MedianTPS = sp.MedianTPS
+			cp.MedianTTFT = sp.MedianTTFT
+			cp.SpeedSamples = sp.Samples
+		}
 		modelSummary = append(modelSummary, cp)
 	}
 	sort.Slice(modelSummary, func(i, j int) bool {
@@ -2668,16 +2716,27 @@ func GetTokenHistory(forceRefresh bool) (*TokenHistoryResponse, error) {
 		return modelSummary[i].Model < modelSummary[j].Model
 	})
 
+	planTier, planMonthlyUSD := PlanMonthlyUSDForTier(LastKnownSubscriptionTier())
+	var roiMultiple float64
+	if planMonthlyUSD > 0 && thisMonthCostUSD > 0 {
+		roiMultiple = math.Round((thisMonthCostUSD/planMonthlyUSD)*10) / 10
+	}
+
 	summary := TokenHistorySummary{
-		TotalTokens:      totalTokens,
-		TodayTokens:      todayTokens,
-		Last7dTokens:     last7dTokens,
-		DesktopTokens:    desktopTokens,
-		CLITokens:        cliTokens,
-		EstimatedCostUSD: float64(int(totalCostUSD*100+0.5)) / 100,
-		EstimatedCostCNY: float64(int(totalCostUSD*7.25*100+0.5)) / 100,
-		ActiveDays:       len(dailyMatrix),
-		TotalSteps:       totalSteps,
+		TotalTokens:        totalTokens,
+		TodayTokens:        todayTokens,
+		Last7dTokens:       last7dTokens,
+		ThisMonthTokens:    thisMonthTokens,
+		ThisMonthCostUSD:   float64(int(thisMonthCostUSD*100+0.5)) / 100,
+		DesktopTokens:      desktopTokens,
+		CLITokens:          cliTokens,
+		EstimatedCostUSD:   float64(int(totalCostUSD*100+0.5)) / 100,
+		EstimatedCostCNY:   float64(int(totalCostUSD*7.25*100+0.5)) / 100,
+		PlanTier:           planTier,
+		PlanMonthlyUSD:     planMonthlyUSD,
+		MonthlyROIMultiple: roiMultiple,
+		ActiveDays:         len(dailyMatrix),
+		TotalSteps:         totalSteps,
 	}
 
 	cachedHistoryResp = &TokenHistoryResponse{

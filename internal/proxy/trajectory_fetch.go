@@ -1011,6 +1011,23 @@ func (p *Proxy) fetchUpstreamGeneratorMetadata(cascadeID string, port int, token
 	mergedSteps := mergeSessionStepUsages(prevSteps, reqOffset, sum.stepUsages)
 	applySessionUsageTotals(item, mergedSteps)
 
+	// Feed live per-step speed and pool token samples into cockpit stats (deduplicated by responseID).
+	if item.ModelName != "" {
+		lastRespID := ""
+		for i := len(mergedSteps) - 1; i >= 0; i-- {
+			if mergedSteps[i].hasUsage && mergedSteps[i].responseID != "" {
+				lastRespID = mergedSteps[i].responseID
+				break
+			}
+		}
+		if item.TokensPerSecond > 0 {
+			cockpit.RecordModelSpeedSample(item.ModelName, item.TokensPerSecond, item.TimeToFirstToken, lastRespID, time.Now())
+		}
+		if item.InputTokens+item.CacheReadTokens+item.OutputTokens > 0 && lastRespID != "" {
+			cockpit.RecordPoolUsageEvent(time.Now(), item.ModelName, item.InputTokens, item.CacheReadTokens, item.OutputTokens, lastRespID)
+		}
+	}
+
 	totalCount := reqOffset + sum.count
 	nextOffset := 0
 	if totalCount > 5 {

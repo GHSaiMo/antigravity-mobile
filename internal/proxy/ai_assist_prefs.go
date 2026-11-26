@@ -23,35 +23,38 @@ const (
 // AIAssistPrefs holds gateway-persisted, cross-device AI Assist preferences.
 // All capabilities default to opt-in (false) so no extra model calls are issued unexpectedly.
 type AIAssistPrefs struct {
-	TitleTranslateEnabled    bool   `json:"titleTranslateEnabled"`
-	TitleTranslateEnabledAt  string `json:"titleTranslateEnabledAt,omitempty"` // RFC3339 timestamp; only conversations created after enabling are auto-translated
-	TitleTranslateLang       string `json:"titleTranslateLang,omitempty"`      // BCP-47 tag (e.g. "zh-Hans", "ja", "pt-BR"), empty = auto
-	TitleTranslateLangName   string `json:"titleTranslateLangName,omitempty"`  // English display name (e.g. "Simplified Chinese", "Portuguese")
-	StepPlanTranslateEnabled bool   `json:"stepPlanTranslateEnabled"`
-	FocusTranslateEnabled    bool   `json:"focusTranslateEnabled"`
-	NextPromptEnabled        bool   `json:"nextPromptEnabled"`
-	NextPromptTapAction      string `json:"nextPromptTapAction"` // "fill" | "send"
+	TitleTranslateEnabled       bool   `json:"titleTranslateEnabled"`
+	TitleTranslateEnabledAt     string `json:"titleTranslateEnabledAt,omitempty"` // RFC3339 timestamp; only conversations created after enabling are auto-translated
+	TitleTranslateLang          string `json:"titleTranslateLang,omitempty"`      // BCP-47 tag (e.g. "zh-Hans", "ja", "pt-BR"), empty = auto
+	TitleTranslateLangName      string `json:"titleTranslateLangName,omitempty"`  // English display name (e.g. "Simplified Chinese", "Portuguese")
+	StepPlanTranslateEnabled    bool   `json:"stepPlanTranslateEnabled"`
+	FocusTranslateEnabled       bool   `json:"focusTranslateEnabled"`
+	NextPromptEnabled           bool   `json:"nextPromptEnabled"`
+	NextPromptTapAction         string `json:"nextPromptTapAction"` // "fill" | "send"
+	PostCompactRehydrateEnabled bool   `json:"postCompactRehydrateEnabled"`
 }
 
 // AIAssistPrefsPatch supports partial updates from mobile/web settings clients.
 type AIAssistPrefsPatch struct {
-	TitleTranslateEnabled    *bool   `json:"titleTranslateEnabled,omitempty"`
-	TitleTranslateLang       *string `json:"titleTranslateLang,omitempty"`
-	TitleTranslateLangName   *string `json:"titleTranslateLangName,omitempty"`
-	StepPlanTranslateEnabled *bool   `json:"stepPlanTranslateEnabled,omitempty"`
-	FocusTranslateEnabled    *bool   `json:"focusTranslateEnabled,omitempty"`
-	NextPromptEnabled        *bool   `json:"nextPromptEnabled,omitempty"`
-	NextPromptTapAction      *string `json:"nextPromptTapAction,omitempty"`
+	TitleTranslateEnabled       *bool   `json:"titleTranslateEnabled,omitempty"`
+	TitleTranslateLang          *string `json:"titleTranslateLang,omitempty"`
+	TitleTranslateLangName      *string `json:"titleTranslateLangName,omitempty"`
+	StepPlanTranslateEnabled    *bool   `json:"stepPlanTranslateEnabled,omitempty"`
+	FocusTranslateEnabled       *bool   `json:"focusTranslateEnabled,omitempty"`
+	NextPromptEnabled           *bool   `json:"nextPromptEnabled,omitempty"`
+	NextPromptTapAction         *string `json:"nextPromptTapAction,omitempty"`
+	PostCompactRehydrateEnabled *bool   `json:"postCompactRehydrateEnabled,omitempty"`
 }
 
 // AIAssistStatusResponse is returned by GET and POST /gateway/ai-assist/prefs.
 type AIAssistStatusResponse struct {
-	Prefs            AIAssistPrefs `json:"prefs"`
-	ModelID          string        `json:"modelId"`
-	ModelName        string        `json:"modelName"`
-	ResolvedLang     string        `json:"resolvedLang"`
-	ResolvedLangName string        `json:"resolvedLangName"`
-	Available        bool          `json:"available"`
+	Prefs                  AIAssistPrefs `json:"prefs"`
+	ModelID                string        `json:"modelId"`
+	ModelName              string        `json:"modelName"`
+	ResolvedLang           string        `json:"resolvedLang"`
+	ResolvedLangName       string        `json:"resolvedLangName"`
+	Available              bool          `json:"available"`
+	RehydrateHookInstalled bool          `json:"rehydrateHookInstalled"`
 }
 
 type aiAssistPrefsStore struct {
@@ -81,12 +84,13 @@ func defaultAIAssistPrefs() AIAssistPrefs {
 		enabledAt = time.Now().UTC().Format(time.RFC3339Nano)
 	}
 	return AIAssistPrefs{
-		TitleTranslateEnabled:    titleEnabled,
-		TitleTranslateEnabledAt:  enabledAt,
-		StepPlanTranslateEnabled: envBoolDefaultFalse("MGY_AI_STEP_PLAN_TRANSLATE"),
-		FocusTranslateEnabled:    envBoolDefaultFalse("MGY_AI_FOCUS_TRANSLATE"),
-		NextPromptEnabled:        envBoolDefaultFalse("MGY_AI_NEXT_PROMPT"),
-		NextPromptTapAction:      tapAction,
+		TitleTranslateEnabled:       titleEnabled,
+		TitleTranslateEnabledAt:     enabledAt,
+		StepPlanTranslateEnabled:    envBoolDefaultFalse("MGY_AI_STEP_PLAN_TRANSLATE"),
+		FocusTranslateEnabled:       envBoolDefaultFalse("MGY_AI_FOCUS_TRANSLATE"),
+		NextPromptEnabled:           envBoolDefaultFalse("MGY_AI_NEXT_PROMPT"),
+		NextPromptTapAction:         tapAction,
+		PostCompactRehydrateEnabled: envBoolDefaultFalse("MGY_POST_COMPACT_REHYDRATE"),
 	}
 }
 
@@ -189,6 +193,9 @@ func applyAIAssistPrefsPatch(dst *AIAssistPrefs, patch AIAssistPrefsPatch) {
 	if patch.NextPromptTapAction != nil {
 		dst.NextPromptTapAction = normalizeTapAction(*patch.NextPromptTapAction)
 	}
+	if patch.PostCompactRehydrateEnabled != nil {
+		dst.PostCompactRehydrateEnabled = *patch.PostCompactRehydrateEnabled
+	}
 	dst.NextPromptTapAction = normalizeTapAction(dst.NextPromptTapAction)
 }
 
@@ -238,12 +245,13 @@ func (p *Proxy) buildAIAssistStatus(r *http.Request) AIAssistStatusResponse {
 		}
 	}
 	return AIAssistStatusResponse{
-		Prefs:            prefs,
-		ModelID:          model.ID,
-		ModelName:        model.Name,
-		ResolvedLang:     resolvedLang,
-		ResolvedLangName: resolvedLangName,
-		Available:        p.IsAIAssistAvailable(),
+		Prefs:                  prefs,
+		ModelID:                model.ID,
+		ModelName:              model.Name,
+		ResolvedLang:           resolvedLang,
+		ResolvedLangName:       resolvedLangName,
+		Available:              p.IsAIAssistAvailable(),
+		RehydrateHookInstalled: IsPostCompactRehydrateHookInstalled(),
 	}
 }
 
@@ -272,6 +280,19 @@ func (p *Proxy) HandleAIAssistPrefs(w http.ResponseWriter, r *http.Request) {
 		// If next-prompt suggestions were disabled, immediately clear cached suggestions and notify active streams.
 		if prev.NextPromptEnabled && !updated.NextPromptEnabled {
 			p.clearAllNextPromptCache()
+		}
+		// Sync ~/.gemini/config/hooks.json whenever PostCompactRehydrateEnabled is explicitly updated.
+		if patch.PostCompactRehydrateEnabled != nil {
+			if hErr := SyncPostCompactRehydrateHook(updated.PostCompactRehydrateEnabled); hErr != nil {
+				slog.Warn("[AIAssist] Failed to sync post-compact rehydration hook", "enabled", updated.PostCompactRehydrateEnabled, "err", hErr)
+				// Roll back pref if hook registration failed so UI never claims active when hooks.json wasn't updated.
+				if updated.PostCompactRehydrateEnabled {
+					f := false
+					_, _ = p.aiAssistPrefs.Update(AIAssistPrefsPatch{PostCompactRehydrateEnabled: &f})
+					writeJSONError(w, "failed to configure hooks.json: "+hErr.Error(), http.StatusInternalServerError)
+					return
+				}
+			}
 		}
 		// If live step-plan / focus translation switches or target language changed, immediately wake active streams.
 		if prev.StepPlanTranslateEnabled != updated.StepPlanTranslateEnabled ||

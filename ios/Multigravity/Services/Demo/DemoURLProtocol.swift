@@ -317,6 +317,22 @@ private enum DemoRouter {
         case ("GET", "/api/v1/cockpit/tokens/history"):
             return rawJSON(gw.tokenHistoryPayload())
 
+        case ("GET", "/api/v1/cockpit/auto-switch"), ("POST", "/api/v1/cockpit/auto-switch"):
+            return json([
+                "config": [
+                    "enabled": false,
+                    "target_bucket": "gemini_5h",
+                    "threshold_percent": 10,
+                    "wait_until_idle": true,
+                    "strategy": "highest_quota",
+                    "candidates": [],
+                    "debounce_sec": 15,
+                    "cooldown_sec": 180
+                ],
+                "status": ["state": "disabled"],
+                "cockpit_installed": true
+            ])
+
         case ("GET", "/api/v1/version"):
             return json(["version": "2.35.0-demo", "gateway": "multigravity-demo"])
 

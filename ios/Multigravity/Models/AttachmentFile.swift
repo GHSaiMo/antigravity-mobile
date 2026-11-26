@@ -20,6 +20,7 @@ public struct DraftFile: Identifiable, Codable, Equatable, Sendable {
     public var attachmentId: String?
     public var line: String?
     public var error: String?
+    public var estimatedTokens: Int64?
     
     public init(
         id: String = UUID().uuidString,
@@ -30,7 +31,8 @@ public struct DraftFile: Identifiable, Codable, Equatable, Sendable {
         progress: Double = 0,
         attachmentId: String? = nil,
         line: String? = nil,
-        error: String? = nil
+        error: String? = nil,
+        estimatedTokens: Int64? = nil
     ) {
         self.id = id
         self.name = name
@@ -41,9 +43,16 @@ public struct DraftFile: Identifiable, Codable, Equatable, Sendable {
         self.attachmentId = attachmentId
         self.line = line
         self.error = error
+        self.estimatedTokens = estimatedTokens
     }
     
     public var isUploaded: Bool { state == .done && attachmentId != nil }
+
+    /// Effective token estimate: server-provided value when available, otherwise lightweight local heuristic.
+    public var resolvedEstimatedTokens: Int64 {
+        if let est = estimatedTokens, est > 0 { return est }
+        return AttachmentRules.estimateLocalTokens(name: name, size: size)
+    }
 }
 
 /// Response of POST /api/v1/attachments.
@@ -56,6 +65,7 @@ public struct UploadedAttachment: Codable, Sendable {
     public let sha256: String
     public let kind: String
     public let line: String
+    public let estimatedTokens: Int64?
 }
 
 /// Reference sent in SendUserCascadeMessage; the gateway resolves it to a path block in the text.
@@ -82,6 +92,27 @@ public enum AttachmentRules {
     public static func isLargeMediaName(_ name: String) -> Bool {
         let ext = (name as NSString).pathExtension.lowercased()
         return largeMediaExtensions.contains(ext)
+    }
+
+    public static func estimateLocalTokens(name: String, size: Int64) -> Int64 {
+        guard size > 0 else { return 0 }
+        let ext = (name as NSString).pathExtension.lowercased()
+        switch ext {
+        case "pdf":
+            return max(250, min(size / 24, 500_000))
+        case "docx", "doc", "pptx", "ppt", "xlsx", "xls", "xlsm", "odt", "rtf", "epub":
+            return max(150, min(size / 10, 500_000))
+        case "png", "jpg", "jpeg", "gif", "webp", "heic":
+            return max(258, min(size / 1500, 2048))
+        case "mp3", "m4a", "wav", "aac", "ogg", "amr", "flac":
+            return max(64, min(size / 512, 200_000))
+        case "mp4", "mov", "webm", "mkv":
+            return max(256, min(size / 1200, 300_000))
+        case "zip", "tar", "gz", "tgz", "7z", "exe", "dmg", "apk", "bin":
+            return 0
+        default:
+            return max(1, size / 4)
+        }
     }
     
     private static let allowedExtensions: Set<String> = [

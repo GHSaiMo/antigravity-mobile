@@ -144,7 +144,7 @@ func (p *StreamUpdatePayload) Fingerprint() string {
 	}
 	cmKey := "none"
 	if p.ContextMeter != nil {
-		cmKey = fmt.Sprintf("%d:%d:%d:%.1f:%d:%s:%s:%d:%d",
+		cmKey = fmt.Sprintf("%d:%d:%d:%.1f:%d:%s:%s:%d:%d:%t:%d",
 			p.ContextMeter.UsedTokens,
 			p.ContextMeter.OutputTokens,
 			p.ContextMeter.CacheReadTokens,
@@ -154,6 +154,8 @@ func (p *StreamUpdatePayload) Fingerprint() string {
 			p.ContextMeter.LastActivityAt,
 			p.ContextMeter.SessionSteps,
 			p.ContextMeter.SessionTotalTokens,
+			p.ContextMeter.Compacted,
+			p.ContextMeter.CheckpointCount,
 		)
 	}
 	sugKey := fmt.Sprintf("%d:%s:%s", len(p.SuggestedResponses), p.SuggestedResponseSource, strings.Join(p.SuggestedResponses, "|"))
@@ -536,9 +538,13 @@ func (p *Proxy) HandleCascadeStream(w http.ResponseWriter, r *http.Request) {
 		} else if fetchedLivePending && len(details.QueuedMessages) > 0 {
 			details.QueuedMessages = p.FilterQueuedMessagesAgainstTrajectory(cascadeID, details.QueuedMessages, rawResp.Trajectory.Steps, details.AllMessages)
 		}
-		details.ContextMeter = withLastActivityAt(
-			p.fetchUpstreamGeneratorMetadata(cascadeID, port, token),
-			extractLastActivityAt(rawResp.Trajectory.Steps),
+		details.ContextMeter = applyTrajectoryContextEnrichment(
+			withLastActivityAt(
+				p.fetchUpstreamGeneratorMetadata(cascadeID, port, token),
+				extractLastActivityAt(rawResp.Trajectory.Steps),
+			),
+			rawResp.Trajectory.Steps,
+			details.AllMessages,
 		)
 		liveTranslations := p.ApplyLiveTextTranslations(cascadeID, &details, streamLangHint, true)
 		lastDetails = details

@@ -14,6 +14,8 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.ExpandLess
+import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.material.icons.filled.FileDownload
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Share
@@ -51,14 +53,20 @@ import androidx.compose.ui.unit.Constraints
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.antigravity.mobile.data.model.AutoSwitchConfig
+import com.antigravity.mobile.data.model.AutoSwitchResponse
 import com.antigravity.mobile.data.model.CockpitAccountQuota
 import com.antigravity.mobile.data.model.QuotaBucketKind
 import com.antigravity.mobile.data.model.CockpitQuotaBucket
 import com.antigravity.mobile.data.model.CockpitQuotaResponse
 import com.antigravity.mobile.data.model.DailyTokenRecord
 import com.antigravity.mobile.data.model.TokenHistoryResponse
+import com.antigravity.mobile.data.service.ApiClient
 import com.antigravity.mobile.ui.theme.AntigravityTheme
+import com.antigravity.mobile.ui.util.L10n
 import com.antigravity.mobile.ui.util.ShareImageUtils
+import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.put
 import java.text.SimpleDateFormat
 import java.util.*
 import kotlin.math.roundToInt
@@ -88,7 +96,7 @@ fun AccountQuotaSheet(
     var showTokenHistoryShareSheet by remember { mutableStateOf(false) }
     var selectedHeatmapDate by remember { mutableStateOf<String?>(null) }
     var pendingSwitchAccount by remember { mutableStateOf<CockpitAccountQuota?>(null) }
-    var paceDetailTitleAndInfo by remember { mutableStateOf<Pair<String, com.antigravity.mobile.data.model.WeeklyPaceInfo>?>(null) }
+    var paceDetailTitleAndInfo by remember { mutableStateOf<Triple<String, com.antigravity.mobile.data.model.WeeklyPaceInfo, CockpitQuotaBucket?>?>(null) }
     val scope = rememberCoroutineScope()
     val context = LocalContext.current
     val lifecycleOwner = androidx.lifecycle.compose.LocalLifecycleOwner.current
@@ -430,27 +438,68 @@ fun AccountQuotaSheet(
                                 style = tightTextStyle
                             )
                             Row(
-                                modifier = Modifier
-                                    .clip(CircleShape)
-                                    .background(colors.accentBlue.copy(alpha = 0.12f))
-                                    .padding(horizontal = 8.dp, vertical = 2.5.dp),
                                 verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(4.dp)
+                                horizontalArrangement = Arrangement.spacedBy(6.dp)
                             ) {
-                                Box(
+                                if (onSelectQuotaBucket != null) {
+                                    val isAuto = selectedQuotaBucket == QuotaBucketKind.AUTO
+                                    Row(
+                                        modifier = Modifier
+                                            .clip(CircleShape)
+                                            .background(if (isAuto) colors.accentBlue.copy(alpha = 0.14f) else colors.textMuted.copy(alpha = 0.12f))
+                                            .border(
+                                                0.5.dp,
+                                                if (isAuto) colors.accentBlue.copy(alpha = 0.45f) else colors.border,
+                                                CircleShape
+                                            )
+                                            .clickable {
+                                                val next = if (isAuto) {
+                                                    if (current.isFreeTier) QuotaBucketKind.GEMINI_WEEKLY else QuotaBucketKind.GEMINI_5H
+                                                } else {
+                                                    QuotaBucketKind.AUTO
+                                                }
+                                                onSelectQuotaBucket(next)
+                                            }
+                                            .padding(horizontal = 8.dp, vertical = 2.5.dp),
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Text(
+                                            text = when (L10n.currentLang) {
+                                                L10n.AppLang.EN -> "Auto Tightest"
+                                                L10n.AppLang.JA -> "自動最小"
+                                                L10n.AppLang.ZH -> "自动最紧"
+                                            },
+                                            color = if (isAuto) colors.accentBlue else colors.textSecondary,
+                                            fontSize = 11.sp,
+                                            lineHeight = 13.sp,
+                                            fontWeight = if (isAuto) FontWeight.SemiBold else FontWeight.Medium,
+                                            style = tightTextStyle
+                                        )
+                                    }
+                                }
+                                Row(
                                     modifier = Modifier
-                                        .size(6.dp)
                                         .clip(CircleShape)
-                                        .background(colors.accentBlue)
-                                )
-                                Text(
-                                    text = "使用中".loc,
-                                    color = colors.accentBlue,
-                                    fontSize = 11.sp,
-                                    lineHeight = 13.sp,
-                                    fontWeight = FontWeight.SemiBold,
-                                    style = tightTextStyle
-                                )
+                                        .background(colors.accentBlue.copy(alpha = 0.12f))
+                                        .padding(horizontal = 8.dp, vertical = 2.5.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(4.dp)
+                                ) {
+                                    Box(
+                                        modifier = Modifier
+                                            .size(6.dp)
+                                            .clip(CircleShape)
+                                            .background(colors.accentBlue)
+                                    )
+                                    Text(
+                                        text = "使用中".loc,
+                                        color = colors.accentBlue,
+                                        fontSize = 11.sp,
+                                        lineHeight = 13.sp,
+                                        fontWeight = FontWeight.SemiBold,
+                                        style = tightTextStyle
+                                    )
+                                }
                             }
                         }
 
@@ -461,7 +510,7 @@ fun AccountQuotaSheet(
                             showWeeklyPaceCursor = showWeeklyPaceCursor,
                             selectedQuotaBucket = selectedQuotaBucket,
                             onSelectQuotaBucket = onSelectQuotaBucket,
-                            onWeeklyClick = { title, info -> paceDetailTitleAndInfo = Pair(title, info) },
+                            onWeeklyClick = { title, info, b -> paceDetailTitleAndInfo = Triple(title, info, b) },
                             onSwitch = null
                         )
                     }
@@ -629,10 +678,12 @@ fun AccountQuotaSheet(
                                 isCurrent = false,
                                 isMasked = isMasked,
                                 showWeeklyPaceCursor = showWeeklyPaceCursor,
-                                onWeeklyClick = { title, info -> paceDetailTitleAndInfo = Pair(title, info) },
+                                onWeeklyClick = { title, info, b -> paceDetailTitleAndInfo = Triple(title, info, b) },
                                 onSwitch = { pendingSwitchAccount = acc }
                             )
                         }
+
+                        AutoSwitchCollapsibleCard()
                     }
                 }
 
@@ -731,10 +782,11 @@ fun AccountQuotaSheet(
         )
     }
 
-    paceDetailTitleAndInfo?.let { (title, info) ->
+    paceDetailTitleAndInfo?.let { (title, info, bucket) ->
         WeeklyPaceDetailDialog(
             title = title,
             info = info,
+            bucket = bucket,
             onDismiss = { paceDetailTitleAndInfo = null }
         )
     }
@@ -760,7 +812,7 @@ private fun AccountQuotaCard(
     showWeeklyPaceCursor: Boolean = true,
     selectedQuotaBucket: QuotaBucketKind = QuotaBucketKind.GEMINI_5H,
     onSelectQuotaBucket: ((QuotaBucketKind) -> Unit)? = null,
-    onWeeklyClick: ((String, com.antigravity.mobile.data.model.WeeklyPaceInfo) -> Unit)? = null,
+    onWeeklyClick: ((String, com.antigravity.mobile.data.model.WeeklyPaceInfo, CockpitQuotaBucket?) -> Unit)? = null,
     onSwitch: (() -> Unit)?
 ) {
     val colors = AntigravityTheme.colors
@@ -837,7 +889,7 @@ private fun AccountQuotaCard(
                         isCurrentAccount = isCurrent,
                         isSelected = isCurrent && resolvedSelectedKind == QuotaBucketKind.GEMINI_WEEKLY,
                         onSelect = onSelectQuotaBucket?.let { cb -> { cb(QuotaBucketKind.GEMINI_WEEKLY) } },
-                        onWeeklyClick = onWeeklyClick?.let { cb -> { cb("Gemini · Weekly", it) } },
+                        onWeeklyClick = onWeeklyClick?.let { cb -> { cb("Gemini · Weekly", it, account.geminiWeekly) } },
                         modifier = Modifier.weight(1f)
                     )
                     QuotaMetricCell(
@@ -848,7 +900,7 @@ private fun AccountQuotaCard(
                         isCurrentAccount = isCurrent,
                         isSelected = isCurrent && resolvedSelectedKind == QuotaBucketKind.CLAUDE_WEEKLY,
                         onSelect = onSelectQuotaBucket?.let { cb -> { cb(QuotaBucketKind.CLAUDE_WEEKLY) } },
-                        onWeeklyClick = onWeeklyClick?.let { cb -> { cb("Claude · Weekly", it) } },
+                        onWeeklyClick = onWeeklyClick?.let { cb -> { cb("Claude · Weekly", it, account.claudeWeekly) } },
                         modifier = Modifier.weight(1f)
                     )
                 }
@@ -866,7 +918,7 @@ private fun AccountQuotaCard(
                         isCurrentAccount = isCurrent,
                         isSelected = isCurrent && resolvedSelectedKind == QuotaBucketKind.GEMINI_5H,
                         onSelect = onSelectQuotaBucket?.let { cb -> { cb(QuotaBucketKind.GEMINI_5H) } },
-                        onWeeklyClick = onWeeklyClick?.let { cb -> { cb("Gemini · 5h", it) } },
+                        onWeeklyClick = onWeeklyClick?.let { cb -> { cb("Gemini · 5h", it, account.gemini5h) } },
                         modifier = Modifier.weight(1f)
                     )
                     QuotaMetricCell(
@@ -877,7 +929,7 @@ private fun AccountQuotaCard(
                         isCurrentAccount = isCurrent,
                         isSelected = isCurrent && resolvedSelectedKind == QuotaBucketKind.GEMINI_WEEKLY,
                         onSelect = onSelectQuotaBucket?.let { cb -> { cb(QuotaBucketKind.GEMINI_WEEKLY) } },
-                        onWeeklyClick = onWeeklyClick?.let { cb -> { cb("Gemini · Weekly", it) } },
+                        onWeeklyClick = onWeeklyClick?.let { cb -> { cb("Gemini · Weekly", it, account.geminiWeekly) } },
                         modifier = Modifier.weight(1f)
                     )
                 }
@@ -895,7 +947,7 @@ private fun AccountQuotaCard(
                         isCurrentAccount = isCurrent,
                         isSelected = isCurrent && resolvedSelectedKind == QuotaBucketKind.CLAUDE_5H,
                         onSelect = onSelectQuotaBucket?.let { cb -> { cb(QuotaBucketKind.CLAUDE_5H) } },
-                        onWeeklyClick = onWeeklyClick?.let { cb -> { cb("Claude · 5h", it) } },
+                        onWeeklyClick = onWeeklyClick?.let { cb -> { cb("Claude · 5h", it, account.claude5h) } },
                         modifier = Modifier.weight(1f)
                     )
                     QuotaMetricCell(
@@ -906,7 +958,7 @@ private fun AccountQuotaCard(
                         isCurrentAccount = isCurrent,
                         isSelected = isCurrent && resolvedSelectedKind == QuotaBucketKind.CLAUDE_WEEKLY,
                         onSelect = onSelectQuotaBucket?.let { cb -> { cb(QuotaBucketKind.CLAUDE_WEEKLY) } },
-                        onWeeklyClick = onWeeklyClick?.let { cb -> { cb("Claude · Weekly", it) } },
+                        onWeeklyClick = onWeeklyClick?.let { cb -> { cb("Claude · Weekly", it, account.claudeWeekly) } },
                         modifier = Modifier.weight(1f)
                     )
                 }
@@ -1261,6 +1313,7 @@ private fun QuotaMetricCell(
 private fun WeeklyPaceDetailDialog(
     title: String,
     info: com.antigravity.mobile.data.model.WeeklyPaceInfo,
+    bucket: CockpitQuotaBucket? = null,
     onDismiss: () -> Unit
 ) {
     val colors = AntigravityTheme.colors
@@ -1348,6 +1401,31 @@ private fun WeeklyPaceDetailDialog(
                         color = if (info.isOverPacing) Color(0xFFFF9F0A) else colors.accentGreen
                     )
                     PaceDetailRow("重置倒计时".loc, info.resetCountdownDisplay, colors.textSecondary)
+                    if (bucket != null && (bucket.estCycleUsedTokens > 0L || bucket.estReliable)) {
+                        HorizontalDivider(thickness = 0.5.dp, color = colors.border.copy(alpha = 0.4f))
+                        if (bucket.estCycleUsedTokens > 0L) {
+                            PaceDetailRow(
+                                label = when (L10n.currentLang) {
+                                    L10n.AppLang.EN -> "Observed Cycle Used"
+                                    L10n.AppLang.JA -> "今周期の観測消費量"
+                                    L10n.AppLang.ZH -> "本周期观测已耗"
+                                },
+                                value = "~${formatTokensCompact(bucket.estCycleUsedTokens)}",
+                                color = colors.textPrimary
+                            )
+                        }
+                        if (bucket.estReliable && bucket.estRemainingTokens > 0L) {
+                            PaceDetailRow(
+                                label = when (L10n.currentLang) {
+                                    L10n.AppLang.EN -> "Estimated Remaining"
+                                    L10n.AppLang.JA -> "残り推定トークン"
+                                    L10n.AppLang.ZH -> "本周期估算约剩"
+                                },
+                                value = "~${formatTokensCompact(bucket.estRemainingTokens)}",
+                                color = colors.accentBlue
+                            )
+                        }
+                    }
                 }
             }
         },
@@ -1381,6 +1459,292 @@ private fun PaceDetailRow(label: String, value: String, color: Color) {
             maxLines = 1,
             softWrap = false
         )
+    }
+}
+
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun AutoSwitchCollapsibleCard() {
+    val colors = AntigravityTheme.colors
+    val scope = rememberCoroutineScope()
+    var expanded by remember { mutableStateOf(false) }
+    var state by remember { mutableStateOf<AutoSwitchResponse?>(null) }
+    var isSaving by remember { mutableStateOf(false) }
+    var errorMsg by remember { mutableStateOf<String?>(null) }
+
+    LaunchedEffect(Unit) {
+        ApiClient.defaultInstance?.fetchAutoSwitchConfig()?.onSuccess {
+            state = it
+        }
+    }
+
+    fun updatePatch(patch: kotlinx.serialization.json.JsonObject) {
+        scope.launch {
+            isSaving = true
+            errorMsg = null
+            val res = ApiClient.defaultInstance?.updateAutoSwitchConfig(patch)
+            res?.onSuccess { state = it }?.onFailure { errorMsg = it.message }
+            isSaving = false
+        }
+    }
+
+    val cfg = state?.config ?: AutoSwitchConfig()
+    val statusText = when (state?.status?.state) {
+        "watching" -> when (L10n.currentLang) {
+            L10n.AppLang.EN -> "Watching"
+            L10n.AppLang.JA -> "監視中"
+            L10n.AppLang.ZH -> "监控中"
+        }
+        "pending_debounce" -> when (L10n.currentLang) {
+            L10n.AppLang.EN -> "Pending"
+            L10n.AppLang.JA -> "確認中"
+            L10n.AppLang.ZH -> "防抖确认"
+        }
+        "cooldown" -> when (L10n.currentLang) {
+            L10n.AppLang.EN -> "Cooldown"
+            L10n.AppLang.JA -> "クールダウン"
+            L10n.AppLang.ZH -> "冷却中"
+        }
+        "waiting_idle" -> when (L10n.currentLang) {
+            L10n.AppLang.EN -> "Waiting Idle"
+            L10n.AppLang.JA -> "待機中"
+            L10n.AppLang.ZH -> "等待空闲"
+        }
+        "no_candidates" -> when (L10n.currentLang) {
+            L10n.AppLang.EN -> "No Backup"
+            L10n.AppLang.JA -> "候補なし"
+            L10n.AppLang.ZH -> "无可用备号"
+        }
+        "switched" -> when (L10n.currentLang) {
+            L10n.AppLang.EN -> "Switched"
+            L10n.AppLang.JA -> "切替済"
+            L10n.AppLang.ZH -> "已切换"
+        }
+        "error" -> when (L10n.currentLang) {
+            L10n.AppLang.EN -> "Error"
+            L10n.AppLang.JA -> "エラー"
+            L10n.AppLang.ZH -> "切换异常"
+        }
+        else -> when (L10n.currentLang) {
+            L10n.AppLang.EN -> "Off"
+            L10n.AppLang.JA -> "オフ"
+            L10n.AppLang.ZH -> "已关闭"
+        }
+    }
+
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(14.dp))
+            .background(colors.surface)
+            .border(0.5.dp, colors.border, RoundedCornerShape(14.dp))
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clickable { expanded = !expanded }
+                .padding(horizontal = 13.dp, vertical = 11.dp),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                Text(
+                    text = when (L10n.currentLang) {
+                        L10n.AppLang.EN -> "Threshold Auto-Switch"
+                        L10n.AppLang.JA -> "しきい値自動アカウント切替"
+                        L10n.AppLang.ZH -> "阈值自动切号"
+                    },
+                    fontSize = 13.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    color = colors.textPrimary
+                )
+                Box(
+                    modifier = Modifier
+                        .clip(CircleShape)
+                        .background(
+                            if (cfg.enabled) colors.accentGreen.copy(alpha = 0.14f)
+                            else colors.textMuted.copy(alpha = 0.14f)
+                        )
+                        .padding(horizontal = 7.dp, vertical = 2.dp)
+                ) {
+                    Text(
+                        text = statusText,
+                        fontSize = 10.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        color = if (cfg.enabled) colors.accentGreen else colors.textMuted
+                    )
+                }
+            }
+            Icon(
+                imageVector = if (expanded) Icons.Default.ExpandLess else Icons.Default.ExpandMore,
+                contentDescription = null,
+                tint = colors.textMuted,
+                modifier = Modifier.size(18.dp)
+            )
+        }
+
+        if (expanded) {
+            HorizontalDivider(color = colors.border, thickness = 0.5.dp)
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(13.dp),
+                verticalArrangement = Arrangement.spacedBy(11.dp)
+            ) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        text = when (L10n.currentLang) {
+                            L10n.AppLang.EN -> "Enable Auto-Switch"
+                            L10n.AppLang.JA -> "自動切替を有効にする"
+                            L10n.AppLang.ZH -> "启用阈值自动切换"
+                        },
+                        fontSize = 13.sp,
+                        color = colors.textPrimary
+                    )
+                    Switch(
+                        checked = cfg.enabled,
+                        enabled = !isSaving,
+                        onCheckedChange = { checked ->
+                            updatePatch(buildJsonObject { put("enabled", checked) })
+                        }
+                    )
+                }
+
+                // Target bucket chips
+                Text(
+                    text = when (L10n.currentLang) {
+                        L10n.AppLang.EN -> "Monitored Bucket"
+                        L10n.AppLang.JA -> "監視バケット"
+                        L10n.AppLang.ZH -> "监控额度维度"
+                    },
+                    fontSize = 11.5.sp,
+                    color = colors.textSecondary
+                )
+                FlowRow(
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    verticalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    listOf(
+                        "gemini_5h" to "Gemini · 5h",
+                        "gemini_weekly" to "Gemini · Weekly",
+                        "claude_5h" to "Claude · 5h",
+                        "claude_weekly" to "Claude · Weekly"
+                    ).forEach { (key, label) ->
+                        val active = cfg.targetBucket == key
+                        Box(
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(8.dp))
+                                .background(if (active) colors.accentBlue.copy(alpha = 0.15f) else colors.surfaceVariant.copy(alpha = 0.55f))
+                                .border(0.8.dp, if (active) colors.accentBlue else colors.border, RoundedCornerShape(8.dp))
+                                .clickable(enabled = !isSaving) {
+                                    updatePatch(buildJsonObject { put("target_bucket", key) })
+                                }
+                                .padding(horizontal = 9.dp, vertical = 5.dp)
+                        ) {
+                            Text(
+                                text = label,
+                                fontSize = 11.sp,
+                                fontWeight = if (active) FontWeight.SemiBold else FontWeight.Normal,
+                                color = if (active) colors.accentBlue else colors.textSecondary
+                            )
+                        }
+                    }
+                }
+
+                // Threshold chips
+                Text(
+                    text = when (L10n.currentLang) {
+                        L10n.AppLang.EN -> "Switch Below Remaining (%)"
+                        L10n.AppLang.JA -> "残量しきい値 (%)"
+                        L10n.AppLang.ZH -> "剩余低于阈值时切换"
+                    },
+                    fontSize = 11.5.sp,
+                    color = colors.textSecondary
+                )
+                FlowRow(
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    verticalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    listOf(5, 10, 15, 20, 30).forEach { pct ->
+                        val active = cfg.thresholdPercent.roundToInt() == pct
+                        Box(
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(8.dp))
+                                .background(if (active) colors.accentOrange.copy(alpha = 0.16f) else colors.surfaceVariant.copy(alpha = 0.55f))
+                                .border(0.8.dp, if (active) colors.accentOrange else colors.border, RoundedCornerShape(8.dp))
+                                .clickable(enabled = !isSaving) {
+                                    updatePatch(buildJsonObject { put("threshold_percent", pct.toDouble()) })
+                                }
+                                .padding(horizontal = 10.dp, vertical = 5.dp)
+                        ) {
+                            Text(
+                                text = "≤$pct%",
+                                fontSize = 11.sp,
+                                fontFamily = FontFamily.Monospace,
+                                fontWeight = if (active) FontWeight.SemiBold else FontWeight.Normal,
+                                color = if (active) colors.accentOrange else colors.textSecondary
+                            )
+                        }
+                    }
+                }
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Column(modifier = Modifier.weight(1f).padding(end = 8.dp)) {
+                        Text(
+                            text = when (L10n.currentLang) {
+                                L10n.AppLang.EN -> "Wait Until Idle"
+                                L10n.AppLang.JA -> "実行完了まで待機"
+                                L10n.AppLang.ZH -> "仅在空闲时切换"
+                            },
+                            fontSize = 12.5.sp,
+                            color = colors.textPrimary
+                        )
+                        Text(
+                            text = when (L10n.currentLang) {
+                                L10n.AppLang.EN -> "Avoid restarting IDE while a task is running"
+                                L10n.AppLang.JA -> "タスク実行中の IDE 再起動を防止します"
+                                L10n.AppLang.ZH -> "避免在任务执行中重启 Antigravity"
+                            },
+                            fontSize = 11.sp,
+                            color = colors.textMuted
+                        )
+                    }
+                    Switch(
+                        checked = cfg.waitUntilIdle,
+                        enabled = !isSaving,
+                        onCheckedChange = { checked ->
+                            updatePatch(buildJsonObject { put("wait_until_idle", checked) })
+                        }
+                    )
+                }
+
+                state?.status?.reason?.takeIf { it.isNotBlank() }?.let { reason ->
+                    Text(
+                        text = reason,
+                        fontSize = 11.sp,
+                        color = colors.textMuted
+                    )
+                }
+                errorMsg?.let { err ->
+                    Text(
+                        text = err,
+                        fontSize = 11.sp,
+                        color = colors.accentRed
+                    )
+                }
+            }
+        }
     }
 }
 

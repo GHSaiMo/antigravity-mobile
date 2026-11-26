@@ -195,7 +195,33 @@ struct AIAssistSettingsView: View {
                 }
             }
 
-            // MARK: - 3. 底层引擎信息
+            // MARK: - 3. 压缩后上下文回灌 (Post-Compact Rehydration)
+            Section(
+                header: Text("长会话防失忆"),
+                footer: Text(
+                    manager.rehydrateHookInstalled
+                        ? String(localized: "已通过本机 PreInvocation Hook 注册。对话发生压缩后，自动回灌用户目标、近期摘要与活跃工作区文件，并自动脱敏凭据。")
+                        : String(localized: "开启后由网关向本机 ~/.gemini/config/hooks.json 注册轻量级 PreInvocation Hook，零额外依赖、仅在压缩后触发。")
+                )
+            ) {
+                Toggle(isOn: Binding(
+                    get: { manager.prefs.postCompactRehydrateEnabled },
+                    set: { newVal in
+                        UIImpactFeedbackGenerator(style: .light).impactOccurred()
+                        Task { await manager.setPostCompactRehydrateEnabled(newVal) }
+                    }
+                )) {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("压缩后自动回灌上下文")
+                        Text("长对话触发 /compact 后自动恢复工作脉络与关键文件")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                    }
+                }
+                .disabled(settings.isDemoMode)
+            }
+
+            // MARK: - 4. 底层引擎信息
             Section(
                 header: Text("推理引擎"),
                 footer: Text(

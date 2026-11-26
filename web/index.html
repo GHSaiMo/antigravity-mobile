@@ -825,6 +825,18 @@
             </div>
             <div class="settings-note" style="margin: 6px 4px 14px;">存在审批卡片、Proceed/Continue 按钮或输入框已有草稿时自动隐藏，避免打扰。</div>
 
+            <div class="quota-section-header" style="margin: 6px 4px 6px;">长会话防失忆</div>
+            <div class="ios-grouped-section compact-subpanel">
+              <label class="ios-cell between compact-subcell-page" for="settings-ai-rehydrate" style="cursor: pointer;">
+                <div class="compact-subtext">
+                  <span class="cell-label">压缩后自动回灌上下文</span>
+                  <span id="settings-ai-rehydrate-desc" class="compact-subdesc">压缩后保留近期上下文与编辑文件要点</span>
+                </div>
+                <input type="checkbox" id="settings-ai-rehydrate" class="ios-switch-input" />
+              </label>
+            </div>
+            <div class="settings-note" style="margin: 6px 4px 14px;">在本机 ~/.gemini/config/hooks.json 注册轻量原生 Hook；触发 /compact 或自动压缩后，下一次调用前自动回灌近期需求与改动文件（仅注入一次，不额外消耗模型调用）。</div>
+
             <div class="quota-section-header" style="margin: 6px 4px 6px;">推理引擎</div>
             <div class="ios-grouped-section">
               <div class="ios-cell between">
@@ -942,7 +954,10 @@
           <!-- Tab 1: Realtime Account Quotas -->
           <div id="quota-tab-realtime" class="quota-tab-content active">
             <!-- Pinned Current Account -->
-            <div class="quota-section-header">当前使用账号</div>
+            <div class="quota-section-header-row">
+              <div class="quota-section-header">当前使用账号</div>
+              <button type="button" id="btn-quota-auto-tightest" class="quota-auto-tightest-btn">自动最紧</button>
+            </div>
             <div id="quota-current-card" class="quota-account-card current-account-card">
               <!-- Populated dynamically via JS -->
             </div>
@@ -952,6 +967,7 @@
             <div id="quota-other-list" class="quota-accounts-list">
               <!-- Populated dynamically via JS -->
             </div>
+            <div id="quota-auto-switch-wrap" class="hidden"></div>
             <div id="quota-footer" class="quota-footer"></div>
           </div>
 
@@ -1030,7 +1046,10 @@
         <div class="sheet-grabber"></div>
         <div class="sheet-header">
           <div class="sheet-title-group">
-            <h2 class="sheet-title">实时上下文</h2>
+            <div style="display:flex;align-items:center;gap:6px;">
+              <h2 class="sheet-title">实时上下文</h2>
+              <span id="audit-compacted-badge" class="audit-compacted-badge hidden">已压缩</span>
+            </div>
             <span id="audit-session-subtitle" class="sheet-subtitle">实时监控与物理窗口分析</span>
           </div>
           <button id="btn-audit-close" class="sheet-header-btn primary">完成</button>
@@ -1074,6 +1093,10 @@
               <div class="audit-breakdown-row"><span>深度思考 (Thinking)</span><strong id="audit-session-thinking">0</strong></div>
             </div>
           </div>
+          <details id="audit-breakdown-details" class="audit-breakdown-details hidden">
+            <summary class="audit-breakdown-summary">上下文占用分布</summary>
+            <div id="audit-breakdown-body" class="audit-breakdown-body"></div>
+          </details>
           <div id="audit-cache-notice" class="audit-cache-notice hidden"></div>
           <div class="audit-actions-bar">
             <button id="btn-audit-compact" class="audit-action-btn primary" type="button">

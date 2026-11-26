@@ -1045,7 +1045,8 @@ private fun MainSettingsContent(
                     val stepOn = showTrans && aiAssistStatus.prefs.stepPlanTranslateEnabled
                     val focusOn = showTrans && aiAssistStatus.prefs.focusTranslateEnabled
                     val nextOn = aiAssistStatus.prefs.nextPromptEnabled
-                    val enabledCount = listOf(titleOn, stepOn, focusOn, nextOn).count { it }
+                    val rehydrateOn = aiAssistStatus.prefs.postCompactRehydrateEnabled
+                    val enabledCount = listOf(titleOn, stepOn, focusOn, nextOn, rehydrateOn).count { it }
                     when {
                         enabledCount >= 2 -> when (L10n.currentLang) {
                             L10n.AppLang.EN -> "$enabledCount Enabled"
@@ -1071,6 +1072,11 @@ private fun MainSettingsContent(
                             L10n.AppLang.EN -> "Prompt Suggestions"
                             L10n.AppLang.JA -> "プロンプト提案"
                             L10n.AppLang.ZH -> "提示词建议"
+                        }
+                        rehydrateOn -> when (L10n.currentLang) {
+                            L10n.AppLang.EN -> "Context Rehydration"
+                            L10n.AppLang.JA -> "圧縮後コンテキスト復元"
+                            L10n.AppLang.ZH -> "压缩后回灌"
                         }
                         else -> "已关闭".loc
                     }
@@ -3062,6 +3068,57 @@ private fun AIAssistSubpageContent(
                         enabled = isPaired
                     )
                 }
+            }
+        }
+
+        // Long-Session Post-Compact Rehydration section
+        SettingsSection(
+            title = when (L10n.currentLang) {
+                L10n.AppLang.EN -> "Long-Session Continuity"
+                L10n.AppLang.JA -> "長尺セッション保護"
+                L10n.AppLang.ZH -> "长会话防失忆"
+            },
+            footer = when (L10n.currentLang) {
+                L10n.AppLang.EN -> "Registers a local Antigravity PreInvocation hook in ~/.gemini/config/hooks.json. After /compact or auto-compaction, injects recent user turns and modified files once on the next turn."
+                L10n.AppLang.JA -> "ローカルの ~/.gemini/config/hooks.json に PreInvocation フックを登録します。圧縮後の次ターンで直近の会話と変更ファイル要点を1回だけ自動再注入します。"
+                L10n.AppLang.ZH -> "在本机 ~/.gemini/config/hooks.json 注册轻量原生 Hook；触发 /compact 或自动压缩后，下一次调用前自动回灌近期需求、改动文件与未完成项（仅注入一次，不额外消耗模型调用）。"
+            }
+        ) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(12.dp))
+                    .background(colors.surface)
+                    .border(0.5.dp, colors.border, RoundedCornerShape(12.dp))
+            ) {
+                CompactSubpageToggleRow(
+                    title = when (L10n.currentLang) {
+                        L10n.AppLang.EN -> "Auto-Rehydrate After Compact"
+                        L10n.AppLang.JA -> "圧縮後にコンテキストを自動復元"
+                        L10n.AppLang.ZH -> "压缩后自动回灌上下文"
+                    },
+                    subtitle = when {
+                        prefs.postCompactRehydrateEnabled && status.rehydrateHookInstalled -> when (L10n.currentLang) {
+                            L10n.AppLang.EN -> "PreInvocation hook installed in hooks.json"
+                            L10n.AppLang.JA -> "hooks.json に登録済み"
+                            L10n.AppLang.ZH -> "已在本机 hooks.json 注册生效"
+                        }
+                        else -> when (L10n.currentLang) {
+                            L10n.AppLang.EN -> "Preserve recent intent & edited files after compaction"
+                            L10n.AppLang.JA -> "圧縮後の文脈欠落を防ぐネイティブフック"
+                            L10n.AppLang.ZH -> "压缩后保留近期上下文与编辑文件要点"
+                        }
+                    },
+                    checked = prefs.postCompactRehydrateEnabled,
+                    enabled = isPaired,
+                    onCheckedChange = { enabled ->
+                        haptic.light()
+                        applyPatch(
+                            prefs.copy(postCompactRehydrateEnabled = enabled),
+                            buildJsonObject { put("postCompactRehydrateEnabled", enabled) }
+                        )
+                    }
+                )
             }
         }
 

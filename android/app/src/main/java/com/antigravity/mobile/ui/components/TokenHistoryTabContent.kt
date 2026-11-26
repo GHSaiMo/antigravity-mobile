@@ -162,10 +162,15 @@ fun TokenHistoryTabContent(
                     sub = "IDE ${formatTokensCompact(summary.desktopTokens)} · CLI ${formatTokensCompact(summary.cliTokens)}",
                     modifier = Modifier.weight(1f)
                 )
+                val costSub = if (summary.monthlyRoiMultiple > 0.0 && summary.planTier.isNotBlank()) {
+                    String.format(Locale.US, "≈ ¥%.0f · %s %.1fx", summary.estimatedCostCny, summary.planTier, summary.monthlyRoiMultiple)
+                } else {
+                    String.format(Locale.US, "≈ ¥%.1f", summary.estimatedCostCny)
+                }
                 TokenKpiCard(
                     label = "API 折算".loc,
                     value = String.format(Locale.US, "$%.2f", summary.estimatedCostUsd),
-                    sub = String.format(Locale.US, "≈ ¥%.1f", summary.estimatedCostCny),
+                    sub = costSub,
                     modifier = Modifier.weight(1f)
                 )
             }
@@ -205,6 +210,7 @@ fun TokenHistoryTabContent(
             selectedChart = selectedChart,
             onSelectDate = handleSelectDate,
             onUserSelectChart = { chart -> onSelectChart?.invoke(chart) },
+            modelSummary = allModels,
             onOpenAllModels = if (allModels.isNotEmpty()) { { showAllModelsSheet = true } } else null
         )
 
@@ -369,15 +375,30 @@ private fun ModelUsageBreakdownSheet(
                                     InspectorMetric("Output", formatTokensCompact(item.output))
                                     InspectorMetric("Thinking", formatTokensCompact(item.thinking))
                                 }
-                                if (item.steps > 0 || item.costUsd > 0.0) {
+                                if (item.steps > 0 || item.costUsd > 0.0 || item.medianTps > 0.1) {
                                     Row(
                                         modifier = Modifier.fillMaxWidth(),
-                                        horizontalArrangement = Arrangement.SpaceBetween
+                                        horizontalArrangement = Arrangement.SpaceBetween,
+                                        verticalAlignment = Alignment.CenterVertically
                                     ) {
+                                        val leftMeta = buildString {
+                                            append("${item.steps} 轮采样".loc)
+                                            if (item.medianTps > 0.1) {
+                                                append(" · ")
+                                                append(String.format(Locale.US, "%.0f t/s", item.medianTps))
+                                                if (item.medianTtftSec > 0.01) {
+                                                    append(String.format(Locale.US, " · %.2fs", item.medianTtftSec))
+                                                }
+                                            }
+                                        }
                                         Text(
-                                            text = "${item.steps} 轮采样".loc,
+                                            text = leftMeta,
                                             fontSize = 10.5.sp,
-                                            color = colors.textMuted
+                                            fontFamily = if (item.medianTps > 0.1) FontFamily.Monospace else FontFamily.Default,
+                                            color = colors.textMuted,
+                                            maxLines = 1,
+                                            overflow = TextOverflow.Ellipsis,
+                                            modifier = Modifier.weight(1f).padding(end = 8.dp)
                                         )
                                         Text(
                                             text = String.format(Locale.US, "$%.3f", item.costUsd),

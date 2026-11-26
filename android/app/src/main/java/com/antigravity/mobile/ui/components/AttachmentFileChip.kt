@@ -147,7 +147,9 @@ fun AttachmentFileChip(
                     overflow = TextOverflow.Ellipsis
                 )
                 val sizeLabel = formatFileSize(file.size)
-                val baseSubtitle = if (FileIconResolver.isWeChatChatArchive(file.name)) "微信聊天记录 · %s".loc(sizeLabel) else sizeLabel
+                val estTokens = file.resolvedEstimatedTokens()
+                val tokenSuffix = if (estTokens >= 10_000L) " · ~${formatTokensCompact(estTokens)} tok" else ""
+                val baseSubtitle = (if (FileIconResolver.isWeChatChatArchive(file.name)) "微信聊天记录 · %s".loc(sizeLabel) else sizeLabel) + tokenSuffix
                 Text(
                     text = when (file.state) {
                         UploadState.FAILED -> "上传失败，点按重试".loc

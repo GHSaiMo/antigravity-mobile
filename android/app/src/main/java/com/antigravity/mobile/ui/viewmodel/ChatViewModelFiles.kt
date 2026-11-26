@@ -137,7 +137,14 @@ internal fun ChatViewModel.startUpload(cid: String, fileId: String) {
         result.onSuccess { up ->
             updateDraftFiles(cid, persist = true) {
                 it.mapById(fileId) { f ->
-                    f.copy(state = UploadState.DONE, progress = 1f, attachmentId = up.id, line = up.line, error = null)
+                    f.copy(
+                        state = UploadState.DONE,
+                        progress = 1f,
+                        attachmentId = up.id,
+                        line = up.line,
+                        estimatedTokens = up.estimatedTokens,
+                        error = null
+                    )
                 }
             }
         }.onFailure { e ->

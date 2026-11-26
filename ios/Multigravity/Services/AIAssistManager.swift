@@ -9,6 +9,7 @@ public struct AIAssistPrefsPayload: Codable, Equatable, Sendable {
     public var focusTranslateEnabled: Bool
     public var nextPromptEnabled: Bool
     public var nextPromptTapAction: String
+    public var postCompactRehydrateEnabled: Bool
 
     public static let defaultValue = AIAssistPrefsPayload(
         titleTranslateEnabled: false,
@@ -17,7 +18,8 @@ public struct AIAssistPrefsPayload: Codable, Equatable, Sendable {
         stepPlanTranslateEnabled: false,
         focusTranslateEnabled: false,
         nextPromptEnabled: false,
-        nextPromptTapAction: "fill"
+        nextPromptTapAction: "fill",
+        postCompactRehydrateEnabled: false
     )
 
     public init(
@@ -27,7 +29,8 @@ public struct AIAssistPrefsPayload: Codable, Equatable, Sendable {
         stepPlanTranslateEnabled: Bool = false,
         focusTranslateEnabled: Bool = false,
         nextPromptEnabled: Bool = false,
-        nextPromptTapAction: String = "fill"
+        nextPromptTapAction: String = "fill",
+        postCompactRehydrateEnabled: Bool = false
     ) {
         self.titleTranslateEnabled = titleTranslateEnabled
         self.titleTranslateLang = titleTranslateLang
@@ -36,12 +39,13 @@ public struct AIAssistPrefsPayload: Codable, Equatable, Sendable {
         self.focusTranslateEnabled = focusTranslateEnabled
         self.nextPromptEnabled = nextPromptEnabled
         self.nextPromptTapAction = nextPromptTapAction
+        self.postCompactRehydrateEnabled = postCompactRehydrateEnabled
     }
 
     enum CodingKeys: String, CodingKey {
         case titleTranslateEnabled, titleTranslateLang, titleTranslateLangName
         case stepPlanTranslateEnabled, focusTranslateEnabled
-        case nextPromptEnabled, nextPromptTapAction
+        case nextPromptEnabled, nextPromptTapAction, postCompactRehydrateEnabled
     }
 
     public init(from decoder: Decoder) throws {
@@ -53,6 +57,7 @@ public struct AIAssistPrefsPayload: Codable, Equatable, Sendable {
         self.focusTranslateEnabled = try c.decodeIfPresent(Bool.self, forKey: .focusTranslateEnabled) ?? false
         self.nextPromptEnabled = try c.decodeIfPresent(Bool.self, forKey: .nextPromptEnabled) ?? false
         self.nextPromptTapAction = try c.decodeIfPresent(String.self, forKey: .nextPromptTapAction) ?? "fill"
+        self.postCompactRehydrateEnabled = try c.decodeIfPresent(Bool.self, forKey: .postCompactRehydrateEnabled) ?? false
     }
 }
 
@@ -63,6 +68,7 @@ public struct AIAssistStatusPayload: Codable, Equatable, Sendable {
     public let resolvedLang: String?
     public let resolvedLangName: String?
     public let available: Bool?
+    public let rehydrateHookInstalled: Bool?
 }
 
 /// Resolves the device's true preferred OS/app language for adaptive Smart Translation UX:
@@ -123,6 +129,7 @@ public final class AIAssistManager {
     public private(set) var modelName: String = "Gemini 3.5 Flash Lite"
     public private(set) var resolvedLangName: String = ""
     public private(set) var isAvailable: Bool = true
+    public private(set) var rehydrateHookInstalled: Bool = false
     public private(set) var isLoading: Bool = false
     public private(set) var syncError: String? = nil
 
@@ -151,7 +158,8 @@ public final class AIAssistManager {
         let stepOn = showTrans && prefs.stepPlanTranslateEnabled
         let focusOn = showTrans && prefs.focusTranslateEnabled
         let nextOn = prefs.nextPromptEnabled
-        let count = [titleOn, stepOn, focusOn, nextOn].filter { $0 }.count
+        let rehydrateOn = prefs.postCompactRehydrateEnabled
+        let count = [titleOn, stepOn, focusOn, nextOn, rehydrateOn].filter { $0 }.count
         if count >= 2 {
             return String(localized: "已开启 \(count) 项")
         }
@@ -166,6 +174,9 @@ public final class AIAssistManager {
         }
         if nextOn {
             return String(localized: "提示词建议")
+        }
+        if rehydrateOn {
+            return String(localized: "压缩回灌")
         }
         return String(localized: "已关闭")
     }
@@ -191,6 +202,7 @@ public final class AIAssistManager {
         }
         self.resolvedLangName = status.resolvedLangName ?? ""
         self.isAvailable = status.available ?? true
+        self.rehydrateHookInstalled = status.rehydrateHookInstalled ?? status.prefs.postCompactRehydrateEnabled
     }
 
     public func fetchStatus() async {
@@ -267,6 +279,13 @@ public final class AIAssistManager {
         var next = prefs
         next.nextPromptTapAction = normalized
         await patchPrefs(optimistic: next, previous: prev, body: ["nextPromptTapAction": normalized])
+    }
+
+    public func setPostCompactRehydrateEnabled(_ enabled: Bool) async {
+        let prev = prefs
+        var next = prefs
+        next.postCompactRehydrateEnabled = enabled
+        await patchPrefs(optimistic: next, previous: prev, body: ["postCompactRehydrateEnabled": enabled])
     }
 
     private func patchPrefs(optimistic: AIAssistPrefsPayload, previous: AIAssistPrefsPayload, body: [String: Any]) async {

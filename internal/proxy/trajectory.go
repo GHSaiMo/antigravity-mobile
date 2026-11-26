@@ -185,9 +185,13 @@ func (p *Proxy) handleCascadeMessages(w http.ResponseWriter, r *http.Request) {
 		details.QueuedMessages = []QueuedMessageItem{}
 	}
 	details.QueuedMessages = p.FilterQueuedMessagesAgainstTrajectory(cascadeID, details.QueuedMessages, rawResp.Trajectory.Steps, details.AllMessages)
-	details.ContextMeter = withLastActivityAt(
-		p.fetchUpstreamGeneratorMetadata(cascadeID, port, token),
-		extractLastActivityAt(rawResp.Trajectory.Steps),
+	details.ContextMeter = applyTrajectoryContextEnrichment(
+		withLastActivityAt(
+			p.fetchUpstreamGeneratorMetadata(cascadeID, port, token),
+			extractLastActivityAt(rawResp.Trajectory.Steps),
+		),
+		rawResp.Trajectory.Steps,
+		details.AllMessages,
 	)
 	liveTranslations := p.ApplyLiveTextTranslations(cascadeID, &details, extractRequestLangHint(r), true)
 

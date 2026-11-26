@@ -23,9 +23,25 @@ data class AttachmentFile(
     val progress: Float = 0f,
     val attachmentId: String? = null,
     val line: String? = null,
-    val error: String? = null
+    val error: String? = null,
+    val estimatedTokens: Long = 0L
 ) {
     val isUploaded: Boolean get() = state == UploadState.DONE && attachmentId != null
+
+    fun resolvedEstimatedTokens(): Long {
+        if (estimatedTokens > 0L) return estimatedTokens
+        if (size <= 0L) return 0L
+        val ext = name.substringAfterLast('.', "").lowercase()
+        return when (ext) {
+            "pdf" -> (size / 24L).coerceIn(250L, 500_000L)
+            "docx", "doc", "pptx", "ppt", "xlsx", "xls", "xlsm", "odt", "rtf", "epub" -> (size / 10L).coerceIn(150L, 500_000L)
+            "png", "jpg", "jpeg", "gif", "webp", "heic" -> (size / 1500L).coerceIn(258L, 2048L)
+            "mp3", "m4a", "wav", "aac", "ogg", "amr", "flac" -> (size / 512L).coerceIn(64L, 200_000L)
+            "mp4", "mov", "webm", "mkv" -> (size / 1200L).coerceIn(256L, 300_000L)
+            "zip", "tar", "gz", "tgz", "7z", "exe", "dmg", "apk", "bin" -> 0L
+            else -> (size / 4L).coerceAtLeast(1L)
+        }
+    }
 }
 
 /** Response of POST /api/v1/attachments. */
@@ -38,5 +54,6 @@ data class UploadedAttachment(
     val mime: String = "",
     @SerialName("sha256") val sha256: String = "",
     val kind: String = "",
-    val line: String = ""
+    val line: String = "",
+    val estimatedTokens: Long = 0L
 )

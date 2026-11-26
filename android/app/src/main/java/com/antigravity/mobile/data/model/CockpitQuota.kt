@@ -11,7 +11,11 @@ data class CockpitQuotaBucket(
     @SerialName("remaining_fraction") val remainingFraction: Double = 0.0,
     @SerialName("remaining_percent") val remainingPercent: Double = 0.0,
     @SerialName("reset_time") val resetTime: String? = null,
-    @SerialName("reset_friendly") val resetFriendly: String? = null
+    @SerialName("reset_friendly") val resetFriendly: String? = null,
+    @SerialName("est_cycle_used_tokens") val estCycleUsedTokens: Long = 0L,
+    @SerialName("est_remaining_tokens") val estRemainingTokens: Long = 0L,
+    @SerialName("est_total_tokens") val estTotalTokens: Long = 0L,
+    @SerialName("est_reliable") val estReliable: Boolean = false
 ) {
     val formattedResetClockTime: String?
         get() {
@@ -112,6 +116,7 @@ data class WeeklyPaceInfo(
 }
 
 enum class QuotaBucketKind(val key: String, val displayTitle: String) {
+    AUTO("auto", "自动最紧"),
     GEMINI_5H("gemini_5h", "Gemini · 5h"),
     GEMINI_WEEKLY("gemini_weekly", "Gemini · Weekly"),
     CLAUDE_5H("claude_5h", "Claude · 5h"),
@@ -155,6 +160,7 @@ data class CockpitAccountQuota(
             (gemini5h == null && claude5h == null)
 
     fun bucket(kind: QuotaBucketKind): CockpitQuotaBucket? = when (kind) {
+        QuotaBucketKind.AUTO -> null
         QuotaBucketKind.GEMINI_5H -> gemini5h
         QuotaBucketKind.GEMINI_WEEKLY -> geminiWeekly
         QuotaBucketKind.CLAUDE_5H -> claude5h
@@ -162,8 +168,7 @@ data class CockpitAccountQuota(
     }
 
     fun resolvedQuotaDisplay(preferred: QuotaBucketKind): Pair<QuotaBucketKind, CockpitQuotaBucket>? {
-        bucket(preferred)?.let { return preferred to it }
-        val fallbackOrder = if (isFreeTier) {
+        val candidatesOrder = if (isFreeTier) {
             listOf(QuotaBucketKind.GEMINI_WEEKLY, QuotaBucketKind.CLAUDE_WEEKLY)
         } else {
             listOf(
@@ -173,12 +178,54 @@ data class CockpitAccountQuota(
                 QuotaBucketKind.CLAUDE_WEEKLY
             )
         }
-        for (kind in fallbackOrder) {
+        if (preferred == QuotaBucketKind.AUTO) {
+            var tightest: Pair<QuotaBucketKind, CockpitQuotaBucket>? = null
+            for (kind in candidatesOrder) {
+                val b = bucket(kind) ?: continue
+                if (tightest == null || b.remainingPercent < tightest.second.remainingPercent) {
+                    tightest = kind to b
+                }
+            }
+            return tightest
+        }
+        bucket(preferred)?.let { return preferred to it }
+        for (kind in candidatesOrder) {
             bucket(kind)?.let { return kind to it }
         }
         return null
     }
 }
+
+@Serializable
+data class AutoSwitchConfig(
+    val enabled: Boolean = false,
+    @SerialName("target_bucket") val targetBucket: String = "gemini_5h",
+    @SerialName("threshold_percent") val thresholdPercent: Double = 10.0,
+    @SerialName("wait_until_idle") val waitUntilIdle: Boolean = true,
+    val strategy: String = "highest_quota",
+    val candidates: List<String> = emptyList(),
+    @SerialName("debounce_sec") val debounceSec: Int = 15,
+    @SerialName("cooldown_sec") val cooldownSec: Int = 180
+)
+
+@Serializable
+data class AutoSwitchStatus(
+    val state: String = "disabled",
+    val reason: String? = null,
+    @SerialName("last_check_at") val lastCheckAt: Long = 0L,
+    @SerialName("last_switch_at") val lastSwitchAt: Long = 0L,
+    @SerialName("last_from_email") val lastFromEmail: String? = null,
+    @SerialName("last_to_email") val lastToEmail: String? = null,
+    @SerialName("last_to_remaining_pct") val lastToRemainingPct: Double = 0.0,
+    @SerialName("last_switch_notice_id") val lastSwitchNoticeId: String? = null
+)
+
+@Serializable
+data class AutoSwitchResponse(
+    val config: AutoSwitchConfig = AutoSwitchConfig(),
+    val status: AutoSwitchStatus = AutoSwitchStatus(),
+    @SerialName("cockpit_installed") val cockpitInstalled: Boolean = false
+)
 
 @Serializable
 data class CockpitQuotaResponse(

@@ -720,6 +720,13 @@ public struct ChatView: View {
                                 name: .startNewSessionForWorkspace,
                                 object: viewModel.workspaceName
                             )
+                        },
+                        onJumpToMessage: { msgId in
+                            if viewModel.messages.contains(where: { $0.id == msgId }) {
+                                targetScrollTurnId = msgId
+                            } else if let matchTurn = viewModel.turns.first(where: { $0.firstMessageId == msgId || $0.messages.contains(where: { $0.id == msgId }) }) {
+                                jumpToTurn(matchTurn)
+                            }
                         }
                     )
                     .presentationDetents(detents)
@@ -1190,6 +1197,7 @@ struct ContextRingCapsuleView: View {
 
                 Text("\(Int(clampedPct))%")
                     .font(.system(size: 10, weight: .bold, design: .monospaced))
+                    .monospacedDigit()
                     .foregroundColor(ringColor)
 
                 if meter.isCacheMissStreak {
@@ -1210,6 +1218,7 @@ struct ContextRingCapsuleView: View {
                             .foregroundColor(accentWarningColor)
                         Text(String(format: "%.0f t/s", tps))
                             .font(.system(size: 10, weight: .semibold, design: .monospaced))
+                            .monospacedDigit()
                             .foregroundColor(colorScheme == .light ? .primary.opacity(0.75) : .secondary)
                     }
                 }
@@ -1252,12 +1261,14 @@ public struct CompactChevronsIcon: View {
 
 struct ContextAuditSheetView: View {
     @Environment(\.dismiss) private var dismiss
+    @State private var isBreakdownExpanded: Bool = false
     let meter: ContextMeterItem
     var isRunning: Bool = false
     var hasPendingInteraction: Bool = false
     let canCompact: Bool
     let onCompact: () -> Void
     let onStartNewSession: () -> Void
+    var onJumpToMessage: ((String) -> Void)? = nil
 
     private var clampedPct: Double {
         min(max(meter.percentage, 0), 100)
@@ -1328,15 +1339,28 @@ struct ContextAuditSheetView: View {
             VStack(spacing: 16) {
                 HStack {
                     VStack(alignment: .leading, spacing: 2) {
-                        Text("实时上下文")
-                            .font(.system(size: 17, weight: .bold))
+                        HStack(spacing: 6) {
+                            Text("实时上下文")
+                                .font(.system(size: 17, weight: .bold))
+                            if meter.compacted == true {
+                                Text("已压缩")
+                                    .font(.system(size: 10.5, weight: .semibold))
+                                    .foregroundColor(.green)
+                                    .padding(.horizontal, 6)
+                                    .padding(.vertical, 2)
+                                    .background(Color.green.opacity(0.14))
+                                    .clipShape(Capsule())
+                            }
+                        }
                         Text("\(AccountQuotaSheet.formatTokensCompact(meter.usedTokens)) / \(AccountQuotaSheet.formatTokensCompact(meter.maxTokens)) Tokens")
                             .font(.system(size: 12, design: .monospaced))
+                            .monospacedDigit()
                             .foregroundColor(.secondary)
                     }
                     Spacer()
                     Text(String(format: "%.1f%%", clampedPct))
                         .font(.system(size: 14, weight: .bold, design: .monospaced))
+                        .monospacedDigit()
                         .foregroundColor(accentColor)
                         .padding(.horizontal, 10)
                         .padding(.vertical, 4)
@@ -1456,6 +1480,101 @@ struct ContextAuditSheetView: View {
                     }
                     .buttonStyle(.bordered)
                 }
+
+                if let breakdown = meter.breakdown,
+                   !(breakdown.categories ?? []).isEmpty || !(breakdown.topConsumers ?? []).isEmpty {
+                    DisclosureGroup(isExpanded: $isBreakdownExpanded) {
+                        VStack(alignment: .leading, spacing: 10) {
+                            if let cats = breakdown.categories, !cats.isEmpty {
+                                GeometryReader { geo in
+                                    let gap: CGFloat = 2
+                                    let usable = max(1, geo.size.width - gap * CGFloat(max(0, cats.count - 1)))
+                                    HStack(spacing: gap) {
+                                        ForEach(cats) { cat in
+                                            RoundedRectangle(cornerRadius: 3, style: .continuous)
+                                                .fill(Self.breakdownColor(for: cat.key))
+                                                .frame(width: max(4, usable * CGFloat(cat.percent / 100.0)), height: 8)
+                                        }
+                                    }
+                                }
+                                .frame(height: 8)
+                                .clipShape(Capsule())
+
+                                LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 6) {
+                                    ForEach(cats) { cat in
+                                        HStack(spacing: 5) {
+                                            Circle()
+                                                .fill(Self.breakdownColor(for: cat.key))
+                                                .frame(width: 6, height: 6)
+                                            Text(Self.breakdownLabel(for: cat.key))
+                                                .font(.system(size: 11))
+                                                .foregroundColor(.secondary)
+                                            Spacer(minLength: 2)
+                                            Text("\(AccountQuotaSheet.formatTokensCompact(cat.tokens)) (\(Int(cat.percent.rounded()))%)")
+                                                .font(.system(size: 10.5, design: .monospaced))
+                                                .monospacedDigit()
+                                                .foregroundColor(.primary)
+                                        }
+                                    }
+                                }
+                            }
+
+                            if let top = breakdown.topConsumers, !top.isEmpty {
+                                Divider()
+                                Text("占用最高步骤 (Top \(top.count))")
+                                    .font(.system(size: 11, weight: .semibold))
+                                    .foregroundColor(.secondary)
+                                ForEach(top) { item in
+                                    Button(action: {
+                                        guard let msgId = item.messageId, !msgId.isEmpty else { return }
+                                        dismiss()
+                                        onJumpToMessage?(msgId)
+                                    }) {
+                                        HStack(spacing: 8) {
+                                            Text("S\(item.stepIndex)")
+                                                .font(.system(size: 10, weight: .semibold, design: .monospaced))
+                                                .foregroundColor(.secondary)
+                                                .padding(.horizontal, 5)
+                                                .padding(.vertical, 2)
+                                                .background(Color.primary.opacity(0.06))
+                                                .clipShape(RoundedRectangle(cornerRadius: 4))
+                                            Text(item.label)
+                                                .font(.system(size: 12))
+                                                .foregroundColor(.primary)
+                                                .lineLimit(1)
+                                                .truncationMode(.tail)
+                                            Spacer(minLength: 4)
+                                            Text("~\(AccountQuotaSheet.formatTokensCompact(item.tokens))")
+                                                .font(.system(size: 11, weight: .semibold, design: .monospaced))
+                                                .monospacedDigit()
+                                                .foregroundColor(.orange)
+                                            if item.messageId != nil {
+                                                Image(systemName: "chevron.right")
+                                                    .font(.system(size: 10, weight: .semibold))
+                                                    .foregroundColor(.secondary.opacity(0.6))
+                                            }
+                                        }
+                                        .padding(.vertical, 3)
+                                    }
+                                    .buttonStyle(.plain)
+                                }
+                            }
+                        }
+                        .padding(.top, 8)
+                    } label: {
+                        HStack(spacing: 6) {
+                            Image(systemName: "chart.bar.xaxis")
+                                .font(.system(size: 12, weight: .semibold))
+                                .foregroundColor(.secondary)
+                            Text("上下文占用分布")
+                                .font(.system(size: 13, weight: .semibold))
+                                .foregroundColor(.primary)
+                        }
+                    }
+                    .padding(14)
+                    .background(Color(uiColor: .secondarySystemGroupedBackground))
+                    .clipShape(RoundedRectangle(cornerRadius: 12))
+                }
             }
             .padding(.horizontal, 20)
             .padding(.top, 52)
@@ -1463,6 +1582,24 @@ struct ContextAuditSheetView: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         .background(Color(uiColor: .systemGroupedBackground))
+    }
+
+    private static func breakdownColor(for key: String) -> Color {
+        switch key {
+        case "tools": return .orange
+        case "conversation": return .blue
+        case "thinking": return .purple
+        default: return .secondary
+        }
+    }
+
+    private static func breakdownLabel(for key: String) -> String {
+        switch key {
+        case "tools": return String(localized: "工具返回")
+        case "conversation": return String(localized: "对话正文")
+        case "thinking": return String(localized: "深度思考")
+        default: return String(localized: "系统与附件")
+        }
     }
 
     private func cacheNoticeBanner(icon: String, text: String) -> some View {

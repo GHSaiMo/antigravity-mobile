@@ -115,7 +115,13 @@ struct DraftFileChipView: View {
     
     private var subtitle: String {
         let sizeText = formatFileSize(file.size)
-        let prefix = FileIconResolver.isWeChatChatArchive(file.name) ? String(localized: "微信聊天记录 · \(sizeText)") : sizeText
+        let estTokens = file.resolvedEstimatedTokens
+        let tokenSuffix = estTokens >= 10_000
+            ? " · ~\(AccountQuotaSheet.formatTokensCompact(estTokens)) tok"
+            : ""
+        let prefix = FileIconResolver.isWeChatChatArchive(file.name)
+            ? String(localized: "微信聊天记录 · \(sizeText)")
+            : "\(sizeText)\(tokenSuffix)"
         switch file.state {
         case .failed:
             return String(localized: "上传失败，点按重试")

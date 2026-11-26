@@ -474,10 +474,64 @@ func buildNextPromptInput(cascadeID string, details *TrajectoryDetails) (string,
 		}
 	}
 
+	if evidence := collectNextPromptVerificationEvidence(window); evidence != "" {
+		sb.WriteString("[VERIFICATION_EVIDENCE]\n")
+		sb.WriteString(evidence)
+		sb.WriteString("\n\n")
+	}
+
 	sb.WriteString("[ASSISTANT] Last assistant reply tail:\n")
 	sb.WriteString(truncateRunesHeadAndTail(lastAssistant.Text, nextPromptMaxAsstRunes, nextPromptAsstTailRunes))
 
 	return sb.String(), checklist
+}
+
+// collectNextPromptVerificationEvidence extracts bounded, redacted terminal/test verification
+// evidence (command, exit code, output tail) from the latest turn so next-prompt prediction knows
+// whether builds/tests passed or failed without repeating completed checks.
+func collectNextPromptVerificationEvidence(window []CascadeMessageItem) string {
+	var parts []string
+	// Walk backwards through recent messages since the last user prompt.
+	for i := len(window) - 1; i >= 0; i-- {
+		m := window[i]
+		if m.Role == "user" && !isBackgroundNotificationMessage(m.Text) {
+			break
+		}
+		for j := len(m.ToolDetails) - 1; j >= 0 && len(parts) < 3; j-- {
+			td := m.ToolDetails[j]
+			if td.Command == "" && td.ExitCode == nil && td.ErrorText == "" {
+				continue
+			}
+			var seg strings.Builder
+			cmd := strings.TrimSpace(redactSensitiveForAI(td.Command))
+			if cmd == "" {
+				cmd = strings.TrimSpace(td.Name)
+			}
+			seg.WriteString(truncateRunesTail(cmd, 90))
+			if td.ExitCode != nil {
+				seg.WriteString(fmt.Sprintf(" (exit=%d)", *td.ExitCode))
+			} else if td.Status != "" {
+				seg.WriteString(" (" + td.Status + ")")
+			}
+			outTail := strings.TrimSpace(td.ErrorText)
+			if outTail == "" {
+				outTail = strings.TrimSpace(td.Output)
+			}
+			if outTail != "" {
+				seg.WriteString(": ")
+				seg.WriteString(truncateRunesTail(strings.ReplaceAll(outTail, "\n", " "), 120))
+			}
+			parts = append(parts, seg.String())
+		}
+	}
+	if len(parts) == 0 {
+		return ""
+	}
+	// Reverse back to chronological order.
+	for l, r := 0, len(parts)-1; l < r; l, r = l+1, r-1 {
+		parts[l], parts[r] = parts[r], parts[l]
+	}
+	return truncateRunesTail(strings.Join(parts, "\n"), 360)
 }
 
 func sanitizeNextPromptSuggestion(raw string, checklist nextPromptChecklist) string {

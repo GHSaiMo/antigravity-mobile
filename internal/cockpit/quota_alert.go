@@ -89,6 +89,7 @@ type QuotaAlertConfig struct {
 	Lang         func() string
 	PollInterval time.Duration
 	Notify       func(QuotaAlert)
+	OnSnapshot   func(q *CockpitQuotaResponse, liveEmail string)
 	Now          func() time.Time
 }
 
@@ -1102,6 +1103,9 @@ func StartQuotaAlerter(ctx context.Context, cfg QuotaAlertConfig) {
 			if a.cfg.FetchQuota != nil {
 				if q, email, err := a.cfg.FetchQuota(); err == nil && q != nil {
 					a.Observe(q, email)
+					if a.cfg.OnSnapshot != nil {
+						a.cfg.OnSnapshot(q, email)
+					}
 				}
 				return
 			}
@@ -1111,6 +1115,9 @@ func StartQuotaAlerter(ctx context.Context, cfg QuotaAlertConfig) {
 			}
 			if q, err := GetQuotas(email); err == nil {
 				a.Observe(q, email)
+				if a.cfg.OnSnapshot != nil {
+					a.cfg.OnSnapshot(q, email)
+				}
 			}
 		}
 		observe()

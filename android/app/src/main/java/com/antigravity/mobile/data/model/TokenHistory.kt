@@ -13,7 +13,10 @@ data class ModelTokenBreakdown(
     @SerialName("cache_read") val cacheRead: Long = 0,
     val thinking: Long = 0,
     val steps: Int = 0,
-    @SerialName("cost_usd") val costUsd: Double = 0.0
+    @SerialName("cost_usd") val costUsd: Double = 0.0,
+    @SerialName("median_tps") val medianTps: Double = 0.0,
+    @SerialName("median_ttft_sec") val medianTtftSec: Double = 0.0,
+    @SerialName("speed_samples") val speedSamples: Int = 0
 )
 
 @Serializable
@@ -35,10 +38,15 @@ data class TokenHistorySummary(
     @SerialName("total_tokens") val totalTokens: Long = 0,
     @SerialName("today_tokens") val todayTokens: Long = 0,
     @SerialName("last_7d_tokens") val last7dTokens: Long = 0,
+    @SerialName("this_month_tokens") val thisMonthTokens: Long = 0,
+    @SerialName("this_month_cost_usd") val thisMonthCostUsd: Double = 0.0,
     @SerialName("desktop_tokens") val desktopTokens: Long = 0,
     @SerialName("cli_tokens") val cliTokens: Long = 0,
     @SerialName("estimated_cost_usd") val estimatedCostUsd: Double = 0.0,
     @SerialName("estimated_cost_cny") val estimatedCostCny: Double = 0.0,
+    @SerialName("plan_tier") val planTier: String = "",
+    @SerialName("plan_monthly_usd") val planMonthlyUsd: Double = 0.0,
+    @SerialName("monthly_roi_multiple") val monthlyRoiMultiple: Double = 0.0,
     @SerialName("active_days") val activeDays: Int = 0,
     @SerialName("total_steps") val totalSteps: Int = 0
 )

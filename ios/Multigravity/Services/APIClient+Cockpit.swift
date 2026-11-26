@@ -77,5 +77,41 @@ extension APIClient {
         }
         return try JSONDecoder().decode(TokenHistoryResponse.self, from: data)
     }
+
+    public func fetchAutoSwitchConfig(baseURL: URL) async throws -> AutoSwitchResponse {
+        let endpoint = baseURL.appendingPathComponent("api/v1/cockpit/auto-switch")
+        var request = URLRequest(url: endpoint)
+        request.httpMethod = "GET"
+        request.timeoutInterval = 10
+
+        let (data, response) = try await transport.send(request: request)
+        guard let httpResp = response as? HTTPURLResponse else {
+            throw APIError.networkError("Invalid response type")
+        }
+        guard (200...299).contains(httpResp.statusCode) else {
+            let msg = String(data: data, encoding: .utf8) ?? "HTTP \(httpResp.statusCode)"
+            throw APIError.serverError(statusCode: httpResp.statusCode, message: msg)
+        }
+        return try JSONDecoder().decode(AutoSwitchResponse.self, from: data)
+    }
+
+    public func updateAutoSwitchConfig(baseURL: URL, body: [String: Any]) async throws -> AutoSwitchResponse {
+        let endpoint = baseURL.appendingPathComponent("api/v1/cockpit/auto-switch")
+        var request = URLRequest(url: endpoint)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.httpBody = try JSONSerialization.data(withJSONObject: body)
+        request.timeoutInterval = 10
+
+        let (data, response) = try await transport.send(request: request)
+        guard let httpResp = response as? HTTPURLResponse else {
+            throw APIError.networkError("Invalid response type")
+        }
+        guard (200...299).contains(httpResp.statusCode) else {
+            let msg = String(data: data, encoding: .utf8) ?? "HTTP \(httpResp.statusCode)"
+            throw APIError.serverError(statusCode: httpResp.statusCode, message: msg)
+        }
+        return try JSONDecoder().decode(AutoSwitchResponse.self, from: data)
+    }
     
 }

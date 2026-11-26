@@ -90,6 +90,15 @@ func normalizeTopLevelCommand(arg string) string {
 }
 
 func main() {
+	// Fast-path: Antigravity PreInvocation hook (`mgy rehydrate-hook`) must emit pure JSON on stdout
+	// with zero console initialization or banner noise.
+	if len(os.Args) >= 2 && os.Args[1] == "rehydrate-hook" {
+		if err := proxy.RunRehydrateHook(os.Stdin, os.Stdout); err != nil {
+			_, _ = io.WriteString(os.Stdout, "{}\n")
+		}
+		return
+	}
+
 	// 0. Initialize console output synchronization so concurrent logs don't tear terminal output
 	auth.InitConsoleSync()
 	logx.Init(log.Writer())
@@ -719,6 +728,29 @@ func runGatewayServerOnce(mode gatewayMode, args []string) string {
 			if err := notif.NotifyQuotaAlertLocalized(a.Level, a.StateKey, a.Title, a.Body, a.Localize); err != nil {
 				slog.Warn("[QuotaAlert] push failed", "err", err)
 			}
+		}
+		alertCfg.OnSnapshot = func(q *cockpit.CockpitQuotaResponse, liveEmail string) {
+			cockpit.EvaluateAutoSwitch(q, liveEmail, cockpit.AutoSwitchRuntime{
+				IsBusy: func() bool {
+					if watcher == nil {
+						return false
+					}
+					_, idle := watcher.IdleSince()
+					return !idle
+				},
+				SwitchAccount: func(accountID string) error {
+					if err := cockpit.SwitchAccount(accountID); err != nil {
+						return err
+					}
+					if insp != nil {
+						insp.ResetBackoff()
+						insp.ForceScan()
+					}
+					p.RefreshLiveModelsAfterSwitch(watcherCtx)
+					return nil
+				},
+				Notify: alertCfg.Notify,
+			})
 		}
 		cockpit.StartQuotaAlerter(watcherCtx, alertCfg)
 	}
@@ -2248,6 +2280,25 @@ func buildRouterWithOptions(
 			"message":    "account switched successfully",
 			"account_id": targetID,
 		})
+	})
+	rootMux.HandleFunc("GET /api/v1/cockpit/auto-switch", func(w http.ResponseWriter, r *http.Request) {
+		setJSONDeadline(w)
+		writeJSON(w, http.StatusOK, cockpit.GetAutoSwitchResponse())
+	})
+	rootMux.HandleFunc("POST /api/v1/cockpit/auto-switch", func(w http.ResponseWriter, r *http.Request) {
+		setJSONDeadline(w)
+		var patch cockpit.AutoSwitchConfigPatch
+		if err := json.NewDecoder(io.LimitReader(r.Body, 32*1024)).Decode(&patch); err != nil {
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid request body"})
+			return
+		}
+		resp, err := cockpit.UpdateAutoSwitchConfig(patch)
+		if err != nil {
+			slog.Warn("[AutoSwitch] failed to update config", "err", err)
+			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "failed to save auto-switch config"})
+			return
+		}
+		writeJSON(w, http.StatusOK, resp)
 	})
 
 	// File / Artifact reading endpoint

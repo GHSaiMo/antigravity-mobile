@@ -24,6 +24,7 @@ public struct CockpitQuotaResponse: Codable, Sendable {
 }
 
 public enum QuotaBucketKind: String, CaseIterable, Codable, Sendable {
+    case auto = "auto"
     case gemini5h = "gemini_5h"
     case geminiWeekly = "gemini_weekly"
     case claude5h = "claude_5h"
@@ -31,6 +32,7 @@ public enum QuotaBucketKind: String, CaseIterable, Codable, Sendable {
 
     public var displayTitle: String {
         switch self {
+        case .auto: return String(localized: "自动最紧")
         case .gemini5h: return "Gemini · 5h"
         case .geminiWeekly: return "Gemini · Weekly"
         case .claude5h: return "Claude · 5h"
@@ -78,6 +80,7 @@ public struct CockpitAccountQuota: Codable, Identifiable, Sendable {
 
     public func bucket(for kind: QuotaBucketKind) -> CockpitQuotaBucket? {
         switch kind {
+        case .auto: return nil
         case .gemini5h: return gemini5h
         case .geminiWeekly: return geminiWeekly
         case .claude5h: return claude5h
@@ -87,14 +90,29 @@ public struct CockpitAccountQuota: Codable, Identifiable, Sendable {
 
     /// Resolves the effective quota kind and bucket to display on the home quota bar,
     /// falling back gracefully when the preferred bucket is unavailable (e.g. FREE accounts).
+    /// When `preferred == .auto`, automatically selects the tightest (lowest remaining %) bucket.
     public func resolvedQuotaDisplay(preferred: QuotaBucketKind) -> (kind: QuotaBucketKind, bucket: CockpitQuotaBucket)? {
+        let candidatesOrder: [QuotaBucketKind] = isFreeTier
+            ? [.geminiWeekly, .claudeWeekly]
+            : [.gemini5h, .geminiWeekly, .claude5h, .claudeWeekly]
+        if preferred == .auto {
+            var tightest: (kind: QuotaBucketKind, bucket: CockpitQuotaBucket)?
+            for kind in candidatesOrder {
+                guard let b = bucket(for: kind) else { continue }
+                if let cur = tightest {
+                    if b.remainingPercent < cur.bucket.remainingPercent {
+                        tightest = (kind, b)
+                    }
+                } else {
+                    tightest = (kind, b)
+                }
+            }
+            return tightest
+        }
         if let selected = bucket(for: preferred) {
             return (preferred, selected)
         }
-        let fallbackOrder: [QuotaBucketKind] = isFreeTier
-            ? [.geminiWeekly, .claudeWeekly]
-            : [.gemini5h, .geminiWeekly, .claude5h, .claudeWeekly]
-        for kind in fallbackOrder {
+        for kind in candidatesOrder {
             if let fallback = bucket(for: kind) {
                 return (kind, fallback)
             }
@@ -108,12 +126,20 @@ public struct CockpitQuotaBucket: Codable, Sendable {
     public let remainingPercent: Double
     public let resetTime: String?
     public let resetFriendly: String?
+    public let estCycleUsedTokens: Int64?
+    public let estRemainingTokens: Int64?
+    public let estTotalTokens: Int64?
+    public let estReliable: Bool?
     
     enum CodingKeys: String, CodingKey {
         case remainingFraction = "remaining_fraction"
         case remainingPercent = "remaining_percent"
         case resetTime = "reset_time"
         case resetFriendly = "reset_friendly"
+        case estCycleUsedTokens = "est_cycle_used_tokens"
+        case estRemainingTokens = "est_remaining_tokens"
+        case estTotalTokens = "est_total_tokens"
+        case estReliable = "est_reliable"
     }
 
     public func calculateWeeklyPace(totalWindowHours: Double = 168.0) -> WeeklyPaceInfo? {
@@ -213,6 +239,9 @@ public struct ModelTokenBreakdown: Codable, Identifiable, Sendable, Equatable {
     public let thinking: Int64
     public let steps: Int
     public let costUsd: Double
+    public let medianTps: Double?
+    public let medianTtftSec: Double?
+    public let speedSamples: Int?
 
     public init(
         model: String,
@@ -222,7 +251,10 @@ public struct ModelTokenBreakdown: Codable, Identifiable, Sendable, Equatable {
         cacheRead: Int64 = 0,
         thinking: Int64 = 0,
         steps: Int = 0,
-        costUsd: Double = 0
+        costUsd: Double = 0,
+        medianTps: Double? = nil,
+        medianTtftSec: Double? = nil,
+        speedSamples: Int? = nil
     ) {
         self.model = model
         self.total = total
@@ -232,12 +264,18 @@ public struct ModelTokenBreakdown: Codable, Identifiable, Sendable, Equatable {
         self.thinking = thinking
         self.steps = steps
         self.costUsd = costUsd
+        self.medianTps = medianTps
+        self.medianTtftSec = medianTtftSec
+        self.speedSamples = speedSamples
     }
 
     enum CodingKeys: String, CodingKey {
         case model, total, input, output, thinking, steps
         case cacheRead = "cache_read"
         case costUsd = "cost_usd"
+        case medianTps = "median_tps"
+        case medianTtftSec = "median_ttft_sec"
+        case speedSamples = "speed_samples"
     }
 }
 
@@ -290,23 +328,117 @@ public struct TokenHistorySummary: Codable, Sendable, Equatable {
     public let totalTokens: Int64
     public let todayTokens: Int64
     public let last7dTokens: Int64
+    public let thisMonthTokens: Int64?
+    public let thisMonthCostUsd: Double?
     public let desktopTokens: Int64
     public let cliTokens: Int64
     public let estimatedCostUsd: Double
     public let estimatedCostCny: Double
+    public let planTier: String?
+    public let planMonthlyUsd: Double?
+    public let monthlyRoiMultiple: Double?
     public let activeDays: Int
     public let totalSteps: Int
+
+    public init(
+        totalTokens: Int64,
+        todayTokens: Int64,
+        last7dTokens: Int64,
+        desktopTokens: Int64,
+        cliTokens: Int64,
+        estimatedCostUsd: Double,
+        estimatedCostCny: Double,
+        activeDays: Int,
+        totalSteps: Int,
+        thisMonthTokens: Int64? = nil,
+        thisMonthCostUsd: Double? = nil,
+        planTier: String? = nil,
+        planMonthlyUsd: Double? = nil,
+        monthlyRoiMultiple: Double? = nil
+    ) {
+        self.totalTokens = totalTokens
+        self.todayTokens = todayTokens
+        self.last7dTokens = last7dTokens
+        self.thisMonthTokens = thisMonthTokens
+        self.thisMonthCostUsd = thisMonthCostUsd
+        self.desktopTokens = desktopTokens
+        self.cliTokens = cliTokens
+        self.estimatedCostUsd = estimatedCostUsd
+        self.estimatedCostCny = estimatedCostCny
+        self.planTier = planTier
+        self.planMonthlyUsd = planMonthlyUsd
+        self.monthlyRoiMultiple = monthlyRoiMultiple
+        self.activeDays = activeDays
+        self.totalSteps = totalSteps
+    }
 
     enum CodingKeys: String, CodingKey {
         case totalTokens = "total_tokens"
         case todayTokens = "today_tokens"
         case last7dTokens = "last_7d_tokens"
+        case thisMonthTokens = "this_month_tokens"
+        case thisMonthCostUsd = "this_month_cost_usd"
         case desktopTokens = "desktop_tokens"
         case cliTokens = "cli_tokens"
         case estimatedCostUsd = "estimated_cost_usd"
         case estimatedCostCny = "estimated_cost_cny"
+        case planTier = "plan_tier"
+        case planMonthlyUsd = "plan_monthly_usd"
+        case monthlyRoiMultiple = "monthly_roi_multiple"
         case activeDays = "active_days"
         case totalSteps = "total_steps"
+    }
+}
+
+public struct AutoSwitchConfig: Codable, Sendable, Equatable {
+    public var enabled: Bool
+    public var targetBucket: String
+    public var thresholdPercent: Double
+    public var waitUntilIdle: Bool
+    public var strategy: String
+    public var candidates: [String]
+    public var debounceSec: Int
+    public var cooldownSec: Int
+
+    enum CodingKeys: String, CodingKey {
+        case enabled, strategy, candidates
+        case targetBucket = "target_bucket"
+        case thresholdPercent = "threshold_percent"
+        case waitUntilIdle = "wait_until_idle"
+        case debounceSec = "debounce_sec"
+        case cooldownSec = "cooldown_sec"
+    }
+}
+
+public struct AutoSwitchStatus: Codable, Sendable, Equatable {
+    public let state: String
+    public let reason: String?
+    public let lastCheckAt: Int64?
+    public let lastSwitchAt: Int64?
+    public let lastFromEmail: String?
+    public let lastToEmail: String?
+    public let lastToRemainingPct: Double?
+    public let lastSwitchNoticeId: String?
+
+    enum CodingKeys: String, CodingKey {
+        case state, reason
+        case lastCheckAt = "last_check_at"
+        case lastSwitchAt = "last_switch_at"
+        case lastFromEmail = "last_from_email"
+        case lastToEmail = "last_to_email"
+        case lastToRemainingPct = "last_to_remaining_pct"
+        case lastSwitchNoticeId = "last_switch_notice_id"
+    }
+}
+
+public struct AutoSwitchResponse: Codable, Sendable, Equatable {
+    public let config: AutoSwitchConfig
+    public let status: AutoSwitchStatus
+    public let cockpitInstalled: Bool
+
+    enum CodingKeys: String, CodingKey {
+        case config, status
+        case cockpitInstalled = "cockpit_installed"
     }
 }
 
@@ -362,6 +494,27 @@ public struct TokenHistoryResponse: Codable, Sendable, Equatable {
     }
 }
 
+public struct ContextBreakdownCategory: Codable, Sendable, Equatable, Identifiable {
+    public var id: String { key }
+    public let key: String
+    public let tokens: Int64
+    public let percent: Double
+}
+
+public struct ContextTopConsumer: Codable, Sendable, Equatable, Identifiable {
+    public var id: String { "\(stepIndex)-\(kind)-\(tokens)" }
+    public let stepIndex: Int
+    public let messageId: String?
+    public let kind: String
+    public let label: String
+    public let tokens: Int64
+}
+
+public struct ContextBreakdownSummary: Codable, Sendable, Equatable {
+    public let categories: [ContextBreakdownCategory]?
+    public let topConsumers: [ContextTopConsumer]?
+}
+
 public struct ContextMeterItem: Codable, Sendable, Equatable {
     public let usedTokens: Int64
     public let maxTokens: Int64
@@ -388,6 +541,10 @@ public struct ContextMeterItem: Codable, Sendable, Equatable {
     public let sessionTotalTokens: Int64?
     public let sessionCacheHitRate: Double?
     public let sessionCostUsd: Double?
+    public let compacted: Bool?
+    public let checkpointCount: Int?
+    public let lastCheckpointStep: Int?
+    public let breakdown: ContextBreakdownSummary?
 
     public init(
         usedTokens: Int64,
@@ -414,7 +571,11 @@ public struct ContextMeterItem: Codable, Sendable, Equatable {
         sessionThinkingTokens: Int64? = nil,
         sessionTotalTokens: Int64? = nil,
         sessionCacheHitRate: Double? = nil,
-        sessionCostUsd: Double? = nil
+        sessionCostUsd: Double? = nil,
+        compacted: Bool? = nil,
+        checkpointCount: Int? = nil,
+        lastCheckpointStep: Int? = nil,
+        breakdown: ContextBreakdownSummary? = nil
     ) {
         self.usedTokens = usedTokens
         self.maxTokens = maxTokens
@@ -441,6 +602,10 @@ public struct ContextMeterItem: Codable, Sendable, Equatable {
         self.sessionTotalTokens = sessionTotalTokens
         self.sessionCacheHitRate = sessionCacheHitRate
         self.sessionCostUsd = sessionCostUsd
+        self.compacted = compacted
+        self.checkpointCount = checkpointCount
+        self.lastCheckpointStep = lastCheckpointStep
+        self.breakdown = breakdown
     }
 
     public var hasSessionTotals: Bool {

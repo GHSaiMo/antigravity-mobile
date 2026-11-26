@@ -171,7 +171,8 @@ type Attachment struct {
 	Size   int64  `json:"size"`
 	Mime   string `json:"mime"`
 	SHA256 string `json:"sha256"`
-	Kind   string `json:"kind"`
+	Kind            string `json:"kind"`
+	EstimatedTokens int64  `json:"estimatedTokens,omitempty"`
 	// Line is the exact "- <path> (ext, size)" line the gateway appends to the message text.
 	// Clients use it to render the optimistic bubble identically to what the server stores.
 	Line string `json:"line"`
@@ -454,8 +455,9 @@ func (p *Proxy) HandleAttachmentUpload(w http.ResponseWriter, r *http.Request) {
 	}
 	att.SHA256 = sum
 	att.Line = attachmentLine(att)
+	att.EstimatedTokens = estimateAttachmentFileTokens(att.Path, att.Name, att.Mime, att.Kind, att.Size)
 
-	slog.Info("[Attachments] stored", "id", id, "name", att.Name, "size", att.Size, "dedup", exists)
+	slog.Info("[Attachments] stored", "id", id, "name", att.Name, "size", att.Size, "est_tokens", att.EstimatedTokens, "dedup", exists)
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(att)
 }

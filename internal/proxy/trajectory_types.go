@@ -281,34 +281,60 @@ type PendingInteraction struct {
 	Questions          []InteractionQuestion   `json:"questions,omitempty"`
 }
 
+// ContextBreakdownCategory is one slice of the 4-way active context distribution.
+type ContextBreakdownCategory struct {
+	Key     string  `json:"key"` // "tools" | "conversation" | "thinking" | "system_attachments"
+	Tokens  int64   `json:"tokens"`
+	Percent float64 `json:"percent"`
+}
+
+// ContextTopConsumer identifies one token-heavy step inside the active context window.
+type ContextTopConsumer struct {
+	StepIndex int    `json:"stepIndex"`
+	MessageID string `json:"messageId,omitempty"`
+	Kind      string `json:"kind"` // "tool" | "user" | "agent" | "thinking" | "attachment"
+	Label     string `json:"label"`
+	Tokens    int64  `json:"tokens"`
+}
+
+// ContextBreakdownSummary holds compact context composition + Top-3 heavy steps for mobile drilldown.
+type ContextBreakdownSummary struct {
+	Categories   []ContextBreakdownCategory `json:"categories,omitempty"`
+	TopConsumers []ContextTopConsumer       `json:"topConsumers,omitempty"`
+}
+
 // ContextMeterItem represents the real-time context window usage and generation speed for the session.
 type ContextMeterItem struct {
-	UsedTokens        int64    `json:"usedTokens"`
-	MaxTokens         int64    `json:"maxTokens"`
-	Percentage        float64  `json:"percentage"`
-	InputTokens       int64    `json:"inputTokens"`
-	OutputTokens      int64    `json:"outputTokens"`
-	CacheReadTokens   int64    `json:"cacheReadTokens"`
-	ThinkingTokens    int64    `json:"thinkingTokens"`
-	TimeToFirstToken  float64  `json:"timeToFirstTokenSec,omitempty"`
-	StreamingDuration float64  `json:"streamingDurationSec,omitempty"`
-	TokensPerSecond   float64  `json:"tokensPerSecond,omitempty"`
-	IsOverflow        bool     `json:"isOverflow"`
-	ErrorKind         string   `json:"errorKind,omitempty"`
-	CacheHitRate      *float64 `json:"cacheHitRate,omitempty"`
-	CacheMissStreak   int      `json:"cacheMissStreak,omitempty"`
-	CacheMissTokens   int64    `json:"cacheMissTokens,omitempty"`
-	CacheStatus            string   `json:"cacheStatus,omitempty"`
-	ModelName              string   `json:"modelName,omitempty"`
-	LastActivityAt         string   `json:"lastActivityAt,omitempty"`
-	SessionSteps           int      `json:"sessionSteps,omitempty"`
-	SessionInputTokens     int64    `json:"sessionInputTokens,omitempty"`
-	SessionOutputTokens    int64    `json:"sessionOutputTokens,omitempty"`
-	SessionCacheReadTokens int64    `json:"sessionCacheReadTokens,omitempty"`
-	SessionThinkingTokens  int64    `json:"sessionThinkingTokens,omitempty"`
-	SessionTotalTokens     int64    `json:"sessionTotalTokens,omitempty"`
-	SessionCacheHitRate    *float64 `json:"sessionCacheHitRate,omitempty"`
-	SessionCostUSD         float64  `json:"sessionCostUsd,omitempty"`
+	UsedTokens             int64                    `json:"usedTokens"`
+	MaxTokens              int64                    `json:"maxTokens"`
+	Percentage             float64                  `json:"percentage"`
+	InputTokens            int64                    `json:"inputTokens"`
+	OutputTokens           int64                    `json:"outputTokens"`
+	CacheReadTokens        int64                    `json:"cacheReadTokens"`
+	ThinkingTokens         int64                    `json:"thinkingTokens"`
+	TimeToFirstToken       float64                  `json:"timeToFirstTokenSec,omitempty"`
+	StreamingDuration      float64                  `json:"streamingDurationSec,omitempty"`
+	TokensPerSecond        float64                  `json:"tokensPerSecond,omitempty"`
+	IsOverflow             bool                     `json:"isOverflow"`
+	ErrorKind              string                   `json:"errorKind,omitempty"`
+	CacheHitRate           *float64                 `json:"cacheHitRate,omitempty"`
+	CacheMissStreak        int                      `json:"cacheMissStreak,omitempty"`
+	CacheMissTokens        int64                    `json:"cacheMissTokens,omitempty"`
+	CacheStatus            string                   `json:"cacheStatus,omitempty"`
+	ModelName              string                   `json:"modelName,omitempty"`
+	LastActivityAt         string                   `json:"lastActivityAt,omitempty"`
+	SessionSteps           int                      `json:"sessionSteps,omitempty"`
+	SessionInputTokens     int64                    `json:"sessionInputTokens,omitempty"`
+	SessionOutputTokens    int64                    `json:"sessionOutputTokens,omitempty"`
+	SessionCacheReadTokens int64                    `json:"sessionCacheReadTokens,omitempty"`
+	SessionThinkingTokens  int64                    `json:"sessionThinkingTokens,omitempty"`
+	SessionTotalTokens     int64                    `json:"sessionTotalTokens,omitempty"`
+	SessionCacheHitRate    *float64                 `json:"sessionCacheHitRate,omitempty"`
+	SessionCostUSD         float64                  `json:"sessionCostUsd,omitempty"`
+	Compacted              bool                     `json:"compacted,omitempty"`
+	CheckpointCount        int                      `json:"checkpointCount,omitempty"`
+	LastCheckpointStep     *int                     `json:"lastCheckpointStep,omitempty"`
+	Breakdown              *ContextBreakdownSummary `json:"breakdown,omitempty"`
 }
 
 // TurnOutlineItem is a lightweight, full-session index entry for a single conversation turn.
@@ -802,6 +828,13 @@ type TrajectoryStep struct {
 		Content string `json:"content"`
 		Message string `json:"message,omitempty"`
 	} `json:"systemMessage,omitempty"`
+	Checkpoint *struct {
+		SessionSummary           string `json:"sessionSummary,omitempty"`
+		CodeChangeSummary        string `json:"codeChangeSummary,omitempty"`
+		UserIntent               string `json:"userIntent,omitempty"`
+		MemorySummary            string `json:"memorySummary,omitempty"`
+		ModelSummarizationFailed bool   `json:"modelSummarizationFailed,omitempty"`
+	} `json:"checkpoint,omitempty"`
 	ToolCall *struct {
 		ID            string `json:"id"`
 		Name          string `json:"name"`

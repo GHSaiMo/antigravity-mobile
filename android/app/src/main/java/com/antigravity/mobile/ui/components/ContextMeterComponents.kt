@@ -16,7 +16,10 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AcUnit
 import androidx.compose.material.icons.filled.AddCircleOutline
 import androidx.compose.material.icons.filled.Bolt
+import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material.icons.filled.Compress
+import androidx.compose.material.icons.filled.ExpandLess
+import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -160,6 +163,7 @@ fun ContextAuditSheet(
     canCompact: Boolean,
     onCompact: () -> Unit,
     onStartNewSession: () -> Unit,
+    onJumpToMessage: ((String) -> Unit)? = null,
     onDismiss: () -> Unit
 ) {
     val colors = AntigravityTheme.colors
@@ -230,12 +234,32 @@ fun ContextAuditSheet(
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                    Text(
-                        text = "实时上下文".loc,
-                        fontSize = 17.sp,
-                        fontWeight = FontWeight.Bold,
-                        color = colors.textPrimary
-                    )
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        Text(
+                            text = "实时上下文".loc,
+                            fontSize = 17.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = colors.textPrimary
+                        )
+                        if (meter.compacted) {
+                            Box(
+                                modifier = Modifier
+                                    .clip(CircleShape)
+                                    .background(colors.accentGreen.copy(alpha = 0.14f))
+                                    .padding(horizontal = 7.dp, vertical = 2.dp)
+                            ) {
+                                Text(
+                                    text = "已压缩".loc,
+                                    fontSize = 10.sp,
+                                    fontWeight = FontWeight.SemiBold,
+                                    color = colors.accentGreen
+                                )
+                            }
+                        }
+                    }
                     Text(
                         text = "${formatTokensCompact(meter.usedTokens)} / ${formatTokensCompact(meter.maxTokens)} Tokens",
                         fontSize = 12.sp,
@@ -383,6 +407,206 @@ fun ContextAuditSheet(
                     icon = Icons.Default.Compress,
                     text = formatCompactionApproachingNotice(Math.round(pct).toInt())
                 )
+            }
+
+            // Collapsed-by-default Context Breakdown ("What ate the context" Top-3)
+            val breakdown = meter.breakdown
+            if (breakdown != null && breakdown.categories.isNotEmpty()) {
+                var breakdownExpanded by remember { mutableStateOf(false) }
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(12.dp))
+                        .background(colors.surface)
+                        .border(0.5.dp, colors.border, RoundedCornerShape(12.dp))
+                ) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable { breakdownExpanded = !breakdownExpanded }
+                            .padding(horizontal = 14.dp, vertical = 11.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            text = "上下文占用分布".loc,
+                            fontSize = 12.5.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            color = colors.textPrimary
+                        )
+                        Icon(
+                            imageVector = if (breakdownExpanded) Icons.Default.ExpandLess else Icons.Default.ExpandMore,
+                            contentDescription = null,
+                            tint = colors.textMuted,
+                            modifier = Modifier.size(18.dp)
+                        )
+                    }
+                    if (breakdownExpanded) {
+                        HorizontalDivider(color = colors.border, thickness = 0.5.dp)
+                        Column(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(14.dp),
+                            verticalArrangement = Arrangement.spacedBy(10.dp)
+                        ) {
+                            fun categoryColor(key: String): Color = when (key) {
+                                "tools" -> colors.accentOrange
+                                "conversation" -> colors.accentBlue
+                                "thinking" -> Color(0xFFA855F7)
+                                else -> Color(0xFF0EA5E9)
+                            }
+                            fun categoryLabel(key: String): String = when (key) {
+                                "tools" -> when (L10n.currentLang) {
+                                    L10n.AppLang.EN -> "Tools & Output"
+                                    L10n.AppLang.JA -> "ツール出力"
+                                    L10n.AppLang.ZH -> "工具与命令"
+                                }
+                                "conversation" -> when (L10n.currentLang) {
+                                    L10n.AppLang.EN -> "Conversation"
+                                    L10n.AppLang.JA -> "会話履歴"
+                                    L10n.AppLang.ZH -> "对话正文"
+                                }
+                                "thinking" -> when (L10n.currentLang) {
+                                    L10n.AppLang.EN -> "Thinking"
+                                    L10n.AppLang.JA -> "思考プロセス"
+                                    L10n.AppLang.ZH -> "深度思考"
+                                }
+                                else -> when (L10n.currentLang) {
+                                    L10n.AppLang.EN -> "System & Files"
+                                    L10n.AppLang.JA -> "システム・添付"
+                                    L10n.AppLang.ZH -> "系统与附件"
+                                }
+                            }
+
+                            // 4-color proportional bar
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .height(8.dp)
+                                    .clip(CircleShape),
+                                horizontalArrangement = Arrangement.spacedBy(2.dp)
+                            ) {
+                                breakdown.categories.filter { it.percent > 0.2 }.forEach { cat ->
+                                    Box(
+                                        modifier = Modifier
+                                            .weight(cat.percent.toFloat().coerceAtLeast(1.5f))
+                                            .fillMaxHeight()
+                                            .clip(RoundedCornerShape(3.dp))
+                                            .background(categoryColor(cat.key))
+                                    )
+                                }
+                            }
+
+                            // Category rows
+                            Column(verticalArrangement = Arrangement.spacedBy(5.dp)) {
+                                breakdown.categories.forEach { cat ->
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                    ) {
+                                        Box(
+                                            modifier = Modifier
+                                                .size(7.dp)
+                                                .clip(CircleShape)
+                                                .background(categoryColor(cat.key))
+                                        )
+                                        Text(
+                                            text = categoryLabel(cat.key),
+                                            fontSize = 11.5.sp,
+                                            color = colors.textSecondary,
+                                            modifier = Modifier.weight(1f)
+                                        )
+                                        Text(
+                                            text = formatTokensCompact(cat.tokens),
+                                            fontSize = 11.sp,
+                                            fontFamily = FontFamily.Monospace,
+                                            fontWeight = FontWeight.SemiBold,
+                                            color = colors.textPrimary
+                                        )
+                                        Text(
+                                            text = String.format(Locale.US, "%.0f%%", cat.percent),
+                                            fontSize = 10.5.sp,
+                                            fontFamily = FontFamily.Monospace,
+                                            color = colors.textMuted,
+                                            modifier = Modifier.width(34.dp)
+                                        )
+                                    }
+                                }
+                            }
+
+                            if (breakdown.topConsumers.isNotEmpty()) {
+                                HorizontalDivider(color = colors.border, thickness = 0.5.dp)
+                                Text(
+                                    text = when (L10n.currentLang) {
+                                        L10n.AppLang.EN -> "Top 3 Heaviest Steps"
+                                        L10n.AppLang.JA -> "消費量 Top 3 ステップ"
+                                        L10n.AppLang.ZH -> "占用最高 Top 3"
+                                    },
+                                    fontSize = 11.sp,
+                                    fontWeight = FontWeight.SemiBold,
+                                    color = colors.textMuted
+                                )
+                                Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                                    breakdown.topConsumers.take(3).forEachIndexed { idx, consumer ->
+                                        val targetId = consumer.messageId?.takeIf { it.isNotBlank() }
+                                        val clickable = targetId != null && onJumpToMessage != null
+                                        Row(
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .clip(RoundedCornerShape(8.dp))
+                                                .background(colors.surfaceVariant.copy(alpha = 0.45f))
+                                                .then(
+                                                    if (clickable) {
+                                                        Modifier.clickable {
+                                                            onDismiss()
+                                                            onJumpToMessage?.invoke(targetId!!)
+                                                        }
+                                                    } else {
+                                                        Modifier
+                                                    }
+                                                )
+                                                .padding(horizontal = 10.dp, vertical = 7.dp),
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                        ) {
+                                            Text(
+                                                text = "#${idx + 1}",
+                                                fontSize = 10.5.sp,
+                                                fontFamily = FontFamily.Monospace,
+                                                fontWeight = FontWeight.Bold,
+                                                color = colors.textMuted
+                                            )
+                                            Text(
+                                                text = consumer.label.ifBlank { consumer.kind },
+                                                fontSize = 11.5.sp,
+                                                color = colors.textPrimary,
+                                                maxLines = 1,
+                                                overflow = TextOverflow.Ellipsis,
+                                                modifier = Modifier.weight(1f)
+                                            )
+                                            Text(
+                                                text = "~${formatTokensCompact(consumer.tokens)}",
+                                                fontSize = 11.sp,
+                                                fontFamily = FontFamily.Monospace,
+                                                fontWeight = FontWeight.SemiBold,
+                                                color = colors.accentOrange
+                                            )
+                                            if (clickable) {
+                                                Icon(
+                                                    imageVector = Icons.Default.ChevronRight,
+                                                    contentDescription = null,
+                                                    tint = colors.textMuted,
+                                                    modifier = Modifier.size(14.dp)
+                                                )
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
             }
 
             // Action buttons

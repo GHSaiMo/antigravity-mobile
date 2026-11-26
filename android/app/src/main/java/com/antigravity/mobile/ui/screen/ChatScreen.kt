@@ -3023,6 +3023,37 @@ fun ChatScreen(
                 canCompact = !uiState.cascadeId.startsWith("local_draft_") && uiState.parentConversationId.isNullOrBlank(),
                 onCompact = { viewModel.sendCompactCommand() },
                 onStartNewSession = onStartNewSession,
+                onJumpToMessage = { targetMsgId ->
+                    showContextAuditSheet = false
+                    activeTurnJumpJob?.cancel()
+                    hasUserInteracted = true
+                    activeTurnJumpJob = coroutineScope.launch {
+                        isProgrammaticScrolling = true
+                        try {
+                            val currentState = viewModel.uiState.value
+                            val existingIdx = currentState.messages.indexOfFirst { it.id == targetMsgId }
+                            if (existingIdx >= 0) {
+                                val hasHeader = if (currentState.hasMore) 1 else 0
+                                val scrollIdx = existingIdx + hasHeader
+                                listState.animateScrollToItem(scrollIdx)
+                                highlightedTurnMessageId = targetMsgId
+                            } else {
+                                viewModel.loadMessagesThrough(targetMsgId, 0)
+                                val updatedState = viewModel.uiState.value
+                                val targetIdx = updatedState.messages.indexOfFirst { it.id == targetMsgId }
+                                if (targetIdx >= 0) {
+                                    val hasHeader = if (updatedState.hasMore) 1 else 0
+                                    delay(40L)
+                                    listState.scrollToItem(targetIdx + hasHeader)
+                                    highlightedTurnMessageId = targetMsgId
+                                }
+                            }
+                        } finally {
+                            delay(50L)
+                            isProgrammaticScrolling = false
+                        }
+                    }
+                },
                 onDismiss = { showContextAuditSheet = false }
             )
         }

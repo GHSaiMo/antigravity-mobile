@@ -25,6 +25,9 @@ public struct AccountQuotaSheet: View {
     @State private var expandedInspectorModel: String? = nil
     @State private var isCockpitGuideExpanded: Bool = false
     @State private var copiedFeedbackText: String? = nil
+    @State private var autoSwitchResponse: AutoSwitchResponse? = nil
+    @State private var isAutoSwitchExpanded: Bool = false
+    @State private var isSavingAutoSwitch: Bool = false
     @Binding public var quotaResponse: CockpitQuotaResponse?
     public let tokenHistory: TokenHistoryResponse?
     public let isLoadingTokenHistory: Bool
@@ -239,6 +242,27 @@ public struct AccountQuotaSheet: View {
                                             .textCase(.uppercase)
                                         
                                         Spacer()
+
+                                        let isAutoTightest = AppSettings.shared.selectedQuotaBucket == .auto
+                                        Button(action: {
+                                            UIImpactFeedbackGenerator(style: .light).impactOccurred()
+                                            withAnimation(.easeInOut(duration: 0.18)) {
+                                                AppSettings.shared.selectedQuotaBucket = isAutoTightest ? .gemini5h : .auto
+                                            }
+                                        }) {
+                                            HStack(spacing: 3) {
+                                                Image(systemName: isAutoTightest ? "sparkles" : "scope")
+                                                    .font(.system(size: 9.5, weight: .semibold))
+                                                Text(isAutoTightest ? "顶栏：自动最紧" : "顶栏：自动最紧")
+                                                    .font(.system(size: 10.5, weight: .semibold))
+                                            }
+                                            .foregroundColor(isAutoTightest ? .blue : .secondary)
+                                            .padding(.horizontal, 7)
+                                            .padding(.vertical, 3)
+                                            .background(isAutoTightest ? Color.blue.opacity(0.14) : Color(uiColor: .tertiarySystemFill))
+                                            .clipShape(Capsule())
+                                        }
+                                        .buttonStyle(.plain)
                                         
                                         HStack(spacing: 4) {
                                             Circle()
@@ -272,6 +296,8 @@ public struct AccountQuotaSheet: View {
                                     ForEach(otherAccounts) { acc in
                                         accountCard(for: acc, isCurrent: false)
                                     }
+
+                                    autoSwitchSectionCard
                                 }
                             }
                             
@@ -363,6 +389,7 @@ public struct AccountQuotaSheet: View {
             }
             .presentationDragIndicator(.visible)
             .task {
+                await loadAutoSwitchConfig()
                 guard let onAppearFetch = onAppearFetch else { return }
                 await onAppearFetch()
                 while !Task.isCancelled {
@@ -913,7 +940,7 @@ public struct AccountQuotaSheet: View {
             }
             if isPaceSupported, let info = paceInfo {
                 UIImpactFeedbackGenerator(style: .light).impactOccurred()
-                paceDetailItem = WeeklyPaceDetailItem(title: displayTitle, info: info)
+                paceDetailItem = WeeklyPaceDetailItem(title: displayTitle, info: info, bucket: bucket)
             }
         }
     }
@@ -1017,12 +1044,161 @@ public struct AccountQuotaSheet: View {
             return .red
         }
     }
+
+    // MARK: - Threshold Auto-Switch (Collapsed by default, shown only when backup accounts exist)
+
+    @ViewBuilder
+    private var autoSwitchSectionCard: some View {
+        let cfg = autoSwitchResponse?.config
+        let st = autoSwitchResponse?.status
+        let isEnabled = cfg?.enabled == true
+        let statusLabel: String = {
+            switch st?.state ?? "disabled" {
+            case "watching": return String(localized: "监控中")
+            case "pending_debounce": return String(localized: "阈值确认中")
+            case "waiting_idle": return String(localized: "等待生成结束")
+            case "cooldown": return String(localized: "冷却中")
+            case "no_candidates": return String(localized: "无充足备用号")
+            case "switched": return String(localized: "已切号")
+            case "error": return String(localized: "切号失败")
+            default: return String(localized: "未开启")
+            }
+        }()
+
+        DisclosureGroup(isExpanded: $isAutoSwitchExpanded) {
+            VStack(alignment: .leading, spacing: 12) {
+                Toggle(isOn: Binding(
+                    get: { cfg?.enabled ?? false },
+                    set: { newVal in
+                        UIImpactFeedbackGenerator(style: .light).impactOccurred()
+                        Task { await updateAutoSwitch(["enabled": newVal]) }
+                    }
+                )) {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("额度低于阈值自动切号")
+                            .font(.system(size: 13, weight: .medium))
+                        Text("默认等当前生成空闲后再切换，避免打断运行中的任务")
+                            .font(.system(size: 11))
+                            .foregroundColor(.secondary)
+                    }
+                }
+                .disabled(isSavingAutoSwitch || AppSettings.shared.isDemoMode)
+
+                if let cfg {
+                    Divider()
+                    HStack {
+                        Text("监控池窗")
+                            .font(.system(size: 12.5))
+                            .foregroundColor(.secondary)
+                        Spacer()
+                        Picker("监控池窗", selection: Binding(
+                            get: { cfg.targetBucket },
+                            set: { val in Task { await updateAutoSwitch(["target_bucket": val]) } }
+                        )) {
+                            Text("Gemini · 5h").tag("gemini_5h")
+                            Text("Gemini · Weekly").tag("gemini_weekly")
+                            Text("Claude · 5h").tag("claude_5h")
+                            Text("Claude · Weekly").tag("claude_weekly")
+                        }
+                        .pickerStyle(.menu)
+                        .disabled(isSavingAutoSwitch || AppSettings.shared.isDemoMode)
+                    }
+
+                    HStack {
+                        Text("触发阈值")
+                            .font(.system(size: 12.5))
+                            .foregroundColor(.secondary)
+                        Spacer()
+                        Text("≤ \(Int(cfg.thresholdPercent.rounded()))%")
+                            .font(.system(size: 12.5, weight: .semibold, design: .monospaced))
+                            .monospacedDigit()
+                        Stepper("", value: Binding(
+                            get: { Int(cfg.thresholdPercent.rounded()) },
+                            set: { val in Task { await updateAutoSwitch(["threshold_percent": Double(val)]) } }
+                        ), in: 5...30, step: 5)
+                        .labelsHidden()
+                        .disabled(isSavingAutoSwitch || AppSettings.shared.isDemoMode)
+                    }
+
+                    Toggle(isOn: Binding(
+                        get: { cfg.waitUntilIdle },
+                        set: { val in Task { await updateAutoSwitch(["wait_until_idle": val]) } }
+                    )) {
+                        Text("等本轮生成空闲再切")
+                            .font(.system(size: 12.5))
+                    }
+                    .disabled(isSavingAutoSwitch || AppSettings.shared.isDemoMode)
+
+                    if let toEmail = st?.lastToEmail, !toEmail.isEmpty, let ts = st?.lastSwitchAt, ts > 0 {
+                        let d = Date(timeIntervalSince1970: Double(ts) / 1000.0)
+                        Text("最近切号：\(d.formatted(date: .omitted, time: .shortened)) → \(isMasked ? Self.maskEmailForDisplay(toEmail) : toEmail)")
+                            .font(.system(size: 11))
+                            .foregroundColor(.secondary)
+                    }
+                }
+            }
+            .padding(.top, 10)
+        } label: {
+            HStack(spacing: 8) {
+                Image(systemName: "arrow.triangle.2.circlepath")
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundColor(isEnabled ? .blue : .secondary)
+                Text("阈值自动切号")
+                    .font(.system(size: 13.5, weight: .semibold))
+                    .foregroundColor(.primary)
+                Spacer()
+                Text(statusLabel)
+                    .font(.system(size: 11, weight: .medium))
+                    .foregroundColor(isEnabled ? .blue : .secondary)
+                    .padding(.horizontal, 7)
+                    .padding(.vertical, 2)
+                    .background((isEnabled ? Color.blue : Color.secondary).opacity(0.12))
+                    .clipShape(Capsule())
+            }
+        }
+        .padding(14)
+        .background(Color(uiColor: .secondarySystemGroupedBackground))
+        .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+    }
+
+    private static func maskEmailForDisplay(_ email: String) -> String {
+        let parts = email.split(separator: "@", maxSplits: 1)
+        guard parts.count == 2 else { return email }
+        let local = String(parts[0])
+        let prefix = local.count <= 2 ? String(local.prefix(1)) : String(local.prefix(2))
+        return "\(prefix)***@\(parts[1])"
+    }
+
+    @MainActor
+    private func loadAutoSwitchConfig() async {
+        guard !AppSettings.shared.isDemoMode, let baseURL = AppSettings.shared.serverURL else { return }
+        if let resp = try? await APIClient.shared.fetchAutoSwitchConfig(baseURL: baseURL) {
+            autoSwitchResponse = resp
+        }
+    }
+
+    @MainActor
+    private func updateAutoSwitch(_ patch: [String: Any]) async {
+        guard !AppSettings.shared.isDemoMode, let baseURL = AppSettings.shared.serverURL else { return }
+        isSavingAutoSwitch = true
+        defer { isSavingAutoSwitch = false }
+        if let resp = try? await APIClient.shared.updateAutoSwitchConfig(baseURL: baseURL, body: patch) {
+            autoSwitchResponse = resp
+        }
+    }
 }
 
 public struct WeeklyPaceDetailItem: Identifiable, Sendable {
     public let id = UUID()
     public let title: String
     public let info: WeeklyPaceInfo
+    public let bucket: CockpitQuotaBucket?
+
+    public init(title: String, info: WeeklyPaceInfo, bucket: CockpitQuotaBucket? = nil) {
+        self.title = title
+        self.info = info
+        self.bucket = bucket
+    }
 }
 
 private struct WeeklyPaceDetailSheet: View {
@@ -1060,6 +1236,24 @@ private struct WeeklyPaceDetailSheet: View {
                 VStack(spacing: 10) {
                     detailRow(label: String(localized: "当前实际剩余"), value: String(format: "%.1f%%", item.info.actualRemainingPercent), isPrimary: true)
                     detailRow(label: String(localized: "当前实际已用"), value: String(format: "%.1f%%", item.info.usedPercent), isPrimary: true)
+                    if let b = item.bucket, (b.estCycleUsedTokens ?? 0) > 0 || b.estReliable == true {
+                        Divider()
+                        if let used = b.estCycleUsedTokens, used > 0 {
+                            detailRow(
+                                label: String(localized: "本周期观测已耗"),
+                                value: "~\(AccountQuotaSheet.formatTokensCompact(used))",
+                                isPrimary: false
+                            )
+                        }
+                        if b.estReliable == true, let rem = b.estRemainingTokens, rem > 0 {
+                            detailRow(
+                                label: String(localized: "本周期估算约剩"),
+                                value: "~\(AccountQuotaSheet.formatTokensCompact(rem))",
+                                isPrimary: true,
+                                color: .blue
+                            )
+                        }
+                    }
                     Divider()
                     detailRow(label: String(localized: "\(item.info.windowLabel)匀速应剩 (游标位)"), value: String(format: "%.1f%%", item.info.expectedRemainingPercent), isPrimary: false)
                     detailRow(label: String(localized: "\(item.info.windowLabel)匀速应耗基准"), value: String(format: "%.1f%%", item.info.expectedUsedPercent), isPrimary: false)
@@ -1122,7 +1316,15 @@ extension AccountQuotaSheet {
                     tokenKpiCard(title: String(localized: "今日消耗"), value: Self.formatTokensCompact(s.todayTokens), sub: String(localized: "\(s.activeDays) 活跃日"))
                     tokenKpiCard(title: String(localized: "近 7 日"), value: Self.formatTokensCompact(s.last7dTokens), sub: String(localized: "\(s.totalSteps) 轮采样"))
                     tokenKpiCard(title: String(localized: "累计总 Token"), value: Self.formatTokensCompact(s.totalTokens), sub: "IDE \(Self.formatTokensCompact(s.desktopTokens)) · CLI \(Self.formatTokensCompact(s.cliTokens))")
-                    tokenKpiCard(title: String(localized: "API 折算"), value: Self.formatUSD(s.estimatedCostUsd), sub: Self.formatSecondaryCost(cny: s.estimatedCostCny))
+                    let costSubtitle: String = {
+                        if let roi = s.monthlyRoiMultiple, roi > 0,
+                           let tier = s.planTier, !tier.isEmpty,
+                           let monthUsd = s.thisMonthCostUsd, monthUsd > 0 {
+                            return String(localized: "本月 \(Self.formatUSD(monthUsd)) · \(tier) \(String(format: "%.1fx", roi))")
+                        }
+                        return Self.formatSecondaryCost(cny: s.estimatedCostCny)
+                    }()
+                    tokenKpiCard(title: String(localized: "API 折算"), value: Self.formatUSD(s.estimatedCostUsd), sub: costSubtitle)
                 }
 
                 let totalSrc = max(Int64(1), s.desktopTokens + s.cliTokens)
@@ -1147,6 +1349,7 @@ extension AccountQuotaSheet {
                 let allModels = history.resolvedModelSummary
                 TokenHistoryChartCarouselCard(
                     matrix: matrix,
+                    modelSummary: allModels,
                     selectedDate: activeDate,
                     selectedChart: $selectedChartType,
                     onSelectDate: { date in
@@ -1422,14 +1625,24 @@ private struct ModelUsageBreakdownSheet: View {
                                     Spacer()
                                     detailCell(String(localized: "Thinking"), AccountQuotaSheet.formatTokensCompact(item.thinking))
                                 }
-                                if item.steps > 0 || item.costUsd > 0 {
+                                if item.steps > 0 || item.costUsd > 0 || (item.medianTps ?? 0) > 0 {
                                     HStack {
                                         Text("\(item.steps) 轮采样")
                                             .font(.system(size: 10.5))
                                             .foregroundColor(.secondary)
+                                        if let tps = item.medianTps, tps > 0 {
+                                            let ttftPart = (item.medianTtftSec ?? 0) > 0
+                                                ? String(format: " · %.1fs", item.medianTtftSec ?? 0)
+                                                : ""
+                                            Text("· \(String(format: "%.1f", tps)) t/s\(ttftPart)")
+                                                .font(.system(size: 10.5, design: .monospaced))
+                                                .monospacedDigit()
+                                                .foregroundColor(.secondary)
+                                        }
                                         Spacer()
                                         Text(String(format: "$%.3f", item.costUsd))
                                             .font(.system(size: 10.5, design: .monospaced))
+                                            .monospacedDigit()
                                             .foregroundColor(.secondary)
                                     }
                                 }

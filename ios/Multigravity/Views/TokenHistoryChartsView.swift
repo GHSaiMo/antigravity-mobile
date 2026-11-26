@@ -467,6 +467,7 @@ public struct TokenDailyBarsChartView: View {
 public struct TokenModelBreakdownChartView: View {
     public let matrix: [DailyTokenRecord]
     public let palette: TokenHistoryChartPalette
+    public let modelSummary: [ModelTokenBreakdown]?
     public let onOpenAllModels: (() -> Void)?
 
     public static let contentHeight: CGFloat = 112
@@ -474,11 +475,23 @@ public struct TokenModelBreakdownChartView: View {
     public init(
         matrix: [DailyTokenRecord],
         palette: TokenHistoryChartPalette,
+        modelSummary: [ModelTokenBreakdown]? = nil,
         onOpenAllModels: (() -> Void)? = nil
     ) {
         self.matrix = matrix
         self.palette = palette
+        self.modelSummary = modelSummary
         self.onOpenAllModels = onOpenAllModels
+    }
+
+    private var speedByModel: [String: Double] {
+        var map: [String: Double] = [:]
+        for item in modelSummary ?? [] {
+            if let tps = item.medianTps, tps > 0 {
+                map[item.model] = tps
+            }
+        }
+        return map
     }
 
     public var body: some View {
@@ -534,6 +547,7 @@ public struct TokenModelBreakdownChartView: View {
                     .clipShape(Capsule())
 
                     // Top 4 model rows (full width for long model names)
+                    let speeds = speedByModel
                     VStack(spacing: 7) {
                         ForEach(series.slices) { slice in
                             HStack(spacing: 6) {
@@ -546,11 +560,19 @@ public struct TokenModelBreakdownChartView: View {
                                     .lineLimit(1)
                                     .truncationMode(.tail)
                                 Spacer(minLength: 6)
+                                if !slice.isOther, let tps = speeds[slice.name], tps > 0 {
+                                    Text("\(Int(tps.rounded()))t/s")
+                                        .font(.system(size: 9.5, design: .monospaced))
+                                        .monospacedDigit()
+                                        .foregroundColor(palette.secondaryText.opacity(0.85))
+                                }
                                 Text(AccountQuotaSheet.formatTokensCompact(slice.tokens))
                                     .font(.system(size: 11, weight: .semibold, design: .monospaced))
+                                    .monospacedDigit()
                                     .foregroundColor(palette.primaryText)
                                 Text(String(format: "%.1f%%", slice.percent))
                                     .font(.system(size: 10.5, design: .monospaced))
+                                    .monospacedDigit()
                                     .foregroundColor(palette.secondaryText)
                                     .frame(width: 42, alignment: .trailing)
                             }
@@ -669,6 +691,7 @@ public struct TokenHeatmapGridChartView: View {
 
 public struct TokenHistoryChartCarouselCard: View {
     public let matrix: [DailyTokenRecord]
+    public let modelSummary: [ModelTokenBreakdown]?
     public let selectedDate: String?
     @Binding public var selectedChart: TokenHistoryChartType
     public let onSelectDate: (String) -> Void
@@ -679,6 +702,7 @@ public struct TokenHistoryChartCarouselCard: View {
 
     public init(
         matrix: [DailyTokenRecord],
+        modelSummary: [ModelTokenBreakdown]? = nil,
         selectedDate: String?,
         selectedChart: Binding<TokenHistoryChartType>,
         onSelectDate: @escaping (String) -> Void,
@@ -686,6 +710,7 @@ public struct TokenHistoryChartCarouselCard: View {
         onOpenAllModels: (() -> Void)? = nil
     ) {
         self.matrix = matrix
+        self.modelSummary = modelSummary
         self.selectedDate = selectedDate
         self._selectedChart = selectedChart
         self.onSelectDate = onSelectDate
@@ -710,6 +735,7 @@ public struct TokenHistoryChartCarouselCard: View {
                 TokenModelBreakdownChartView(
                     matrix: matrix,
                     palette: palette,
+                    modelSummary: modelSummary,
                     onOpenAllModels: onOpenAllModels
                 )
                 .padding(.horizontal, 12)

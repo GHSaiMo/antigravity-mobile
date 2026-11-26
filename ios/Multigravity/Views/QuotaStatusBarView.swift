@@ -30,6 +30,7 @@ public struct QuotaStatusBarView: View {
     
     private var titleText: String {
         switch resolvedKind {
+        case .auto: return String(localized: "自动最紧")
         case .gemini5h: return String(localized: "Gemini · 5h")
         case .claude5h: return String(localized: "Claude · 5h")
         case .geminiWeekly: return "Gemini"
@@ -167,6 +168,7 @@ public struct QuotaStatusBarView: View {
                     
                     Text(String(format: "%.0f%%", percent))
                         .font(.system(size: 12, weight: .semibold, design: .monospaced))
+                        .monospacedDigit()
                         .foregroundColor(progressColor)
                         .lineLimit(1)
                         .layoutPriority(1)
@@ -174,6 +176,7 @@ public struct QuotaStatusBarView: View {
                     if let countdownText = resetCountdownDisplay {
                         Text(countdownText)
                             .font(.system(size: 10))
+                            .monospacedDigit()
                             .foregroundColor(.secondary)
                             .lineLimit(1)
                             .minimumScaleFactor(0.85)

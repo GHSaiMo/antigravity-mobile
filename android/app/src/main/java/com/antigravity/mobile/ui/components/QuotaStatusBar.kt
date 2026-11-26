@@ -27,7 +27,10 @@ import com.antigravity.mobile.data.model.CockpitAccountQuota
 import com.antigravity.mobile.data.model.QuotaBucketKind
 import com.antigravity.mobile.ui.theme.AntigravityTheme
 
-private val StatusBarCompactTextStyle = TextStyle(platformStyle = PlatformTextStyle(includeFontPadding = false))
+private val StatusBarCompactTextStyle = TextStyle(
+    platformStyle = PlatformTextStyle(includeFontPadding = false),
+    fontFeatureSettings = "tnum"
+)
 
 @Composable
 fun QuotaStatusBar(
@@ -43,6 +46,7 @@ fun QuotaStatusBar(
     val isWeekly = resolvedKind == QuotaBucketKind.GEMINI_WEEKLY || resolvedKind == QuotaBucketKind.CLAUDE_WEEKLY
     val bucket = resolved.second
     val titleText = when (resolvedKind) {
+        QuotaBucketKind.AUTO -> "自动最紧".loc
         QuotaBucketKind.GEMINI_5H -> "Gemini · 5h"
         QuotaBucketKind.CLAUDE_5H -> "Claude · 5h"
         QuotaBucketKind.GEMINI_WEEKLY -> "Gemini"

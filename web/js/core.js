@@ -416,7 +416,11 @@ function renderImagePreviews() {
   `).join("");
   const filesHtml = pendingAttachments.map(att => {
     const icon = att.kind === "audio" ? "🎵" : att.kind === "video" ? "🎬" : "📎";
-    const meta = att.uploading ? "上传中…" : formatAttachmentBytes(att.size);
+    const estTok = Number(att.estimatedTokens) || 0;
+    const tokSuffix = (!att.uploading && estTok >= 10000)
+      ? ` · ~${typeof formatTokensCompact === "function" ? formatTokensCompact(estTok) : Math.round(estTok / 1000) + "k"} tok`
+      : "";
+    const meta = att.uploading ? "上传中…" : (formatAttachmentBytes(att.size) + tokSuffix);
     return `
       <div class="v233-attachment-chip" data-id="${escapeHtml(att.id)}">
         <span>${icon}</span>
@@ -539,6 +543,7 @@ function handleFilesSelected(files) {
             name: data.name || file.name,
             size: data.size || file.size,
             kind: data.kind || pendingAttachments[idx].kind,
+            estimatedTokens: Number(data.estimatedTokens) || 0,
             uploading: false
           };
           renderImagePreviews();

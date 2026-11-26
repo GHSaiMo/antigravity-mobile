@@ -120,6 +120,7 @@ extension ChatViewModel {
                             $0.progress = 1
                             $0.attachmentId = uploaded.id
                             $0.line = uploaded.line
+                            $0.estimatedTokens = uploaded.estimatedTokens
                             $0.error = nil
                         }
                         self.fileUploadTasks[fileId] = nil
@@ -131,6 +132,7 @@ extension ChatViewModel {
                             $0.progress = 1
                             $0.attachmentId = uploaded.id
                             $0.line = uploaded.line
+                            $0.estimatedTokens = uploaded.estimatedTokens
                             $0.error = nil
                         }
                     }
