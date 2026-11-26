@@ -3,14 +3,14 @@
 > - 此版本仅供灰度内测与尝鲜体验，**不会推送给正式版用户**（`mgy update`、Android 应用内自动更新及一键安装脚本均自动跳过预发布版，`v1.2.7` 仍保持为 `Latest` 正式版）。
 > - **网关更新至本测试版**：运行 `mgy update v1.2.8-beta.2`（若已安装早先的 `beta.2` 请执行 `mgy update -force v1.2.8-beta.2`）；测试完毕后运行 `mgy update` 即可切回最新正式版。
 > - **Android 测试安装**：直接下载下方 `Multigravity-v1.2.8-beta.2.apk` 安装即可（`versionCode 42`，与 `v1.2.7` / 早先 `beta` 同私有正式签名，可直接覆盖升级，后续亦可无缝覆盖升级至 `v1.2.8` 正式版）。
-> - **iOS 测试安装**：通过 TestFlight 安装 `1.2.8 (43)`。
+> - **iOS 测试安装**：通过 TestFlight 安装 `1.2.8 (44)`。
 >
 > ---
 >
 > - This is a **Pre-release** build for grayscale testing and **will not be pushed to stable users** (`mgy update`, Android in-app updater, and install scripts ignore pre-releases; `v1.2.7` remains the `Latest` stable release).
 > - **Gateway CLI**: run `mgy update v1.2.8-beta.2` to install this build (or `mgy update -force v1.2.8-beta.2` if already on an earlier `beta.2`), or `mgy update` to return to the latest stable release.
 > - **Android**: download and install `Multigravity-v1.2.8-beta.2.apk` below (`versionCode 42`, signed with the same private release key as `v1.2.7` for seamless in-place upgrades).
-> - **iOS**: install `1.2.8 (43)` via TestFlight.
+> - **iOS**: install `1.2.8 (44)` via TestFlight.
 
 ---
 
