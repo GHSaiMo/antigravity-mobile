@@ -38,9 +38,11 @@ type jetskiOAuthFile struct {
 		TokenType    string `json:"token_type"`
 		RefreshToken string `json:"refresh_token"`
 		Expiry       string `json:"expiry"`
+		ExpiresIn    int64  `json:"expires_in,omitempty"`
 	} `json:"token"`
-	AuthMethod string `json:"auth_method"`
-	IDToken    string `json:"id_token,omitempty"`
+	AuthMethod   string `json:"auth_method"`
+	IDToken      string `json:"id_token,omitempty"`
+	IDTokenEmail string `json:"id_token_email,omitempty"`
 }
 
 type parsedOAuth struct {
@@ -49,6 +51,7 @@ type parsedOAuth struct {
 	IDToken      string
 	Email        string
 	Expiry       time.Time
+	ExpiresIn    int64
 }
 
 // applyLanguageServerOAuth is the post-Cockpit hook. Tests replace it.
@@ -79,6 +82,13 @@ func applyJetskiOAuthAndRelaunch(accountID string) error {
 	if err != nil {
 		return fmt.Errorf("no oauth for %s: %w", accountID, err)
 	}
+	want := resolveAccountEmail(accountID)
+	if strings.TrimSpace(tok.Email) == "" && want != "" {
+		tok.Email = want
+	}
+	if want == "" {
+		want = tok.Email
+	}
 	if err := writeJetskiOAuthFile(tok); err != nil {
 		slog.Warn("[Cockpit] jetski oauth write failed", "err", err)
 	}
@@ -89,10 +99,6 @@ func applyJetskiOAuthAndRelaunch(accountID string) error {
 		return fmt.Errorf("write gemini keychain oauth: %w", err)
 	}
 
-	want := resolveAccountEmail(accountID)
-	if want == "" {
-		want = tok.Email
-	}
 	slog.Info(fmt.Sprintf("[Cockpit] wrote language-server oauth for %s; relaunching Antigravity.app with proxy", want))
 	if err := quitRunningAntigravity(); err != nil {
 		slog.Info("[Cockpit] quit before proxy relaunch", "err", err)
@@ -101,6 +107,7 @@ func applyJetskiOAuthAndRelaunch(accountID string) error {
 	if err := launchAntigravityWithCockpitProxy(); err != nil {
 		return err
 	}
+	invalidateLanguageServerCache()
 	live, err := waitLiveUserEmail(30 * time.Second)
 	if err != nil {
 		slog.Info("[Cockpit] GetUserStatus after keychain relaunch", "err", err)
@@ -248,20 +255,7 @@ func launchAntigravityWithCockpitProxy() error {
 	}
 
 	if runtime.GOOS == "linux" {
-		if runCmdRunTimeout(3*time.Second, "systemctl", "--user", "cat", "antigravity-ls.service") == nil {
-			slog.Info("[Cockpit] starting systemd service antigravity-ls")
-			if err := runCmdRunTimeout(5*time.Second, "systemctl", "--user", "start", "antigravity-ls"); err != nil {
-				return fmt.Errorf("start antigravity-ls: %w", err)
-			}
-			return nil
-		}
-		if lsPath, err := exec.LookPath("language_server"); err == nil {
-			slog.Info("[Cockpit] launching standalone language_server")
-			cmd := exec.Command(lsPath, "--standalone", "--headless", "--persistent_mode", "--http_server_port=50005")
-			return cmd.Start()
-		}
-		slog.Info("[Cockpit] no language_server or antigravity-ls service found on Linux")
-		return nil
+		return launchLinuxAntigravity()
 	}
 
 	args := []string{"-a", "Antigravity"}
@@ -488,6 +482,58 @@ func jwtEmailAndExp(idToken string) (string, time.Time) {
 	return strings.ToLower(strings.TrimSpace(claims.Email)), exp
 }
 
+func isPathWithinHomeDir(home, target string) bool {
+	if home == "" || target == "" {
+		return false
+	}
+	rel, err := filepath.Rel(filepath.Clean(home), filepath.Clean(target))
+	if err != nil {
+		return false
+	}
+	return rel == "." || (rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator)))
+}
+
+// antigravityOAuthTargetPaths returns symlink-deduplicated antigravity-oauth-token paths
+// under existing Antigravity data directories (such as ~/.gemini/antigravity-cli and
+// ~/.gemini/antigravity, plus optional explicit env overrides).
+func antigravityOAuthTargetPaths() []string {
+	home, _ := os.UserHomeDir()
+	var candidateDirs []string
+	if customDir := strings.TrimSpace(os.Getenv("MGY_ANTIGRAVITY_DATA_DIR")); customDir != "" {
+		candidateDirs = append(candidateDirs, filepath.Clean(customDir))
+	} else if customDir := strings.TrimSpace(os.Getenv("MULTIGRAVITY_ANTIGRAVITY_DATA_DIR")); customDir != "" {
+		candidateDirs = append(candidateDirs, filepath.Clean(customDir))
+	}
+	if envDir := strings.TrimSpace(os.Getenv("ANTIGRAVITY_APP_DATA_DIR")); envDir != "" && (home == "" || isPathWithinHomeDir(home, envDir)) {
+		candidateDirs = append(candidateDirs, filepath.Clean(envDir))
+	}
+	if home != "" {
+		candidateDirs = append(candidateDirs,
+			filepath.Join(home, ".gemini", "antigravity"),
+			filepath.Join(home, ".gemini", "antigravity-cli"),
+		)
+	}
+
+	seen := make(map[string]struct{}, len(candidateDirs))
+	targets := make([]string, 0, len(candidateDirs))
+	for _, dir := range candidateDirs {
+		fi, err := os.Stat(dir)
+		if err != nil || !fi.IsDir() {
+			continue
+		}
+		key := filepath.Clean(dir)
+		if resolved, err := filepath.EvalSymlinks(dir); err == nil && resolved != "" {
+			key = filepath.Clean(resolved)
+		}
+		if _, dup := seen[key]; dup {
+			continue
+		}
+		seen[key] = struct{}{}
+		targets = append(targets, filepath.Join(dir, "antigravity-oauth-token"))
+	}
+	return targets
+}
+
 func writeJetskiOAuthFile(tok *parsedOAuth) error {
 	path := jetskiOAuthPath()
 	if path == "" {
@@ -496,11 +542,28 @@ func writeJetskiOAuthFile(tok *parsedOAuth) error {
 	if err := os.MkdirAll(filepath.Dir(path), 0700); err != nil {
 		return err
 	}
-	doc := jetskiOAuthFile{AuthMethod: "consumer", IDToken: tok.IDToken}
+	email := strings.ToLower(strings.TrimSpace(tok.Email))
+	if email == "" && tok.IDToken != "" {
+		email, _ = jwtEmailAndExp(tok.IDToken)
+	}
+	var expiresIn int64
+	if !tok.Expiry.IsZero() {
+		if rem := int64(time.Until(tok.Expiry).Seconds()); rem > 0 {
+			expiresIn = rem
+		}
+	} else if tok.ExpiresIn > 0 {
+		expiresIn = tok.ExpiresIn
+	}
+	doc := jetskiOAuthFile{
+		AuthMethod:   "consumer",
+		IDToken:      tok.IDToken,
+		IDTokenEmail: email,
+	}
 	doc.Token.AccessToken = tok.AccessToken
 	doc.Token.TokenType = "Bearer"
 	doc.Token.RefreshToken = tok.RefreshToken
 	doc.Token.Expiry = tok.Expiry.In(time.Local).Format(time.RFC3339Nano)
+	doc.Token.ExpiresIn = expiresIn
 	raw, err := json.Marshal(doc)
 	if err != nil {
 		return err
@@ -508,8 +571,20 @@ func writeJetskiOAuthFile(tok *parsedOAuth) error {
 	if err := writeFileAtomic0600(path, raw); err != nil {
 		return err
 	}
-	slog.Info(fmt.Sprintf("[Cockpit] wrote jetski-standalone-oauth-token for %s", tok.Email))
-	return nil
+	slog.Info(fmt.Sprintf("[Cockpit] wrote jetski-standalone-oauth-token for %s", email))
+
+	var syncErr error
+	for _, target := range antigravityOAuthTargetPaths() {
+		if err := writeFileAtomic0600(target, raw); err != nil {
+			slog.Warn("[Cockpit] failed to sync antigravity-oauth-token", "path", target, "err", err)
+			if syncErr == nil {
+				syncErr = err
+			}
+			continue
+		}
+		slog.Info(fmt.Sprintf("[Cockpit] synced antigravity-oauth-token to %s for %s", target, email))
+	}
+	return syncErr
 }
 
 func syncGeminiGoogleAccounts(email string) {
@@ -610,6 +685,15 @@ func cacheFoundLS(port int, csrf string) {
 	cachedLSPort = port
 	cachedLSCSRF = csrf
 	cachedLSUntil = time.Now().Add(5 * time.Second)
+	lastLSFailScan = time.Time{}
+	lsLookupMu.Unlock()
+}
+
+func invalidateLanguageServerCache() {
+	lsLookupMu.Lock()
+	cachedLSPort = 0
+	cachedLSCSRF = ""
+	cachedLSUntil = time.Time{}
 	lastLSFailScan = time.Time{}
 	lsLookupMu.Unlock()
 }

@@ -2207,6 +2207,9 @@ func buildRouterWithOptions(
 			return
 		}
 		if insp != nil {
+			if br, ok := insp.(inspector.BackoffResetter); ok {
+				br.ResetBackoff()
+			}
 			if fs, ok := insp.(inspector.ForceScanner); ok {
 				fs.ForceScan()
 			} else {

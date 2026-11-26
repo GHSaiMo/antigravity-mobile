@@ -6,10 +6,10 @@ import (
 	"log/slog"
 	"os"
 	"os/exec"
-	"path/filepath"
 	"runtime"
 	"strconv"
 	"strings"
+	"sync"
 	"syscall"
 	"time"
 
@@ -51,8 +51,186 @@ func runCmdCombinedStdinTimeout(d time.Duration, stdin string, name string, args
 	return cmd.CombinedOutput()
 }
 
-// findLinuxAntigravityPIDs returns verified Antigravity / language_server PIDs owned by the
-// current user on Linux, excluding the gateway's own PID and isolated bot runtimes.
+// linuxAntigravitySystemdServices lists the supported systemd user services managing
+// Antigravity backends on Linux (Antigravity CLI daemon and standalone language_server).
+var linuxAntigravitySystemdServices = []string{
+	"antigravity-cli-daemon.service",
+	"antigravity-ls.service",
+}
+
+// Test seams for Linux systemd/process management; nil-safe defaults point at real commands.
+var (
+	linuxSystemctlRunner = func(d time.Duration, args ...string) error {
+		fullArgs := append([]string{"--user"}, args...)
+		return runCmdRunTimeout(d, "systemctl", fullArgs...)
+	}
+	linuxLookPath          = exec.LookPath
+	linuxStartStandaloneLS = func(lsPath string) error {
+		cmd := exec.Command(lsPath, "--standalone", "--headless", "--persistent_mode", "--http_server_port=50005")
+		return cmd.Start()
+	}
+	linuxFindPIDsFn   = findLinuxAntigravityPIDs
+	linuxWaitExitedFn = waitUntilAntigravityExited
+	linuxSignalFn     = signalAntigravity
+
+	stoppedLinuxServicesMu sync.Mutex
+	stoppedLinuxServices   []string
+)
+
+func recordStoppedLinuxServices(svcs []string) {
+	if len(svcs) == 0 {
+		return
+	}
+	stoppedLinuxServicesMu.Lock()
+	defer stoppedLinuxServicesMu.Unlock()
+	seen := make(map[string]struct{}, len(stoppedLinuxServices)+len(svcs))
+	for _, s := range stoppedLinuxServices {
+		seen[s] = struct{}{}
+	}
+	for _, s := range svcs {
+		if _, ok := seen[s]; !ok {
+			seen[s] = struct{}{}
+			stoppedLinuxServices = append(stoppedLinuxServices, s)
+		}
+	}
+}
+
+func takeStoppedLinuxServices() []string {
+	stoppedLinuxServicesMu.Lock()
+	defer stoppedLinuxServicesMu.Unlock()
+	if len(stoppedLinuxServices) == 0 {
+		return nil
+	}
+	out := append([]string(nil), stoppedLinuxServices...)
+	stoppedLinuxServices = nil
+	return out
+}
+
+func clearStoppedLinuxServices() {
+	stoppedLinuxServicesMu.Lock()
+	stoppedLinuxServices = nil
+	stoppedLinuxServicesMu.Unlock()
+}
+
+func activeLinuxAntigravityServices() []string {
+	var active []string
+	for _, svc := range linuxAntigravitySystemdServices {
+		if linuxSystemctlRunner(3*time.Second, "is-active", "--quiet", svc) == nil {
+			active = append(active, svc)
+		}
+	}
+	return active
+}
+
+func quitLinuxAntigravity() error {
+	activeServices := activeLinuxAntigravityServices()
+	if len(activeServices) > 0 {
+		recordStoppedLinuxServices(activeServices)
+		for _, svc := range activeServices {
+			slog.Info(fmt.Sprintf("[Cockpit] stopping systemd service %s", svc))
+			_ = linuxSystemctlRunner(8*time.Second, "stop", svc)
+		}
+	} else {
+		linuxSignalFn(syscall.SIGTERM)
+	}
+	if linuxWaitExitedFn(5 * time.Second) {
+		slog.Info("[Cockpit] Antigravity stopped cleanly on Linux")
+		return nil
+	}
+	if len(linuxFindPIDsFn()) > 0 {
+		if len(activeServices) > 0 {
+			linuxSignalFn(syscall.SIGTERM)
+			if linuxWaitExitedFn(2 * time.Second) {
+				slog.Info("[Cockpit] Antigravity stopped cleanly on Linux")
+				return nil
+			}
+		}
+		linuxSignalFn(syscall.SIGKILL)
+	}
+	return nil
+}
+
+func launchLinuxAntigravity() error {
+	if stopped := takeStoppedLinuxServices(); len(stopped) > 0 {
+		for _, svc := range stopped {
+			slog.Info(fmt.Sprintf("[Cockpit] restarting systemd service %s", svc))
+			if err := linuxSystemctlRunner(10*time.Second, "restart", svc); err != nil {
+				return fmt.Errorf("restart %s: %w", svc, err)
+			}
+		}
+		return nil
+	}
+
+	var existing []string
+	for _, svc := range linuxAntigravitySystemdServices {
+		if linuxSystemctlRunner(3*time.Second, "cat", svc) == nil {
+			existing = append(existing, svc)
+		}
+	}
+	if len(existing) > 0 {
+		var toRestart []string
+		for _, svc := range existing {
+			if linuxSystemctlRunner(3*time.Second, "is-active", "--quiet", svc) == nil ||
+				linuxSystemctlRunner(3*time.Second, "is-enabled", "--quiet", svc) == nil {
+				toRestart = append(toRestart, svc)
+			}
+		}
+		if len(toRestart) == 0 {
+			toRestart = existing[:1]
+		}
+		for _, svc := range toRestart {
+			slog.Info(fmt.Sprintf("[Cockpit] restarting systemd service %s", svc))
+			if err := linuxSystemctlRunner(10*time.Second, "restart", svc); err != nil {
+				return fmt.Errorf("restart %s: %w", svc, err)
+			}
+		}
+		return nil
+	}
+
+	if lsPath, err := linuxLookPath("language_server"); err == nil {
+		slog.Info("[Cockpit] launching standalone language_server")
+		return linuxStartStandaloneLS(lsPath)
+	}
+	slog.Info("[Cockpit] no language_server, antigravity-ls, or antigravity-cli-daemon service found on Linux")
+	return nil
+}
+
+// parseLinuxAntigravityPIDs parses `ps -o pid=,command=` output and returns verified
+// Antigravity Desktop, language_server, and Antigravity CLI (agy / antigravity-cli) daemon PIDs,
+// excluding selfPID, short-lived CLI helper commands, and excluded processes.
+func parseLinuxAntigravityPIDs(psOutput string, selfPID int) []int {
+	var pids []int
+	seen := make(map[int]bool)
+	for _, rawLine := range strings.Split(psOutput, "\n") {
+		line := strings.TrimSpace(rawLine)
+		if inspector.ShouldExcludeProcessCmdline(line) {
+			continue
+		}
+		fields := strings.Fields(line)
+		if len(fields) < 2 {
+			continue
+		}
+		pid, convErr := strconv.Atoi(fields[0])
+		if convErr != nil || pid <= 0 || pid == selfPID || seen[pid] {
+			continue
+		}
+		base := strings.ToLower(inspector.ExtractCmdExecutableBase(line))
+		isDesktopOrLS := strings.HasPrefix(base, "language_server") || base == "antigravity" || base == "antigravity-ide"
+		isCLIDaemon := false
+		if !isDesktopOrLS && inspector.IsAntigravityProcessBase(base) {
+			ok, _ := inspector.ClassifyLanguageServerCmdline(line)
+			isCLIDaemon = ok
+		}
+		if isDesktopOrLS || isCLIDaemon {
+			seen[pid] = true
+			pids = append(pids, pid)
+		}
+	}
+	return pids
+}
+
+// findLinuxAntigravityPIDs returns verified Antigravity / language_server / agy daemon PIDs
+// owned by the current user on Linux, excluding the gateway's own PID and isolated bot runtimes.
 func findLinuxAntigravityPIDs() []int {
 	var out []byte
 	var err error
@@ -66,29 +244,7 @@ func findLinuxAntigravityPIDs() []int {
 		}
 	}
 
-	selfPID := os.Getpid()
-	var pids []int
-	seen := make(map[int]bool)
-	for _, rawLine := range strings.Split(string(out), "\n") {
-		line := strings.TrimSpace(rawLine)
-		if inspector.ShouldExcludeProcessCmdline(line) {
-			continue
-		}
-		fields := strings.Fields(line)
-		if len(fields) < 2 {
-			continue
-		}
-		pid, convErr := strconv.Atoi(fields[0])
-		if convErr != nil || pid <= 0 || pid == selfPID || seen[pid] {
-			continue
-		}
-		base := filepath.Base(fields[1])
-		if strings.HasPrefix(base, "language_server") || base == "antigravity" || base == "antigravity-ide" {
-			seen[pid] = true
-			pids = append(pids, pid)
-		}
-	}
-	return pids
+	return parseLinuxAntigravityPIDs(string(out), os.Getpid())
 }
 
 const (
@@ -111,7 +267,7 @@ func antigravityStillRunning() bool {
 		return false
 	}
 	if runtime.GOOS == "linux" {
-		if runCmdRunTimeout(3*time.Second, "systemctl", "--user", "is-active", "--quiet", "antigravity-ls") == nil {
+		if len(activeLinuxAntigravityServices()) > 0 {
 			return true
 		}
 		return len(findLinuxAntigravityPIDs()) > 0
@@ -200,17 +356,7 @@ func quitRunningAntigravity() error {
 	}
 
 	if runtime.GOOS == "linux" {
-		if runCmdRunTimeout(3*time.Second, "systemctl", "--user", "is-active", "--quiet", "antigravity-ls") == nil {
-			_ = runCmdRunTimeout(5*time.Second, "systemctl", "--user", "stop", "antigravity-ls")
-		} else {
-			signalAntigravity(syscall.SIGTERM)
-		}
-		if waitUntilAntigravityExited(5 * time.Second) {
-			slog.Info("[Cockpit] Antigravity stopped cleanly on Linux")
-			return nil
-		}
-		signalAntigravity(syscall.SIGKILL)
-		return nil
+		return quitLinuxAntigravity()
 	}
 
 	if runtime.GOOS == "darwin" {

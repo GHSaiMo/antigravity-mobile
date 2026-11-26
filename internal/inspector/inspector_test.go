@@ -483,5 +483,70 @@ func TestScanMultiPIDFallbackAndForceScanBypassBackoff(t *testing.T) {
 	}
 }
 
+func TestResetBackoffClearsBackoffAndForceScanCooldown(t *testing.T) {
+	tmpDir := t.TempDir()
+	daemonDirOverride = tmpDir
+	t.Cleanup(func() { daemonDirOverride = "" })
+
+	insp := NewInspector(10 * time.Second)
+	insp.forceScanCooldown = 10 * time.Second
+
+	// 1. Trigger a failed ForceScan during daemon restart window: sets both failedBackoff and lastForceScanAt.
+	insp.findCandidatesFn = func(context.Context) processScanResult {
+		return processScanResult{Err: fmt.Errorf("restarting")}
+	}
+	if got := insp.ForceScan(); got != nil {
+		t.Fatalf("expected nil during restart window, got %+v", got)
+	}
+
+	// 2. Daemon finishes restarting on a new port; before ResetBackoff both Scan and ForceScan are blocked.
+	insp.findCandidatesFn = func(context.Context) processScanResult {
+		return processScanResult{
+			Candidates: []processCandidate{{PID: 7777, CSRFToken: "new-csrf", Priority: 5}},
+		}
+	}
+	insp.findPortsFn = func(_ context.Context, pid int) ([]int, error) {
+		if pid == 7777 {
+			return []int{44556}, nil
+		}
+		return nil, nil
+	}
+	insp.verifyPortFn = func(port int, csrf string) bool {
+		return port == 44556 && csrf == "new-csrf"
+	}
+
+	if got := insp.Scan(); got != nil {
+		t.Fatalf("expected Scan() to be held back by backoff before ResetBackoff, got %+v", got)
+	}
+	if got := insp.ForceScan(); got != nil {
+		t.Fatalf("expected ForceScan() to be held back by cooldown before ResetBackoff, got %+v", got)
+	}
+
+	// 3. ResetBackoff clears both backoff and ForceScan cooldown so immediate ForceScan succeeds.
+	insp.ResetBackoff()
+	got := insp.ForceScan()
+	if got == nil || got.PID != 7777 || got.Port != 44556 || got.CSRFToken != "new-csrf" {
+		t.Fatalf("ForceScan() after ResetBackoff = %+v, want PID=7777 Port=44556", got)
+	}
+
+	// 4. Verify ResetBackoff also unblocks plain Scan() when backed off for 40s.
+	insp.mu.Lock()
+	insp.current = nil
+	insp.mu.Unlock()
+	insp.failedScanMu.Lock()
+	insp.failedBackoff = 40 * time.Second
+	insp.failedScanAt = time.Now()
+	insp.failedScanMu.Unlock()
+
+	if got := insp.Scan(); got != nil {
+		t.Fatalf("expected Scan() to respect 40s backoff, got %+v", got)
+	}
+	insp.ResetBackoff()
+	got2 := insp.Scan()
+	if got2 == nil || got2.PID != 7777 || got2.Port != 44556 {
+		t.Fatalf("Scan() after ResetBackoff = %+v, want PID=7777 Port=44556", got2)
+	}
+}
+
 
 

@@ -57,6 +57,20 @@ type ForceScanner interface {
 	ForceScan() *InstanceInfo
 }
 
+// BackoffResetter is optionally implemented by UpstreamDiscoverer to clear exponential
+// failed-scan backoff and ForceScan cooldown (for example right after an account switch
+// restarts the upstream daemon).
+type BackoffResetter interface {
+	ResetBackoff()
+}
+
+var (
+	_ UpstreamDiscoverer    = (*Inspector)(nil)
+	_ ForceScanner          = (*Inspector)(nil)
+	_ BackoffResetter       = (*Inspector)(nil)
+	_ FailureReasonReporter = (*Inspector)(nil)
+)
+
 // FailureReasonReporter is optionally implemented by UpstreamDiscoverer to expose the latest
 // sanitized discovery failure reason (never contains paths, PIDs, or tokens).
 type FailureReasonReporter interface {
@@ -205,6 +219,16 @@ func (i *Inspector) Scan() *InstanceInfo {
 // backoff (subject to a short cooldown to prevent subprocess storms under request bursts).
 func (i *Inspector) ForceScan() *InstanceInfo {
 	return i.scan(true)
+}
+
+// ResetBackoff clears the exponential failed-scan backoff and ForceScan cooldown so the next
+// Scan() or ForceScan() immediately probes for a newly restarted Antigravity instance.
+func (i *Inspector) ResetBackoff() {
+	i.failedScanMu.Lock()
+	i.failedBackoff = 0
+	i.failedScanAt = time.Time{}
+	i.lastForceScanAt = time.Time{}
+	i.failedScanMu.Unlock()
 }
 
 func (i *Inspector) verify(port int, csrfToken string) bool {

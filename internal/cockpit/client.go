@@ -188,6 +188,7 @@ func SwitchAccount(accountID string) (err error) {
 
 	switchMu.Lock()
 	defer switchMu.Unlock()
+	defer clearStoppedLinuxServices()
 
 	// Auto-align Cockpit config to prevent APP_PATH_NOT_FOUND during switch
 	_ = EnsureCockpitAntigravityConfig()
@@ -333,6 +334,7 @@ func fetchAccountOAuth(accountID string) (*parsedOAuth, error) {
 			IDToken:      freshTok.IDToken,
 			Email:        strings.ToLower(strings.TrimSpace(detail.Email)),
 			Expiry:       exp,
+			ExpiresIn:    freshTok.ExpiresIn,
 		}, nil
 	}
 
