@@ -20,6 +20,12 @@ function renderScheduledAlarmIconHtml() {
 }
 window.renderScheduledAlarmIconHtml = renderScheduledAlarmIconHtml;
 
+function renderSideQuestionIconHtml(size = 12, extraClass = "") {
+  const cls = extraClass ? ` class="${extraClass}"` : "";
+  return `<svg${cls} width="${size}" height="${size}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 16a2 2 0 0 1-2 2H7.5L3 21.5V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path><path d="M9.75 8.2a2.3 2.3 0 0 1 4.45.8c0 1.4-2.2 1.7-2.2 2.75"></path><circle cx="12" cy="15" r="1.05" fill="currentColor" stroke="none"></circle></svg>`;
+}
+window.renderSideQuestionIconHtml = renderSideQuestionIconHtml;
+
 function navigateTo(hash) {
   window.location.hash = hash;
   renderRoute();
@@ -938,7 +944,7 @@ function renderConversationCardHtml(item, { isAttachedBranchChild = false, isLas
     hasAttachedBranches ? "has-branch-toggle" : "",
   ].filter(Boolean).join(" ");
   const branchPillHtml = isSideQuestion
-    ? `<span class="conv-branch-tag">⑂ ${typeof t === "function" ? t("旁路") : "旁路"}</span>`
+    ? `<span class="conv-branch-tag">${renderSideQuestionIconHtml(11)}<span>${typeof t === "function" ? t("旁路") : "旁路"}</span></span>`
     : "";
   const scheduledIconHtml = item.isScheduledTask && wsName !== "Chat" ? renderScheduledAlarmIconHtml() : "";
   const subMetaHtml = isSideQuestion && item.branchParentTitle
@@ -1012,7 +1018,7 @@ function renderBranchDrawerHtml(parentId, branches, isExpanded, aggStatus) {
   return `
     <div class="conv-branch-drawer${isExpanded ? " is-expanded" : ""}" data-branch-parent="${parentIdEsc}">
       <button type="button" class="conv-branch-toggle-btn" data-branch-parent="${parentIdEsc}" data-has-action="${hasAction ? "1" : "0"}" aria-expanded="${isExpanded ? "true" : "false"}">
-        <span class="conv-branch-toggle-icon" aria-hidden="true">⑂</span>
+        <span class="conv-branch-toggle-icon" aria-hidden="true">${renderSideQuestionIconHtml(12)}</span>
         <span class="conv-branch-toggle-count">${escapeHtml(countLabel)}</span>
         ${previewTitle ? `<span class="conv-branch-toggle-preview-wrap"><span class="conv-branch-toggle-sep" aria-hidden="true">·</span><span class="conv-branch-toggle-preview" data-i18n-skip="1">${escapeHtml(previewTitle)}</span></span>` : ""}
         <span class="conv-branch-toggle-spacer"></span>

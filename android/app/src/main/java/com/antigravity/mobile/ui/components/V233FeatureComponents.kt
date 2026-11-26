@@ -13,6 +13,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.OpenInNew
 import androidx.compose.material.icons.automirrored.filled.Send
+import androidx.compose.material.icons.automirrored.outlined.LiveHelp
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -404,7 +405,7 @@ fun SideQuestionInlineCardsSection(
                         horizontalArrangement = Arrangement.spacedBy(5.dp)
                     ) {
                         Icon(
-                            imageVector = Icons.Default.CallSplit,
+                            imageVector = Icons.AutoMirrored.Outlined.LiveHelp,
                             contentDescription = null,
                             tint = colors.accentIndigo,
                             modifier = Modifier.size(12.dp)
@@ -509,7 +510,7 @@ fun BranchOriginBanner(
             horizontalArrangement = Arrangement.spacedBy(6.dp)
         ) {
             Icon(
-                imageVector = Icons.Default.CallSplit,
+                imageVector = Icons.AutoMirrored.Outlined.LiveHelp,
                 contentDescription = null,
                 tint = colors.accentIndigo,
                 modifier = Modifier.size(14.dp)
@@ -615,7 +616,7 @@ fun BranchForkDivider(
             horizontalArrangement = Arrangement.spacedBy(4.dp)
         ) {
             Icon(
-                imageVector = Icons.Default.CallSplit,
+                imageVector = Icons.AutoMirrored.Outlined.LiveHelp,
                 contentDescription = null,
                 tint = colors.accentIndigo,
                 modifier = Modifier.size(12.dp)
@@ -723,7 +724,7 @@ fun BtwSideQuestionBottomSheet(
                                 verticalAlignment = Alignment.CenterVertically,
                                 horizontalArrangement = Arrangement.spacedBy(5.dp)
                             ) {
-                                Icon(Icons.Default.CallSplit, contentDescription = null, tint = colors.accentIndigo, modifier = Modifier.size(13.dp))
+                                Icon(Icons.AutoMirrored.Outlined.LiveHelp, contentDescription = null, tint = colors.accentIndigo, modifier = Modifier.size(13.dp))
                                 Text(
                                     "承接至所选消息的上下文".loc,
                                     color = colors.accentIndigo,
@@ -774,7 +775,7 @@ fun BtwSideQuestionBottomSheet(
                         verticalAlignment = Alignment.Top,
                         horizontalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
-                        Icon(Icons.Default.CallSplit, contentDescription = null, tint = colors.accentIndigo, modifier = Modifier.size(15.dp))
+                        Icon(Icons.AutoMirrored.Outlined.LiveHelp, contentDescription = null, tint = colors.accentIndigo, modifier = Modifier.size(15.dp))
                         Text(
                             text = "基于「%s」当前上下文创建独立旁路分支，不打断主对话流，支持多轮追问。".loc(parentTitle),
                             color = colors.textSecondary,
@@ -805,7 +806,7 @@ fun BtwSideQuestionBottomSheet(
                                 verticalAlignment = Alignment.CenterVertically,
                                 horizontalArrangement = Arrangement.spacedBy(8.dp)
                             ) {
-                                Icon(Icons.Default.CallSplit, contentDescription = null, tint = colors.accentIndigo, modifier = Modifier.size(14.dp))
+                                Icon(Icons.AutoMirrored.Outlined.LiveHelp, contentDescription = null, tint = colors.accentIndigo, modifier = Modifier.size(14.dp))
                                 Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
                                     Text(
                                         text = branch.displayTitle,

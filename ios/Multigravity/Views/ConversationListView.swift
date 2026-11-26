@@ -2230,8 +2230,8 @@ public struct ConversationListView: View {
                 }
             } label: {
                 HStack(alignment: .center, spacing: 5) {
-                    Image(systemName: "arrow.triangle.branch")
-                        .font(.system(size: 10.5, weight: .semibold))
+                    Image(systemName: "questionmark.bubble")
+                        .font(.system(size: 11, weight: .semibold))
                         .foregroundColor(.indigo)
                         .frame(width: 12, height: 12)
 
@@ -2548,7 +2548,7 @@ public struct ConversationListView: View {
     ) -> some View {
         VStack(alignment: .leading, spacing: 5) {
             HStack(alignment: .center, spacing: 6) {
-                Image(systemName: "arrow.triangle.branch")
+                Image(systemName: "questionmark.bubble")
                     .font(.system(size: 11.5, weight: .semibold))
                     .foregroundColor(.indigo)
 

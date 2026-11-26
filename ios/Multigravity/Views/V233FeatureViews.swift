@@ -600,7 +600,7 @@ public struct SideQuestionInlineCardsSection: View {
 
                             VStack(alignment: .leading, spacing: 3) {
                                 HStack(spacing: 5) {
-                                    Image(systemName: "arrow.triangle.branch")
+                                    Image(systemName: "questionmark.bubble")
                                         .font(.system(size: 10.5, weight: .semibold))
                                         .foregroundColor(.indigo)
                                     Text("旁路快问")
@@ -694,7 +694,7 @@ public struct BranchOriginBannerView: View {
     public var body: some View {
         VStack(alignment: .leading, spacing: 8) {
             HStack(spacing: 7) {
-                Image(systemName: "arrow.triangle.branch")
+                Image(systemName: "questionmark.bubble")
                     .font(.system(size: 12, weight: .semibold))
                     .foregroundColor(.indigo)
                 Text(originLabel)
@@ -783,7 +783,7 @@ public struct BranchForkDividerView: View {
 
             Button(action: onCollapse) {
                 HStack(spacing: 4) {
-                    Image(systemName: "arrow.triangle.branch")
+                    Image(systemName: "questionmark.bubble")
                         .font(.system(size: 10, weight: .semibold))
                     Text("以上为共享前文 · 以下为旁路分支")
                         .font(.system(size: 11, weight: .semibold))
@@ -858,7 +858,7 @@ public struct BtwSideQuestionSheet: View {
                         if let stepIdx = anchorStepIndex, useAnchorStep {
                             VStack(alignment: .leading, spacing: 6) {
                                 HStack(spacing: 6) {
-                                    Label("承接至所选消息的上下文", systemImage: "arrow.triangle.branch")
+                                    Label("承接至所选消息的上下文", systemImage: "questionmark.bubble")
                                         .font(.system(size: 12, weight: .semibold))
                                         .foregroundColor(.indigo)
                                     Spacer()
@@ -891,7 +891,7 @@ public struct BtwSideQuestionSheet: View {
                             .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
                         } else {
                             HStack(spacing: 8) {
-                                Image(systemName: "arrow.triangle.branch")
+                                Image(systemName: "questionmark.bubble")
                                     .font(.system(size: 13, weight: .semibold))
                                     .foregroundColor(.indigo)
                                 Text("基于「\(parentTitle)」当前上下文创建独立旁路分支，不打断主对话流，支持多轮追问。")
@@ -916,7 +916,7 @@ public struct BtwSideQuestionSheet: View {
                                         onOpenBranch(branch.cascadeId)
                                     } label: {
                                         HStack(spacing: 8) {
-                                            Image(systemName: "arrow.triangle.branch")
+                                            Image(systemName: "questionmark.bubble")
                                                 .font(.system(size: 12, weight: .semibold))
                                                 .foregroundColor(.indigo)
                                             VStack(alignment: .leading, spacing: 2) {

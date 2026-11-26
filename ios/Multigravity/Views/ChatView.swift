@@ -394,7 +394,7 @@ public struct ChatView: View {
                 Button {
                     btwSheetPresentation = BtwSheetPresentation()
                 } label: {
-                    Label("旁路快问", systemImage: "bubble.left.and.exclamationmark.bubble.right")
+                    Label("旁路快问", systemImage: "questionmark.bubble")
                 }
                 Button {
                     showMcpSkillsSheet = true
@@ -1547,8 +1547,8 @@ private struct ChatToolbarPrincipalView: View {
                         }
                     } label: {
                         HStack(spacing: 3) {
-                            Image(systemName: "arrow.triangle.branch")
-                                .font(.system(size: 8.5, weight: .bold))
+                            Image(systemName: "questionmark.bubble")
+                                .font(.system(size: 9.5, weight: .semibold))
                             Text("旁路快问 · 回主会话")
                                 .font(.system(size: 10, weight: .semibold))
                                 .lineLimit(1)

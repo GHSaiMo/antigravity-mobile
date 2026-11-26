@@ -9,6 +9,7 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.outlined.LiveHelp
 import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.CallSplit
 import androidx.compose.material.icons.filled.FileDownload
@@ -776,7 +777,7 @@ fun MessageBubble(
                             HorizontalDivider(color = colors.border.copy(alpha = 0.4f))
                             DropdownMenuItem(
                                 text = { Text("旁路快问".loc) },
-                                leadingIcon = { Icon(Icons.Default.CallSplit, contentDescription = "旁路快问".loc) },
+                                leadingIcon = { Icon(Icons.AutoMirrored.Outlined.LiveHelp, contentDescription = "旁路快问".loc) },
                                 onClick = {
                                     showContextMenu = false
                                     onAskBtwClick(message.stepIndex, userBodyText)
@@ -905,7 +906,7 @@ fun MessageBubble(
                                 if (onAskBtwClick != null) {
                                     DropdownMenuItem(
                                         text = { Text("旁路快问".loc) },
-                                        leadingIcon = { Icon(Icons.Default.AutoAwesome, contentDescription = "旁路快问".loc) },
+                                        leadingIcon = { Icon(Icons.AutoMirrored.Outlined.LiveHelp, contentDescription = "旁路快问".loc) },
                                         onClick = {
                                             showAgentMenu = false
                                             val plain = MarkdownPlainText.convert(displayText)

@@ -103,7 +103,7 @@ public struct SubagentDetailSheet: View {
                                         dismiss()
                                         onAskBtw(prompt)
                                     } label: {
-                                        Label("旁路快问", systemImage: "bubble.left.and.exclamationmark.bubble.right")
+                                        Label("旁路快问", systemImage: "questionmark.bubble")
                                             .font(.system(size: 11.5, weight: .semibold))
                                     }
                                     .buttonStyle(.bordered)

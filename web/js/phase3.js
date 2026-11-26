@@ -2451,7 +2451,7 @@
           <div class="p3-row-title">向子代理中途插话 / 指示</div>
           <textarea id="p3-sa-msg" class="p3-textarea" rows="3" placeholder="向正在运行的子代理发送补充指令…"></textarea>
           <div class="p3-form-actions">
-            <button type="button" class="p3-mini-btn" id="btn-sa-btw">/btw 旁问</button>
+            <button type="button" class="p3-mini-btn p3-mini-btn-btw" id="btn-sa-btw">${typeof window.renderSideQuestionIconHtml === "function" ? window.renderSideQuestionIconHtml(12) : ""}<span>${typeof t === "function" ? t("/btw 旁问") : "/btw 旁问"}</span></button>
             <button type="button" class="p3-mini-btn" id="btn-sa-jump">只读查看完整对话</button>
             <button type="button" class="p3-mini-btn primary" id="btn-sa-send">发送消息</button>
           </div>

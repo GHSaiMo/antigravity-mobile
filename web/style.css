@@ -8462,6 +8462,7 @@ body.font-comfortable pre, body.font-comfortable code {
 }
 .p3-mini-btn.primary { background: #0a84ff; border-color: #0a84ff; color: #fff; }
 .p3-mini-btn.danger { color: #ff453a; border-color: rgba(255,69,58,0.35); }
+.p3-mini-btn-btw { display: inline-flex; align-items: center; gap: 4px; }
 .p3-btn-group { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; }
 .p3-empty { font-size: 13px; color: var(--color-text-secondary, #8e8e93); padding: 14px 4px; text-align: center; }
 
@@ -9638,10 +9639,17 @@ dialog::backdrop {
 
 .v233-btw-quote-head {
   display: flex;
+  align-items: center;
   justify-content: space-between;
   font-size: 11.5px;
   color: var(--ios-secondary-label);
   margin-bottom: 4px;
+}
+
+.v233-btw-quote-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
 }
 
 .v233-mini-link {
@@ -9757,7 +9765,7 @@ dialog::backdrop {
   -webkit-tap-highlight-color: transparent;
 }
 
-/* Vertical stem dropping directly from underneath the ⑂ icon into the first child branch */
+/* Vertical stem dropping directly from underneath the side-question icon into the first child branch */
 .conv-branch-toggle-btn::after {
   content: "";
   position: absolute;
@@ -10059,7 +10067,7 @@ dialog::backdrop {
 .conv-branch-tag {
   display: inline-flex;
   align-items: center;
-  gap: 2px;
+  gap: 3px;
   font-size: 10px;
   font-weight: 700;
   color: var(--ios-indigo, #5856d6);
@@ -10091,9 +10099,11 @@ dialog::backdrop {
   flex: 1 1 200px;
 }
 .btw-origin-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   color: var(--ios-indigo, #5856d6);
-  font-weight: 700;
-  font-size: 13px;
+  line-height: 1;
   flex-shrink: 0;
 }
 .btw-origin-text { min-width: 0; }
@@ -10136,18 +10146,28 @@ dialog::backdrop {
 .message-row.branch-shared-prefix {
   opacity: 0.78;
 }
-.message-row.branch-fork-divider-before::before {
-  content: "⑂ 以上为共享前文 · 以下为旁路分支";
-  display: block;
-  width: fit-content;
-  margin: 6px auto 12px;
+.message-row.branch-fork-divider-before {
+  flex-wrap: wrap;
+}
+.btw-fork-divider {
+  flex: 0 0 100%;
+  display: flex;
+  justify-content: center;
+  margin: 6px 0 12px;
+}
+.btw-fork-divider-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
   padding: 3px 12px;
   border-radius: 999px;
   font-size: 11px;
   font-weight: 600;
+  font-family: inherit;
   color: var(--ios-indigo, #5856d6);
   background: rgba(99, 102, 241, 0.11);
   border: 0.6px solid rgba(99, 102, 241, 0.24);
+  cursor: pointer;
 }
 
 .btw-insert-parent-bar {
@@ -10190,6 +10210,9 @@ dialog::backdrop {
   gap: 6px;
 }
 .btw-inline-card-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
   font-size: 10.5px;
   font-weight: 700;
   color: var(--ios-indigo, #5856d6);

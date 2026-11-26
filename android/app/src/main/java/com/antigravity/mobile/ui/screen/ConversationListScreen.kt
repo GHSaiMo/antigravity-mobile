@@ -51,6 +51,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.outlined.LiveHelp
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
@@ -2469,7 +2470,7 @@ private fun BranchGroupDrawer(
                     horizontalArrangement = Arrangement.spacedBy(5.dp)
                 ) {
                     Icon(
-                        imageVector = Icons.Default.CallSplit,
+                        imageVector = Icons.AutoMirrored.Outlined.LiveHelp,
                         contentDescription = null,
                         tint = colors.accentIndigo,
                         modifier = Modifier.size(12.dp)
@@ -3051,7 +3052,7 @@ fun ConversationCard(
                         horizontalArrangement = Arrangement.spacedBy(5.dp)
                     ) {
                         Icon(
-                            imageVector = Icons.Default.CallSplit,
+                            imageVector = Icons.AutoMirrored.Outlined.LiveHelp,
                             contentDescription = "旁路快问".loc,
                             tint = colors.accentIndigo,
                             modifier = Modifier.size(13.dp)

@@ -523,6 +523,11 @@
     }
   }
 
+  const btwIconHtml = (size = 12) =>
+    typeof window.renderSideQuestionIconHtml === "function"
+      ? window.renderSideQuestionIconHtml(size)
+      : "";
+
   function ensureBranchOriginBanner(streamEl) {
     let banner = document.getElementById("btw-branch-origin-banner");
     if (!banner && streamEl && streamEl.parentNode) {
@@ -585,7 +590,7 @@
           banner.classList.remove("hidden");
           banner.innerHTML = `
             <div class="btw-origin-main">
-              <span class="btw-origin-icon">⑂</span>
+              <span class="btw-origin-icon" aria-hidden="true">${btwIconHtml(14)}</span>
               <div class="btw-origin-text">
                 <div class="btw-origin-title">${escapeHtmlLocal(originLabel)}</div>
                 <div class="btw-origin-sub">${expanded ? "已展开共享前文" : "已共享前文上下文（默认折叠）"}</div>
@@ -639,6 +644,24 @@
       const markDivider = !!(branchOrigin && isExpanded && !isSharedPrefix && !firstPostForkMarked);
       if (markDivider) firstPostForkMarked = true;
       row.classList.toggle("branch-fork-divider-before", markDivider);
+
+      const existingDivider = row.querySelector(":scope > .btw-fork-divider");
+      if (markDivider) {
+        if (!existingDivider) {
+          const divider = document.createElement("div");
+          divider.className = "btw-fork-divider";
+          const divLabel = typeof t === "function" ? t("以上为共享前文 · 以下为旁路分支") : "以上为共享前文 · 以下为旁路分支";
+          divider.innerHTML = `<button type="button" class="btw-fork-divider-pill">${btwIconHtml(12)}<span>${escapeHtmlLocal(divLabel)}</span></button>`;
+          divider.querySelector("button")?.addEventListener("click", (e) => {
+            e.stopPropagation();
+            sharedExpandedByCascade.set(cid, false);
+            applyBranchDecorations(streamEl, cid);
+          });
+          row.insertBefore(divider, row.firstChild);
+        }
+      } else if (existingDivider) {
+        existingDivider.remove();
+      }
 
       const existingInsertBar = row.querySelector(":scope > .btw-insert-parent-bar");
       const shouldHaveInsert = !!(branchOrigin && branchOrigin.parentCascadeId && !isSharedPrefix && row.classList.contains("agent") && !row.classList.contains("error-row"));
@@ -737,7 +760,7 @@
           return `
             <button type="button" class="btw-inline-card" data-btw-branch-id="${idEsc}">
               <div class="btw-inline-card-head">
-                <span class="btw-inline-card-tag">⑂ 旁路快问</span>
+                <span class="btw-inline-card-tag">${btwIconHtml(11)}<span>${escapeHtmlLocal(typeof t === "function" ? t("旁路快问") : "旁路快问")}</span></span>
                 <span class="btw-inline-card-title">${titleEsc}</span>
                 <span class="btw-inline-card-dot ${dotClass}"></span>
                 <span class="btw-inline-card-arrow">›</span>
@@ -908,7 +931,10 @@
     const lbl = document.getElementById("btw-quote-label");
     if (!card || !txt) return;
     if (activeBtwStepIndex !== null) {
-      if (lbl) lbl.textContent = "⑂ 承接至所选消息的上下文";
+      if (lbl) {
+        const ctxLabel = typeof t === "function" ? t("承接至所选消息的上下文") : "承接至所选消息的上下文";
+        lbl.innerHTML = `${btwIconHtml(12)}<span>${escapeHtmlLocal(ctxLabel)}</span>`;
+      }
       if (activeBtwPreview) {
         txt.setAttribute("data-i18n-skip", "1");
         txt.innerHTML = renderBtwPreviewMarkdown(activeBtwPreview);
@@ -955,7 +981,7 @@
             const isRunning = it.status === "CASCADE_RUN_STATUS_RUNNING";
             return `
               <button type="button" class="btw-branch-list-item" data-btw-open-id="${cid}">
-                <span class="btw-origin-icon">⑂</span>
+                <span class="btw-origin-icon" aria-hidden="true">${btwIconHtml(13)}</span>
                 <div class="btw-branch-list-item-text">
                   <div class="btw-branch-list-item-title">${title}</div>
                   ${preview ? `<div class="btw-branch-list-item-sub" data-i18n-skip="1">${renderBtwPreviewMarkdown(preview)}</div>` : ""}

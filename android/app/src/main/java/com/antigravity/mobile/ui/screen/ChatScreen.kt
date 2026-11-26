@@ -48,7 +48,7 @@ import androidx.compose.material3.*
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.material3.pulltorefresh.rememberPullToRefreshState
 import androidx.compose.runtime.*
-import androidx.compose.material.icons.filled.CallSplit
+import androidx.compose.material.icons.automirrored.outlined.LiveHelp
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import android.net.Uri
@@ -1344,7 +1344,7 @@ fun ChatScreen(
                                         .padding(horizontal = 7.dp, vertical = 1.5.dp)
                                 ) {
                                     Icon(
-                                        imageVector = Icons.Default.CallSplit,
+                                        imageVector = Icons.AutoMirrored.Outlined.LiveHelp,
                                         contentDescription = null,
                                         tint = colors.accentIndigo,
                                         modifier = Modifier.size(11.dp)
@@ -1504,6 +1504,14 @@ fun ChatScreen(
                         ) {
                             DropdownMenuItem(
                                 text = { Text("旁路快问".loc) },
+                                leadingIcon = {
+                                    Icon(
+                                        imageVector = Icons.AutoMirrored.Outlined.LiveHelp,
+                                        contentDescription = "旁路快问".loc,
+                                        tint = colors.accentIndigo,
+                                        modifier = Modifier.size(18.dp)
+                                    )
+                                },
                                 onClick = {
                                     showPermissionMenu = false
             pendingTurboModeConfirm = false

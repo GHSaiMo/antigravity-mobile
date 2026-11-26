@@ -8,6 +8,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.outlined.LiveHelp
 import androidx.compose.material.icons.filled.Memory
 import androidx.compose.material.icons.filled.Send
 import androidx.compose.material.icons.filled.StopCircle
@@ -187,6 +188,13 @@ fun SubagentDetailBottomSheet(
                                 },
                                 contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp)
                             ) {
+                                Icon(
+                                    imageVector = Icons.AutoMirrored.Outlined.LiveHelp,
+                                    contentDescription = null,
+                                    tint = colors.accentIndigo,
+                                    modifier = Modifier.size(13.dp)
+                                )
+                                Spacer(modifier = Modifier.width(4.dp))
                                 Text("旁路快问".loc, fontSize = 11.sp, color = colors.accentIndigo, maxLines = 1, softWrap = false)
                             }
                         }
