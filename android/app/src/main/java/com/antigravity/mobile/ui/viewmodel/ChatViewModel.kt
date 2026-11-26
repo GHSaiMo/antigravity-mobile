@@ -178,7 +178,16 @@ class ChatViewModel(
     val uiState: StateFlow<ChatUiState> = _uiState.asStateFlow()
 
     fun dismissPredictedSuggestion(text: String) {
-        _uiState.value = _uiState.value.copy(dismissedPredictedSuggestion = text)
+        val current = _uiState.value
+        val updatedSuggestions = if (current.suggestedResponses.size > 1) {
+            current.suggestedResponses.filter { it != text }
+        } else {
+            current.suggestedResponses
+        }
+        _uiState.value = current.copy(
+            suggestedResponses = updatedSuggestions,
+            dismissedPredictedSuggestion = text
+        )
     }
 
     init {

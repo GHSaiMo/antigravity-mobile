@@ -36,9 +36,10 @@ type nextPromptCacheEntry struct {
 }
 
 type nextPromptEngine struct {
-	mu       sync.RWMutex
-	cache    map[string]nextPromptCacheEntry
-	inFlight map[string]string // cascadeID -> turnKey currently predicting
+	mu          sync.RWMutex
+	cache       map[string]nextPromptCacheEntry
+	inFlight    map[string]string // cascadeID -> turnKey currently predicting
+	lastSkipLog map[string]string // cascadeID -> "turnKey:reason" for once-per-turn skip logging
 }
 
 var (
@@ -59,7 +60,28 @@ func (e *nextPromptEngine) clearAll() []string {
 	}
 	e.cache = make(map[string]nextPromptCacheEntry)
 	e.inFlight = make(map[string]string)
+	e.lastSkipLog = make(map[string]string)
 	return ids
+}
+
+func (e *nextPromptEngine) shouldLogSkip(cascadeID, turnKey, reason string) bool {
+	if reason == "" || reason == "running" || reason == "nil_details" || reason == "native_suggestions_present" || reason == "too_few_messages" {
+		return false
+	}
+	sig := turnKey + ":" + reason
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	if e.lastSkipLog == nil {
+		e.lastSkipLog = make(map[string]string)
+	}
+	if e.lastSkipLog[cascadeID] == sig {
+		return false
+	}
+	if len(e.lastSkipLog) >= nextPromptMaxCacheSize {
+		e.lastSkipLog = make(map[string]string)
+	}
+	e.lastSkipLog[cascadeID] = sig
+	return true
 }
 
 func (e *nextPromptEngine) get(cascadeID, turnKey string) (nextPromptCacheEntry, bool) {
@@ -459,9 +481,14 @@ func buildNextPromptInput(cascadeID string, details *TrajectoryDetails) (string,
 }
 
 func sanitizeNextPromptSuggestion(raw string, checklist nextPromptChecklist) string {
+	s, _ := sanitizeNextPromptSuggestionWithReason(raw, checklist)
+	return s
+}
+
+func sanitizeNextPromptSuggestionWithReason(raw string, checklist nextPromptChecklist) (string, string) {
 	s := strings.TrimSpace(redactSensitiveForAI(raw))
 	if s == "" {
-		return ""
+		return "", "empty"
 	}
 	if idx := strings.IndexByte(s, '\n'); idx >= 0 {
 		s = strings.TrimSpace(s[:idx])
@@ -470,25 +497,31 @@ func sanitizeNextPromptSuggestion(raw string, checklist nextPromptChecklist) str
 	s = strings.Trim(s, "\"'`「」『』")
 	s = strings.TrimSpace(s)
 
-	if s == "" || reNextPromptAbstain.MatchString(s) || reNextPromptFiller.MatchString(s) {
-		return ""
+	if s == "" {
+		return "", "empty"
+	}
+	if reNextPromptAbstain.MatchString(s) {
+		return "", "abstained"
+	}
+	if reNextPromptFiller.MatchString(s) {
+		return "", "filler"
 	}
 	if utf8.RuneCountInString(s) > nextPromptMaxSugRunes {
-		return ""
+		return "", "too_long"
 	}
 
 	// Reject suggestions that duplicate an already-completed checklist item.
 	normSug := strings.ToLower(rePunctNorm.ReplaceAllString(s, ""))
 	if normSug == "" {
-		return ""
+		return "", "empty"
 	}
 	for _, done := range checklist.Completed {
 		normDone := strings.ToLower(rePunctNorm.ReplaceAllString(done, ""))
 		if utf8.RuneCountInString(normDone) >= 6 && (normSug == normDone || strings.Contains(normSug, normDone) || strings.Contains(normDone, normSug)) {
-			return ""
+			return "", "duplicate_completed"
 		}
 	}
-	return s
+	return s, ""
 }
 
 // ResolveOrScheduleNextPrompt returns effective (suggestedResponses, source) for an active stream frame.
@@ -506,11 +539,17 @@ func (p *Proxy) ResolveOrScheduleNextPrompt(cascadeID string, details *Trajector
 		return nil, ""
 	}
 
-	if skip, _ := shouldSkipNextPromptPrediction(details, rawResp); skip {
+	turnKey := computeNextPromptTurnKey(details)
+	if skip, reason := shouldSkipNextPromptPrediction(details, rawResp); skip {
+		if allowSchedule && p.nextPrompt.shouldLogSkip(cascadeID, turnKey, reason) {
+			slog.Info("[NextPrompt] skipped",
+				"cascade_id", shortCascadeID(cascadeID),
+				"reason", reason,
+			)
+		}
 		return nil, ""
 	}
 
-	turnKey := computeNextPromptTurnKey(details)
 	if entry, ok := p.nextPrompt.get(cascadeID, turnKey); ok {
 		if entry.Abstained || entry.Suggestion == "" {
 			return nil, ""
@@ -545,12 +584,19 @@ func (p *Proxy) ResolveOrScheduleNextPrompt(cascadeID string, details *Trajector
 			p.nextPrompt.mu.Unlock()
 		}()
 
+		startedAt := time.Now()
 		ctx, cancel := context.WithTimeout(context.Background(), nextPromptTimeout)
 		defer cancel()
 
-		rawText, _, err := p.CallLSModelResponse(ctx, prompt, nil)
+		rawText, usedModel, err := p.CallLSModelResponse(ctx, prompt, nil)
+		tookMs := time.Since(startedAt).Milliseconds()
 		if err != nil {
-			slog.Debug("[NextPrompt] prediction failed", "cascade_id", shortCascadeID(cascadeID), "err", err)
+			slog.Warn("[NextPrompt] prediction failed",
+				"cascade_id", shortCascadeID(cascadeID),
+				"model", usedModel.ID,
+				"took_ms", tookMs,
+				"err", err,
+			)
 			p.nextPrompt.put(cascadeID, nextPromptCacheEntry{
 				TurnKey:   turnKey,
 				Abstained: true,
@@ -559,7 +605,7 @@ func (p *Proxy) ResolveOrScheduleNextPrompt(cascadeID string, details *Trajector
 			return
 		}
 
-		cleaned := sanitizeNextPromptSuggestion(rawText, checklist)
+		cleaned, reason := sanitizeNextPromptSuggestionWithReason(rawText, checklist)
 		p.nextPrompt.put(cascadeID, nextPromptCacheEntry{
 			TurnKey:    turnKey,
 			Suggestion: cleaned,
@@ -567,7 +613,22 @@ func (p *Proxy) ResolveOrScheduleNextPrompt(cascadeID string, details *Trajector
 			UpdatedAt:  time.Now(),
 		})
 		if cleaned != "" {
+			slog.Info("[NextPrompt] ✨ generated",
+				"cascade_id", shortCascadeID(cascadeID),
+				"model", usedModel.ID,
+				"took_ms", tookMs,
+				"suggestion", cleaned,
+			)
 			p.notifyStreamTouch(cascadeID)
+		} else {
+			rawPreview := truncateRunesTail(strings.ReplaceAll(strings.TrimSpace(redactSensitiveForAI(rawText)), "\n", " "), 60)
+			slog.Info("[NextPrompt] abstained",
+				"cascade_id", shortCascadeID(cascadeID),
+				"model", usedModel.ID,
+				"reason", reason,
+				"raw", rawPreview,
+				"took_ms", tookMs,
+			)
 		}
 	}()
 

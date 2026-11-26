@@ -60,6 +60,24 @@ extension ChatView {
                         viewModel.openMentionPicker()
                     }
                     
+                    // 1b. 建议回复芯片（排在模型按钮前面，样式与斜杠芯片同高对齐、右上角带小叉，点击依据设置填入输入框[默认]或直接发送）
+                    ChatSuggestedReplyChipsHost(
+                        viewModel: viewModel,
+                        isInputFocused: $isInputFocused,
+                        onSendSuggestion: { chosen in
+                            guard !viewModel.isSending else { return }
+                            guard viewModel.settings.serverURL != nil else { return }
+                            UIImpactFeedbackGenerator(style: .light).impactOccurred()
+                            scrollHUD.hasUserInteracted = false
+                            viewModel.suggestedResponses = []
+                            viewModel.suggestedResponseSource = ""
+                            viewModel.dismissedPredictedSuggestion = nil
+                            Task {
+                                _ = await viewModel.sendMessage(text: chosen)
+                            }
+                        }
+                    )
+
                     // 2. Model Switch Button (Tap to cycle Gemini/Claude/Orchestrator, Long-press + slide up/right for custom menu)
                     ModelSwitchChipButton(
                         displayName: viewModel.activeModelDisplayName,
@@ -218,6 +236,8 @@ extension ChatView {
             .animation(.easeInOut(duration: 0.2), value: viewModel.isLatestMessageError)
             .animation(.easeInOut(duration: 0.2), value: viewModel.canProceed)
             .animation(.easeInOut(duration: 0.15), value: viewModel.selectedSlashCommands)
+            .animation(.easeInOut(duration: 0.15), value: viewModel.suggestedResponses)
+            .animation(.easeInOut(duration: 0.15), value: viewModel.dismissedPredictedSuggestion)
             
             // Image previews strip
             if !viewModel.selectedImageData.isEmpty {
@@ -292,32 +312,6 @@ extension ChatView {
                 DictationActiveBar {
                     dictationManager.stop()
                 }
-            }
-
-            let hasDraftText = !viewModel.inputText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-            let isDismissedPredicted = viewModel.isPredictedSuggestion && viewModel.dismissedPredictedSuggestion == viewModel.suggestedResponses.first
-            if !viewModel.suggestedResponses.isEmpty && !isInputFocused && !hasDraftText && !viewModel.isActivelyRunning && !viewModel.showMentionPicker && !isDismissedPredicted {
-                SuggestedResponsesBar(
-                    suggestions: viewModel.suggestedResponses,
-                    isPredicted: viewModel.isPredictedSuggestion,
-                    onSelect: { chosen in
-                        let shouldFillOnly = viewModel.isPredictedSuggestion && AIAssistManager.shared.prefs.nextPromptTapAction != "send"
-                        if shouldFillOnly {
-                            viewModel.dismissedPredictedSuggestion = chosen
-                            viewModel.inputText = chosen
-                            isInputFocused = true
-                        } else {
-                            Task {
-                                viewModel.suggestedResponses = []
-                                viewModel.suggestedResponseSource = ""
-                                _ = await viewModel.sendMessage(text: chosen)
-                            }
-                        }
-                    },
-                    onDismiss: viewModel.isPredictedSuggestion ? {
-                        viewModel.dismissedPredictedSuggestion = viewModel.suggestedResponses.first
-                    } : nil
-                )
             }
 
             if !viewModel.selectedContextItems.isEmpty {
@@ -731,62 +725,111 @@ private struct DictationActiveBar: View {
     }
 }
 
-private struct SuggestedResponsesBar: View {
-    let suggestions: [String]
-    var isPredicted: Bool = false
-    let onSelect: (String) -> Void
-    var onDismiss: (() -> Void)? = nil
+/// 独立子 View 隔离 viewModel.inputText 观察，避免打字时触发 ChatView.body 整页重绘
+private struct ChatSuggestedReplyChipsHost: View {
+    @Bindable var viewModel: ChatViewModel
+    @Binding var isInputFocused: Bool
+    let onSendSuggestion: (String) -> Void
+
+    private var visibleSuggestions: [String] {
+        guard !viewModel.suggestedResponses.isEmpty,
+              viewModel.inputText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+              !viewModel.isActivelyRunning,
+              !viewModel.showMentionPicker else {
+            return []
+        }
+        return viewModel.suggestedResponses.filter { text in
+            !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                && text != viewModel.dismissedPredictedSuggestion
+        }
+    }
 
     var body: some View {
-        ScrollView(.horizontal, showsIndicators: false) {
-            HStack(spacing: 8) {
-                ForEach(suggestions, id: \.self) { text in
-                    HStack(spacing: 5) {
-                        Button {
-                            UIImpactFeedbackGenerator(style: .light).impactOccurred()
-                            onSelect(text)
-                        } label: {
-                            HStack(spacing: 5) {
-                                if isPredicted {
-                                    Image(systemName: "sparkles")
-                                        .font(.system(size: 11, weight: .semibold))
-                                        .foregroundColor(.indigo)
-                                }
-                                Text(text)
-                                    .font(.system(size: 12.5, weight: .medium))
-                                    .foregroundColor(.indigo)
-                                    .lineLimit(1)
-                            }
-                        }
-                        .buttonStyle(.plain)
-
-                        if isPredicted, let onDismiss {
-                            Button {
-                                UIImpactFeedbackGenerator(style: .light).impactOccurred()
-                                onDismiss()
-                            } label: {
-                                Image(systemName: "xmark")
-                                    .font(.system(size: 9.5, weight: .semibold))
-                                    .foregroundColor(.indigo.opacity(0.65))
-                                    .padding(3)
-                            }
-                            .buttonStyle(.plain)
-                            .accessibilityLabel("关闭建议")
+        ForEach(visibleSuggestions, id: \.self) { text in
+            SuggestedReplyChipView(
+                text: text,
+                isPredicted: viewModel.isPredictedSuggestion,
+                onSelect: {
+                    let shouldSendDirectly = AIAssistManager.shared.prefs.nextPromptTapAction == "send"
+                    if shouldSendDirectly {
+                        onSendSuggestion(text)
+                    } else {
+                        viewModel.dismissedPredictedSuggestion = text
+                        viewModel.inputText = text
+                        isInputFocused = true
+                    }
+                },
+                onDismiss: {
+                    withAnimation(.easeInOut(duration: 0.15)) {
+                        viewModel.dismissedPredictedSuggestion = text
+                        if viewModel.suggestedResponses.count > 1 {
+                            viewModel.suggestedResponses.removeAll { $0 == text }
                         }
                     }
-                    .padding(.leading, 12)
-                    .padding(.trailing, isPredicted && onDismiss != nil ? 8 : 12)
-                    .padding(.vertical, 6)
-                    .background(Color.indigo.opacity(0.1))
-                    .clipShape(Capsule())
-                    .overlay(
-                        Capsule().stroke(Color.indigo.opacity(0.25), lineWidth: 0.8)
-                    )
                 }
-            }
-            .padding(.horizontal, 16)
+            )
+            .transition(.scale(scale: 0.9).combined(with: .opacity))
         }
-        .transition(.opacity.combined(with: .move(edge: .bottom)))
+    }
+}
+
+/// 建议回复芯片按钮：放在模型按钮前面，与斜杠芯片同高同款（32pt、圆角 10、右上角小叉），点击按设置填入输入框（默认）或直接发出。
+private struct SuggestedReplyChipView: View {
+    let text: String
+    let isPredicted: Bool
+    let onSelect: () -> Void
+    let onDismiss: () -> Void
+
+    var body: some View {
+        Button {
+            UIImpactFeedbackGenerator(style: .light).impactOccurred()
+            onSelect()
+        } label: {
+            HStack(spacing: 5) {
+                if isPredicted {
+                    Image(systemName: "sparkles")
+                        .font(.system(size: 11.5, weight: .semibold))
+                        .opacity(0.95)
+                        .fixedSize()
+                }
+                Text(text)
+                    .font(.system(size: 13, weight: .medium))
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+            }
+            .foregroundColor(.indigo)
+            .padding(.horizontal, 11)
+            .frame(height: 32)
+            .frame(maxWidth: 240, alignment: .leading)
+            .background(Color.indigo.opacity(0.12))
+            .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+            .overlay(
+                RoundedRectangle(cornerRadius: 10, style: .continuous)
+                    .stroke(Color.indigo.opacity(0.35), lineWidth: 1)
+            )
+        }
+        .buttonStyle(.plain)
+        .overlay(alignment: .topTrailing) {
+            Button {
+                UIImpactFeedbackGenerator(style: .light).impactOccurred()
+                onDismiss()
+            } label: {
+                ZStack {
+                    Circle()
+                        .fill(Color(uiColor: .systemBackground))
+                        .frame(width: 16, height: 16)
+                    Image(systemName: "xmark.circle.fill")
+                        .font(.system(size: 14))
+                        .foregroundStyle(.white, Color.indigo.opacity(0.85))
+                }
+                .frame(width: 24, height: 24)
+                .contentShape(Circle())
+            }
+            .buttonStyle(.plain)
+            .offset(x: 9, y: -9)
+            .accessibilityLabel("关闭建议")
+        }
+        .padding(.trailing, 4)
     }
 }
 

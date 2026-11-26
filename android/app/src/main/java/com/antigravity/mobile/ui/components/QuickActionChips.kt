@@ -17,10 +17,13 @@ import androidx.compose.foundation.gestures.detectDragGesturesAfterLongPress
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.ArrowUpward
+import androidx.compose.material.icons.filled.AutoAwesome
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
@@ -45,6 +48,7 @@ import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.IntRect
 import androidx.compose.ui.unit.IntSize
@@ -72,6 +76,10 @@ fun QuickActionChips(
     modelSlidePickerState: ModelSlidePickerState? = null,
     onAddImage: () -> Unit,
     onAddImageLongClick: (() -> Unit)? = null,
+    suggestedResponses: List<String> = emptyList(),
+    isPredictedSuggestion: Boolean = false,
+    onSelectSuggestion: (String) -> Unit = {},
+    onDismissSuggestion: (String) -> Unit = {},
     selectedSlashCommands: List<SlashCommandOption> = emptyList(),
     onRemoveSlashCommand: (SlashCommandOption) -> Unit = {},
     onCommitAndPush: () -> Unit,
@@ -166,12 +174,49 @@ fun QuickActionChips(
             )
         }
 
-        // 2. Gemini / Claude / Orchestrator Model Switcher (Tap to cycle, Long-press + slide up & horizontal scrub)
+        // 1b. 建议回复芯片（排在模型按钮前面，同高圆角 10、右上角带小叉；点击按设置填入输入框[默认]或直接发出）
+        suggestedResponses.forEach { suggestion ->
+            SuggestedReplyChip(
+                text = suggestion,
+                isPredicted = isPredictedSuggestion,
+                onSelect = {
+                    haptic.light()
+                    onSelectSuggestion(suggestion)
+                },
+                onDismiss = {
+                    haptic.light()
+                    onDismissSuggestion(suggestion)
+                }
+            )
+        }
+
+        // 2. Gemini / Claude / Orchestrator Model Switcher (Tap to cycle, Long-press + slide up/right for iOS-style picker)
         val isXHighActive = remember(activeModel, modelCatalog) {
             ModelDefaults.effortRank(activeModel, modelCatalog?.models.orEmpty()) == ModelEffortRank.EXTRA
         }
-        val effortPalette = remember(providerKind, colors.isDark, chipTextColor) {
-            EffortStylePalette.forProvider(providerKind, colors.isDark, chipTextColor)
+        val (xhighCosmicStart, xhighGlowColor, xhighRimColors) = remember(providerKind) {
+            when (providerKind.lowercase()) {
+                "gemini" -> Triple(
+                    Color(0xFF13174A),
+                    Color(0xFF38BDF8),
+                    listOf(Color(0xFF38BDF8), Color(0xFF6366F1), Color(0xFF2563EB), Color(0xFF38BDF8))
+                )
+                "claude" -> Triple(
+                    Color(0xFF451A03),
+                    Color(0xFFFB923C),
+                    listOf(Color(0xFFFBBF24), Color(0xFFF97316), Color(0xFFC2410C), Color(0xFFFBBF24))
+                )
+                "orchestrator" -> Triple(
+                    Color(0xFF0B101C),
+                    Color(0xFFCBD5E1),
+                    listOf(Color(0xFFE2E8F0), Color(0xFF94A3B8), Color(0xFF475569), Color(0xFFE2E8F0))
+                )
+                else -> Triple(
+                    Color(0xFF042F2E),
+                    Color(0xFF2DD4BF),
+                    listOf(Color(0xFF5EEAD4), Color(0xFF14B8A6), Color(0xFF0F766E), Color(0xFF5EEAD4))
+                )
+            }
         }
         val xhighRimAngle: Float = if (isXHighActive && ValueAnimator.areAnimatorsEnabled()) {
             val transition = rememberInfiniteTransition(label = "chip_xhigh_rim")
@@ -587,6 +632,89 @@ fun QuickActionChips(
                     fontSize = 13.sp,
                     fontWeight = FontWeight.SemiBold
                 )
+            }
+        }
+    }
+}
+
+/** 建议回复芯片按钮：放在模型按钮前面，与斜杠芯片同高同款（32dp、圆角 10、右上角小叉）。 */
+@Composable
+private fun SuggestedReplyChip(
+    text: String,
+    isPredicted: Boolean,
+    onSelect: () -> Unit,
+    onDismiss: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val colors = AntigravityTheme.colors
+    val shape = RoundedCornerShape(10.dp)
+    Box(
+        modifier = modifier.padding(end = 4.dp)
+    ) {
+        Row(
+            modifier = Modifier
+                .height(32.dp)
+                .widthIn(max = 240.dp)
+                .clip(shape)
+                .background(colors.accentIndigo.copy(alpha = 0.12f))
+                .border(1.dp, colors.accentIndigo.copy(alpha = 0.35f), shape)
+                .clickable(onClick = onSelect)
+                .padding(horizontal = 11.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(5.dp)
+        ) {
+            if (isPredicted) {
+                Icon(
+                    imageVector = Icons.Default.AutoAwesome,
+                    contentDescription = null,
+                    tint = colors.accentIndigo.copy(alpha = 0.95f),
+                    modifier = Modifier.size(13.dp)
+                )
+            }
+            Text(
+                text = text,
+                color = colors.accentIndigo,
+                fontSize = 13.sp,
+                fontWeight = FontWeight.Medium,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+        }
+
+        Box(
+            modifier = Modifier
+                .size(20.dp)
+                .align(Alignment.TopEnd)
+                .offset(x = 6.dp, y = (-6).dp)
+                .clip(CircleShape)
+                .clickable(onClick = onDismiss),
+            contentAlignment = Alignment.Center
+        ) {
+            Box(
+                modifier = Modifier
+                    .size(16.dp)
+                    .clip(CircleShape)
+                    .background(colors.surface),
+                contentAlignment = Alignment.Center
+            ) {
+                Box(
+                    modifier = Modifier
+                        .size(14.dp)
+                        .clip(CircleShape)
+                        .background(colors.accentIndigo.copy(alpha = 0.85f)),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Close,
+                        contentDescription = when (com.antigravity.mobile.ui.util.L10n.currentLang) {
+                            com.antigravity.mobile.ui.util.L10n.AppLang.EN -> "Dismiss suggestion"
+                            com.antigravity.mobile.ui.util.L10n.AppLang.JA -> "提案を閉じる"
+                            com.antigravity.mobile.ui.util.L10n.AppLang.ZH -> "关闭建议"
+                        },
+                        tint = Color.White,
+                        modifier = Modifier.size(10.dp)
+                    )
+                }
             }
         }
     }

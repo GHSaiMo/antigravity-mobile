@@ -358,6 +358,8 @@
             </button>
             <input type="file" id="image-file-input" accept="image/*,audio/*,video/*,.amr,.ogg,.oga,.opus,.m4a,.mp3,.wav,.flac,.aac,.caf,.r,.rmd,.rmarkdown,.pdf,.txt,.md,.json,.csv,.zip" multiple style="display: none;" />
 
+            <div id="suggested-responses-bar" class="suggest-chips hidden"></div>
+
             <button id="btn-model-switch" class="chip-pill chip-model-switch chip-gemini" type="button" title="短按快切首选与次选模型，长按或右键选择全部模型">
               <span id="model-switch-text" class="model-switch-text">Gemini</span>
             </button>
@@ -388,8 +390,7 @@
             </button>
           </div>
 
-          <!-- Phase 3: Suggested Responses Strip (auto-hidden on input focus) & @ Context Chips -->
-          <div id="suggested-responses-bar" class="p3-suggest-bar hidden"></div>
+          <!-- Phase 3: @ Context Chips -->
           <div id="context-chips-bar" class="p3-context-chips-bar hidden"></div>
 
           <!-- Image Attachment Previews Container -->

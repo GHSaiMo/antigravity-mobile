@@ -6534,7 +6534,7 @@ code.inline-code, .markdown-body code:not(.code-block-pre code) {
    容器 overflow-x:auto 会把阴影裁成一块突兀的灰色矩形，所以去掉阴影与容器背景。 */
 .quick-actions-chips {
   background: transparent;
-  padding: 5px 0 2px;
+  padding: 7px 0 2px;
 }
 
 .chip-pill {
@@ -8983,61 +8983,76 @@ body.font-comfortable pre, body.font-comfortable code {
 .p3-btn-group { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; }
 .p3-empty { font-size: 13px; color: var(--color-text-secondary, #8e8e93); padding: 14px 4px; text-align: center; }
 
-.p3-suggest-bar {
-  display: flex;
-  gap: 6px;
-  overflow-x: auto;
-  padding: 4px 2px 8px;
-  scrollbar-width: none;
-}
-.p3-suggest-bar::-webkit-scrollbar { display: none; }
-.p3-suggest-pill {
-  flex: 0 0 auto;
+.suggest-chips {
   display: inline-flex;
   align-items: center;
-  max-width: 280px;
-  border-radius: 999px;
-  border: 1px solid rgba(10,132,255,0.28);
-  background: rgba(10,132,255,0.1);
-  color: var(--color-text-primary, #fff);
-  font-size: 12px;
+  gap: 8px;
+  flex-shrink: 0;
 }
-.p3-suggest-pill-main {
+.suggest-chips.hidden {
+  display: none;
+}
+.suggest-chip {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  height: 32px;
+  max-width: 240px;
+  margin: 0 4px 0 0;
+  box-sizing: border-box;
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--ios-indigo) 12%, transparent);
+  border: 1px solid color-mix(in srgb, var(--ios-indigo) 35%, transparent);
+  color: var(--ios-indigo);
+  flex-shrink: 0;
+}
+.suggest-chip-main {
   display: inline-flex;
   align-items: center;
   gap: 5px;
   min-width: 0;
-  padding: 6px 12px;
+  max-width: 100%;
+  height: 100%;
+  padding: 0 11px;
   border: none;
   background: transparent;
   color: inherit;
-  font-size: inherit;
+  font-size: 13px;
+  font-weight: 500;
   cursor: pointer;
 }
-.p3-suggest-pill.is-predicted .p3-suggest-pill-main {
-  padding-right: 4px;
-}
-.p3-suggest-pill-main span {
+.suggest-chip-main span {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 .p3-suggest-sparkle {
   flex: 0 0 auto;
-  color: var(--ios-accent, #6366f1);
-}
-.p3-suggest-dismiss {
-  flex: 0 0 auto;
-  border: none;
-  background: transparent;
   color: inherit;
-  opacity: 0.65;
-  font-size: 14px;
+  opacity: 0.95;
+}
+.suggest-chip-clear {
+  position: absolute;
+  top: -5px;
+  right: -5px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  padding: 0;
+  border: 1.5px solid var(--ios-bg);
+  border-radius: 50%;
+  background: color-mix(in srgb, var(--ios-indigo) 85%, #000);
+  color: #ffffff;
+  font-size: 11px;
+  font-weight: 700;
   line-height: 1;
-  padding: 4px 8px 4px 2px;
   cursor: pointer;
 }
-.p3-suggest-dismiss:hover { opacity: 1; }
+.suggest-chip-clear:hover {
+  filter: brightness(1.1);
+}
 
 .p3-context-chips-bar {
   display: flex;

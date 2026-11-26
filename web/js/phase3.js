@@ -1760,50 +1760,51 @@
     bindSuggestedResponsesVisibility() {
       const inputEl = document.getElementById("chat-input");
       if (!inputEl) return;
-      inputEl.addEventListener("focus", () => this.renderSuggestedResponses());
       inputEl.addEventListener("input", () => this.renderSuggestedResponses());
-      inputEl.addEventListener("blur", () => setTimeout(() => this.renderSuggestedResponses(), 120));
     },
 
     renderSuggestedResponses() {
       const bar = document.getElementById("suggested-responses-bar");
       if (!bar) return;
       const inputEl = document.getElementById("chat-input");
-      const focused = document.activeElement === inputEl;
       const hasDraft = Boolean(inputEl && inputEl.value.trim().length > 0);
+      const isRunning = typeof isCascadeRunning === "function" && isCascadeRunning(activeCascadeId);
       const isPredicted = this.suggestedResponseSource === "predicted";
-      const isDismissed = isPredicted && this.dismissedPredictedSuggestion && this.dismissedPredictedSuggestion === this.suggestedResponses[0];
-      if (focused || hasDraft || isDismissed || this.suggestedResponses.length === 0) {
+      const visible = (!hasDraft && !isRunning)
+        ? this.suggestedResponses.filter((text) => text && text.trim().length > 0 && text !== this.dismissedPredictedSuggestion)
+        : [];
+      if (visible.length === 0) {
         bar.classList.add("hidden");
+        bar.innerHTML = "";
         return;
       }
       bar.classList.remove("hidden");
       const sparkleSvg = isPredicted
         ? `<svg class="p3-suggest-sparkle" width="12" height="12" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 2l2.2 6.8L21 11l-6.8 2.2L12 20l-2.2-6.8L3 11l6.8-2.2L12 2z"/></svg>`
         : "";
-      bar.innerHTML = this.suggestedResponses.map((text, idx) => `
-        <div class="p3-suggest-pill${isPredicted ? " is-predicted" : ""}">
-          <button type="button" class="p3-suggest-pill-main" data-suggest-idx="${idx}">${sparkleSvg}<span>${escapeHtml(text)}</span></button>${
-            isPredicted ? `<button type="button" class="p3-suggest-dismiss" data-suggest-dismiss="${idx}" aria-label="Dismiss">&times;</button>` : ""
-          }
+      bar.innerHTML = visible.map((text, idx) => `
+        <div class="suggest-chip${isPredicted ? " is-predicted" : ""}">
+          <button type="button" class="suggest-chip-main" data-suggest-idx="${idx}" title="${escapeHtml(text)}">${sparkleSvg}<span>${escapeHtml(text)}</span></button>
+          <button type="button" class="suggest-chip-clear" data-suggest-dismiss="${idx}" aria-label="关闭建议">&times;</button>
         </div>`).join("");
       bar.querySelectorAll("[data-suggest-idx]").forEach((btn) => {
         btn.addEventListener("click", () => {
-          const text = this.suggestedResponses[Number(btn.getAttribute("data-suggest-idx"))];
+          const text = visible[Number(btn.getAttribute("data-suggest-idx"))];
           if (!text || !inputEl) return;
-          const fillOnly = isPredicted && (window.AIAssist?.getTapAction?.() || "fill") !== "send";
-          if (fillOnly) {
+          const sendDirectly = (window.AIAssist?.getTapAction?.() || "fill") === "send";
+          if (sendDirectly) {
+            inputEl.value = text;
+            this.suggestedResponses = [];
+            this.suggestedResponseSource = "";
+            this.dismissedPredictedSuggestion = null;
+            this.renderSuggestedResponses();
+            sendMessage?.();
+          } else {
             this.dismissedPredictedSuggestion = text;
             inputEl.value = text;
             inputEl.dispatchEvent(new Event("input", { bubbles: true }));
             inputEl.focus();
             this.renderSuggestedResponses();
-          } else {
-            inputEl.value = text;
-            this.suggestedResponses = [];
-            this.suggestedResponseSource = "";
-            this.renderSuggestedResponses();
-            sendMessage?.();
           }
         });
       });
@@ -1811,7 +1812,11 @@
         btn.addEventListener("click", (e) => {
           e.stopPropagation();
           const idx = Number(btn.getAttribute("data-suggest-dismiss"));
-          this.dismissedPredictedSuggestion = this.suggestedResponses[idx] || this.suggestedResponses[0] || null;
+          const chosen = visible[idx] || visible[0] || null;
+          this.dismissedPredictedSuggestion = chosen;
+          if (chosen && this.suggestedResponses.length > 1) {
+            this.suggestedResponses = this.suggestedResponses.filter((s) => s !== chosen);
+          }
           this.renderSuggestedResponses();
         });
       });
