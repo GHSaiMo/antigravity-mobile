@@ -10,6 +10,8 @@ public final class GatewaySlidePickerState {
     /// Anchor rect of the Hero title in the overlay's own coordinate space (top-left origin).
     public var anchorRect: CGRect = .zero
     public var containerSize: CGSize = .zero
+    /// Optional column bounds (e.g. navigation bar frame in window) so wide/split layouts center inside the list column.
+    public var columnRect: CGRect? = nil
     /// Explicit alignment hint from caller (e.g. collapsed centered inline title, including iPad split sidebar).
     public var preferCenteredAnchor: Bool = false
     /// 0..<profiles.count = host row, profiles.count = "+ 添加主机" row
@@ -24,8 +26,8 @@ public final class GatewaySlidePickerState {
         static let rowSpacing: CGFloat = 4
         static let dividerBlockHeight: CGFloat = 9
         static let cardPadding: CGFloat = 6
-        static let cardMinWidth: CGFloat = 264
-        static let cardMaxWidth: CGFloat = 324
+        static let cardMinWidth: CGFloat = 236
+        static let cardMaxWidth: CGFloat = 268
         static let horizontalMargin: CGFloat = 14
         static let gapBelowTitle: CGFloat = 8
         static let bottomSafeMargin: CGFloat = 28
@@ -42,8 +44,9 @@ public final class GatewaySlidePickerState {
             && anchorRect.minX > 44
     }
 
-    public func open(anchorRect: CGRect, centered: Bool = false) {
+    public func open(anchorRect: CGRect, centered: Bool = true, columnRect: CGRect? = nil) {
         self.anchorRect = anchorRect
+        self.columnRect = columnRect
         self.preferCenteredAnchor = centered
         self.hoveredRowIndex = nil
         self.hasEnteredMenu = false
@@ -56,11 +59,12 @@ public final class GatewaySlidePickerState {
         GatewayProfileStore.shared.refreshInactiveSummaries(force: false, minInterval: 8.0)
     }
 
-    public func openInteractive(anchorRect: CGRect, containerSize: CGSize? = nil, centered: Bool = true) {
+    public func openInteractive(anchorRect: CGRect, containerSize: CGSize? = nil, centered: Bool = true, columnRect: CGRect? = nil) {
         if let containerSize, containerSize.width > 0, containerSize.height > 0 {
             self.containerSize = containerSize
         }
         self.anchorRect = anchorRect
+        self.columnRect = columnRect
         self.preferCenteredAnchor = centered
         self.hoveredRowIndex = nil
         self.hasEnteredMenu = false
@@ -82,9 +86,16 @@ public final class GatewaySlidePickerState {
     }
 
     public func cardWidth() -> CGFloat {
-        guard containerSize.width > 0 else { return 296 }
-        let available = containerSize.width - Layout.horizontalMargin * 2
-        return min(Layout.cardMaxWidth, max(min(Layout.cardMinWidth, available), min(available, containerSize.width * 0.84)))
+        let refWidth: CGFloat
+        if let col = columnRect, col.width > 0 {
+            refWidth = col.width
+        } else if containerSize.width > 0 {
+            refWidth = containerSize.width
+        } else {
+            return Layout.cardMaxWidth
+        }
+        let available = max(180, refWidth - Layout.horizontalMargin * 2)
+        return min(Layout.cardMaxWidth, max(min(Layout.cardMinWidth, available), min(available, refWidth * 0.70)))
     }
 
     public func cardHeight(profileCount: Int) -> CGFloat {
@@ -103,18 +114,24 @@ public final class GatewaySlidePickerState {
         let width = cardWidth()
         let height = cardHeight(profileCount: profileCount)
 
-        let rawMinX: CGFloat
-        if isCenteredAnchor {
-            // Scrolled inline centered title: center the popover under the title
-            rawMinX = anchorRect.midX - width / 2
+        let boundsMinX: CGFloat
+        let boundsMaxX: CGFloat
+        let centerX: CGFloat
+        if let col = columnRect, col.width > 0 {
+            boundsMinX = col.minX + Layout.horizontalMargin
+            boundsMaxX = max(boundsMinX, col.maxX - width - Layout.horizontalMargin)
+            centerX = col.midX
         } else {
-            // Expanded large title (leading aligned)
-            rawMinX = max(Layout.horizontalMargin, anchorRect.minX - 2)
+            boundsMinX = Layout.horizontalMargin
+            boundsMaxX = containerSize.width > 0
+                ? max(Layout.horizontalMargin, containerSize.width - width - Layout.horizontalMargin)
+                : boundsMinX
+            centerX = isCenteredAnchor
+                ? anchorRect.midX
+                : (containerSize.width > 0 ? containerSize.width / 2 : anchorRect.midX)
         }
-        let maxMinX = containerSize.width > 0
-            ? max(Layout.horizontalMargin, containerSize.width - width - Layout.horizontalMargin)
-            : rawMinX
-        let minX = min(max(Layout.horizontalMargin, rawMinX), maxMinX)
+        let rawMinX = centerX - width / 2
+        let minX = min(max(boundsMinX, rawMinX), boundsMaxX)
 
         let preferredY = max(54, anchorRect.maxY + Layout.gapBelowTitle)
         let maxMinY = containerSize.height > 0
@@ -129,21 +146,13 @@ public final class GatewaySlidePickerState {
         guard isPresented else { return }
         let rect = cardRect(profileCount: profileCount)
 
-        // Finger still resting on the Hero title trigger: keep hovered nil so releasing enters tap mode
-        if anchorRect.insetBy(dx: -16, dy: -10).contains(point) {
-            if hoveredRowIndex != nil {
-                hoveredRowIndex = nil
-            }
-            return
-        }
+        // Match rows purely by vertical height even when the finger slides outside the card
+        // horizontally, so one-handed slide-down never obscures host names.
+        let verticalTop = max(anchorRect.maxY + 4, rect.minY - 2)
+        let verticalBottom = rect.maxY + 20
 
-        let hitRect = CGRect(
-            x: rect.minX - 24,
-            y: rect.minY - 8,
-            width: rect.width + 48,
-            height: rect.height + 24
-        )
-        guard hitRect.contains(point) else {
+        // Finger still resting on/above the title trigger or moved outside the vertical menu band
+        guard point.y >= verticalTop && point.y <= verticalBottom else {
             if hoveredRowIndex != nil {
                 hoveredRowIndex = nil
             }
@@ -224,11 +233,12 @@ public struct GatewaySlidePickerOverlay: View {
                     }
 
                 popoverCard(profiles: profiles, size: rect.size)
+                    .allowsHitTesting(state.isInteractiveTapMode)
                     .position(x: rect.midX, y: rect.midY)
                     .transition(
                         .asymmetric(
                             insertion: .opacity.combined(
-                                with: .scale(scale: 0.94, anchor: state.isCenteredAnchor ? .top : .topLeading)
+                                with: .scale(scale: 0.94, anchor: .top)
                             ),
                             removal: .opacity
                         )
@@ -294,7 +304,7 @@ public struct GatewaySlidePickerOverlay: View {
         let isHovered = state.hoveredRowIndex == index
         let summary = store.summaries[profile.id]
 
-        HStack(spacing: 8) {
+        HStack(spacing: 4) {
             Button {
                 UIImpactFeedbackGenerator(style: .light).impactOccurred()
                 state.dismiss()
@@ -333,31 +343,30 @@ public struct GatewaySlidePickerOverlay: View {
             }
             .buttonStyle(.plain)
 
-            if state.isInteractiveTapMode {
-                Menu {
-                    Button {
-                        state.dismiss()
-                        onRenameProfile(profile)
-                    } label: {
-                        Label(String(localized: "重命名主机"), systemImage: "pencil")
-                    }
-                    Button(role: .destructive) {
-                        state.dismiss()
-                        onRemoveProfile(profile)
-                    } label: {
-                        Label(String(localized: "移除此主机"), systemImage: "trash")
-                    }
+            Menu {
+                Button {
+                    state.dismiss()
+                    onRenameProfile(profile)
                 } label: {
-                    Image(systemName: "ellipsis")
-                        .font(.system(size: 12, weight: .semibold))
-                        .foregroundColor(.secondary)
-                        .frame(width: 24, height: 28)
-                        .contentShape(Rectangle())
+                    Label(String(localized: "重命名主机"), systemImage: "pencil")
                 }
-                .buttonStyle(.plain)
+                Button(role: .destructive) {
+                    state.dismiss()
+                    onRemoveProfile(profile)
+                } label: {
+                    Label(String(localized: "移除此主机"), systemImage: "trash")
+                }
+            } label: {
+                Image(systemName: "ellipsis")
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundColor(.secondary)
+                    .frame(width: 24, height: 28)
+                    .contentShape(Rectangle())
             }
+            .buttonStyle(.plain)
         }
-        .padding(.horizontal, 9)
+        .padding(.leading, 9)
+        .padding(.trailing, 5)
         .frame(maxWidth: .infinity)
         .frame(height: GatewaySlidePickerState.Layout.hostRowHeight)
         .background(rowBackground(isHovered: isHovered, isActive: isActive))

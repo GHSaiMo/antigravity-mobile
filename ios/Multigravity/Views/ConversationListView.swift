@@ -1036,10 +1036,14 @@ public struct ConversationListView: View {
                             return
                         }
                         GatewayProfileStore.shared.updateActiveSummary(from: viewModel.conversations)
+                        let columnRect: CGRect? = usesSplitLayout
+                            ? CGRect(x: 0, y: 0, width: splitColumnMetrics.sidebarWidth, height: windowSize.height)
+                            : nil
                         gatewayPickerState.openInteractive(
                             anchorRect: anchorRectInWindow,
                             containerSize: windowSize,
-                            centered: true
+                            centered: true,
+                            columnRect: columnRect
                         )
                     } else {
                         handleEasterEggTap()
@@ -1051,9 +1055,13 @@ public struct ConversationListView: View {
                 onLongPressBegan: { anchorRectInWindow, windowSize in
                     gatewayPickerState.containerSize = windowSize
                     GatewayProfileStore.shared.updateActiveSummary(from: viewModel.conversations)
+                    let columnRect: CGRect? = usesSplitLayout
+                        ? CGRect(x: 0, y: 0, width: splitColumnMetrics.sidebarWidth, height: windowSize.height)
+                        : nil
                     gatewayPickerState.open(
                         anchorRect: anchorRectInWindow,
-                        centered: true
+                        centered: true,
+                        columnRect: columnRect
                     )
                 },
                 onLongPressChanged: { pointInWindow in
@@ -1174,7 +1182,7 @@ public struct ConversationListView: View {
                             && !AppSettings.shared.isDemoMode
                             && GatewayProfileStore.shared.hasMultipleGateways
                     },
-                    onCollapsedTitleTap: { anchorRectInWindow, windowSize in
+                    onCollapsedTitleTap: { anchorRectInWindow, windowSize, navBarFrameInWindow in
                         if gatewayPickerState.isPresented {
                             gatewayPickerState.dismiss()
                             return
@@ -1183,18 +1191,20 @@ public struct ConversationListView: View {
                         gatewayPickerState.openInteractive(
                             anchorRect: anchorRectInWindow,
                             containerSize: windowSize,
-                            centered: true
+                            centered: true,
+                            columnRect: navBarFrameInWindow
                         )
                     },
                     canBeginLongPress: {
                         AppSettings.shared.isPaired && !AppSettings.shared.isDemoMode
                     },
-                    onLongPressBegan: { anchorRectInWindow, windowSize, isCollapsedInline in
+                    onLongPressBegan: { anchorRectInWindow, windowSize, navBarFrameInWindow, _ in
                         gatewayPickerState.containerSize = windowSize
                         GatewayProfileStore.shared.updateActiveSummary(from: viewModel.conversations)
                         gatewayPickerState.open(
                             anchorRect: anchorRectInWindow,
-                            centered: isCollapsedInline
+                            centered: true,
+                            columnRect: navBarFrameInWindow
                         )
                     },
                     onLongPressChanged: { pointInWindow in
@@ -1432,12 +1442,16 @@ public struct ConversationListView: View {
                         Button("切换其他主机") {
                             let containerW = layoutGeometry.width > 0 ? layoutGeometry.width : 390
                             let containerH = layoutGeometry.height > 0 ? layoutGeometry.height : 844
+                            let columnRect: CGRect? = usesSplitLayout
+                                ? CGRect(x: 0, y: 0, width: splitColumnMetrics.sidebarWidth, height: containerH)
+                                : nil
                             let anchorCenterX = usesSplitLayout ? (splitColumnMetrics.sidebarWidth / 2) : (containerW / 2)
                             let anchor = CGRect(x: anchorCenterX - 80, y: 104, width: 160, height: 32)
                             gatewayPickerState.openInteractive(
                                 anchorRect: anchor,
                                 containerSize: CGSize(width: containerW, height: containerH),
-                                centered: true
+                                centered: true,
+                                columnRect: columnRect
                             )
                         }
                         .font(.system(size: 14, weight: .medium))
@@ -3434,9 +3448,9 @@ private struct NavigationBarTapHelper: UIViewRepresentable {
     let scrollToTopToken: Int
     let onTap: () -> Void
     let canOpenCollapsedDropdown: () -> Bool
-    let onCollapsedTitleTap: (CGRect, CGSize) -> Void
+    let onCollapsedTitleTap: (CGRect, CGSize, CGRect) -> Void
     let canBeginLongPress: () -> Bool
-    let onLongPressBegan: (CGRect, CGSize, Bool) -> Void
+    let onLongPressBegan: (CGRect, CGSize, CGRect, Bool) -> Void
     let onLongPressChanged: (CGPoint) -> Void
     let onLongPressEnded: () -> Void
     let onLongPressCancelled: () -> Void
@@ -3492,9 +3506,9 @@ private struct NavigationBarTapHelper: UIViewRepresentable {
 
         var onTap: () -> Void
         var canOpenCollapsedDropdown: () -> Bool
-        var onCollapsedTitleTap: (CGRect, CGSize) -> Void
+        var onCollapsedTitleTap: (CGRect, CGSize, CGRect) -> Void
         var canBeginLongPress: () -> Bool
-        var onLongPressBegan: (CGRect, CGSize, Bool) -> Void
+        var onLongPressBegan: (CGRect, CGSize, CGRect, Bool) -> Void
         var onLongPressChanged: (CGPoint) -> Void
         var onLongPressEnded: () -> Void
         var onLongPressCancelled: () -> Void
@@ -3508,9 +3522,9 @@ private struct NavigationBarTapHelper: UIViewRepresentable {
         init(
             onTap: @escaping () -> Void,
             canOpenCollapsedDropdown: @escaping () -> Bool,
-            onCollapsedTitleTap: @escaping (CGRect, CGSize) -> Void,
+            onCollapsedTitleTap: @escaping (CGRect, CGSize, CGRect) -> Void,
             canBeginLongPress: @escaping () -> Bool,
-            onLongPressBegan: @escaping (CGRect, CGSize, Bool) -> Void,
+            onLongPressBegan: @escaping (CGRect, CGSize, CGRect, Bool) -> Void,
             onLongPressChanged: @escaping (CGPoint) -> Void,
             onLongPressEnded: @escaping () -> Void,
             onLongPressCancelled: @escaping () -> Void,
@@ -3556,7 +3570,8 @@ private struct NavigationBarTapHelper: UIViewRepresentable {
                 let window = navBar.window
                 let windowSize = window?.bounds.size ?? navBar.bounds.size
                 let anchorInWindow = navBar.convert(hit.rect, to: window)
-                onCollapsedTitleTap(anchorInWindow, windowSize)
+                let navBarFrameInWindow = navBar.convert(navBar.bounds, to: window)
+                onCollapsedTitleTap(anchorInWindow, windowSize, navBarFrameInWindow)
             } else {
                 onTap()
             }
@@ -3580,7 +3595,8 @@ private struct NavigationBarTapHelper: UIViewRepresentable {
                 }
                 suppressNextTap = true
                 let anchorInWindow = navBar.convert(hit.rect, to: window)
-                onLongPressBegan(anchorInWindow, windowSize, hit.isCollapsedInline)
+                let navBarFrameInWindow = navBar.convert(navBar.bounds, to: window)
+                onLongPressBegan(anchorInWindow, windowSize, navBarFrameInWindow, hit.isCollapsedInline)
             case .changed:
                 onLongPressChanged(pointInWindow)
             case .ended:

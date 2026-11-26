@@ -101,8 +101,8 @@ class GatewaySlidePickerState {
         val rowSpacing = 4.dp
         val dividerBlockHeight = 9.dp
         val cardPadding = 6.dp
-        val cardMinWidth = 264.dp
-        val cardMaxWidth = 328.dp
+        val cardMinWidth = 236.dp
+        val cardMaxWidth = 268.dp
         val horizontalMargin = 14.dp
         val gapBelowTitle = 8.dp
         val bottomSafeMargin = 28.dp
@@ -116,7 +116,7 @@ class GatewaySlidePickerState {
             && anchorRect.left > 44.dp.toPx()
     }
 
-    fun open(anchor: Rect, centered: Boolean = false) {
+    fun open(anchor: Rect, centered: Boolean = true) {
         anchorRect = anchor
         preferCenteredAnchor = centered
         hoveredRowIndex = null
@@ -145,8 +145,8 @@ class GatewaySlidePickerState {
         val containerW = containerSize.width.toFloat()
         val containerH = containerSize.height.toFloat()
         val hMargin = Layout.horizontalMargin.toPx()
-        val availableW = if (containerW > 0f) max(200f, containerW - hMargin * 2f) else Layout.cardMaxWidth.toPx()
-        val width = min(Layout.cardMaxWidth.toPx(), max(min(Layout.cardMinWidth.toPx(), availableW), min(availableW, containerW * 0.84f)))
+        val availableW = if (containerW > 0f) max(180f, containerW - hMargin * 2f) else Layout.cardMaxWidth.toPx()
+        val width = min(Layout.cardMaxWidth.toPx(), max(min(Layout.cardMinWidth.toPx(), availableW), min(availableW, containerW * 0.70f)))
 
         val hostCount = max(0, profileCount)
         val hostRowPx = Layout.hostRowHeight.toPx()
@@ -163,10 +163,10 @@ class GatewaySlidePickerState {
         val maxAvailH = if (containerH > 160.dp.toPx()) max(160.dp.toPx(), containerH - preferredY - bottomMarginPx) else 440.dp.toPx()
         val height = min(naturalHeight, maxAvailH)
 
-        val rawMinX = if (isCenteredAnchor(density)) {
-            anchorRect.center.x - width / 2f
+        val rawMinX = if (containerW > 0f) {
+            (containerW - width) / 2f
         } else {
-            max(hMargin, anchorRect.left - 2.dp.toPx())
+            anchorRect.center.x - width / 2f
         }
         val maxMinX = if (containerW > 0f) max(hMargin, containerW - width - hMargin) else rawMinX
         val minX = min(max(hMargin, rawMinX), maxMinX)
@@ -186,25 +186,12 @@ class GatewaySlidePickerState {
         if (!isPresented) return
         val rect = cardRectPx(density, profileCount)
         with(density) {
-            // Finger still on the Hero title trigger: keep hoveredRowIndex null so releasing enters tap mode.
-            val triggerRect = Rect(
-                left = anchorRect.left - 16.dp.toPx(),
-                top = anchorRect.top - 10.dp.toPx(),
-                right = anchorRect.right + 16.dp.toPx(),
-                bottom = anchorRect.bottom + 10.dp.toPx()
-            )
-            if (triggerRect.contains(pointInRoot)) {
-                hoveredRowIndex = null
-                return
-            }
+            // Match rows purely by vertical height even when the finger slides outside the card
+            // horizontally, so one-handed slide-down never obscures host names.
+            val verticalTop = max(anchorRect.bottom + 4.dp.toPx(), rect.top - 2.dp.toPx())
+            val verticalBottom = rect.bottom + 20.dp.toPx()
 
-            val hitRect = Rect(
-                left = rect.left - 24.dp.toPx(),
-                top = rect.top - 8.dp.toPx(),
-                right = rect.right + 24.dp.toPx(),
-                bottom = rect.bottom + 24.dp.toPx()
-            )
-            if (!hitRect.contains(pointInRoot)) {
+            if (pointInRoot.y < verticalTop || pointInRoot.y > verticalBottom) {
                 hoveredRowIndex = null
                 return
             }
@@ -432,13 +419,12 @@ fun GatewaySlidePickerOverlay(
     val colors = AntigravityTheme.colors
     val density = LocalDensity.current
     val haptic = LocalHapticFeedback.current
-    val isCentered = state.isCenteredAnchor(density)
 
     AnimatedVisibility(
         visible = state.isPresented,
         enter = fadeIn(animationSpec = spring(stiffness = Spring.StiffnessMedium)) + scaleIn(
             initialScale = 0.94f,
-            transformOrigin = TransformOrigin(if (isCentered) 0.5f else 0.12f, 0f),
+            transformOrigin = TransformOrigin(0.5f, 0f),
             animationSpec = spring(stiffness = Spring.StiffnessMedium)
         ),
         exit = fadeOut(animationSpec = spring(stiffness = Spring.StiffnessHigh)),
@@ -521,6 +507,7 @@ fun GatewaySlidePickerOverlay(
 
                         AddGatewayPickerRow(
                             isHovered = state.hoveredRowIndex == profiles.size,
+                            isInteractiveTapMode = state.isInteractiveTapMode,
                             onClick = {
                                 haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
                                 state.dismiss()
@@ -573,10 +560,10 @@ private fun GatewayHostRow(
             .clip(RoundedCornerShape(9.dp))
             .background(rowBg)
             .border(if (isHovered) 1.25.dp else 1.dp, rowBorder, RoundedCornerShape(9.dp))
-            .clickable(onClick = onSelect)
-            .padding(horizontal = 9.dp),
+            .clickable(enabled = isInteractiveTapMode, onClick = onSelect)
+            .padding(start = 9.dp, end = 5.dp),
         verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(8.dp)
+        horizontalArrangement = Arrangement.spacedBy(6.dp)
     ) {
         Box(
             modifier = Modifier
@@ -622,50 +609,48 @@ private fun GatewayHostRow(
 
         GatewayStatusPills(summary = summary, isActive = isActive)
 
-        if (isInteractiveTapMode) {
-            Box {
-                Box(
-                    modifier = Modifier
-                        .size(26.dp)
-                        .clip(CircleShape)
-                        .clickable { menuExpanded = true },
-                    contentAlignment = Alignment.Center
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.MoreVert,
-                        contentDescription = "更多".loc,
-                        tint = colors.textSecondary,
-                        modifier = Modifier.size(16.dp)
-                    )
-                }
-                DropdownMenu(
-                    expanded = menuExpanded,
-                    onDismissRequest = { menuExpanded = false }
-                ) {
-                    DropdownMenuItem(
-                        text = { Text("重命名主机".loc) },
-                        leadingIcon = { Icon(Icons.Default.Edit, contentDescription = null, modifier = Modifier.size(16.dp)) },
-                        onClick = {
-                            menuExpanded = false
-                            onRename()
-                        }
-                    )
-                    DropdownMenuItem(
-                        text = { Text("移除此主机".loc, color = colors.accentRed) },
-                        leadingIcon = {
-                            Icon(
-                                Icons.Default.Delete,
-                                contentDescription = null,
-                                tint = colors.accentRed,
-                                modifier = Modifier.size(16.dp)
-                            )
-                        },
-                        onClick = {
-                            menuExpanded = false
-                            onRemove()
-                        }
-                    )
-                }
+        Box {
+            Box(
+                modifier = Modifier
+                    .size(26.dp)
+                    .clip(CircleShape)
+                    .clickable(enabled = isInteractiveTapMode) { menuExpanded = true },
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(
+                    imageVector = Icons.Default.MoreVert,
+                    contentDescription = "更多".loc,
+                    tint = colors.textSecondary,
+                    modifier = Modifier.size(16.dp)
+                )
+            }
+            DropdownMenu(
+                expanded = menuExpanded,
+                onDismissRequest = { menuExpanded = false }
+            ) {
+                DropdownMenuItem(
+                    text = { Text("重命名主机".loc) },
+                    leadingIcon = { Icon(Icons.Default.Edit, contentDescription = null, modifier = Modifier.size(16.dp)) },
+                    onClick = {
+                        menuExpanded = false
+                        onRename()
+                    }
+                )
+                DropdownMenuItem(
+                    text = { Text("移除此主机".loc, color = colors.accentRed) },
+                    leadingIcon = {
+                        Icon(
+                            Icons.Default.Delete,
+                            contentDescription = null,
+                            tint = colors.accentRed,
+                            modifier = Modifier.size(16.dp)
+                        )
+                    },
+                    onClick = {
+                        menuExpanded = false
+                        onRemove()
+                    }
+                )
             }
         }
     }
@@ -765,6 +750,7 @@ internal fun isCameraUnavailableOrRestricted(context: android.content.Context): 
 @Composable
 private fun AddGatewayPickerRow(
     isHovered: Boolean,
+    isInteractiveTapMode: Boolean,
     onClick: () -> Unit
 ) {
     val colors = AntigravityTheme.colors
@@ -781,7 +767,7 @@ private fun AddGatewayPickerRow(
                 color = if (isHovered) colors.accentIndigo.copy(alpha = 0.75f) else Color.Transparent,
                 shape = RoundedCornerShape(9.dp)
             )
-            .clickable(onClick = onClick)
+            .clickable(enabled = isInteractiveTapMode, onClick = onClick)
             .padding(horizontal = 9.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(8.dp)
