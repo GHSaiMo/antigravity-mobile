@@ -39354,6 +39354,402 @@
           }
         }
       }
+    },
+    "Antigravity 桌面端更新": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Antigravity Desktop Update"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Antigravity デスクトップ更新"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Antigravity 桌面端更新"
+          }
+        }
+      }
+    },
+    "发现新版本": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Update Available"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "新しいバージョンがあります"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "发现新版本"
+          }
+        }
+      }
+    },
+    "宿主机 Antigravity 已是最新版本": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Host Antigravity is already up to date"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ホスト側の Antigravity は最新バージョンです"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "宿主机 Antigravity 已是最新版本"
+          }
+        }
+      }
+    },
+    "已是最新版本": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Up to Date"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "最新バージョンです"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已是最新版本"
+          }
+        }
+      }
+    },
+    "已通知桌面端应用更新并重启": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Notified desktop to apply update and restart"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "デスクトップに更新適用と再起動を通知しました"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已通知桌面端应用更新并重启"
+          }
+        }
+      }
+    },
+    "当前有 %lld 个活跃会话正在运行。Antigravity 2.35.1+ 重启后会自动恢复会话，但仍建议等关键操作完成后更新。": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "There are %lld active sessions running. Antigravity 2.35.1+ resumes sessions after restart, though waiting for critical operations to finish is still recommended."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "現在 %lld 件のアクティブなセッションが実行中です。Antigravity 2.35.1+ は再起動後にセッションを自動復元しますが、重要な処理の完了後に更新することをおすすめします。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "当前有 %lld 个活跃会话正在运行。Antigravity 2.35.1+ 重启后会自动恢复会话，但仍建议等关键操作完成后更新。"
+          }
+        }
+      }
+    },
+    "当前桌面端版本": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Current Desktop Version"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "現在のデスクトップ版"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "当前桌面端版本"
+          }
+        }
+      }
+    },
+    "更新日志": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Changelog"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "更新履歴"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "更新日志"
+          }
+        }
+      }
+    },
+    "最新可用版本": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Latest Available Version"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "最新バージョン"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "最新可用版本"
+          }
+        }
+      }
+    },
+    "桌面端可升级至 %@": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Desktop can be updated to %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "デスクトップ版を %@ に更新できます"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "桌面端可升级至 %@"
+          }
+        }
+      }
+    },
+    "检查更新失败": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Update Check Failed"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "更新の確認に失敗しました"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "检查更新失败"
+          }
+        }
+      }
+    },
+    "检测到可用的桌面端新版本": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A newer desktop version is available"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "新しいデスクトップ版が利用可能です"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "检测到可用的桌面端新版本"
+          }
+        }
+      }
+    },
+    "正在检查更新...": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Checking for updates..."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "アップデートを確認中..."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "正在检查更新..."
+          }
+        }
+      }
+    },
+    "正在通知桌面端...": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Notifying desktop..."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "デスクトップへ通知中..."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "正在通知桌面端..."
+          }
+        }
+      }
+    },
+    "电脑端将安装新版本并短暂停机重启，网关会自动重连。": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Desktop Antigravity will install the update and briefly restart. The gateway will reconnect automatically."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "デスクトップ版が新バージョンをインストールして一時的に再起動します。ゲートウェイは自動的に再接続されます。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "电脑端将安装新版本并短暂停机重启，网关会自动重连。"
+          }
+        }
+      }
+    },
+    "确认更新并重启": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Update & Restart"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "更新して再起動"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "确认更新并重启"
+          }
+        }
+      }
+    },
+    "确认更新并重启电脑端 Antigravity？": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Update and restart desktop Antigravity?"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "デスクトップ版 Antigravity を更新して再起動しますか？"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "确认更新并重启电脑端 Antigravity？"
+          }
+        }
+      }
+    },
+    "立即应用更新并重启桌面端": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Apply Update & Restart Desktop"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "更新を適用してデスクトップを再起動"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "立即应用更新并重启桌面端"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

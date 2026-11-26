@@ -776,7 +776,7 @@ public struct OAuthHybridSheet: View {
 // MARK: - 3. DesktopUpdateSheet (Antigravity Desktop Self-Update & Changelog)
 
 public struct DesktopUpdateSheet: View {
-    @Environment(\.dismiss) private var dismiss
+    @Environment(\.colorScheme) private var colorScheme
     public let initialStatus: DesktopUpdateStatus?
 
     @State private var status: DesktopUpdateStatus?
@@ -794,112 +794,206 @@ public struct DesktopUpdateSheet: View {
 
     private var gatewayURL: URL? { AppSettings.shared.gatewayURL ?? AppSettings.shared.serverURL }
 
+    private var currentVersionDisplay: String {
+        if let cur = status?.currentVersion, !cur.isEmpty {
+            return "v\(cur)"
+        }
+        return String(localized: "未知")
+    }
+
+    private var latestVersionDisplay: String? {
+        guard let latest = status?.latestVersion, !latest.isEmpty else { return nil }
+        return "v\(latest)"
+    }
+
+    private var heroAccentColor: Color {
+        if isLoading && status == nil { return .secondary }
+        if errorText != nil && status == nil { return .orange }
+        if status?.hasUpdate == true { return .indigo }
+        return .green
+    }
+
+    private var heroBadgeSymbol: String? {
+        if isLoading && status == nil { return nil }
+        if errorText != nil && status == nil { return "exclamationmark.circle.fill" }
+        if status?.hasUpdate == true { return "arrow.down.circle.fill" }
+        if status != nil { return "checkmark.circle.fill" }
+        return nil
+    }
+
+    private var heroTitle: String {
+        if isLoading && status == nil {
+            return String(localized: "正在检查更新...")
+        }
+        if errorText != nil && status == nil {
+            return String(localized: "检查更新失败")
+        }
+        if status?.hasUpdate == true {
+            return String(localized: "发现新版本")
+        }
+        return String(localized: "已是最新版本")
+    }
+
+    private var heroSubtitle: String? {
+        if isLoading && status == nil {
+            return nil
+        }
+        if errorText != nil && status == nil {
+            return nil
+        }
+        if status?.hasUpdate == true {
+            if let latest = latestVersionDisplay {
+                return String(localized: "桌面端可升级至 \(latest)")
+            }
+            return String(localized: "检测到可用的桌面端新版本")
+        }
+        if status != nil {
+            return String(localized: "宿主机 Antigravity 已是最新版本")
+        }
+        return nil
+    }
+
+    private var cardBorderColor: Color {
+        Color.primary.opacity(colorScheme == .dark ? 0.08 : 0.05)
+    }
+
+    private var shouldCenterVertically: Bool {
+        changelogMarkdown.isEmpty
+    }
+
     public var body: some View {
         NavigationStack {
-            ScrollView {
-                VStack(alignment: .leading, spacing: 14) {
-                    VStack(alignment: .leading, spacing: 8) {
-                        HStack {
-                            Text("当前桌面端版本")
-                                .font(.system(size: 13))
-                                .foregroundColor(.secondary)
-                            Spacer()
-                            Text(status?.currentVersion?.isEmpty == false ? "v\(status!.currentVersion!)" : "未知")
-                                .font(.system(size: 14, weight: .semibold, design: .monospaced))
+            GeometryReader { proxy in
+                ScrollView {
+                    VStack(spacing: 0) {
+                        if shouldCenterVertically {
+                            Spacer(minLength: 28)
                         }
-                        if let latest = status?.latestVersion, !latest.isEmpty {
-                            Divider()
-                            HStack {
-                                Text("最新可用版本")
-                                    .font(.system(size: 13))
-                                    .foregroundColor(.secondary)
-                                Spacer()
-                                Text("v\(latest)")
-                                    .font(.system(size: 14, weight: .bold, design: .monospaced))
-                                    .foregroundColor(status?.hasUpdate == true ? .indigo : .secondary)
+
+                        VStack(spacing: 24) {
+                            statusHeroSection
+
+                            if status != nil || !isLoading {
+                                versionCard
+                            }
+
+                            if let running = status?.runningCount, running > 0, status?.hasUpdate == true {
+                                HStack(alignment: .top, spacing: 12) {
+                                    Image(systemName: "exclamationmark.triangle.fill")
+                                        .font(.system(size: 16))
+                                        .foregroundColor(.orange)
+                                        .padding(.top, 2)
+                                    Text("当前有 \(running) 个活跃会话正在运行。Antigravity 2.35.1+ 重启后会自动恢复会话，但仍建议等关键操作完成后更新。")
+                                        .font(.system(size: 13.5))
+                                        .foregroundColor(.secondary)
+                                        .lineSpacing(3.5)
+                                        .fixedSize(horizontal: false, vertical: true)
+                                }
+                                .padding(16)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                                .background(Color.orange.opacity(colorScheme == .dark ? 0.14 : 0.10))
+                                .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+                            }
+
+                            if let msg = messageText {
+                                HStack(alignment: .top, spacing: 10) {
+                                    Image(systemName: "checkmark.circle.fill")
+                                        .font(.system(size: 15))
+                                        .foregroundColor(.green)
+                                        .padding(.top, 1)
+                                    Text(msg)
+                                        .font(.system(size: 13.5, weight: .medium))
+                                        .foregroundColor(.green)
+                                        .lineSpacing(3)
+                                        .fixedSize(horizontal: false, vertical: true)
+                                }
+                                .padding(.horizontal, 16)
+                                .padding(.vertical, 13)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                                .background(Color.green.opacity(colorScheme == .dark ? 0.14 : 0.10))
+                                .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+                            }
+
+                            if let err = errorText {
+                                HStack(alignment: .top, spacing: 10) {
+                                    Image(systemName: "exclamationmark.circle.fill")
+                                        .font(.system(size: 15))
+                                        .foregroundColor(.red)
+                                        .padding(.top, 1)
+                                    Text(err)
+                                        .font(.system(size: 13.5))
+                                        .foregroundColor(.red)
+                                        .lineSpacing(3)
+                                        .fixedSize(horizontal: false, vertical: true)
+                                }
+                                .padding(.horizontal, 16)
+                                .padding(.vertical, 13)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                                .background(Color.red.opacity(colorScheme == .dark ? 0.14 : 0.10))
+                                .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+                            }
+
+                            if status?.hasUpdate == true {
+                                Button {
+                                    showConfirmApply = true
+                                } label: {
+                                    HStack(spacing: 8) {
+                                        if isApplying {
+                                            ProgressView().tint(.white)
+                                        }
+                                        Text(isApplying ? String(localized: "正在通知桌面端...") : String(localized: "立即应用更新并重启桌面端"))
+                                            .font(.system(size: 16, weight: .semibold))
+                                    }
+                                    .frame(maxWidth: .infinity)
+                                    .padding(.vertical, 6)
+                                }
+                                .buttonStyle(.borderedProminent)
+                                .controlSize(.large)
+                                .tint(.indigo)
+                                .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+                                .disabled(isApplying)
+                            }
+
+                            if !changelogMarkdown.isEmpty {
+                                VStack(alignment: .leading, spacing: 10) {
+                                    Text("更新日志")
+                                        .font(.system(size: 13.5, weight: .semibold))
+                                        .foregroundColor(.secondary)
+                                        .padding(.horizontal, 4)
+                                    MarkdownContentView(content: changelogMarkdown)
+                                        .padding(16)
+                                        .frame(maxWidth: .infinity, alignment: .leading)
+                                        .background(Color(uiColor: .secondarySystemGroupedBackground))
+                                        .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+                                        .overlay(
+                                            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                                                .stroke(cardBorderColor, lineWidth: 0.5)
+                                        )
+                                }
                             }
                         }
-                    }
-                    .padding(14)
-                    .background(Color(uiColor: .secondarySystemBackground))
-                    .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+                        .frame(maxWidth: 520)
 
-                    if let running = status?.runningCount, running > 0, status?.hasUpdate == true {
-                        HStack(spacing: 8) {
-                            Image(systemName: "exclamationmark.triangle.fill")
-                                .foregroundColor(.orange)
-                            Text("当前有 \(running) 个活跃会话正在运行。Antigravity 2.35.1+ 重启后会自动恢复会话，但仍建议等关键操作完成后更新。")
-                                .font(.system(size: 12.5))
-                                .foregroundColor(.secondary)
-                        }
-                        .padding(12)
-                        .background(Color.orange.opacity(0.1))
-                        .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
-                    }
-
-                    if let msg = messageText {
-                        Text(msg)
-                            .font(.system(size: 13, weight: .medium))
-                            .foregroundColor(.green)
-                    }
-                    if let err = errorText {
-                        Text(err)
-                            .font(.system(size: 13))
-                            .foregroundColor(.red)
-                    }
-
-                    if status?.hasUpdate == true {
-                        Button {
-                            showConfirmApply = true
-                        } label: {
-                            HStack {
-                                if isApplying { ProgressView().tint(.white) }
-                                Text(isApplying ? String(localized: "正在通知桌面端...") : String(localized: "立即应用更新并重启桌面端"))
-                                    .font(.system(size: 15, weight: .semibold))
-                            }
-                            .frame(maxWidth: .infinity)
-                        }
-                        .buttonStyle(.borderedProminent)
-                        .controlSize(.large)
-                        .tint(.indigo)
-                        .disabled(isApplying)
-                    } else if !isLoading {
-                        HStack(spacing: 6) {
-                            Image(systemName: "checkmark.circle.fill").foregroundColor(.green)
-                            Text("宿主机 Antigravity 已是最新版本")
-                                .font(.system(size: 13.5))
-                                .foregroundColor(.secondary)
+                        if shouldCenterVertically {
+                            Spacer(minLength: 36)
+                            Spacer(minLength: 28)
                         }
                     }
-
-                    if !changelogMarkdown.isEmpty {
-                        VStack(alignment: .leading, spacing: 8) {
-                            Text("更新日志")
-                                .font(.system(size: 13, weight: .semibold))
-                                .foregroundColor(.secondary)
-                            MarkdownContentView(content: changelogMarkdown)
-                                .padding(12)
-                                .background(Color(uiColor: .secondarySystemBackground))
-                                .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
-                        }
-                    } else if isLoading {
-                        HStack {
-                            Spacer()
-                            ProgressView("正在检查更新...")
-                            Spacer()
-                        }
-                        .padding(.vertical, 20)
-                    }
+                    .padding(.horizontal, 20)
+                    .padding(.top, shouldCenterVertically ? 12 : 28)
+                    .padding(.bottom, 36)
+                    .frame(maxWidth: .infinity)
+                    .frame(minHeight: proxy.size.height)
+                    .animation(.easeInOut(duration: 0.22), value: shouldCenterVertically)
                 }
-                .padding(16)
+                .refreshable {
+                    await loadUpdateAndChangelog()
+                }
             }
+            .background(Color(uiColor: .systemGroupedBackground).ignoresSafeArea())
             .navigationTitle("Antigravity 桌面端更新")
             .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .topBarTrailing) {
-                    Button("完成") { dismiss() }
-                }
-            }
+            .presentationDragIndicator(.visible)
             .confirmationDialog("确认更新并重启电脑端 Antigravity？", isPresented: $showConfirmApply, titleVisibility: .visible) {
                 Button("确认更新并重启") {
                     Task { await triggerApplyUpdate() }
@@ -909,9 +1003,112 @@ public struct DesktopUpdateSheet: View {
                 Text("电脑端将安装新版本并短暂停机重启，网关会自动重连。")
             }
         }
+        .presentationDragIndicator(.visible)
         .task {
             await loadUpdateAndChangelog()
         }
+    }
+
+    private var statusHeroSection: some View {
+        VStack(spacing: 16) {
+            ZStack(alignment: .bottomTrailing) {
+                ZStack {
+                    Circle()
+                        .fill(heroAccentColor.opacity(colorScheme == .dark ? 0.16 : 0.11))
+                        .frame(width: 76, height: 76)
+                    Circle()
+                        .stroke(heroAccentColor.opacity(colorScheme == .dark ? 0.24 : 0.16), lineWidth: 1)
+                        .frame(width: 76, height: 76)
+
+                    if isLoading && status == nil {
+                        ProgressView()
+                            .controlSize(.regular)
+                    } else {
+                        Image(systemName: "desktopcomputer")
+                            .font(.system(size: 30, weight: .medium))
+                            .foregroundStyle(status?.hasUpdate == true ? Color.indigo : Color.primary.opacity(0.88))
+                    }
+                }
+
+                if let badgeSymbol = heroBadgeSymbol {
+                    Image(systemName: badgeSymbol)
+                        .font(.system(size: 21, weight: .semibold))
+                        .symbolRenderingMode(.palette)
+                        .foregroundStyle(.white, heroAccentColor)
+                        .background(
+                            Circle()
+                                .fill(Color(uiColor: .systemGroupedBackground))
+                                .frame(width: 25, height: 25)
+                        )
+                        .offset(x: 2, y: 2)
+                }
+            }
+
+            VStack(spacing: 8) {
+                Text(heroTitle)
+                    .font(.system(size: 20, weight: .semibold))
+                    .foregroundColor(.primary)
+                    .multilineTextAlignment(.center)
+
+                if let subtitle = heroSubtitle {
+                    Text(subtitle)
+                        .font(.system(size: 14))
+                        .foregroundColor(.secondary)
+                        .multilineTextAlignment(.center)
+                        .lineSpacing(3.5)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            }
+            .padding(.horizontal, 12)
+        }
+        .frame(maxWidth: .infinity)
+        .padding(.bottom, 4)
+    }
+
+    private var versionCard: some View {
+        VStack(spacing: 0) {
+            versionRow(
+                title: String(localized: "当前桌面端版本"),
+                value: currentVersionDisplay,
+                valueColor: .primary,
+                valueWeight: .semibold
+            )
+            if let latest = latestVersionDisplay {
+                Divider()
+                    .padding(.leading, 18)
+                versionRow(
+                    title: String(localized: "最新可用版本"),
+                    value: latest,
+                    valueColor: status?.hasUpdate == true ? .indigo : .secondary,
+                    valueWeight: status?.hasUpdate == true ? .bold : .medium
+                )
+            }
+        }
+        .background(Color(uiColor: .secondarySystemGroupedBackground))
+        .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                .stroke(cardBorderColor, lineWidth: 0.5)
+        )
+    }
+
+    private func versionRow(
+        title: String,
+        value: String,
+        valueColor: Color,
+        valueWeight: Font.Weight
+    ) -> some View {
+        HStack(spacing: 12) {
+            Text(title)
+                .font(.system(size: 15))
+                .foregroundColor(.secondary)
+            Spacer(minLength: 12)
+            Text(value)
+                .font(.system(size: 15.5, weight: valueWeight, design: .monospaced))
+                .foregroundColor(valueColor)
+        }
+        .padding(.horizontal, 18)
+        .padding(.vertical, 16)
     }
 
     @MainActor
@@ -921,6 +1118,7 @@ public struct DesktopUpdateSheet: View {
             return
         }
         isLoading = true
+        errorText = nil
         defer { isLoading = false }
         do {
             let st = try await APIClient.shared.fetchDesktopUpdateStatus(baseURL: gw)
