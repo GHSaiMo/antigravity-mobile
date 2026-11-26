@@ -320,7 +320,7 @@ extension ChatViewModel {
         inputText = ""
         selectedImageData = []
         selectedFiles = []
-        selectedSlashCommand = nil
+        selectedSlashCommands = []
         selectedContextItems = []
         suggestedResponses = []
         suggestedResponseSource = ""
@@ -337,7 +337,7 @@ extension ChatViewModel {
         text: String,
         images: [Data],
         files: [DraftFile],
-        slashOption: SlashCommandOption?,
+        slashOptions: [SlashCommandOption],
         contextItems: [ContextMentionItem]
     ) {
         if isCurrentSession {
@@ -362,8 +362,10 @@ extension ChatViewModel {
                 }
                 self.persistDraftFiles()
             }
-            if self.selectedSlashCommand == nil, let slashOption {
-                self.selectedSlashCommand = slashOption
+            if !slashOptions.isEmpty {
+                for opt in slashOptions where !self.selectedSlashCommands.contains(where: { $0.name == opt.name }) {
+                    self.selectedSlashCommands.append(opt)
+                }
             }
             if !contextItems.isEmpty {
                 for item in contextItems where !self.selectedContextItems.contains(where: { $0.id == item.id && $0.label == item.label }) {
@@ -404,8 +406,8 @@ extension ChatViewModel {
         text customText: String? = nil,
         images: [Data]? = nil,
         files: [DraftFile]? = nil,
-        slashCommand: String? = nil,
-        slashOption: SlashCommandOption? = nil,
+        slashCommands: [String] = [],
+        slashOptions: [SlashCommandOption]? = nil,
         contextItems: [ContextMentionItem]? = nil,
         clearsDraft: Bool = false
     ) async -> Bool {
@@ -416,16 +418,19 @@ extension ChatViewModel {
         let hasImages = !sendImages.isEmpty
         let sendFiles = files ?? []
         let hasFiles = !sendFiles.isEmpty
-        let hasSlash = !(slashCommand ?? "").isEmpty
-        let resolvedSlashOption = slashOption ?? (isDraftSend ? self.selectedSlashCommand : nil)
+        let cleanSlashes = slashCommands
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+        let hasSlash = !cleanSlashes.isEmpty
+        let resolvedSlashOptions = slashOptions ?? (isDraftSend ? self.selectedSlashCommands : [])
         let currentContextItems = contextItems ?? self.selectedContextItems
         let hasContextItems = !currentContextItems.isEmpty
         guard (!text.isEmpty || hasImages || hasFiles || hasSlash || hasContextItems), let url = settings.serverURL else { return false }
         // The gateway appends the attachment block to the text; mirror it locally so optimistic
         // bubbles and queued items match what the server will echo back.
         let bodyText = AttachmentRules.appendBlock(to: text, files: sendFiles)
-        // language_server 把斜杠命令的显示文本生成为 "/name 内容"，本地气泡与队列条目保持一致
-        let displayText = hasSlash ? "/\(slashCommand!)" + (bodyText.isEmpty ? "" : " " + bodyText) : bodyText
+        // language_server 把斜杠命令的显示文本生成为 "/name1 /name2 内容"，本地气泡与队列条目保持一致
+        let displayText = SlashCommandFilter.displayText(commands: cleanSlashes, bodyText: bodyText)
         let attachmentIds = sendFiles.compactMap(\.attachmentId)
         
         hasUserManuallySelectedModel = true
@@ -529,7 +534,7 @@ extension ChatViewModel {
                         cascadeConfigRaw: capturedConfigRaw,
                         clientMessageId: queueClientMsgId,
                         attachmentIds: attachmentIds,
-                        slashCommand: slashCommand,
+                        slashCommands: hasSlash ? cleanSlashes : nil,
                         contextItems: hasContextItems ? currentContextItems : nil,
                         baseURL: url
                     )
@@ -582,7 +587,7 @@ extension ChatViewModel {
                         text: text,
                         images: sendImages,
                         files: sendFiles,
-                        slashOption: resolvedSlashOption,
+                        slashOptions: resolvedSlashOptions,
                         contextItems: currentContextItems
                     )
                 }
@@ -611,11 +616,13 @@ extension ChatViewModel {
         let clientMessageId = UUID().uuidString
         let optId = "optimistic-\(clientMessageId)"
         let optSlashMentions: [SlashCommandMention]? = {
-            guard let slash = slashCommand, !slash.isEmpty else { return nil }
-            let matched = self.slashCommands.first(where: { $0.name == slash })
-            let kind = matched?.kind ?? (SlashCommandIconCatalog.defaultSystemIcons[slash] != nil ? "system" : "skill")
-            let icon = SlashCommandIconCatalog.resolveIcon(name: slash, icon: matched?.icon, kind: kind)
-            return [SlashCommandMention(name: slash, icon: icon, kind: kind, definitionPath: matched?.definitionPath)]
+            guard hasSlash else { return nil }
+            return cleanSlashes.map { slash in
+                let matched = resolvedSlashOptions.first(where: { $0.name == slash }) ?? self.slashCommands.first(where: { $0.name == slash })
+                let kind = matched?.kind ?? (SlashCommandIconCatalog.defaultSystemIcons[slash] != nil ? "system" : "skill")
+                let icon = SlashCommandIconCatalog.resolveIcon(name: slash, icon: matched?.icon, kind: kind)
+                return SlashCommandMention(name: slash, icon: icon, kind: kind, definitionPath: matched?.definitionPath)
+            }
         }()
         messages.append(ChatMessage(id: optId, sender: .user, content: displayText, imageDataList: sendImages, slashCommands: optSlashMentions, clientMessageId: clientMessageId))
         triggerScrollToBottom()
@@ -715,7 +722,7 @@ extension ChatViewModel {
                         cascadeConfigRaw: cascadeConfigRaw,
                         clientMessageId: UUID().uuidString,
                         attachmentIds: attachmentIds,
-                        slashCommand: slashCommand,
+                        slashCommands: hasSlash ? cleanSlashes : nil,
                         contextItems: hasContextItems ? currentContextItems : nil,
                         baseURL: url
                     )
@@ -734,7 +741,7 @@ extension ChatViewModel {
                     cascadeConfigRaw: cascadeConfigRaw,
                     clientMessageId: clientMessageId,
                     attachmentIds: attachmentIds,
-                    slashCommand: slashCommand,
+                    slashCommands: hasSlash ? cleanSlashes : nil,
                     contextItems: hasContextItems ? currentContextItems : nil,
                     baseURL: url
                 )
@@ -784,7 +791,7 @@ extension ChatViewModel {
                         text: text,
                         images: sendImages,
                         files: sendFiles,
-                        slashOption: resolvedSlashOption,
+                        slashOptions: resolvedSlashOptions,
                         contextItems: currentContextItems
                     )
                 }

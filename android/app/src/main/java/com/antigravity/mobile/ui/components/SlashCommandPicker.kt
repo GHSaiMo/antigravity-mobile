@@ -13,6 +13,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.InlineTextContent
 import androidx.compose.foundation.text.appendInlineContent
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.HorizontalDivider
@@ -163,6 +164,7 @@ object SlashCommandTextRenderer {
 @Composable
 fun SlashCommandPicker(
     commands: List<SlashCommandOption>,
+    selectedNames: Set<String> = emptySet(),
     isLoading: Boolean,
     onSelect: (SlashCommandOption) -> Unit,
     onDismiss: () -> Unit = {},
@@ -280,6 +282,7 @@ fun SlashCommandPicker(
                     itemsIndexed(commands, key = { _, it -> it.name }) { index, command ->
                         val isSkill = command.kind == "skill"
                         val accentColor = if (isSkill) colors.accentIndigo else colors.accentBlue
+                        val isSelected = command.name in selectedNames
                         Row(
                             modifier = Modifier
                                 .fillMaxWidth()
@@ -346,6 +349,16 @@ fun SlashCommandPicker(
                                         overflow = TextOverflow.Ellipsis
                                     )
                                 }
+                            }
+                            if (isSelected) {
+                                Icon(
+                                    imageVector = Icons.Default.CheckCircle,
+                                    contentDescription = null,
+                                    tint = colors.accentIndigo,
+                                    modifier = Modifier
+                                        .padding(top = 2.dp)
+                                        .size(17.dp)
+                                )
                             }
                         }
 

@@ -268,14 +268,46 @@ fun ChatViewModel.ensureSlashCommands() {
     }
 }
 
-/** 选中命令：仅剥离输入框末尾正在输入的 "/xx"，保留此前已输入的正文，命令变成快捷栏按钮。 */
-fun ChatViewModel.selectSlashCommand(command: SlashCommandOption) {
+/** 仅剥离输入框末尾正在输入的 "/xx"，不挂载命令芯片（供 /workflow 模板弹窗等本地入口复用）。 */
+fun ChatViewModel.stripTrailingSlashQuery() {
     _inputText.value = com.antigravity.mobile.data.model.SlashCommandFilter.stripTrailingQuery(_inputText.value)
-    _uiState.value = _uiState.value.copy(selectedSlashCommand = command, focusInputTrigger = _uiState.value.focusInputTrigger + 1)
 }
 
-fun ChatViewModel.clearSlashCommand() {
-    _uiState.value = _uiState.value.copy(selectedSlashCommand = null)
+/**
+ * 选中/反选命令：仅剥离输入框末尾正在输入的 "/xx"，保留此前已输入的正文；支持叠加多个有序命令。
+ * `/btw` 与主会话命令互斥，选中时独立占位，选中其他命令时自动清掉 `/btw`。
+ */
+fun ChatViewModel.selectSlashCommand(command: SlashCommandOption) {
+    _inputText.value = com.antigravity.mobile.data.model.SlashCommandFilter.stripTrailingQuery(_inputText.value)
+    val current = _uiState.value.selectedSlashCommands
+    val updated = if (command.name.equals("btw", ignoreCase = true)) {
+        if (current.size == 1 && current[0].name.equals("btw", ignoreCase = true)) {
+            emptyList()
+        } else {
+            listOf(command)
+        }
+    } else {
+        val withoutBtw = current.filterNot { it.name.equals("btw", ignoreCase = true) }
+        if (withoutBtw.any { it.name == command.name }) {
+            withoutBtw.filterNot { it.name == command.name }
+        } else {
+            withoutBtw + command
+        }
+    }
+    _uiState.value = _uiState.value.copy(
+        selectedSlashCommands = updated,
+        focusInputTrigger = _uiState.value.focusInputTrigger + 1
+    )
+}
+
+fun ChatViewModel.removeSlashCommand(command: SlashCommandOption) {
+    _uiState.value = _uiState.value.copy(
+        selectedSlashCommands = _uiState.value.selectedSlashCommands.filterNot { it.name == command.name }
+    )
+}
+
+fun ChatViewModel.clearSlashCommands() {
+    _uiState.value = _uiState.value.copy(selectedSlashCommands = emptyList())
 }
 
 // endregion

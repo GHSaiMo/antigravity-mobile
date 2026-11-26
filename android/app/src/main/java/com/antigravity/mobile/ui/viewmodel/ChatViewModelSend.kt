@@ -194,14 +194,16 @@ internal fun ChatViewModel.sendMessage(
     attachments: List<AttachmentImage> = emptyList(),
     forceImmediate: Boolean = false,
     files: List<AttachmentFile> = emptyList(),
-    slashCommand: String? = null
+    slashCommands: List<String> = emptyList(),
+    slashOptions: List<SlashCommandOption> = emptyList()
 ) {
     val cascadeId = _uiState.value.cascadeId
     // The gateway appends the attachment block to the text; mirror it locally so optimistic
     // bubbles and queued items match what the server will echo back.
     val bodyText = AttachmentRules.appendBlock(text, files)
-    // language_server 把斜杠命令的显示文本生成为 "/name 内容"，本地气泡与队列条目保持一致
-    val displayText = if (slashCommand.isNullOrBlank()) bodyText else "/$slashCommand" + if (bodyText.isNotEmpty()) " $bodyText" else ""
+    val cleanSlashes = slashCommands.map { it.trim() }.filter { it.isNotEmpty() }
+    // language_server 把斜杠命令的显示文本生成为 "/name1 /name2 内容"，本地气泡与队列条目保持一致
+    val displayText = SlashCommandFilter.displayText(cleanSlashes, bodyText)
     val attachmentIds = files.mapNotNull { it.attachmentId }
     val ctxItems = _uiState.value.selectedContextItems
     if (ctxItems.isNotEmpty() || _uiState.value.suggestedResponses.isNotEmpty()) {
@@ -266,7 +268,7 @@ internal fun ChatViewModel.sendMessage(
                     deliveryStrategy = 2,
                     clientMessageId = queueClientMsgId,
                     attachmentIds = attachmentIds,
-                    slashCommand = slashCommand,
+                    slashCommands = cleanSlashes,
                     contextItems = ctxItems
                 )
             }.fold(
@@ -326,9 +328,15 @@ internal fun ChatViewModel.sendMessage(
                     } else {
                         _uiState.value.selectedContextItems
                     }
+                    val restoredSlashes = if (_uiState.value.selectedSlashCommands.isEmpty() && slashOptions.isNotEmpty()) {
+                        slashOptions
+                    } else {
+                        _uiState.value.selectedSlashCommands
+                    }
                     _uiState.value = _uiState.value.copy(
                         queuedMessages = remainingQueue,
                         selectedContextItems = restoredCtx,
+                        selectedSlashCommands = restoredSlashes,
                         errorMessage = "排队消息发送失败，已恢复到输入框".loc
                     )
                     saveSessionToCache()
@@ -348,11 +356,14 @@ internal fun ChatViewModel.sendMessage(
     // Optimistically add user bubble
     val optId = "opt_${System.currentTimeMillis()}"
     pendingOptimisticMessageId = optId
-    val optSlashMentions = if (!slashCommand.isNullOrBlank()) {
-        val matched = _uiState.value.slashCommands.firstOrNull { it.name == slashCommand }
-        val kind = matched?.kind ?: if (com.antigravity.mobile.data.model.SlashCommandIconCatalog.defaultSystemIcons.containsKey(slashCommand)) "system" else "skill"
-        val icon = com.antigravity.mobile.data.model.SlashCommandIconCatalog.resolveIcon(slashCommand, matched?.icon, kind)
-        listOf(com.antigravity.mobile.data.model.SlashCommandMention(name = slashCommand, icon = icon, kind = kind, definitionPath = matched?.definitionPath))
+    val optSlashMentions = if (cleanSlashes.isNotEmpty()) {
+        cleanSlashes.map { cmdName ->
+            val matched = slashOptions.firstOrNull { it.name == cmdName }
+                ?: _uiState.value.slashCommands.firstOrNull { it.name == cmdName }
+            val kind = matched?.kind ?: if (com.antigravity.mobile.data.model.SlashCommandIconCatalog.defaultSystemIcons.containsKey(cmdName)) "system" else "skill"
+            val icon = com.antigravity.mobile.data.model.SlashCommandIconCatalog.resolveIcon(cmdName, matched?.icon, kind)
+            com.antigravity.mobile.data.model.SlashCommandMention(name = cmdName, icon = icon, kind = kind, definitionPath = matched?.definitionPath)
+        }
     } else null
     val optimisticUserMsg = GatewayMessageItem(
         id = optId,
@@ -383,7 +394,7 @@ internal fun ChatViewModel.sendMessage(
         val isPure = project.isPureChat
         val pid = if (isPure) "outside-of-project" else (project.rawId ?: (if (project.id != project.uri) project.id else null))
         val wsUri = if (isPure) "" else project.uri
-        val initialPrompt = if (attachments.isEmpty() && files.isEmpty() && slashCommand.isNullOrBlank() && ctxItems.isEmpty()) text else ""
+        val initialPrompt = if (attachments.isEmpty() && files.isEmpty() && cleanSlashes.isEmpty() && ctxItems.isEmpty()) text else ""
 
         viewModelScope.launch {
             val createRes = apiClient.createCascade(
@@ -443,12 +454,12 @@ internal fun ChatViewModel.sendMessage(
                 ensureWebSocketObserving()
                 ensureRunningFallbackPolling()
 
-                if (attachments.isNotEmpty() || files.isNotEmpty() || !slashCommand.isNullOrBlank() || ctxItems.isNotEmpty()) {
+                if (attachments.isNotEmpty() || files.isNotEmpty() || cleanSlashes.isNotEmpty() || ctxItems.isNotEmpty()) {
                     val imagePayloads = attachments.map { Pair(it.byteArray, it.mimeType) }
                     val sendResult = apiClient.sendMessage(
                         newCascadeId, text, model, imagePayloads,
                         attachmentIds = attachmentIds,
-                        slashCommand = slashCommand,
+                        slashCommands = cleanSlashes,
                         contextItems = ctxItems
                     )
                     sendResult.onFailure { err ->
@@ -558,7 +569,7 @@ internal fun ChatViewModel.sendMessage(
             deliveryStrategy = deliveryStrategy,
             clientMessageId = optId,
             attachmentIds = attachmentIds,
-            slashCommand = slashCommand,
+            slashCommands = cleanSlashes,
             contextItems = ctxItems
         )
         result.onFailure { err ->

@@ -68,4 +68,29 @@ class SlashCommandFilterTest {
         val (c6, _) = SlashCommandFilter.splitPrefix("/planning 文本", cmds)
         assertNull(c6)
     }
+
+    @Test
+    fun splitLeadingCommandsRestoresMultipleOrderedCommandsAndText() {
+        val (list1, rest1) = SlashCommandFilter.splitLeadingCommands("/plan /goal 请按计划执行", cmds)
+        assertEquals(listOf("plan", "goal"), list1.map { it.name })
+        assertEquals("请按计划执行", rest1)
+
+        val (list2, rest2) = SlashCommandFilter.splitLeadingCommands("/goal /ppt-master", cmds)
+        assertEquals(listOf("goal", "ppt-master"), list2.map { it.name })
+        assertEquals("", rest2)
+
+        // 重复命令去重但保留首次出现顺序
+        val (list3, rest3) = SlashCommandFilter.splitLeadingCommands("/plan /goal /plan 内容", cmds)
+        assertEquals(listOf("plan", "goal"), list3.map { it.name })
+        assertEquals("内容", rest3)
+
+        // 遇到未知命令即停止解析，后续保留在正文中
+        val (list4, rest4) = SlashCommandFilter.splitLeadingCommands("/plan /unknown 文本", cmds)
+        assertEquals(listOf("plan"), list4.map { it.name })
+        assertEquals("/unknown 文本", rest4)
+
+        assertEquals("/plan /goal 开始", SlashCommandFilter.displayText(listOf("plan", "goal"), "开始"))
+        assertEquals("/plan /goal", SlashCommandFilter.displayText(listOf("plan", "goal"), ""))
+        assertEquals("普通文本", SlashCommandFilter.displayText(emptyList(), "普通文本"))
+    }
 }

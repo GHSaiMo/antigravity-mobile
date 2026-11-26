@@ -1025,13 +1025,38 @@ object SlashCommandFilter {
 
     /**
      * 把 "/plan 帮我规划" 拆成（命令，"帮我规划"）；开头不是已知命令（或命令列表还没加载）时原样返回。
-     * 用于队列里的「编辑 / 立即发送」：队列显示的是服务端生成的显示文本，需要还原成「命令 + 文本」。
      */
     fun splitPrefix(text: String, commands: List<SlashCommandOption>): Pair<SlashCommandOption?, String> {
-        if (!text.startsWith("/") || commands.isEmpty()) return null to text
-        val firstToken = text.substring(1).takeWhile { !it.isWhitespace() }
-        val command = commands.firstOrNull { it.name == firstToken } ?: return null to text
-        return command to text.substring(1 + firstToken.length).trimStart()
+        val (matched, rest) = splitLeadingCommands(text, commands)
+        return matched.firstOrNull() to rest
+    }
+
+    /**
+     * 把 "/teamwork /goal 帮我规划" 循环拆成（有序去重命令列表，"帮我规划"）。
+     * 用于队列里的「编辑 / 立即发送」：队列显示的是服务端生成的显示文本，需要还原成「多命令 + 文本」。
+     */
+    fun splitLeadingCommands(text: String, commands: List<SlashCommandOption>): Pair<List<SlashCommandOption>, String> {
+        if (commands.isEmpty()) return emptyList<SlashCommandOption>() to text
+        var remaining = text
+        val matched = mutableListOf<SlashCommandOption>()
+        val seen = mutableSetOf<String>()
+        while (remaining.startsWith("/")) {
+            val firstToken = remaining.substring(1).takeWhile { !it.isWhitespace() }
+            if (firstToken.isEmpty()) break
+            val command = commands.firstOrNull { it.name == firstToken } ?: break
+            if (seen.add(command.name)) {
+                matched.add(command)
+            }
+            remaining = remaining.substring(1 + firstToken.length).trimStart()
+        }
+        return matched to (if (matched.isEmpty()) text else remaining)
+    }
+
+    /** 拼装本地乐观气泡与排队条目的展示文案（与 language_server 生成的 "/cmd1 /cmd2 正文" 对齐）。 */
+    fun displayText(commands: List<String>, bodyText: String): String {
+        val prefix = commands.map { it.trim() }.filter { it.isNotEmpty() }.joinToString(" ") { "/$it" }
+        if (prefix.isEmpty()) return bodyText
+        return if (bodyText.isEmpty()) prefix else "$prefix $bodyText"
     }
 
     /** 名称前缀命中优先，其次名称/标题/描述包含；保持原有顺序。 */

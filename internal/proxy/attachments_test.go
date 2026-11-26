@@ -324,6 +324,67 @@ func TestApplyAttachmentsWithSlashCommandOnly(t *testing.T) {
 	}
 }
 
+func TestApplyAttachmentsWithMultipleSlashCommandsAndText(t *testing.T) {
+	setupInbox(t)
+	a := decodeAttachment(t, upload(t, "spec.bin", []byte("bin-data")))
+	if err := os.Truncate(a.Path, 25*1024*1024); err != nil {
+		t.Fatal(err)
+	}
+	msg := map[string]interface{}{
+		"cascadeId": "c1",
+		"items": []interface{}{
+			slashItem("teamwork"),
+			map[string]interface{}{"text": " "},
+			slashItem("goal"),
+			map[string]interface{}{"text": " 开始执行"},
+		},
+		"attachments": []interface{}{map[string]interface{}{"id": a.ID}},
+	}
+	if _, err := applyAttachmentsToMessage(msg); err != nil {
+		t.Fatal(err)
+	}
+	items := msg["items"].([]interface{})
+	if len(items) != 4 {
+		t.Fatalf("items = %v", items)
+	}
+	if gotSpacer := items[1].(map[string]interface{})["text"].(string); gotSpacer != " " {
+		t.Errorf("spacer item between slash commands must remain untouched, got %q", gotSpacer)
+	}
+	if got := items[3].(map[string]interface{})["text"].(string); !strings.HasPrefix(got, " 开始执行\n\n"+attachmentHeader) || !strings.Contains(got, a.Path) {
+		t.Errorf("attachment block must merge into trailing text item, got %q", got)
+	}
+}
+
+func TestApplyAttachmentsWithMultipleSlashCommandsOnly(t *testing.T) {
+	setupInbox(t)
+	a := decodeAttachment(t, upload(t, "spec2.bin", []byte("bin-data")))
+	if err := os.Truncate(a.Path, 25*1024*1024); err != nil {
+		t.Fatal(err)
+	}
+	msg := map[string]interface{}{
+		"cascadeId": "c1",
+		"items": []interface{}{
+			slashItem("teamwork"),
+			map[string]interface{}{"text": " "},
+			slashItem("goal"),
+		},
+		"attachments": []interface{}{map[string]interface{}{"id": a.ID}},
+	}
+	if _, err := applyAttachmentsToMessage(msg); err != nil {
+		t.Fatal(err)
+	}
+	items := msg["items"].([]interface{})
+	if len(items) != 4 {
+		t.Fatalf("expected attachment block appended after last slash item, got %v", items)
+	}
+	if gotSpacer := items[1].(map[string]interface{})["text"].(string); gotSpacer != " " {
+		t.Errorf("spacer item between slash commands must remain untouched, got %q", gotSpacer)
+	}
+	if got := items[3].(map[string]interface{})["text"].(string); !strings.HasPrefix(got, " "+attachmentHeader) || !strings.Contains(got, a.Path) {
+		t.Errorf("appended attachment block must be space-separated from last slash item, got %q", got)
+	}
+}
+
 func TestApplyAttachmentsOnlyNoText(t *testing.T) {
 	setupInbox(t)
 	a := decodeAttachment(t, upload(t, "x.csv", []byte("a,b")))

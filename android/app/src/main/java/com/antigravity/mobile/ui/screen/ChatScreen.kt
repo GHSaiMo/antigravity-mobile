@@ -109,7 +109,9 @@ import coil.compose.SubcomposeAsyncImage
 import coil.request.ImageRequest
 import com.antigravity.mobile.ui.viewmodel.addImagesFromUris
 import com.antigravity.mobile.ui.viewmodel.cancelExecution
-import com.antigravity.mobile.ui.viewmodel.clearSlashCommand
+import com.antigravity.mobile.ui.viewmodel.clearSlashCommands
+import com.antigravity.mobile.ui.viewmodel.removeSlashCommand
+import com.antigravity.mobile.ui.viewmodel.stripTrailingSlashQuery
 import com.antigravity.mobile.ui.viewmodel.ensureSlashCommands
 import com.antigravity.mobile.ui.viewmodel.selectSlashCommand
 import com.antigravity.mobile.ui.viewmodel.closeChangesSheet
@@ -2096,12 +2098,13 @@ fun ChatScreen(
                 if (slashQuery != null && !uiState.showMentionPicker) {
                     SlashCommandPicker(
                         commands = com.antigravity.mobile.data.model.SlashCommandFilter.filter(uiState.slashCommands, slashQuery),
+                        selectedNames = uiState.selectedSlashCommands.map { it.name }.toSet(),
                         isLoading = uiState.isLoadingSlashCommands,
                         onSelect = {
                             isSlashPickerDismissed = false
                             if (it.name.equals("workflow", ignoreCase = true)) {
+                                viewModel.stripTrailingSlashQuery()
                                 showWorkflowTemplateSheet = true
-                                viewModel.onInputTextChanged("")
                             } else {
                                 viewModel.selectSlashCommand(it)
                             }
@@ -2442,8 +2445,8 @@ fun ChatScreen(
                                     dismissKeyboard()
                                     viewModel.openMentionPicker("")
                                 },
-                                selectedSlashCommand = uiState.selectedSlashCommand,
-                                onClearSlashCommand = { viewModel.clearSlashCommand() },
+                                selectedSlashCommands = uiState.selectedSlashCommands,
+                                onRemoveSlashCommand = { viewModel.removeSlashCommand(it) },
                                 onCommitAndPush = {
                                     dismissKeyboard()
                                     viewModel.openGitSheet()
@@ -2801,7 +2804,7 @@ fun ChatScreen(
                                 maxLines = 5,
                                 keyboardActions = KeyboardActions(
                                     onSend = {
-                                        if (inputText.isNotBlank() || uiState.selectedImages.isNotEmpty() || uiState.selectedFiles.isNotEmpty() || uiState.selectedSlashCommand != null) {
+                                        if (inputText.isNotBlank() || uiState.selectedImages.isNotEmpty() || uiState.selectedFiles.isNotEmpty() || uiState.selectedSlashCommands.isNotEmpty()) {
                                             dismissKeyboard()
                                             viewModel.sendCurrentMessage()
                                         }
@@ -2820,7 +2823,7 @@ fun ChatScreen(
                                         val isActivelyRunning = uiState.isRunning || uiState.isAwaitingResponse || uiState.runningTasks.hasBlockingTasks
                                         if (inputText.isEmpty()) {
                                             val placeholderText = when {
-                                                uiState.selectedSlashCommand?.name.equals("btw", ignoreCase = true) -> "输入旁路快问（不打断主对话）...".loc
+                                                uiState.selectedSlashCommands.any { it.name.equals("btw", ignoreCase = true) } -> "输入旁路快问（不打断主对话）...".loc
                                                 isActivelyRunning -> "向队列添加指令...".loc
                                                 else -> "发送对 Agent 的指令...".loc
                                             }
@@ -2840,7 +2843,7 @@ fun ChatScreen(
 
                             val isActivelyRunning = uiState.isRunning || uiState.isAwaitingResponse || uiState.runningTasks.hasBlockingTasks
                             val isInputBlank = inputText.isBlank()
-                            val hasAttachments = uiState.selectedImages.isNotEmpty() || uiState.selectedFiles.isNotEmpty() || uiState.selectedSlashCommand != null || uiState.selectedContextItems.isNotEmpty()
+                            val hasAttachments = uiState.selectedImages.isNotEmpty() || uiState.selectedFiles.isNotEmpty() || uiState.selectedSlashCommands.isNotEmpty() || uiState.selectedContextItems.isNotEmpty()
                             val hasSendableDraft = !isInputBlank || hasAttachments
                             val hasUnuploadedFiles = uiState.selectedFiles.any { !it.isUploaded }
 
@@ -2893,13 +2896,13 @@ fun ChatScreen(
                                             .clickable(enabled = isEnabled) {
                                                 dismissKeyboard()
                                                 val trimmedSend = inputText.trim()
-                                                val slashCmd = uiState.selectedSlashCommand
-                                                val isSlashBtw = slashCmd?.name.equals("btw", ignoreCase = true)
-                                                val isTypedBtw = slashCmd == null && (trimmedSend == "/btw" || trimmedSend.startsWith("/btw "))
+                                                val slashCmds = uiState.selectedSlashCommands
+                                                val isSlashBtw = slashCmds.size == 1 && slashCmds[0].name.equals("btw", ignoreCase = true)
+                                                val isTypedBtw = slashCmds.isEmpty() && (trimmedSend == "/btw" || trimmedSend.startsWith("/btw "))
                                                 if (uiState.selectedImages.isEmpty() && uiState.selectedFiles.isEmpty() && (isSlashBtw || isTypedBtw)) {
                                                     val q = if (isSlashBtw) trimmedSend else trimmedSend.drop(4).trim()
                                                     viewModel.onInputTextChanged("")
-                                                    viewModel.clearSlashCommand()
+                                                    viewModel.clearSlashCommands()
                                                     val cid = uiState.cascadeId
                                                     if (q.isEmpty() || cid.isBlank() || cid.startsWith("local_draft_")) {
                                                         btwAnchorStepIndex = null

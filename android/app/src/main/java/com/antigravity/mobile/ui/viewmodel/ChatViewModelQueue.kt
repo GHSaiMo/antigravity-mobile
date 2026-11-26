@@ -202,9 +202,9 @@ internal fun ChatViewModel.sendQueuedMessageNow(item: QueuedMessageItem) {
     )
 
     val attachments = item.media?.mapNotNull { decodeBase64ToAttachment(it) } ?: emptyList()
-    // 队列里显示的是 "/plan 内容"：还原成「命令 + 文本」再发，否则会变成一条以斜杠开头的普通文字
-    val (slash, rest) = SlashCommandFilter.splitPrefix(item.text, _uiState.value.slashCommands)
-    sendMessage(rest, attachments, forceImmediate = true, slashCommand = slash?.name)
+    // 队列里显示的是 "/cmd1 /cmd2 内容"：还原成「多命令 + 文本」再发，否则会变成普通文字
+    val (slashes, rest) = SlashCommandFilter.splitLeadingCommands(item.text, _uiState.value.slashCommands)
+    sendMessage(rest, attachments, forceImmediate = true, slashCommands = slashes.map { it.name }, slashOptions = slashes)
 
     viewModelScope.launch {
         var targetMsgId: String? = if (item.id.startsWith("queue-")) null else item.id
@@ -240,10 +240,10 @@ internal fun ChatViewModel.editQueuedMessage(item: QueuedMessageItem) {
     _scrollToBottomTrigger.value++
     saveSessionToCache()
 
-    val (slash, rest) = SlashCommandFilter.splitPrefix(item.text, _uiState.value.slashCommands)
+    val (slashes, rest) = SlashCommandFilter.splitLeadingCommands(item.text, _uiState.value.slashCommands)
     _inputText.value = rest
-    if (slash != null) {
-        _uiState.value = _uiState.value.copy(selectedSlashCommand = slash)
+    if (slashes.isNotEmpty()) {
+        _uiState.value = _uiState.value.copy(selectedSlashCommands = slashes)
     }
     if (!item.media.isNullOrEmpty()) {
         val attachments = item.media.mapNotNull { decodeBase64ToAttachment(it) }

@@ -837,29 +837,33 @@ class ApiClient(
         deliveryStrategy: Int? = null,
         clientMessageId: String? = null,
         attachmentIds: List<String> = emptyList(),
-        /** 斜杠命令名（如 "plan"）。网关会补全权威定义；命令条目排在文本条目之前。 */
-        slashCommand: String? = null,
+        /** 有序斜杠命令名列表（如 ["teamwork", "goal"]）。网关会补全权威定义；命令条目按序排在文本条目之前。 */
+        slashCommands: List<String> = emptyList(),
         contextItems: List<ContextMentionItem> = emptyList()
     ): Result<Unit> = withContext(Dispatchers.IO) {
         val baseUrl = currentBaseUrl ?: return@withContext Result.failure(IllegalStateException("未配置网关地址".loc))
         val url = "$baseUrl/api/exa.language_server_pb.LanguageServerService/SendUserCascadeMessage"
 
+        val cleanSlashes = slashCommands.map { it.trim() }.filter { it.isNotEmpty() }
         val payload = buildJsonObject {
             put("cascadeId", cascadeId)
             putJsonArray("items") {
-                if (!slashCommand.isNullOrBlank()) {
+                cleanSlashes.forEachIndexed { idx, cmd ->
+                    if (idx > 0) {
+                        addJsonObject { put("text", " ") }
+                    }
                     addJsonObject {
                         putJsonObject("item") {
                             putJsonObject("slashCommand") {
-                                putJsonObject("info") { put("name", slashCommand) }
+                                putJsonObject("info") { put("name", cmd) }
                             }
                         }
                     }
                 }
-                // 带命令时文本前补一个空格，让服务端生成的显示文本是 "/plan 内容"；只有命令没有文本时不带文本条目
-                if (slashCommand.isNullOrBlank() || text.isNotEmpty()) {
+                // 带命令时文本前补一个空格，让服务端生成的显示文本是 "/cmd1 /cmd2 内容"；只有命令没有文本时不带文本条目
+                if (cleanSlashes.isEmpty() || text.isNotEmpty()) {
                     addJsonObject {
-                        put("text", if (slashCommand.isNullOrBlank()) text else " $text")
+                        put("text", if (cleanSlashes.isEmpty()) text else " $text")
                     }
                 }
             }

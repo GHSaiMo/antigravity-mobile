@@ -390,37 +390,33 @@ func extractQueuedMessageText(pam upstreamAgentMessage) string {
 		}
 
 		// 2. Try structured JSON schemas (Protobuf-ES Step schema & ProtoJSON UserInput schema) in a single pass
+		type queuedInputItem struct {
+			Text  string `json:"text"`
+			Chunk *struct {
+				Case  string `json:"case"`
+				Value string `json:"value"`
+			} `json:"chunk"`
+			Item *struct {
+				SlashCommand *struct {
+					Info *struct {
+						Name string `json:"name"`
+					} `json:"info"`
+				} `json:"slashCommand"`
+			} `json:"item"`
+		}
 		var combined struct {
 			Step struct {
 				Case  string `json:"case"`
 				Value struct {
-					Items []struct {
-						Text  string `json:"text"`
-						Chunk *struct {
-							Case  string `json:"case"`
-							Value string `json:"value"`
-						} `json:"chunk"`
-					} `json:"items"`
+					Items []queuedInputItem `json:"items"`
 				} `json:"value"`
 			} `json:"step"`
 			UserInput struct {
-				UserResponse string `json:"userResponse"`
-				Response     string `json:"response"`
-				Items        []struct {
-					Text  string `json:"text"`
-					Chunk *struct {
-						Case  string `json:"case"`
-						Value string `json:"value"`
-					} `json:"chunk"`
-				} `json:"items"`
+				UserResponse string            `json:"userResponse"`
+				Response     string            `json:"response"`
+				Items        []queuedInputItem `json:"items"`
 			} `json:"userInput"`
-			Items []struct {
-				Text  string `json:"text"`
-				Chunk *struct {
-					Case  string `json:"case"`
-					Value string `json:"value"`
-				} `json:"chunk"`
-			} `json:"items"`
+			Items []queuedInputItem `json:"items"`
 		}
 		if err := json.Unmarshal(raw, &combined); err == nil {
 			if strings.TrimSpace(combined.UserInput.UserResponse) != "" {
@@ -430,28 +426,27 @@ func extractQueuedMessageText(pam upstreamAgentMessage) string {
 				return strings.TrimSpace(combined.UserInput.Response)
 			}
 
+			appendQueuedItems := func(b *strings.Builder, items []queuedInputItem) {
+				for _, it := range items {
+					if it.Item != nil && it.Item.SlashCommand != nil && it.Item.SlashCommand.Info != nil {
+						if name := strings.TrimPrefix(strings.TrimSpace(it.Item.SlashCommand.Info.Name), "/"); name != "" {
+							b.WriteString("/")
+							b.WriteString(name)
+							continue
+						}
+					}
+					if it.Text != "" {
+						b.WriteString(it.Text)
+					} else if it.Chunk != nil && it.Chunk.Value != "" {
+						b.WriteString(it.Chunk.Value)
+					}
+				}
+			}
+
 			var b strings.Builder
-			for _, it := range combined.Step.Value.Items {
-				if it.Text != "" {
-					b.WriteString(it.Text)
-				} else if it.Chunk != nil && it.Chunk.Value != "" {
-					b.WriteString(it.Chunk.Value)
-				}
-			}
-			for _, it := range combined.UserInput.Items {
-				if it.Text != "" {
-					b.WriteString(it.Text)
-				} else if it.Chunk != nil && it.Chunk.Value != "" {
-					b.WriteString(it.Chunk.Value)
-				}
-			}
-			for _, it := range combined.Items {
-				if it.Text != "" {
-					b.WriteString(it.Text)
-				} else if it.Chunk != nil && it.Chunk.Value != "" {
-					b.WriteString(it.Chunk.Value)
-				}
-			}
+			appendQueuedItems(&b, combined.Step.Value.Items)
+			appendQueuedItems(&b, combined.UserInput.Items)
+			appendQueuedItems(&b, combined.Items)
 			if t := strings.TrimSpace(b.String()); t != "" {
 				return t
 			}

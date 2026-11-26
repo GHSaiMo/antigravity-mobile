@@ -11,7 +11,7 @@ extension APIClient {
         cascadeConfigRaw: String? = nil,
         clientMessageId: String? = nil,
         attachmentIds: [String]? = nil,
-        slashCommand: String? = nil,
+        slashCommands: [String]? = nil,
         contextItems: [ContextMentionItem]? = nil,
         baseURL: URL
     ) async throws {
@@ -27,7 +27,7 @@ extension APIClient {
             deliveryStrategy: deliveryStrategy,
             cascadeConfigRaw: cascadeConfigRaw,
             attachments: attachmentIds?.isEmpty == false ? attachmentIds?.map { AttachmentRef(id: $0) } : nil,
-            slashCommand: slashCommand,
+            slashCommands: slashCommands,
             contextItems: contextItems
         )
         var headers: [String: String] = [:]

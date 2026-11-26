@@ -72,8 +72,8 @@ fun QuickActionChips(
     modelSlidePickerState: ModelSlidePickerState? = null,
     onAddImage: () -> Unit,
     onAddImageLongClick: (() -> Unit)? = null,
-    selectedSlashCommand: SlashCommandOption? = null,
-    onClearSlashCommand: () -> Unit = {},
+    selectedSlashCommands: List<SlashCommandOption> = emptyList(),
+    onRemoveSlashCommand: (SlashCommandOption) -> Unit = {},
     onCommitAndPush: () -> Unit,
     commitLabel: String = "Commit",
     showCommit: Boolean = true,
@@ -366,6 +366,17 @@ fun QuickActionChips(
             }
         }
 
+        // 2a. 已选中的斜杠命令胶囊（按选择顺序排在模型与 Workflow 之间，样式同高对齐，右上角带小叉，轻点移除单个）
+        selectedSlashCommands.forEach { command ->
+            SlashCommandChip(
+                command = command,
+                onClear = {
+                    haptic.light()
+                    onRemoveSlashCommand(command)
+                }
+            )
+        }
+
         // 2b. Workflow: 单击打开满屏模板页，长按上滑快捷输入（纯文字无 logo，视觉与 Commit/Changes 对齐）
         if (onShowWorkflowTemplates != null) {
             Box(
@@ -428,17 +439,6 @@ fun QuickActionChips(
                     fontWeight = FontWeight.Medium
                 )
             }
-        }
-
-        // 2c. 已选中的斜杠命令按钮（紧跟右侧，样式同高对齐，右上角带小叉）
-        selectedSlashCommand?.let { command ->
-            SlashCommandChip(
-                command = command,
-                onClear = {
-                    haptic.light()
-                    onClearSlashCommand()
-                }
-            )
         }
 
         // 3. Commit：打开 Git 提交浮窗（长按上滑快捷填充 Commit 命令，仅在有工作区变动时可上滑）

@@ -504,14 +504,41 @@ public enum SlashCommandFilter {
     }
 
     /// 把 "/plan 帮我规划" 拆成（命令，"帮我规划"）；开头不是已知命令（或命令列表还没加载）时原样返回。
-    /// 用于队列里的「编辑 / 立即发送」：队列显示的是服务端生成的显示文本，需要还原成「命令 + 文本」。
     public static func splitPrefix(_ text: String, commands: [SlashCommandOption]) -> (command: SlashCommandOption?, rest: String) {
-        guard text.hasPrefix("/"), !commands.isEmpty else { return (nil, text) }
-        let afterSlash = text.dropFirst()
-        let token = String(afterSlash.prefix(while: { !$0.isWhitespace }))
-        guard let command = commands.first(where: { $0.name == token }) else { return (nil, text) }
-        let rest = afterSlash.dropFirst(token.count).drop(while: { $0.isWhitespace })
-        return (command, String(rest))
+        let multi = splitLeadingCommands(text, commands: commands)
+        return (multi.commands.first, multi.rest)
+    }
+
+    /// 把 "/teamwork /goal 帮我规划" 循环拆成（有序去重命令列表，"帮我规划"）。
+    /// 用于队列里的「编辑 / 立即发送」：队列显示的是服务端生成的显示文本，需要还原成「多命令 + 文本」。
+    public static func splitLeadingCommands(_ text: String, commands: [SlashCommandOption]) -> (commands: [SlashCommandOption], rest: String) {
+        guard !commands.isEmpty else { return ([], text) }
+        var remaining = Substring(text)
+        var matched: [SlashCommandOption] = []
+        var seen = Set<String>()
+        while remaining.hasPrefix("/") {
+            let afterSlash = remaining.dropFirst()
+            let token = String(afterSlash.prefix(while: { !$0.isWhitespace }))
+            guard !token.isEmpty, let command = commands.first(where: { $0.name == token }) else {
+                break
+            }
+            if seen.insert(command.name).inserted {
+                matched.append(command)
+            }
+            remaining = afterSlash.dropFirst(token.count).drop(while: { $0.isWhitespace })
+        }
+        return (matched, matched.isEmpty ? text : String(remaining))
+    }
+
+    /// 拼装本地乐观气泡与排队条目的展示文案（与 language_server 生成的 "/cmd1 /cmd2 正文" 对齐）。
+    public static func displayText(commands: [String], bodyText: String) -> String {
+        let prefix = commands
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+            .map { "/\($0)" }
+            .joined(separator: " ")
+        guard !prefix.isEmpty else { return bodyText }
+        return bodyText.isEmpty ? prefix : "\(prefix) \(bodyText)"
     }
 }
 

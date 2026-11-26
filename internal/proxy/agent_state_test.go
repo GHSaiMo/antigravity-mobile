@@ -189,6 +189,24 @@ func TestExtractQueuedMessageText(t *testing.T) {
 	if txt := extractQueuedMessageText(msg6); txt != targetText {
 		t.Errorf("expected '%s', got '%s'", targetText, txt)
 	}
+
+	// Case 7: Multiple slash command items with spacer and trailing text
+	msg7 := upstreamAgentMessage{
+		ID: "7",
+		StepPayload: json.RawMessage(`{
+			"userInput": {
+				"items": [
+					{"item": {"slashCommand": {"info": {"name": "teamwork"}}}},
+					{"text": " "},
+					{"item": {"slashCommand": {"info": {"name": "goal"}}}},
+					{"text": " 请按照计划执行"}
+				]
+			}
+		}`),
+	}
+	if txt := extractQueuedMessageText(msg7); txt != "/teamwork /goal 请按照计划执行" {
+		t.Errorf("expected '/teamwork /goal 请按照计划执行', got '%s'", txt)
+	}
 }
 
 func TestParseAgentStateQueuedMessages(t *testing.T) {

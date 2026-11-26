@@ -6,8 +6,8 @@ const slashState = {
   commands: [],
   loading: false,
   loaded: false,
-  selected: null, // { name, title, kind, icon }
-  cascadeId: "", // 选中该命令时所在的会话
+  selected: [], // [{ name, title, kind, icon, definitionPath }]
+  cascadeId: "", // 选中该命令列表时所在的会话标识
 };
 
 // 桌面端（Antigravity Desktop）斜杠命令与技能 SVG 路径（统一归一化到 viewBox="0 0 960 960"）
@@ -226,20 +226,39 @@ function filterSlashCommands(all, query) {
   return prefix.concat(rest);
 }
 
-function getSelectedSlashCommand() {
-  // 标签只属于选中它的那个会话：切换会话后自动失效
-  if (slashState.selected && slashState.cascadeId !== activeCascadeId) {
-    slashState.selected = null;
+function currentSlashSessionKey() {
+  if (typeof activeCascadeId !== "undefined" && activeCascadeId) return activeCascadeId;
+  if (typeof activeDraftSession !== "undefined" && activeDraftSession) return "__draft__";
+  return "";
+}
+
+function getSelectedSlashCommands() {
+  const sessionKey = currentSlashSessionKey();
+  // 标签只属于选中它们的那个会话：切换会话后自动失效
+  if (slashState.selected.length > 0 && slashState.cascadeId !== sessionKey) {
+    slashState.selected = [];
     renderSlashChip();
   }
   return slashState.selected;
 }
 
-// 发出去的 items：命令条目在前，用户文字（前面补一个空格）在后
-function buildSendItems(text) {
+function getSelectedSlashCommand() {
+  const list = getSelectedSlashCommands();
+  return list.length > 0 ? list[0] : null;
+}
+
+// 发出去的 items：有序命令条目在前（相邻命令之间补空格项防止粘连成 /cmd1/cmd2），用户文字（前面补一个空格）在后
+function buildSendItems(text, commandsOverride) {
   const items = [];
-  if (slashState.selected) {
-    items.push({ item: { slashCommand: { info: { name: slashState.selected.name } } } });
+  const cmds = Array.isArray(commandsOverride) ? commandsOverride : getSelectedSlashCommands();
+  const cleanNames = cmds
+    .map((c) => (typeof c === "string" ? c : c?.name || "").trim())
+    .filter(Boolean);
+  if (cleanNames.length > 0) {
+    cleanNames.forEach((name, idx) => {
+      if (idx > 0) items.push({ text: " " });
+      items.push({ item: { slashCommand: { info: { name } } } });
+    });
     if (text) items.push({ text: " " + text });
     return items;
   }
@@ -248,13 +267,73 @@ function buildSendItems(text) {
 }
 
 // 乐观气泡 / 队列里显示的文字
-function slashDisplayText(text) {
-  if (!slashState.selected) return text;
-  return "/" + slashState.selected.name + (text ? " " + text : "");
+function slashDisplayText(text, commandsOverride) {
+  const cmds = Array.isArray(commandsOverride) ? commandsOverride : getSelectedSlashCommands();
+  const prefix = cmds
+    .map((c) => (typeof c === "string" ? c : c?.name || "").trim())
+    .filter(Boolean)
+    .map((name) => "/" + name)
+    .join(" ");
+  if (!prefix) return text;
+  return text ? `${prefix} ${text}` : prefix;
+}
+
+// 把 "/teamwork /goal 请按计划执行" 循环拆成 { commands: [...], rest }（供队列编辑/立即发送还原）
+function splitLeadingSlashCommands(rawText) {
+  const text = String(rawText || "");
+  let remaining = text;
+  const matched = [];
+  const seen = new Set();
+
+  const findCommand = (token) => {
+    const fromMenu = (slashState.commands || []).find((c) => c.name === token);
+    if (fromMenu) {
+      return {
+        name: fromMenu.name,
+        title: fromMenu.title || fromMenu.name,
+        kind: fromMenu.kind || "system",
+        icon: resolveSlashCommandIcon(fromMenu.name, fromMenu.icon, fromMenu.kind),
+        definitionPath: fromMenu.definitionPath || "",
+      };
+    }
+    if (DEFAULT_SYSTEM_SLASH_ICONS[token]) {
+      return {
+        name: token,
+        title: token,
+        kind: "system",
+        icon: DEFAULT_SYSTEM_SLASH_ICONS[token],
+        definitionPath: "",
+      };
+    }
+    return null;
+  };
+
+  while (remaining.startsWith("/")) {
+    const m = remaining.match(/^\/([A-Za-z0-9_-]+)(?:$|\s+)/);
+    if (!m) break;
+    const token = m[1];
+    const cmd = findCommand(token);
+    if (!cmd) break;
+    if (!seen.has(cmd.name)) {
+      seen.add(cmd.name);
+      matched.push(cmd);
+    }
+    remaining = remaining.slice(m[0].length);
+  }
+  return { commands: matched, rest: matched.length > 0 ? remaining : text };
+}
+
+function removeSelectedSlash(name) {
+  const target = String(name || "").trim();
+  if (!target) return;
+  slashState.selected = slashState.selected.filter((c) => c.name !== target);
+  renderSlashPicker();
+  renderSlashChip();
 }
 
 function clearSelectedSlash() {
-  slashState.selected = null;
+  slashState.selected = [];
+  renderSlashPicker();
   renderSlashChip();
 }
 
@@ -288,7 +367,7 @@ async function ensureSlashCommands() {
 }
 
 function slashPickerQuery() {
-  if (!activeCascadeId) return null; // 新建会话（草稿）不支持斜杠命令
+  if (!currentSlashSessionKey()) return null;
   if (!isFeatureAvailable(GATEWAY_FEATURE.SLASH)) return null;
   const input = document.getElementById("chat-input");
   return slashQueryOf(input ? input.value : "");
@@ -304,6 +383,7 @@ function renderSlashPicker() {
     return;
   }
   const list = filterSlashCommands(slashState.commands, query);
+  const selectedNames = new Set(getSelectedSlashCommands().map((c) => c.name));
   box.classList.remove("hidden");
   if (list.length === 0) {
     box.innerHTML = `<div class="slash-empty">${
@@ -311,34 +391,34 @@ function renderSlashPicker() {
     }</div>`;
     return;
   }
+  const checkSvg = `<svg class="slash-item-check" width="16" height="16" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-2 15-5-5 1.41-1.41L10 14.17l7.59-7.59L19 8l-9 9z"/></svg>`;
   box.innerHTML = list
     .map((c) => {
       const kind = c.kind === "skill" ? "技能" : "系统";
       const iconSvg = renderSlashCommandIconSvg(c.name, c.icon, c.kind, 16, "slash-item-icon");
       const desc = c.description ? `<span class="slash-item-desc">${escapeHtml(c.description)}</span>` : "";
+      const checked = selectedNames.has(c.name) ? checkSvg : "";
       return `<button type="button" class="slash-item" data-name="${escapeHtml(c.name)}">
-        <span class="slash-item-main">${iconSvg}<span class="slash-item-name">/${escapeHtml(c.name)}</span><span class="slash-item-kind">${kind}</span></span>${desc}
+        <span class="slash-item-main">${iconSvg}<span class="slash-item-name">/${escapeHtml(c.name)}</span><span class="slash-item-kind">${kind}</span>${checked}</span>${desc}
       </button>`;
     })
     .join("");
 }
 
 function renderSlashChip() {
-  const chip = document.getElementById("slash-chip");
-  if (!chip) return;
-  if (!slashState.selected) {
-    chip.classList.add("hidden");
-    chip.innerHTML = "";
+  const container = document.getElementById("slash-chip");
+  if (!container) return;
+  if (!slashState.selected || slashState.selected.length === 0) {
+    container.classList.add("hidden");
+    container.innerHTML = "";
   } else {
-    chip.classList.remove("hidden");
-    const iconSvg = renderSlashCommandIconSvg(
-      slashState.selected.name,
-      slashState.selected.icon,
-      slashState.selected.kind,
-      15,
-      "slash-chip-icon",
-    );
-    chip.innerHTML = `${iconSvg}<span class="slash-chip-name">${escapeHtml(slashState.selected.name)}</span><button type="button" class="slash-chip-clear" aria-label="移除命令">×</button>`;
+    container.classList.remove("hidden");
+    container.innerHTML = slashState.selected
+      .map((cmd) => {
+        const iconSvg = renderSlashCommandIconSvg(cmd.name, cmd.icon, cmd.kind, 15, "slash-chip-icon");
+        return `<div class="slash-chip" data-name="${escapeHtml(cmd.name)}" role="button" tabindex="0" aria-label="移除命令 ${escapeHtml(cmd.name)}">${iconSvg}<span class="slash-chip-name">${escapeHtml(cmd.name)}</span><button type="button" class="slash-chip-clear" aria-label="移除命令">×</button></div>`;
+      })
+      .join("");
   }
   const isRunning = typeof currentTrajectories !== "undefined" && currentTrajectories[activeCascadeId]?.status === "CASCADE_RUN_STATUS_RUNNING";
   if (typeof updateChatControls === "function") updateChatControls(isRunning, null, false);
@@ -357,21 +437,39 @@ function selectSlashCommand(name) {
     }
     input.focus();
   }
-  if (String(cmd.name || "").toLowerCase() === "btw") {
-    slashState.selected = null;
+  const lowerName = String(cmd.name || "").toLowerCase();
+  if (lowerName === "btw") {
     renderSlashPicker();
     renderSlashChip();
     const sel = window.getSelection?.()?.toString()?.trim() || "";
     window.V233?.openBtwModal?.({ parentCascadeId: activeCascadeId, quote: sel });
     return;
   }
-  slashState.selected = {
-    name: cmd.name,
-    title: cmd.title || cmd.name,
-    kind: cmd.kind,
-    icon: resolveSlashCommandIcon(cmd.name, cmd.icon, cmd.kind),
-  };
-  slashState.cascadeId = activeCascadeId;
+  if (lowerName === "workflow") {
+    renderSlashPicker();
+    renderSlashChip();
+    if (typeof openWorkflowSheet === "function") {
+      openWorkflowSheet(false);
+    }
+    return;
+  }
+  const sessionKey = currentSlashSessionKey();
+  if (slashState.cascadeId !== sessionKey) {
+    slashState.selected = [];
+  }
+  const existingIdx = slashState.selected.findIndex((c) => c.name === cmd.name);
+  if (existingIdx >= 0) {
+    slashState.selected.splice(existingIdx, 1);
+  } else {
+    slashState.selected.push({
+      name: cmd.name,
+      title: cmd.title || cmd.name,
+      kind: cmd.kind,
+      icon: resolveSlashCommandIcon(cmd.name, cmd.icon, cmd.kind),
+      definitionPath: cmd.definitionPath || "",
+    });
+  }
+  slashState.cascadeId = sessionKey;
   renderSlashPicker();
   renderSlashChip();
 }
@@ -386,7 +484,11 @@ function initSlashCommands() {
     const item = e.target.closest(".slash-item");
     if (item) selectSlashCommand(item.getAttribute("data-name"));
   });
-  document.getElementById("slash-chip")?.addEventListener("click", () => {
-    clearSelectedSlash();
+  document.getElementById("slash-chip")?.addEventListener("click", (e) => {
+    const chip = e.target.closest(".slash-chip");
+    if (chip) {
+      if (typeof triggerHaptic === "function") triggerHaptic("light");
+      removeSelectedSlash(chip.getAttribute("data-name"));
+    }
   });
 }

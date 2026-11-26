@@ -81,6 +81,17 @@ extension ChatView {
                         }
                     )
 
+                    // 2a. 已选中的斜杠命令胶囊（按选择顺序排在模型与 Workflow 之间，样式同高对齐，右上角带小叉，轻点移除单个）
+                    ForEach(viewModel.selectedSlashCommands) { command in
+                        SlashCommandChipView(command: command) {
+                            UIImpactFeedbackGenerator(style: .light).impactOccurred()
+                            withAnimation(.easeInOut(duration: 0.15)) {
+                                viewModel.removeSlashCommand(command)
+                            }
+                        }
+                        .transition(.scale(scale: 0.9).combined(with: .opacity))
+                    }
+
                     // 2b. Workflow: 单击打开满屏模板页，长按上滑快捷输入（纯文字无 logo，视觉与 Commit/Changes 对齐）
                     WorkflowChipButton(
                         pickerState: workflowPickerState,
@@ -105,17 +116,6 @@ extension ChatView {
                             }
                         }
                     )
-
-                    // 2c. 已选中的斜杠命令按钮（紧跟右侧，样式同高对齐，右上角带小叉）
-                    if let command = viewModel.selectedSlashCommand {
-                        SlashCommandChipView(command: command) {
-                            UIImpactFeedbackGenerator(style: .light).impactOccurred()
-                            withAnimation(.easeInOut(duration: 0.15)) {
-                                viewModel.clearSlashCommand()
-                            }
-                        }
-                        .transition(.scale(scale: 0.9).combined(with: .opacity))
-                    }
                     
                     // 3. Commit：打开 Git 提交浮窗（长按上滑快捷填充 Commit 命令，仅在有工作区变动时可上滑）
                     if viewModel.hasGitChanges {
@@ -217,7 +217,7 @@ extension ChatView {
             }
             .animation(.easeInOut(duration: 0.2), value: viewModel.isLatestMessageError)
             .animation(.easeInOut(duration: 0.2), value: viewModel.canProceed)
-            .animation(.easeInOut(duration: 0.15), value: viewModel.selectedSlashCommand)
+            .animation(.easeInOut(duration: 0.15), value: viewModel.selectedSlashCommands)
             
             // Image previews strip
             if !viewModel.selectedImageData.isEmpty {
@@ -397,13 +397,14 @@ private struct ChatFloatingSlashPopupHost: View {
             let maxList = max(maxTotal - 46, 74)
             SlashCommandPickerView(
                 commands: SlashCommandFilter.filter(viewModel.slashCommands, query: slashQuery),
+                selectedNames: Set(viewModel.selectedSlashCommands.map(\.name)),
                 isLoading: viewModel.isLoadingSlashCommands,
                 maxListHeight: maxList,
                 onSelect: { cmd in
                     isSlashPickerDismissed = false
-                    if cmd.name == "workflow" {
+                    if cmd.name.lowercased() == "workflow" {
+                        viewModel.stripTrailingSlashQuery()
                         onSelectWorkflow?()
-                        viewModel.selectSlashCommand(cmd)
                     } else {
                         viewModel.selectSlashCommand(cmd)
                     }
@@ -445,7 +446,7 @@ private struct ChatInputTextAndSendRow: View {
         !viewModel.inputText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
             || !viewModel.selectedImageData.isEmpty
             || !viewModel.selectedFiles.isEmpty
-            || viewModel.selectedSlashCommand != nil
+            || !viewModel.selectedSlashCommands.isEmpty
             || !viewModel.selectedContextItems.isEmpty
     }
 
@@ -459,7 +460,7 @@ private struct ChatInputTextAndSendRow: View {
         HStack(alignment: .bottom, spacing: 10) {
             BracketPlaceholderTextInput(
                 text: $viewModel.inputText,
-                placeholder: viewModel.selectedSlashCommand?.name.lowercased() == "btw"
+                placeholder: viewModel.selectedSlashCommands.contains(where: { $0.name.lowercased() == "btw" })
                     ? String(localized: "输入旁路快问（不打断主对话）...")
                     : (viewModel.isActivelyRunning ? String(localized: "向队列添加指令...") : String(localized: "发送对 Agent 的指令...")),
                 isFocused: $isInputFocused,

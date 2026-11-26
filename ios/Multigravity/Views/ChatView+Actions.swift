@@ -17,14 +17,14 @@ extension ChatView {
         let text = viewModel.inputText.trimmingCharacters(in: .whitespacesAndNewlines)
         let images = viewModel.selectedImageData
         let files = viewModel.selectedFiles
-        let slash = viewModel.selectedSlashCommand
+        let slashes = viewModel.selectedSlashCommands
         let contextItems = viewModel.selectedContextItems
-        let isSlashBtw = slash?.name.lowercased() == "btw"
-        let isTypedBtw = slash == nil && (text == "/btw" || text.hasPrefix("/btw "))
+        let isSlashBtw = slashes.count == 1 && slashes[0].name.lowercased() == "btw"
+        let isTypedBtw = slashes.isEmpty && (text == "/btw" || text.hasPrefix("/btw "))
         if images.isEmpty && files.isEmpty && contextItems.isEmpty && (isSlashBtw || isTypedBtw) {
             let question = isSlashBtw ? text : String(text.dropFirst(4)).trimmingCharacters(in: .whitespacesAndNewlines)
             viewModel.inputText = ""
-            viewModel.selectedSlashCommand = nil
+            viewModel.selectedSlashCommands = []
             isInputFocused = false
             if question.isEmpty || viewModel.isDraftConversation || viewModel.cascadeId.isEmpty {
                 btwSheetPresentation = BtwSheetPresentation()
@@ -35,7 +35,7 @@ extension ChatView {
             }
             return
         }
-        guard !text.isEmpty || !images.isEmpty || !files.isEmpty || slash != nil || !contextItems.isEmpty else { return }
+        guard !text.isEmpty || !images.isEmpty || !files.isEmpty || !slashes.isEmpty || !contextItems.isEmpty else { return }
         // Files are uploaded in the background; wait until they have all reached the gateway.
         guard files.allSatisfy({ $0.isUploaded }) else { return }
         guard viewModel.settings.serverURL != nil else { return }
@@ -46,8 +46,8 @@ extension ChatView {
                 text: text,
                 images: images,
                 files: files,
-                slashCommand: slash?.name,
-                slashOption: slash,
+                slashCommands: slashes.map(\.name),
+                slashOptions: slashes,
                 contextItems: contextItems,
                 clearsDraft: true
             )

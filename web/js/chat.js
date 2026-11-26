@@ -4007,10 +4007,18 @@ const LocalQueueManager = {
     this.save();
 
     // Optimistically render user message in chat stream
+    const splitQueueSlash = typeof splitLeadingSlashCommands === "function"
+      ? splitLeadingSlashCommands(item.text || "")
+      : { commands: [], rest: item.text || "" };
     const streamEl = document.getElementById("messages-stream");
     const tempId = `temp-user-${Date.now()}`;
     if (streamEl) {
-      const textHtml = item.text ? `<div>${escapeHtml(item.text)}</div>` : "";
+      const renderedQueueText = item.text
+        ? (typeof renderUserTextWithSlashPills === "function"
+            ? renderUserTextWithSlashPills(item.text, splitQueueSlash.commands)
+            : escapeHtml(item.text))
+        : "";
+      const textHtml = renderedQueueText ? `<div>${renderedQueueText}</div>` : "";
       streamEl.insertAdjacentHTML("beforeend", `
         <div id="${tempId}" class="message-row user">
           <div class="bubble">${textHtml}</div>
@@ -4027,10 +4035,13 @@ const LocalQueueManager = {
       }
       updateChatControls(true, null, false);
       const clientMsgId = "web-" + Date.now() + "-" + Math.random().toString(36).slice(2);
+      const sendItems = (splitQueueSlash.commands.length > 0 && typeof buildSendItems === "function")
+        ? buildSendItems(splitQueueSlash.rest, splitQueueSlash.commands)
+        : [{ text: item.text }];
       await rpc("SendUserCascadeMessage", {
         cascadeId: activeCascadeId,
         model: activeModel,
-        items: [{ text: item.text }],
+        items: sendItems,
         deliveryStrategy: 1 // NEXT_INVOCATION
       }, { "X-Client-Message-Id": clientMsgId });
 
@@ -4067,9 +4078,18 @@ const LocalQueueManager = {
     if (!item) return;
     this.remove(id);
 
+    const split = typeof splitLeadingSlashCommands === "function"
+      ? splitLeadingSlashCommands(item.text || "")
+      : { commands: [], rest: item.text || "" };
+    if (split.commands.length > 0 && typeof slashState !== "undefined") {
+      slashState.selected = [...split.commands];
+      slashState.cascadeId = typeof currentSlashSessionKey === "function" ? currentSlashSessionKey() : activeCascadeId;
+      if (typeof renderSlashChip === "function") renderSlashChip();
+    }
+
     const inputEl = document.getElementById("chat-input");
     if (inputEl) {
-      inputEl.value = item.text;
+      inputEl.value = split.rest;
       inputEl.style.height = "auto";
       inputEl.style.height = Math.min(inputEl.scrollHeight, 120) + "px";
       inputEl.focus();

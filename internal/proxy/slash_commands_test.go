@@ -162,6 +162,30 @@ func TestSendExpandsSlashCommandToAuthoritativeInfo(t *testing.T) {
 	if rec = doSend(p, `{"cascadeId":"c1","items":[{"item":{"slashCommand":{"info":{"name":"schedule"}}}}]}`, nil); rec.Code != http.StatusOK {
 		t.Errorf("hidden command must still resolve, got %d", rec.Code)
 	}
+
+	// 多斜杠命令组合：按顺序展开所有命令条目，并保留中间空格分隔项与尾部正文
+	rec = doSend(p, `{"cascadeId":"c1","items":[{"item":{"slashCommand":{"info":{"name":"plan"}}}},{"text":" "},{"item":{"slashCommand":{"info":{"name":"bird-twitter"}}}},{"text":" 联合执行"}]}`, nil)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("multi-slash => %d %s", rec.Code, rec.Body.String())
+	}
+	items, _ = sent["items"].([]interface{})
+	if len(items) != 4 {
+		t.Fatalf("multi-slash forwarded items = %v", sent["items"])
+	}
+	firstInfo := items[0].(map[string]interface{})["item"].(map[string]interface{})["slashCommand"].(map[string]interface{})["info"].(map[string]interface{})
+	secondInfo := items[2].(map[string]interface{})["item"].(map[string]interface{})["slashCommand"].(map[string]interface{})["info"].(map[string]interface{})
+	if firstInfo["modelFacingText"] != "<PLAN>think first</PLAN>" {
+		t.Errorf("first slash command not expanded: %v", firstInfo)
+	}
+	if items[1].(map[string]interface{})["text"] != " " {
+		t.Errorf("spacer between slash commands lost: %v", items[1])
+	}
+	if secondInfo["modelFacingText"] != "<SKILL>use bird</SKILL>" || secondInfo["definitionPath"] != "/x/SKILL.md" {
+		t.Errorf("second slash command not expanded: %v", secondInfo)
+	}
+	if items[3].(map[string]interface{})["text"] != " 联合执行" {
+		t.Errorf("trailing text lost: %v", items[3])
+	}
 }
 
 func TestSendRejectsUnknownOrEmptySlashCommand(t *testing.T) {

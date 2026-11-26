@@ -30,9 +30,10 @@ async function sendMessage() {
     if (typeof showToast === "function") showToast(typeof t === "function" ? t("附件正在上传，请稍候…") : "附件正在上传，请稍候…");
     return;
   }
-  const slashSelected = getSelectedSlashCommand();
+  const slashSelected = typeof getSelectedSlashCommands === "function" ? [...getSelectedSlashCommands()] : [];
+  const hasSlash = slashSelected.length > 0;
   const hasContextItems = !!(window.Phase3?.contextItems?.length);
-  if (!text && !hasImages && !hasAttachments && !slashSelected && !hasContextItems) return;
+  if (!text && !hasImages && !hasAttachments && !hasSlash && !hasContextItems) return;
 
   if (!activeCascadeId && activeDraftSession) {
     isSendingMessage = true;
@@ -45,12 +46,12 @@ async function sendMessage() {
     if (typeof pendingAttachments !== "undefined") pendingAttachments = [];
     renderImagePreviews();
 
-    const sentSlash = slashSelected;
+    const sentSlashes = [...slashSelected];
     const ctxItems = window.Phase3?.consumeContextItems?.() || [];
-    const needsSeparateMessage = imagesToSend.length > 0 || attachmentsToSend.length > 0 || !!sentSlash || ctxItems.length > 0;
+    const needsSeparateMessage = imagesToSend.length > 0 || attachmentsToSend.length > 0 || sentSlashes.length > 0 || ctxItems.length > 0;
     const effectiveText = text || (attachmentsToSend.length > 0 && !imagesToSend.length ? (typeof t === "function" ? t("请查收附件") : "请查收附件") : "");
-    const items = needsSeparateMessage ? buildSendItems(effectiveText) : null;
-    if (sentSlash) {
+    const items = needsSeparateMessage ? buildSendItems(effectiveText, sentSlashes) : null;
+    if (sentSlashes.length > 0) {
       clearSelectedSlash();
     }
 
@@ -126,9 +127,9 @@ async function sendMessage() {
       pendingImages = imagesToSend;
       if (typeof pendingAttachments !== "undefined") pendingAttachments = attachmentsToSend;
       renderImagePreviews();
-      if (sentSlash && typeof slashState !== "undefined") {
-        slashState.selected = sentSlash;
-        slashState.cascadeId = null;
+      if (sentSlashes.length > 0 && typeof slashState !== "undefined") {
+        slashState.selected = [...sentSlashes];
+        slashState.cascadeId = "__draft__";
         if (typeof renderSlashChip === "function") renderSlashChip();
       }
       alert(typeof t === "function" ? t("创建会话失败: " + err.message) : "创建会话失败: " + err.message);
@@ -175,11 +176,11 @@ async function sendMessage() {
   updateProceedButton(false);
   updateContinueButton(false);
 
+  const sentSlashes = [...slashSelected];
   const effectiveText = text || (attachmentsToSend.length > 0 && !imagesToSend.length ? "请查收附件" : "");
-  const items = buildSendItems(effectiveText);
+  const items = buildSendItems(effectiveText, sentSlashes);
   const ctxItems = window.Phase3?.consumeContextItems?.() || [];
-  const displayText = slashDisplayText(text);
-  const sentSlash = slashSelected;
+  const displayText = slashDisplayText(text, sentSlashes);
   clearSelectedSlash();
   // Only media[] is stored by language_server (and read by the model); the legacy images[] copy
   // would just double the upload.
@@ -245,6 +246,11 @@ async function sendMessage() {
             DraftManager.set(targetCascadeId, saved && saved.trim() ? `${saved}\n${text}` : text);
           }
         }
+        if (sentSlashes.length > 0 && activeCascadeId === targetCascadeId && typeof slashState !== "undefined" && slashState.selected.length === 0) {
+          slashState.selected = [...sentSlashes];
+          slashState.cascadeId = targetCascadeId;
+          if (typeof renderSlashChip === "function") renderSlashChip();
+        }
         if (typeof showToast === "function") {
           const tr = (typeof t === "function") ? t : (s) => s;
           showToast(tr("排队消息发送失败，已恢复到输入框"));
@@ -276,7 +282,7 @@ async function sendMessage() {
   }
   const renderedDisplay = displayText
     ? (typeof renderUserTextWithSlashPills === "function"
-        ? renderUserTextWithSlashPills(displayText, sentSlash ? [sentSlash] : [])
+        ? renderUserTextWithSlashPills(displayText, sentSlashes)
         : escapeHtml(displayText))
     : "";
   const textHtml = renderedDisplay ? `<div>${renderedDisplay}</div>` : "";
@@ -320,8 +326,8 @@ async function sendMessage() {
     alert(typeof t === "function" ? t("发送失败: " + err.message) : "发送失败: " + err.message);
     const tempEl = document.getElementById(tempId);
     if (tempEl) tempEl.remove();
-    if (sentSlash) {
-      slashState.selected = sentSlash;
+    if (sentSlashes.length > 0) {
+      slashState.selected = [...sentSlashes];
       slashState.cascadeId = activeCascadeId;
       renderSlashChip();
     }

@@ -360,7 +360,19 @@ private enum DemoRouter {
             var slashCommands: [[String: Any]] = []
             var textParts: [String] = []
             for item in items {
-                if let slashName = (item["slashCommand"] as? String) ?? (item["commandName"] as? String), !slashName.isEmpty {
+                if let inner = item["item"] as? [String: Any],
+                   let sc = inner["slashCommand"] as? [String: Any],
+                   let info = sc["info"] as? [String: Any],
+                   let name = (info["name"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines),
+                   !name.isEmpty {
+                    let isSystem = SlashCommandIconCatalog.defaultSystemIcons[name] != nil
+                    slashCommands.append([
+                        "name": name,
+                        "icon": SlashCommandIconCatalog.defaultSystemIcons[name] ?? "code_blocks",
+                        "kind": isSystem ? "system" : "skill"
+                    ])
+                    textParts.append("/\(name)")
+                } else if let slashName = (item["slashCommand"] as? String) ?? (item["commandName"] as? String), !slashName.isEmpty {
                     slashCommands.append([
                         "name": slashName,
                         "icon": SlashCommandIconCatalog.defaultSystemIcons[slashName] ?? "code_blocks",

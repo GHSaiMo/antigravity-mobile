@@ -481,12 +481,26 @@ public struct SendUserCascadeMessageRequest: Codable, Sendable {
     public let attachments: [AttachmentRef]?
     public let contextItems: [ContextMentionItem]?
     
-    public init(cascadeId: String, text: String, model: String? = nil, images: [ImageDataPayload]? = nil, media: [MediaDataPayload]? = nil, deliveryStrategy: Int? = nil, cascadeConfigRaw: String? = nil, attachments: [AttachmentRef]? = nil, slashCommand: String? = nil, contextItems: [ContextMentionItem]? = nil) {
+    public init(cascadeId: String, text: String, model: String? = nil, images: [ImageDataPayload]? = nil, media: [MediaDataPayload]? = nil, deliveryStrategy: Int? = nil, cascadeConfigRaw: String? = nil, attachments: [AttachmentRef]? = nil, slashCommands: [String]? = nil, contextItems: [ContextMentionItem]? = nil) {
         self.cascadeId = cascadeId
         self.model = model
-        if let slash = slashCommand, !slash.isEmpty {
-            // 命令条目在前；文本前补一个空格，让服务端生成的显示文本是 "/plan 内容"
-            self.items = [.slashCommand(slash)] + (text.isEmpty ? [] : [.text(" " + text)])
+        let cleanSlashes = (slashCommands ?? [])
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+        if !cleanSlashes.isEmpty {
+            // 命令条目按选择顺序排在前；相邻命令之间补一个空格文本项，正文前补空格，
+            // 让服务端生成的显示文本为 "/cmd1 /cmd2 内容"，避免粘连成 "/cmd1/cmd2"。
+            var built: [SendItem] = []
+            for (idx, slash) in cleanSlashes.enumerated() {
+                if idx > 0 {
+                    built.append(.text(" "))
+                }
+                built.append(.slashCommand(slash))
+            }
+            if !text.isEmpty {
+                built.append(.text(" " + text))
+            }
+            self.items = built
         } else {
             self.items = text.isEmpty ? [] : [.text(text)]
         }

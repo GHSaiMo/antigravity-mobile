@@ -129,8 +129,8 @@ data class ChatUiState(
     val undoErrorMessage: String? = null,
     val slashCommands: List<SlashCommandOption> = emptyList(),
     val isLoadingSlashCommands: Boolean = false,
-    /** 输入框里已选中的斜杠命令（显示为标签），发送时随消息一起带上。 */
-    val selectedSlashCommand: SlashCommandOption? = null,
+    /** 输入框里已选中的斜杠命令列表（按选择顺序排在快捷栏），发送时随消息一起带上。 */
+    val selectedSlashCommands: List<SlashCommandOption> = emptyList(),
     val changesSheet: ChangesSheetState? = null,
     val gitSheet: GitSheetState? = null,
     /** Commit / Changes 快捷按钮的动态可见性：会话没有 Git 工作区、或没有文件变动及 PR 时不显示。 */
@@ -347,7 +347,7 @@ class ChatViewModel(
         val text = _inputText.value.trim()
         val images = _uiState.value.selectedImages
         val files = _uiState.value.selectedFiles
-        if (text.isEmpty() && images.isEmpty() && files.isEmpty() && _uiState.value.selectedSlashCommand == null && _uiState.value.selectedContextItems.isEmpty()) return
+        if (text.isEmpty() && images.isEmpty() && files.isEmpty() && _uiState.value.selectedSlashCommands.isEmpty() && _uiState.value.selectedContextItems.isEmpty()) return
         if (files.any { it.state == UploadState.FAILED }) {
             _uiState.value = _uiState.value.copy(attachmentNotice = "有文件上传失败，请重试或移除后再发送".loc)
             return
@@ -362,10 +362,10 @@ class ChatViewModel(
             prefs?.clearDraftImages(cid)
             prefs?.clearDraftFiles(cid)
         }
-        val slash = _uiState.value.selectedSlashCommand
+        val slashes = _uiState.value.selectedSlashCommands
         _inputText.value = ""
-        _uiState.value = _uiState.value.copy(selectedImages = emptyList(), selectedFiles = emptyList(), selectedSlashCommand = null)
-        sendMessage(text, images, files = files, slashCommand = slash?.name)
+        _uiState.value = _uiState.value.copy(selectedImages = emptyList(), selectedFiles = emptyList(), selectedSlashCommands = emptyList())
+        sendMessage(text, images, files = files, slashCommands = slashes.map { it.name }, slashOptions = slashes)
     }
 
     fun deleteLocalDraftSession(cascadeId: String) {

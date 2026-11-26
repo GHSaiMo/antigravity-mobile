@@ -247,16 +247,40 @@ extension ChatViewModel {
         }
     }
 
-    /// 选中命令：仅剥离输入框末尾正在输入的 "/xx"，保留此前已输入的正文，命令变成快捷栏按钮。
+    /// 仅剥离输入框末尾正在输入的 "/xx"，不选中命令芯片（供 /workflow 模板弹窗等本地入口复用）。
+    public func stripTrailingSlashQuery() {
+        inputText = SlashCommandFilter.stripTrailingQuery(from: inputText)
+    }
+
+    /// 选中/反选命令：仅剥离输入框末尾正在输入的 "/xx"，保留此前已输入的正文；支持叠加多个有序命令。
+    /// `/btw` 与主会话命令互斥，选中时独立占位，选中其他命令时自动清掉 `/btw`。
     public func selectSlashCommand(_ command: SlashCommandOption) {
         UIImpactFeedbackGenerator(style: .light).impactOccurred()
         inputText = SlashCommandFilter.stripTrailingQuery(from: inputText)
-        selectedSlashCommand = command
+        let isBtw = command.name.lowercased() == "btw"
+        if isBtw {
+            if selectedSlashCommands.count == 1 && selectedSlashCommands[0].name.lowercased() == "btw" {
+                selectedSlashCommands = []
+            } else {
+                selectedSlashCommands = [command]
+            }
+        } else {
+            selectedSlashCommands.removeAll { $0.name.lowercased() == "btw" }
+            if let existingIdx = selectedSlashCommands.firstIndex(where: { $0.name == command.name }) {
+                selectedSlashCommands.remove(at: existingIdx)
+            } else {
+                selectedSlashCommands.append(command)
+            }
+        }
         focusInputTrigger += 1
     }
 
-    public func clearSlashCommand() {
-        selectedSlashCommand = nil
+    public func removeSlashCommand(_ command: SlashCommandOption) {
+        selectedSlashCommands.removeAll { $0.name == command.name }
+    }
+
+    public func clearSlashCommands() {
+        selectedSlashCommands = []
     }
 
     // MARK: - 导出 Markdown

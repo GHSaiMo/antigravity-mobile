@@ -770,24 +770,45 @@ func applyAttachmentsToMessage(rawMap map[string]interface{}) (bool, error) {
 
 	handled := false
 	if items, ok := rawMap["items"].([]interface{}); ok && len(items) > 0 {
-		// 文本块并入第一个「文本条目」；斜杠命令等 scope 条目（带 item 字段）不能同时再带 text。
-		for _, it := range items {
-			m, ok := it.(map[string]interface{})
+		// 文本块优先并入最后一个包含正文的非 scope 文本条目；
+		// 避免把附件塞进多个斜杠命令之间用作分隔的纯空白条目 {"text": " "}。
+		targetIdx := -1
+		for i := len(items) - 1; i >= 0; i-- {
+			m, ok := items[i].(map[string]interface{})
 			if !ok {
 				continue
 			}
 			if _, isScopeItem := m["item"]; isScopeItem {
 				continue
 			}
-			if t, ok := m["text"].(string); ok || m["text"] == nil {
-				m["text"] = appendBlock(t)
-				handled = true
+			t, hasText := m["text"].(string)
+			if !hasText && m["text"] != nil {
+				continue
 			}
-			break
+			if strings.TrimSpace(t) != "" {
+				targetIdx = i
+				break
+			}
+			// 末尾本身的空文本条目（不在其他 scope 条目之前）也可安全复用
+			if i == len(items)-1 && targetIdx == -1 {
+				targetIdx = i
+			}
 		}
-		if !handled {
-			// 只有 scope 条目（例如单独一个斜杠命令）：补一个文本条目承载附件块
-			rawMap["items"] = append(items, map[string]interface{}{"text": block})
+		if targetIdx >= 0 {
+			m := items[targetIdx].(map[string]interface{})
+			t, _ := m["text"].(string)
+			m["text"] = appendBlock(t)
+			handled = true
+		} else {
+			// 只有 scope 条目（或仅含斜杠命令之间的空格分隔项）：在末尾追加文本条目承载附件块，
+			// 并前置空格防止与紧邻的 "/cmd" 粘连破坏斜杠命令胶囊解析。
+			prefix := ""
+			if lastMap, ok := items[len(items)-1].(map[string]interface{}); ok {
+				if _, isScopeItem := lastMap["item"]; isScopeItem {
+					prefix = " "
+				}
+			}
+			rawMap["items"] = append(items, map[string]interface{}{"text": prefix + block})
 			handled = true
 		}
 	}

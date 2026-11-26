@@ -98,6 +98,7 @@ public enum SlashCommandTextRenderer {
 /// 输入框里键入 "/" 后浮在会话界面底部的命令气泡弹窗（系统命令 + 技能），与桌面端的斜杠菜单同源。
 struct SlashCommandPickerView: View {
     let commands: [SlashCommandOption]
+    var selectedNames: Set<String> = []
     let isLoading: Bool
     var maxListHeight: CGFloat = 280
     let onSelect: (SlashCommandOption) -> Void
@@ -211,6 +212,7 @@ struct SlashCommandPickerView: View {
     private func row(_ command: SlashCommandOption) -> some View {
         let isSkill = (command.kind == "skill")
         let accentColor: Color = isSkill ? .indigo : .blue
+        let isSelected = selectedNames.contains(command.name)
 
         return HStack(alignment: .top, spacing: 12) {
             ZStack {
@@ -248,7 +250,14 @@ struct SlashCommandPickerView: View {
                         .fixedSize(horizontal: false, vertical: true)
                 }
             }
-            Spacer(minLength: 0)
+            Spacer(minLength: 4)
+
+            if isSelected {
+                Image(systemName: "checkmark.circle.fill")
+                    .font(.system(size: 16))
+                    .foregroundColor(.indigo)
+                    .padding(.top, 2)
+            }
         }
         .padding(.horizontal, 14)
         .padding(.vertical, 11)
