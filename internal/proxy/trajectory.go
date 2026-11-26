@@ -155,6 +155,15 @@ func (p *Proxy) handleCascadeMessages(w http.ResponseWriter, r *http.Request) {
 	}
 
 	details := p.ParseTrajectoryDetailsCached(rawResp)
+	if !details.IsScheduledTask && details.ParentConversation == "" {
+		parentBranchID := ""
+		if details.BranchOrigin != nil {
+			parentBranchID = details.BranchOrigin.ParentCascadeID
+		}
+		if p.resolveCascadeScheduledTask(r.Context(), cascadeID, rawResp, parentBranchID, port, token) {
+			applyScheduledTaskFlag(&details, true)
+		}
+	}
 	details.Subagents = p.enrichSubagents(details.Subagents)
 	for _, sa := range details.Subagents {
 		if sa.Status == subagentStatusRunning {
@@ -288,6 +297,7 @@ func (p *Proxy) handleCascadeMessages(w http.ResponseWriter, r *http.Request) {
 		ActiveFocusStarted:      details.ActiveFocusStarted,
 		ActivePlan:              details.ActivePlan,
 		LiveTextTranslations:    liveTranslations,
+		IsScheduledTask:         details.IsScheduledTask,
 	})
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)

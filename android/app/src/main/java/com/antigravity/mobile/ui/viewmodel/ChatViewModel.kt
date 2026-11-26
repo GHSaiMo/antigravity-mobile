@@ -159,10 +159,24 @@ data class ChatUiState(
     val isUpdatingTrust: Boolean = false,
     val branchOrigin: SideQuestionOrigin? = null,
     val sideQuestions: List<SideQuestionCardItem> = emptyList(),
-    val isStartingBtw: Boolean = false
+    val isStartingBtw: Boolean = false,
+    val isScheduledTask: Boolean = false
 ) {
     val isPredictedSuggestion: Boolean
         get() = suggestedResponseSource == "predicted"
+
+    fun isScheduledTaskPromptMessage(msg: GatewayMessageItem): Boolean {
+        if (!msg.isUser) return false
+        if (msg.isScheduledTask) return true
+        if (!isScheduledTask || hasMore || !parentConversationId.isNullOrBlank()) return false
+        val origin = branchOrigin
+        if (origin != null && origin.isSideQuestion) {
+            val stepIdx = msg.effectiveStepIndex
+            if (stepIdx != null && stepIdx >= origin.forkStepIndex) return false
+        }
+        if (!msg.clientMessageId.isNullOrBlank()) return false
+        return messages.firstOrNull { it.isUser }?.id == msg.id
+    }
 }
 
 class ChatViewModel(

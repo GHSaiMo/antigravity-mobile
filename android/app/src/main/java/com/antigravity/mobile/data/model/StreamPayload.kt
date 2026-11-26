@@ -118,6 +118,8 @@ data class GatewayMessageItem(
     val thinkingDuration: String? = null,
     val thinkingBlocks: List<ThinkingBlockItem>? = null,
     val toolDetails: List<ToolDetailItem>? = null,
+    /** 是否为定时任务自动下发的首条提示词气泡（默认折叠为闹钟占位，点击展开完整提示词）。 */
+    val isScheduledTask: Boolean = false,
     @kotlinx.serialization.Transient val imageDataList: List<ByteArray> = emptyList()
 ) {
     val effectiveRole: String
@@ -305,7 +307,8 @@ data class TurnOutlineItem(
     val hasError: Boolean = false,
     val modelName: String? = null,
     val timestamp: String? = null,
-    val isVoiceTurn: Boolean = false
+    val isVoiceTurn: Boolean = false,
+    val isScheduledTask: Boolean = false
 )
 
 @Serializable
@@ -357,7 +360,8 @@ data class StreamUpdatePayload(
     val activeFocusStartedAt: String? = null,
     val activePlan: StepPlanItem? = null,
     val branchOrigin: SideQuestionOrigin? = null,
-    val sideQuestions: List<SideQuestionCardItem>? = null
+    val sideQuestions: List<SideQuestionCardItem>? = null,
+    val isScheduledTask: Boolean = false
 )
 
 @Serializable

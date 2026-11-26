@@ -9,6 +9,7 @@ extension MessageBubbleView {
     var userBubble: some View {
         let parsed = AttachmentRules.parseBlock(message.content)
         let isVoiceMessage = VoiceTranscriptCleaner.isVoiceMessage(body: parsed.body, files: parsed.files)
+        let isScheduledTaskMessage = !isVoiceMessage && (isScheduledTaskPrompt || message.isScheduledTask == true) && !parsed.body.isEmpty
 
         return VStack(alignment: .trailing, spacing: 6) {
             if !isVoiceMessage {
@@ -37,6 +38,12 @@ extension MessageBubbleView {
             
             if isVoiceMessage {
                 VoiceInteractionUserBubble(bodyText: parsed.body, onCopy: { copyWholeText(parsed.body) })
+            } else if isScheduledTaskMessage {
+                ScheduledTaskUserBubble(
+                    bodyText: parsed.body,
+                    slashCommands: message.slashCommands ?? [],
+                    isExpanded: $isScheduledPromptExpanded
+                )
             } else if !parsed.body.isEmpty {
                 let scale = bodyScale
                 SlashCommandTextRenderer.render(
@@ -58,6 +65,18 @@ extension MessageBubbleView {
         .contentShape(.contextMenuPreview, RoundedRectangle(cornerRadius: 18, style: .continuous))
         .contextMenu {
             Section {
+                if isScheduledTaskMessage {
+                    Button {
+                        withAnimation(.easeInOut(duration: 0.2)) {
+                            isScheduledPromptExpanded.toggle()
+                        }
+                    } label: {
+                        Label(
+                            isScheduledPromptExpanded ? String(localized: "折叠提示词") : String(localized: "展开提示词"),
+                            systemImage: isScheduledPromptExpanded ? "arrow.down.right.and.arrow.up.left" : "arrow.up.left.and.arrow.down.right"
+                        )
+                    }
+                }
                 if !parsed.body.isEmpty {
                     Button {
                         copyWholeText(parsed.body)
@@ -676,6 +695,71 @@ struct VoiceInteractionUserBubble: View {
                 }
             }
         }
+    }
+}
+
+/// 定时任务用户气泡：默认以闹钟图标 +「定时任务」紧凑占位，点击可展开查看完整提示词或再次折叠
+struct ScheduledTaskUserBubble: View {
+    let bodyText: String
+    let slashCommands: [SlashCommandMention]
+    @Binding var isExpanded: Bool
+    @Environment(\.isShareExport) private var isShareExport
+
+    private var bodyScale: CGFloat {
+        isShareExport ? 1.0 : AppSettings.shared.fontSizeScale.bodyScale
+    }
+
+    var body: some View {
+        let scale = bodyScale
+        Button {
+            UIImpactFeedbackGenerator(style: .light).impactOccurred()
+            withAnimation(.easeInOut(duration: 0.2)) {
+                isExpanded.toggle()
+            }
+        } label: {
+            Group {
+                if !isExpanded {
+                    HStack(spacing: 6) {
+                        Image(systemName: "alarm")
+                            .font(.system(size: 16 * scale, weight: .medium))
+                            .foregroundColor(.white)
+                        Text("定时任务")
+                            .font(.system(size: 14 * scale, weight: .medium))
+                            .foregroundColor(.white)
+                    }
+                } else {
+                    VStack(alignment: .leading, spacing: 8) {
+                        HStack(spacing: 6) {
+                            Image(systemName: "alarm")
+                                .font(.system(size: 14 * scale, weight: .semibold))
+                                .foregroundColor(.white.opacity(0.85))
+                            Text("定时任务")
+                                .font(.system(size: 12 * scale, weight: .semibold))
+                                .foregroundColor(.white.opacity(0.85))
+                        }
+                        SlashCommandTextRenderer.render(
+                            text: bodyText,
+                            mentions: slashCommands,
+                            iconColor: .white.withAlphaComponent(0.85),
+                            iconSize: 15 * scale,
+                            enableSkillLinks: true
+                        )
+                        .font(.system(size: 14.5 * scale))
+                        .foregroundColor(.white)
+                        .tint(.white)
+                        .lineSpacing(3 * scale)
+                        .multilineTextAlignment(.leading)
+                    }
+                }
+            }
+            .padding(.horizontal, 14)
+            .padding(.vertical, 10)
+            .background(Color.indigo)
+            .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(String(localized: "定时任务"))
+        .accessibilityHint(isExpanded ? String(localized: "点击折叠提示词") : String(localized: "点击展开完整提示词"))
     }
 }
 

@@ -173,6 +173,7 @@ public struct PaginatedMessagesResponse: Codable, Sendable {
     public let activePlan: StepPlanItem?
     public let branchOrigin: SideQuestionOrigin?
     public let sideQuestions: [SideQuestionCardItem]?
+    public let isScheduledTask: Bool?
     
     public struct GatewayMessageItem: Codable, Sendable {
         public let id: String
@@ -208,6 +209,7 @@ public struct PaginatedMessagesResponse: Codable, Sendable {
         public let clientMessageId: String?
         public let errorKind: String?
         public let isOverflow: Bool?
+        public let isScheduledTask: Bool?
     }
 }
 
@@ -247,4 +249,5 @@ public struct FetchMessagesResult: Sendable {
     public let activePlan: StepPlanItem?
     public let branchOrigin: SideQuestionOrigin?
     public let sideQuestions: [SideQuestionCardItem]?
+    public let isScheduledTask: Bool?
 }

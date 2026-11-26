@@ -15,6 +15,7 @@ public struct TurnOutlineItem: Codable, Sendable, Hashable {
     public let modelName: String?
     public let timestamp: String?
     public let isVoiceTurn: Bool?
+    public let isScheduledTask: Bool?
 
     public init(
         turnIndex: Int,
@@ -29,7 +30,8 @@ public struct TurnOutlineItem: Codable, Sendable, Hashable {
         hasError: Bool? = nil,
         modelName: String? = nil,
         timestamp: String? = nil,
-        isVoiceTurn: Bool? = nil
+        isVoiceTurn: Bool? = nil,
+        isScheduledTask: Bool? = nil
     ) {
         self.turnIndex = turnIndex
         self.firstMessageId = firstMessageId
@@ -44,6 +46,7 @@ public struct TurnOutlineItem: Codable, Sendable, Hashable {
         self.modelName = modelName
         self.timestamp = timestamp
         self.isVoiceTurn = isVoiceTurn
+        self.isScheduledTask = isScheduledTask
     }
 }
 
@@ -75,6 +78,8 @@ public struct ConversationTurn: Identifiable, Sendable, Hashable {
     public let timestamp: String?
     /// 本轮是否为语音交互提问
     public let isVoiceTurn: Bool
+    /// 本轮是否为定时任务自动下发的首条提示词
+    public let isScheduledTask: Bool
     /// 本轮起始的步骤索引（用于 Antigravity 2.30.0 GetChapterTitles 章节标题生成）
     public let startStepIndex: Int?
     /// 本轮结束的步骤索引（可选，用于未加载历史轮次的章节范围估算）
@@ -99,6 +104,7 @@ public struct ConversationTurn: Identifiable, Sendable, Hashable {
         modelName: String?,
         timestamp: String? = nil,
         isVoiceTurn: Bool = false,
+        isScheduledTask: Bool = false,
         startStepIndex: Int? = nil,
         endStepIndex: Int? = nil,
         messageOffset: Int? = nil,
@@ -118,6 +124,7 @@ public struct ConversationTurn: Identifiable, Sendable, Hashable {
         self.modelName = modelName
         self.timestamp = timestamp
         self.isVoiceTurn = isVoiceTurn
+        self.isScheduledTask = isScheduledTask
         self.startStepIndex = startStepIndex
         self.endStepIndex = endStepIndex
         self.messageOffset = messageOffset
@@ -313,6 +320,7 @@ public enum ConversationTurnBuilder {
                 modelName: model,
                 timestamp: turnTimestamp,
                 isVoiceTurn: isVoice,
+                isScheduledTask: !isVoice && ((userMsg?.isScheduledTask == true) || (item.isScheduledTask == true)),
                 startStepIndex: startStep,
                 endStepIndex: endStep,
                 messageOffset: item.messageOffset,
@@ -345,6 +353,7 @@ public enum ConversationTurnBuilder {
                     modelName: b.modelName,
                     timestamp: b.timestamp,
                     isVoiceTurn: b.isVoiceTurn,
+                    isScheduledTask: b.isScheduledTask,
                     startStepIndex: b.startStepIndex,
                     endStepIndex: b.endStepIndex,
                     messageOffset: nil,
@@ -505,6 +514,7 @@ public enum ConversationTurnBuilder {
                 modelName: model,
                 timestamp: turnTimestamp,
                 isVoiceTurn: isVoice,
+                isScheduledTask: !isVoice && (userMsg?.isScheduledTask == true),
                 startStepIndex: turnStartStep,
                 endStepIndex: turnEndStep
             ))

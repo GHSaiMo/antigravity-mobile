@@ -140,6 +140,9 @@ extension ChatViewModel {
                 self.turnOutline = outline
             }
         }
+        if payload.isScheduledTask == true && !self.isScheduledTask {
+            self.isScheduledTask = true
+        }
         
         if let rawMessages = payload.messages {
             let parsedMessages = rawMessages.map { item -> ChatMessage in
@@ -202,7 +205,8 @@ extension ChatViewModel {
                     isOverflow: item.isOverflow,
                     thinkingDuration: item.thinkingDuration,
                     thinkingBlocks: item.thinkingBlocks,
-                    toolDetails: item.toolDetails
+                    toolDetails: item.toolDetails,
+                    isScheduledTask: item.isScheduledTask
                 )
             }
             var mergedParsedMessages: [ChatMessage] = []

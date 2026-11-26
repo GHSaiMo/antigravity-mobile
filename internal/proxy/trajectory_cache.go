@@ -53,6 +53,7 @@ type TrajectoryCache struct {
 
 	cascadeTitles        map[string]string
 	cascadeTitleFallback map[string]bool
+	cascadeScheduled     map[string]bool
 	cascadeTitlesMu      sync.RWMutex
 	lastTitlesFetchTime  time.Time
 
@@ -93,6 +94,7 @@ func NewTrajectoryCache() *TrajectoryCache {
 		genByID:              make(map[string]uint64),
 		cascadeTitles:        make(map[string]string),
 		cascadeTitleFallback: make(map[string]bool),
+		cascadeScheduled:     make(map[string]bool),
 		cascadeConfigs:       make(map[string]json.RawMessage),
 		cascadeModels:        make(map[string]string),
 		loadedCascades:       make(map[string]bool),
@@ -191,6 +193,44 @@ func getAuthoritativeCachedCascadeTitle(cascadeID string) string {
 	return title
 }
 
+func setCachedCascadeScheduled(cascadeID string, scheduled bool) {
+	if cascadeID == "" {
+		return
+	}
+	defaultTrajCache.cascadeTitlesMu.RLock()
+	cur, ok := defaultTrajCache.cascadeScheduled[cascadeID]
+	defaultTrajCache.cascadeTitlesMu.RUnlock()
+	if ok && cur == scheduled {
+		return
+	}
+	defaultTrajCache.cascadeTitlesMu.Lock()
+	if defaultTrajCache.cascadeScheduled == nil {
+		defaultTrajCache.cascadeScheduled = make(map[string]bool)
+	}
+	if len(defaultTrajCache.cascadeScheduled) >= maxCascadeTitlesSize {
+		removed := 0
+		for k := range defaultTrajCache.cascadeScheduled {
+			delete(defaultTrajCache.cascadeScheduled, k)
+			removed++
+			if removed >= maxCascadeTitlesSize/4 {
+				break
+			}
+		}
+	}
+	defaultTrajCache.cascadeScheduled[cascadeID] = scheduled
+	defaultTrajCache.cascadeTitlesMu.Unlock()
+}
+
+func getCachedCascadeScheduled(cascadeID string) (bool, bool) {
+	if cascadeID == "" {
+		return false, false
+	}
+	defaultTrajCache.cascadeTitlesMu.RLock()
+	val, ok := defaultTrajCache.cascadeScheduled[cascadeID]
+	defaultTrajCache.cascadeTitlesMu.RUnlock()
+	return val, ok
+}
+
 // maxDeletedCascades is the upper bound on in-memory deletion tombstones.
 const maxDeletedCascades = 1024
 
@@ -209,6 +249,12 @@ func RecordDeletedCascade(cascadeID string) {
 		delete(defaultTrajCache.cascadePlanExecute, cascadeID)
 	}
 	defaultTrajCache.cascadeModelsMu.Unlock()
+
+	defaultTrajCache.cascadeTitlesMu.Lock()
+	if defaultTrajCache.cascadeScheduled != nil {
+		delete(defaultTrajCache.cascadeScheduled, cascadeID)
+	}
+	defaultTrajCache.cascadeTitlesMu.Unlock()
 
 	defaultTrajCache.cascadeConfigsMu.Lock()
 	if defaultTrajCache.cascadeConfigs != nil {

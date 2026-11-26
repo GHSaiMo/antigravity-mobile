@@ -54,6 +54,7 @@ public struct StreamUpdatePayload: Decodable, Sendable {
     public let activePlan: StepPlanItem?
     public let branchOrigin: SideQuestionOrigin?
     public let sideQuestions: [SideQuestionCardItem]?
+    public let isScheduledTask: Bool?
 }
 
 @Observable

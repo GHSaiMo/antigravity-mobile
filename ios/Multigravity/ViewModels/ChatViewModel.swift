@@ -77,6 +77,7 @@ public final class ChatViewModel {
     public var currentTitle: String
     public var workspaceName: String = "Chat"
     public var workspaceUri: String? = nil
+    public var isScheduledTask: Bool = false
     public var isNewConversation: Bool
     /// 仅当尚未在服务端创建真实 cascadeId（即本地未发送草稿）时为 true；服务端已有但 0 步的空会话仍需对齐桌面端模型。
     public var isDraftConversation: Bool {
@@ -108,6 +109,18 @@ public final class ChatViewModel {
     @ObservationIgnored private var draftMutationGeneration: UInt64 = 0
     
     /// 当前会话按问答轮次自动聚合的结构列表（融合服务端全量目录索引与本地已加载消息）
+    public func isScheduledTaskPromptMessage(_ msg: ChatMessage) -> Bool {
+        guard msg.isUser else { return false }
+        if msg.isScheduledTask == true { return true }
+        guard isScheduledTask, !hasMore, !isSubagentSession else { return false }
+        if let origin = branchOrigin, origin.isSideQuestion,
+           let stepIdx = msg.effectiveStepIndex, stepIdx >= origin.forkStepIndex {
+            return false
+        }
+        guard msg.clientMessageId == nil else { return false }
+        return messages.first(where: { $0.isUser })?.id == msg.id
+    }
+
     public var turns: [ConversationTurn] {
         // 读取 messages 与 turnOutline 以保留 Observation 依赖追踪，版本号本身不被观察
         let currentMessages = messages
@@ -609,6 +622,7 @@ public final class ChatViewModel {
         cascadeId: String,
         initialTitle: String,
         workspaceName: String = "Chat",
+        isScheduledTask: Bool = false,
         isNewConversation: Bool = false,
         apiClient: APIClient? = nil,
         settings: AppSettings? = nil,
@@ -621,6 +635,7 @@ public final class ChatViewModel {
         self.initialTitle = initialTitle
         self.currentTitle = initialTitle
         self.workspaceName = workspaceName
+        self.isScheduledTask = isScheduledTask
         self.isNewConversation = isNewConversation
         self.isUnreadOnEntry = isUnread
         self.initialConversationStatus = conversationStatus
@@ -1061,6 +1076,9 @@ public final class ChatViewModel {
                 if self.turnOutline != outline {
                     self.turnOutline = outline
                 }
+            }
+            if result.isScheduledTask == true && !self.isScheduledTask {
+                self.isScheduledTask = true
             }
             
             if result.messages.isEmpty {

@@ -753,6 +753,47 @@ private fun TurnCardItem(
                         )
                     }
                 }
+            } else if (turn.isScheduledTask) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(12.dp))
+                            .background(colors.accentIndigo)
+                            .padding(horizontal = 7.5.dp, vertical = 3.5.dp)
+                    ) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(5.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Alarm,
+                                contentDescription = null,
+                                modifier = Modifier.size(13.dp),
+                                tint = Color.White
+                            )
+                            Text(
+                                text = "定时任务".loc,
+                                fontSize = 11.5.sp,
+                                fontWeight = FontWeight.SemiBold,
+                                color = Color.White
+                            )
+                        }
+                    }
+
+                    if (turn.promptSummary.isNotBlank()) {
+                        Text(
+                            text = turn.promptSummary,
+                            fontSize = 13.5.sp,
+                            fontWeight = if (isCurrent) FontWeight.SemiBold else FontWeight.Medium,
+                            color = colors.textPrimary,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                    }
+                }
             } else {
                 Text(
                     text = turn.promptSummary,

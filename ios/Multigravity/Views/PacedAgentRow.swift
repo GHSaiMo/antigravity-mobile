@@ -230,7 +230,8 @@ extension ChatMessage {
             isOverflow: isOverflow,
             thinkingDuration: thinkingDuration,
             thinkingBlocks: thinkingBlocks,
-            toolDetails: toolDetails
+            toolDetails: toolDetails,
+            isScheduledTask: isScheduledTask
         )
     }
 }

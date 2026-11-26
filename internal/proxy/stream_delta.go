@@ -186,6 +186,7 @@ func hashMessageItem(m *CascadeMessageItem) uint64 {
 	}
 	h.str(m.Timestamp)
 	h.str(m.ClientMessageID)
+	h.flag(m.IsScheduledTask)
 	return uint64(h)
 }
 
@@ -539,6 +540,7 @@ func hashTurnOutline(outline []TurnOutlineItem) uint64 {
 		h.str(it.ModelName)
 		h.str(it.Timestamp)
 		h.flag(it.IsVoiceTurn)
+		h.flag(it.IsScheduledTask)
 	}
 	return uint64(h)
 }

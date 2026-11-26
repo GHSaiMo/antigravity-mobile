@@ -322,7 +322,8 @@ extension ChatViewModel {
             isOverflow: msg.isOverflow,
             thinkingDuration: msg.thinkingDuration,
             thinkingBlocks: msg.thinkingBlocks,
-            toolDetails: msg.toolDetails
+            toolDetails: msg.toolDetails,
+            isScheduledTask: msg.isScheduledTask
         )
     }
 }

@@ -60,7 +60,8 @@ extension APIClient {
                 isOverflow: item.isOverflow,
                 thinkingDuration: item.thinkingDuration,
                 thinkingBlocks: item.thinkingBlocks,
-                toolDetails: item.toolDetails
+                toolDetails: item.toolDetails,
+                isScheduledTask: item.isScheduledTask
             )
         }
 
@@ -105,7 +106,8 @@ extension APIClient {
             activeFocusStartedAt: decoded.activeFocusStartedAt,
             activePlan: decoded.activePlan,
             branchOrigin: decoded.branchOrigin,
-            sideQuestions: decoded.sideQuestions
+            sideQuestions: decoded.sideQuestions,
+            isScheduledTask: decoded.isScheduledTask
         )
     }
 
@@ -212,7 +214,8 @@ extension APIClient {
             activeFocusStartedAt: nil,
             activePlan: nil,
             branchOrigin: nil,
-            sideQuestions: nil
+            sideQuestions: nil,
+            isScheduledTask: nil
         )
     }
     

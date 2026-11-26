@@ -64,6 +64,7 @@ type StreamUpdatePayload struct {
 	ActiveFocusStarted   string               `json:"activeFocusStartedAt,omitempty"`
 	ActivePlan           *StepPlanItem        `json:"activePlan,omitempty"`
 	LiveTextTranslations map[string]string    `json:"liveTextTranslations,omitempty"`
+	IsScheduledTask      bool                 `json:"isScheduledTask,omitempty"`
 
 	// Delta framing, only set for clients that connect with delta=1 (see streamDeltaState).
 	Delta      bool     `json:"delta,omitempty"`
@@ -113,10 +114,11 @@ func (p *StreamUpdatePayload) Fingerprint() string {
 	if p.BranchOrigin != nil {
 		tasksKey += fmt.Sprintf("|bo:%s:%d:%t", p.BranchOrigin.ParentCascadeID, p.BranchOrigin.ForkStepIndex, p.BranchOrigin.IsSideQuestion)
 	}
-	msgsKey := fmt.Sprintf("%d:%d", p.TotalMessages, len(p.TurnOutline))
+	msgsKey := fmt.Sprintf("%d:%d:%t", p.TotalMessages, len(p.TurnOutline), p.IsScheduledTask)
 	if len(p.Messages) > 0 {
 		lastMsg := p.Messages[len(p.Messages)-1]
 		mh := newFNV64()
+		mh.flag(p.IsScheduledTask)
 		mh.str(lastMsg.ID)
 		mh.str(lastMsg.Text)
 		mh.str(lastMsg.FocusText)
@@ -131,12 +133,16 @@ func (p *StreamUpdatePayload) Fingerprint() string {
 			hashThinkingBlockItem(&mh, &lastMsg.ThinkingBlocks[i])
 		}
 		for i := range p.Messages {
+			if p.Messages[i].IsScheduledTask {
+				mh.str(p.Messages[i].ID)
+				mh.u8(1)
+			}
 			if p.Messages[i].StepPlan != nil {
 				mh.str(p.Messages[i].ID)
 				hashStepPlanItem(&mh, p.Messages[i].StepPlan)
 			}
 		}
-		msgsKey = fmt.Sprintf("%d:%d:%s:%d:%x", p.TotalMessages, len(p.TurnOutline), lastMsg.ID, len(lastMsg.Text), uint64(mh))
+		msgsKey = fmt.Sprintf("%d:%d:%t:%s:%d:%x", p.TotalMessages, len(p.TurnOutline), p.IsScheduledTask, lastMsg.ID, len(lastMsg.Text), uint64(mh))
 	}
 	swarmKey := "none"
 	if p.Swarm != nil && p.Swarm.Active {
@@ -493,6 +499,15 @@ func (p *Proxy) HandleCascadeStream(w http.ResponseWriter, r *http.Request) {
 		t2 := time.Now()
 		prevQueuedCount := len(lastDetails.QueuedMessages)
 		details := p.ParseTrajectoryDetailsCached(rawResp)
+		if !details.IsScheduledTask && details.ParentConversation == "" {
+			parentBranchID := ""
+			if details.BranchOrigin != nil {
+				parentBranchID = details.BranchOrigin.ParentCascadeID
+			}
+			if p.resolveCascadeScheduledTask(r.Context(), cascadeID, rawResp, parentBranchID, port, token) {
+				applyScheduledTaskFlag(&details, true)
+			}
+		}
 		if time.Since(t2) > 100*time.Millisecond {
 			slog.Debug("stream perf: slow ParseTrajectoryDetails", "cascade_id", cascadeID, "took", time.Since(t2))
 		}
@@ -605,6 +620,7 @@ func (p *Proxy) HandleCascadeStream(w http.ResponseWriter, r *http.Request) {
 			ActiveFocus:             details.ActiveFocus,
 			ActiveFocusStarted:      details.ActiveFocusStarted,
 			ActivePlan:              details.ActivePlan,
+			IsScheduledTask:         details.IsScheduledTask,
 		}
 
 		if !isMessagesOnly {

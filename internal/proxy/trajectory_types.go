@@ -125,6 +125,8 @@ type CascadeMessageItem struct {
 	ErrorKind string `json:"errorKind,omitempty"`
 	// IsOverflow is true when the message indicates context length overflow
 	IsOverflow bool `json:"isOverflow,omitempty"`
+	// IsScheduledTask is true for the initial automated prompt bubble of a scheduled-task conversation.
+	IsScheduledTask bool `json:"isScheduledTask,omitempty"`
 }
 
 // QueuedMessageItem represents a pending follow-up user message queued for execution.
@@ -352,8 +354,9 @@ type TurnOutlineItem struct {
 	Artifacts      []ArtifactItem `json:"artifacts,omitempty"`
 	HasError       bool           `json:"hasError,omitempty"`
 	ModelName      string         `json:"modelName,omitempty"`
-	Timestamp      string         `json:"timestamp,omitempty"`
-	IsVoiceTurn    bool           `json:"isVoiceTurn,omitempty"`
+	Timestamp       string `json:"timestamp,omitempty"`
+	IsVoiceTurn     bool   `json:"isVoiceTurn,omitempty"`
+	IsScheduledTask bool   `json:"isScheduledTask,omitempty"`
 }
 
 type TrajectoryParentReference struct {
@@ -431,6 +434,7 @@ type CascadeMessagesResponse struct {
 	ActiveFocusStarted   string                 `json:"activeFocusStartedAt,omitempty"`
 	ActivePlan           *StepPlanItem          `json:"activePlan,omitempty"`
 	LiveTextTranslations map[string]string      `json:"liveTextTranslations,omitempty"`
+	IsScheduledTask      bool                   `json:"isScheduledTask,omitempty"`
 }
 
 type TrajectoryMediaItem struct {
@@ -931,7 +935,9 @@ type upstreamTrajectoryResp struct {
 		} `json:"annotations"`
 		Summary  string `json:"summary"`
 		Metadata *struct {
-			ParentConversationID string `json:"parentConversationId"`
+			ParentConversationID string                 `json:"parentConversationId"`
+			ProjectID            string                 `json:"projectId,omitempty"`
+			SourceMetadata       map[string]interface{} `json:"sourceMetadata,omitempty"`
 			SubagentSpec         *struct {
 				TypeName string `json:"typeName"`
 				Role     string `json:"role"`
@@ -983,4 +989,5 @@ type TrajectoryDetails struct {
 	ActiveFocus        string               `json:"activeFocus,omitempty"`
 	ActiveFocusStarted string               `json:"activeFocusStartedAt,omitempty"`
 	ActivePlan         *StepPlanItem        `json:"activePlan,omitempty"`
+	IsScheduledTask    bool                 `json:"isScheduledTask,omitempty"`
 }

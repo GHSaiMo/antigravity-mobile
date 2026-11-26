@@ -13,6 +13,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Alarm
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.FileDownload
@@ -185,6 +186,7 @@ fun MessageShareCardSheet(
     images: List<ImageViewerItem>,
     shareContext: ShareCardContext,
     urlResolver: ((String) -> String)?,
+    isScheduledTask: Boolean = false,
     onDismiss: () -> Unit
 ) {
     val context = LocalContext.current
@@ -298,6 +300,7 @@ fun MessageShareCardSheet(
                         MessageShareCard(
                             content = content,
                             isUserMessage = isUserMessage,
+                            isScheduledTask = isScheduledTask,
                             question = if (includeQuestion && canIncludeQuestion) shareContext.previousMessage else null,
                             images = images,
                             theme = theme,
@@ -534,6 +537,7 @@ internal fun ScaledToFitWidth(designWidth: androidx.compose.ui.unit.Dp, content:
 private fun MessageShareCard(
     content: String,
     isUserMessage: Boolean,
+    isScheduledTask: Boolean = false,
     question: com.antigravity.mobile.data.model.GatewayMessageItem?,
     images: List<ImageViewerItem>,
     theme: ShareCardTheme,
@@ -658,19 +662,47 @@ private fun MessageShareCard(
                         }
                     }
                 } else {
-                    val (annotated, inlineMap) = remember(content) {
-                        SlashCommandTextRenderer.buildInlineText(
-                            text = content,
-                            iconColor = colors.textPrimary.copy(alpha = 0.85f)
+                    Column(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
+                        if (isScheduledTask) {
+                            Row(
+                                modifier = Modifier
+                                    .clip(RoundedCornerShape(50))
+                                    .background(colors.accentIndigo)
+                                    .padding(horizontal = 10.dp, vertical = 5.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(6.dp)
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.Alarm,
+                                    contentDescription = null,
+                                    modifier = Modifier.size(15.dp),
+                                    tint = Color.White
+                                )
+                                Text(
+                                    text = "定时任务".loc,
+                                    color = Color.White,
+                                    fontSize = 13.sp,
+                                    fontWeight = FontWeight.SemiBold
+                                )
+                            }
+                        }
+                        val (annotated, inlineMap) = remember(content) {
+                            SlashCommandTextRenderer.buildInlineText(
+                                text = content,
+                                iconColor = colors.textPrimary.copy(alpha = 0.85f)
+                            )
+                        }
+                        Text(
+                            text = annotated,
+                            inlineContent = inlineMap,
+                            color = colors.textPrimary,
+                            fontSize = 15.5.sp,
+                            lineHeight = 22.sp
                         )
                     }
-                    Text(
-                        text = annotated,
-                        inlineContent = inlineMap,
-                        color = colors.textPrimary,
-                        fontSize = 15.5.sp,
-                        lineHeight = 22.sp
-                    )
                 }
             } else {
                 MarkdownContentView(content = content, urlResolver = urlResolver)
@@ -799,6 +831,28 @@ private fun QuestionBubble(
                 )
                 Text(
                     text = "语音交互".loc,
+                    color = Color.White,
+                    fontSize = 13.sp,
+                    fontWeight = FontWeight.SemiBold
+                )
+            }
+        } else if (message.isScheduledTask) {
+            Row(
+                modifier = Modifier
+                    .clip(RoundedCornerShape(50))
+                    .background(colors.accentIndigo)
+                    .padding(horizontal = 10.dp, vertical = 5.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(6.dp)
+            ) {
+                Icon(
+                    imageVector = Icons.Default.Alarm,
+                    contentDescription = null,
+                    modifier = Modifier.size(15.dp),
+                    tint = Color.White
+                )
+                Text(
+                    text = "定时任务".loc,
                     color = Color.White,
                     fontSize = 13.sp,
                     fontWeight = FontWeight.SemiBold

@@ -821,6 +821,51 @@ html, body {
   border-radius: 18px;
 }
 
+.message-row.user .bubble.scheduled-task-bubble {
+  cursor: pointer;
+  user-select: none;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.message-row.user .bubble.scheduled-task-bubble.expanded {
+  user-select: text;
+}
+
+.scheduled-task-header {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 14px;
+  font-weight: 500;
+  line-height: 1.3;
+}
+
+.scheduled-task-alarm-icon {
+  flex-shrink: 0;
+}
+
+.scheduled-task-bubble.expanded .scheduled-task-header {
+  font-size: 12px;
+  font-weight: 600;
+  opacity: 0.85;
+  margin-bottom: 8px;
+}
+
+.scheduled-task-bubble.expanded .scheduled-task-alarm-icon {
+  width: 14px;
+  height: 14px;
+}
+
+.scheduled-task-body {
+  display: none;
+  font-size: 14.5px;
+  line-height: 1.45;
+}
+
+.scheduled-task-bubble.expanded .scheduled-task-body {
+  display: block;
+}
+
 .message-row.agent .bubble {
   background-color: var(--agent-bubble-bg);
   color: var(--agent-bubble-text);

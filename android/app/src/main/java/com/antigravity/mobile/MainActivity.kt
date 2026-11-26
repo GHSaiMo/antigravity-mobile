@@ -368,6 +368,7 @@ class MainActivity : ComponentActivity() {
                                 conversationListViewModel.notifySessionFocus(cascadeId)
                                 val wsName = conversationListViewModel.getWorkspaceName(cascadeId)
                                 val draftProject = conversationListViewModel.getDraftProject(cascadeId)
+                                val convScheduled = conversationListViewModel.getConversation(cascadeId)?.isScheduledTask == true
                                 chatViewModel.prepareSession(
                                     cascadeId = cascadeId,
                                     initialTitle = title,
@@ -376,7 +377,8 @@ class MainActivity : ComponentActivity() {
                                     isUnread = isUnread,
                                     conversationStatus = status,
                                     draftProject = draftProject,
-                                    lastModifiedTime = lastModifiedTime
+                                    lastModifiedTime = lastModifiedTime,
+                                    isScheduledTask = convScheduled
                                 )
                                 conversationListViewModel.markConversationAsRead(cascadeId)
                                 val encodedTitle = URLEncoder.encode(title, "UTF-8")
@@ -488,7 +490,8 @@ class MainActivity : ComponentActivity() {
                                             isUnread = false,
                                             conversationStatus = resolvedStatus,
                                             draftProject = null,
-                                            lastModifiedTime = existing?.lastModifiedTime
+                                            lastModifiedTime = existing?.lastModifiedTime,
+                                            isScheduledTask = existing?.isScheduledTask == true
                                         )
                                         val encoded = URLEncoder.encode(resolvedTitle, "UTF-8")
                                         navController.navigate("chat/$cleanId/$encoded?isNew=false&isUnread=false&status=${resolvedStatus.raw}")

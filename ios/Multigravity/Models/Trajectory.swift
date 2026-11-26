@@ -756,6 +756,8 @@ public struct ChatMessage: Identifiable, Hashable, Sendable, Codable {
     public let thinkingDuration: String?
     public let thinkingBlocks: [ThinkingBlockItem]?
     public let toolDetails: [ToolDetailItem]?
+    /// 是否为定时任务自动下发的首条提示词气泡（默认折叠为闹钟占位，点击可展开完整提示词）
+    public let isScheduledTask: Bool?
     
     public enum MessageSender: Hashable, Sendable, Codable {
         case user
@@ -843,7 +845,8 @@ public struct ChatMessage: Identifiable, Hashable, Sendable, Codable {
         isOverflow: Bool? = nil,
         thinkingDuration: String? = nil,
         thinkingBlocks: [ThinkingBlockItem]? = nil,
-        toolDetails: [ToolDetailItem]? = nil
+        toolDetails: [ToolDetailItem]? = nil,
+        isScheduledTask: Bool? = nil
     ) {
         self.model = model
         self.modelName = modelName
@@ -860,6 +863,7 @@ public struct ChatMessage: Identifiable, Hashable, Sendable, Codable {
         self.thinkingDuration = thinkingDuration
         self.thinkingBlocks = thinkingBlocks
         self.toolDetails = toolDetails
+        self.isScheduledTask = isScheduledTask
         self.id = id
         self.sender = sender
         self.content = content
@@ -927,6 +931,10 @@ public struct ChatMessage: Identifiable, Hashable, Sendable, Codable {
     public var isStepPlan: Bool {
         if case .stepPlan = sender { return true }
         return stepPlan != nil
+    }
+
+    public var isScheduledTaskPrompt: Bool {
+        isScheduledTask == true
     }
 
     public var localizedToolNames: [String] {

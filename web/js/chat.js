@@ -12,6 +12,14 @@ let currentCanProceed = false;
 let currentProceedArtifactUri = null;
 let pendingRenderRaf = null;
 let pendingRenderData = null;
+const scheduledTaskCascadeMap = new Map();
+
+function isCascadeScheduledTask(cascadeId = activeCascadeId) {
+  if (!cascadeId) return false;
+  if (scheduledTaskCascadeMap.get(cascadeId) === true) return true;
+  if (typeof currentTrajectories !== "undefined" && currentTrajectories?.[cascadeId]?.isScheduledTask) return true;
+  return false;
+}
 
 function cleanInternalSystemMessage(text) {
   if (!text) return "";
@@ -1467,6 +1475,12 @@ async function connectStreamWs(cascadeId) {
           document.getElementById("header-title").textContent = data.title;
         }
 
+        if (data.isScheduledTask) {
+          scheduledTaskCascadeMap.set(cascadeId, true);
+          if (currentTrajectories[cascadeId]) {
+            currentTrajectories[cascadeId].isScheduledTask = true;
+          }
+        }
         if (currentTrajectories[cascadeId]) {
           currentTrajectories[cascadeId].status = data.status;
           currentTrajectories[cascadeId].runningTasks = Array.isArray(data.runningTasks) ? data.runningTasks : [];
@@ -1561,6 +1575,19 @@ async function loadChat(cascadeId, isBackgroundPoll = false) {
     const traj = data.trajectory || {};
     const steps = traj.steps || [];
 
+    const trajSidecar = traj.metadata?.sourceMetadata?.sidecar;
+    if (trajSidecar && !traj.metadata?.parentConversationId) {
+      const scId = String(trajSidecar.sidecarId || trajSidecar.sidecar_id || "").trim();
+      const scCfg = trajSidecar.config || {};
+      const hasWebUi = Boolean(scCfg.hasWebUi || scCfg.has_web_ui || scCfg.uiConfig || scCfg.ui_config);
+      if (scId && !hasWebUi && !scId.includes("/")) {
+        scheduledTaskCascadeMap.set(cascadeId, true);
+        if (currentTrajectories[cascadeId]) {
+          currentTrajectories[cascadeId].isScheduledTask = true;
+        }
+      }
+    }
+
     const summary = currentTrajectories[cascadeId];
     // The list summary can be stale while the stream is down; the trajectory carries the live status.
     if (summary && data.status) summary.status = data.status;
@@ -1586,6 +1613,16 @@ async function loadChat(cascadeId, isBackgroundPoll = false) {
         .then(res => res.json())
         .then(info => {
           if (activeCascadeId === cascadeId) {
+            if (info.isScheduledTask) {
+              const wasScheduled = isCascadeScheduledTask(cascadeId);
+              scheduledTaskCascadeMap.set(cascadeId, true);
+              if (currentTrajectories[cascadeId]) {
+                currentTrajectories[cascadeId].isScheduledTask = true;
+              }
+              if (!wasScheduled) {
+                scheduleRenderMessages(steps, isRunning);
+              }
+            }
             setLiveTextTranslations(cascadeId, info.liveTextTranslations || null);
             if (info.liveTextTranslations && Object.keys(info.liveTextTranslations).length > 0) {
               scheduleRenderMessages(steps, isRunning);
@@ -2459,6 +2496,9 @@ function groupSteps(steps) {
   let turnPlan = null;
   let turnPlanAnchorIdx = -1;
   let turnStartItemIdx = 0;
+  let markedScheduledPrompt = false;
+  const sessionIsScheduled = isCascadeScheduledTask(activeCascadeId) &&
+    !(typeof currentTrajectories !== "undefined" && currentTrajectories?.[activeCascadeId]?.parentConversationId);
 
   function flushBatch() {
     if (currentBatch && currentBatch.steps.length > 0) {
@@ -2546,6 +2586,14 @@ function groupSteps(steps) {
             if (img.base64Data) mediaList.push(img.base64Data);
           }
         }
+        const isVoicePrompt = typeof userText === "string" && (
+          userText.includes("<talker_agent_context>") ||
+          userText.includes("</talker_agent_context>") ||
+          userText.includes("<voice_instructions>") ||
+          userText.includes("</voice_instructions>")
+        );
+        const isScheduledPrompt = sessionIsScheduled && !markedScheduledPrompt && !isVoicePrompt && Boolean(userText && userText.trim());
+        if (isScheduledPrompt) markedScheduledPrompt = true;
         items.push({
           type: "user",
           id: `item-user-${i}`,
@@ -2554,6 +2602,7 @@ function groupSteps(steps) {
           slashCommands: slashCommands,
           media: mediaList,
           imageUrls: imageUrls,
+          isScheduledTask: isScheduledPrompt,
           step: s
         });
       }
@@ -2774,7 +2823,7 @@ function getItemFingerprint(item, isRunning, isLastItem, isActivePlan = false) {
   if (item.type === "user") {
     const mediaLen = (item.media || []).length;
     const scKey = (item.slashCommands || []).map(c => c.name).join(",");
-    return `u:${item.text.length}:${item.text.slice(-10)}:m${mediaLen}:sc${scKey}`;
+    return `u:${item.text.length}:${item.text.slice(-10)}:m${mediaLen}:sc${scKey}:st${item.isScheduledTask ? 1 : 0}`;
   }
   if (item.type === "agent") {
     const thinkLen = (item.thinking || "").length;
@@ -3182,6 +3231,15 @@ function generateItemHtml(item, isRunning, isLastItem, isActivePlan = false) {
           ? renderUserTextWithSlashPills(parsedUser.body, item.slashCommands)
           : escapeHtml(parsedUser.body))
       : "";
+    if (item.isScheduledTask && parsedUser.body) {
+      const schedLabel = typeof t === "function" ? t("定时任务") : "定时任务";
+      const alarmSvg = '<svg class="scheduled-task-alarm-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="13" r="8"></circle><path d="M12 9v4l2 2"></path><path d="M5 3 2 6"></path><path d="m22 6-3-3"></path><path d="M6.38 18.7 4 21"></path><path d="M17.64 18.67 20 21"></path></svg>';
+      const schedBubbleHtml = `<div class="bubble scheduled-task-bubble" data-action="toggle-scheduled-prompt" role="button" tabindex="0" aria-expanded="false">${imagesHtml}<div class="scheduled-task-header">${alarmSvg}<span>${escapeHtml(schedLabel)}</span></div><div class="user-message-text scheduled-task-body" data-i18n-skip="1">${renderedUserText}</div></div>`;
+      if (!filesHtml) {
+        return `<div class="bubble-col">${schedBubbleHtml}${buildMessageActionsHtml("user")}</div>`;
+      }
+      return `<div class="bubble-col user-bubble-stack">${filesHtml}${schedBubbleHtml}${buildMessageActionsHtml("user")}</div>`;
+    }
     const bubbleInner = `${imagesHtml}${renderedUserText ? `<div class="user-message-text" data-i18n-skip="1">${renderedUserText}</div>` : ""}`;
     if (!filesHtml) {
       return `<div class="bubble-col"><div class="bubble">${bubbleInner}</div>${buildMessageActionsHtml("user")}</div>`;
@@ -3516,11 +3574,19 @@ function renderMessages(steps, isRunning = false) {
             patchAgentBodyHtml(bodyEl, bodyHtml);
           } else {
             const wasOpen = existingEl.querySelector(":scope > details")?.open ?? existingEl.querySelector("details")?.open;
+            const wasScheduledExpanded = existingEl.querySelector(".scheduled-task-bubble")?.classList.contains("expanded") === true;
             const openKeys = new Set();
             existingEl.querySelectorAll("details[data-step-key]").forEach(d => {
               if (d.open) openKeys.add(d.getAttribute("data-step-key"));
             });
             existingEl.innerHTML = generateItemHtml(item, isRunning, isLastItem, isActivePlan);
+            if (wasScheduledExpanded) {
+              const newSched = existingEl.querySelector(".scheduled-task-bubble");
+              if (newSched) {
+                newSched.classList.add("expanded");
+                newSched.setAttribute("aria-expanded", "true");
+              }
+            }
             if (wasOpen) {
               const newDetails = existingEl.querySelector(":scope > details") || existingEl.querySelector("details");
               if (newDetails) newDetails.open = true;

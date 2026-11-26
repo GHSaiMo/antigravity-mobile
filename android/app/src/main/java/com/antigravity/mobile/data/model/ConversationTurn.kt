@@ -33,6 +33,8 @@ data class ConversationTurn(
     val timestamp: String? = null,
     /** 本轮是否为语音交互提问 */
     val isVoiceTurn: Boolean = false,
+    /** 本轮是否为定时任务自动下发的首条提示词 */
+    val isScheduledTask: Boolean = false,
     /** 本轮起始的步骤索引（用于 Antigravity 2.30.0 GetChapterTitles 章节标题生成） */
     val startStepIndex: Int? = null,
     /** 本轮结束的步骤索引（可选，用于未加载历史轮次的章节范围估算） */
@@ -218,6 +220,7 @@ object ConversationTurnBuilder {
                     modelName = model,
                     timestamp = turnTimestamp,
                     isVoiceTurn = isVoice,
+                    isScheduledTask = !isVoice && ((userMsg?.isScheduledTask == true) || item.isScheduledTask),
                     startStepIndex = startStep,
                     endStepIndex = endStep,
                     messageOffset = item.messageOffset,
@@ -389,6 +392,7 @@ object ConversationTurnBuilder {
                     modelName = model,
                     timestamp = turnTimestamp,
                     isVoiceTurn = isVoice,
+                    isScheduledTask = !isVoice && (userMsg?.isScheduledTask == true),
                     startStepIndex = turnStartStep,
                     endStepIndex = turnEndStep
                 )

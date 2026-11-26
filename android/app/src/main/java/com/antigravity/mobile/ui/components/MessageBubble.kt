@@ -2,6 +2,7 @@ package com.antigravity.mobile.ui.components
 
 import com.antigravity.mobile.ui.util.loc
 import android.graphics.BitmapFactory
+import androidx.compose.animation.animateContentSize
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -10,6 +11,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.LiveHelp
+import androidx.compose.material.icons.filled.Alarm
 import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.CallSplit
 import androidx.compose.material.icons.filled.FileDownload
@@ -84,6 +86,7 @@ fun MessageBubble(
     isActiveToolBatch: Boolean = false,
     isActivePlan: Boolean = false,
     isStreaming: Boolean = false,
+    isScheduledTaskPrompt: Boolean = false,
     onPlanClick: ((uri: String, title: String) -> Unit)? = null,
     urlResolver: ((String) -> String)? = null,
     onImageClick: ((url: String?, bitmap: Bitmap?) -> Unit)? = null,
@@ -311,6 +314,7 @@ fun MessageBubble(
             images = request.images,
             shareContext = shareContextProvider?.invoke(message) ?: ShareCardContext(),
             urlResolver = urlResolver,
+            isScheduledTask = request.isScheduledTask,
             onDismiss = { shareCardRequest = null }
         )
     }
@@ -510,6 +514,7 @@ fun MessageBubble(
             val isVoiceMessage = remember(userBodyText, attachedFiles) {
                 VoiceTranscriptCleaner.isVoiceMessage(userBodyText, attachedFiles)
             }
+            val isScheduledTaskMessage = !isVoiceMessage && (isScheduledTaskPrompt || message.isScheduledTask) && userBodyText.isNotBlank()
 
             if (attachedFiles.isNotEmpty() && !isVoiceMessage) {
                 Column(
@@ -653,6 +658,168 @@ fun MessageBubble(
                             DropdownMenuItem(
                                 text = { Text("撤回至此步骤".loc, color = colors.accentRed) },
                                 leadingIcon = { Icon(Icons.Default.Undo, contentDescription = "撤回至此步骤".loc, tint = colors.accentRed) },
+                                onClick = {
+                                    showContextMenu = false
+                                    onUndoClick(message)
+                                }
+                            )
+                        }
+                    }
+                }
+            } else if (isScheduledTaskMessage) {
+                var showContextMenu by remember { mutableStateOf(false) }
+                var isScheduledExpanded by remember(message.id) { mutableStateOf(false) }
+                val tapHaptic = rememberHaptic()
+                val (userAnnotatedText, inlineContentMap) = remember(
+                    userBodyText,
+                    message.slashCommands,
+                    colors.userBubbleText,
+                    bodyScale
+                ) {
+                    SlashCommandTextRenderer.buildInlineText(
+                        text = userBodyText,
+                        mentions = message.slashCommands.orEmpty(),
+                        iconColor = colors.userBubbleText.copy(alpha = 0.85f),
+                        scale = bodyScale
+                    )
+                }
+
+                Box(
+                    modifier = Modifier
+                        .shadow(
+                            elevation = 1.5.dp,
+                            shape = RoundedCornerShape(18.dp),
+                            ambientColor = Color.Black.copy(alpha = 0.04f),
+                            spotColor = Color.Black.copy(alpha = 0.10f)
+                        )
+                        .clip(RoundedCornerShape(18.dp))
+                        .background(colors.userBubbleBg)
+                        .animateContentSize()
+                        .combinedClickable(
+                            onClick = {
+                                focusManager.clearFocus()
+                                tapHaptic.light()
+                                isScheduledExpanded = !isScheduledExpanded
+                            },
+                            onLongClick = { showContextMenu = true }
+                        )
+                        .padding(horizontal = 14.dp, vertical = 10.dp)
+                ) {
+                    if (!isScheduledExpanded) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Alarm,
+                                contentDescription = null,
+                                tint = colors.userBubbleText,
+                                modifier = Modifier.size((17f * bodyScale).dp)
+                            )
+                            Text(
+                                text = "定时任务".loc,
+                                color = colors.userBubbleText,
+                                fontSize = (14f * bodyScale).sp,
+                                fontWeight = FontWeight.Medium
+                            )
+                        }
+                    } else {
+                        Column(
+                            modifier = Modifier.widthIn(max = 320.dp),
+                            verticalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(6.dp)
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.Alarm,
+                                    contentDescription = null,
+                                    tint = colors.userBubbleText.copy(alpha = 0.85f),
+                                    modifier = Modifier.size((15f * bodyScale).dp)
+                                )
+                                Text(
+                                    text = "定时任务".loc,
+                                    color = colors.userBubbleText.copy(alpha = 0.85f),
+                                    fontSize = (12f * bodyScale).sp,
+                                    fontWeight = FontWeight.SemiBold
+                                )
+                            }
+                            Text(
+                                text = userAnnotatedText,
+                                inlineContent = inlineContentMap,
+                                color = colors.userBubbleText,
+                                fontSize = (14.5f * bodyScale).sp,
+                                lineHeight = (20f * bodyScale).sp
+                            )
+                        }
+                    }
+
+                    DropdownMenu(
+                        expanded = showContextMenu,
+                        onDismissRequest = { showContextMenu = false },
+                        containerColor = colors.surface
+                    ) {
+                        DropdownMenuItem(
+                            text = { Text(if (isScheduledExpanded) "折叠提示词".loc else "展开提示词".loc) },
+                            leadingIcon = {
+                                Icon(
+                                    if (isScheduledExpanded) Icons.Default.UnfoldLess else Icons.Default.UnfoldMore,
+                                    contentDescription = null
+                                )
+                            },
+                            onClick = {
+                                showContextMenu = false
+                                isScheduledExpanded = !isScheduledExpanded
+                            }
+                        )
+                        DropdownMenuItem(
+                            text = { Text("复制全文".loc) },
+                            leadingIcon = { Icon(Icons.Default.ContentCopy, contentDescription = "复制全文".loc) },
+                            onClick = {
+                                showContextMenu = false
+                                copyAll(userBodyText)
+                            }
+                        )
+                        if (onExportMarkdownClick != null) {
+                            DropdownMenuItem(
+                                text = { Text("导出MD".loc) },
+                                leadingIcon = { Icon(Icons.Default.FileDownload, contentDescription = "导出MD".loc) },
+                                onClick = {
+                                    showContextMenu = false
+                                    onExportMarkdownClick()
+                                }
+                            )
+                        }
+                        DropdownMenuItem(
+                            text = { Text("分享长图".loc) },
+                            leadingIcon = { Icon(Icons.Default.Share, contentDescription = "分享长图".loc) },
+                            onClick = {
+                                showContextMenu = false
+                                shareCardRequest = ShareCardRequest(userBodyText, true, allUserImages, isScheduledTask = true)
+                            }
+                        )
+                        if (onAskBtwClick != null && message.stepIndex != null) {
+                            HorizontalDivider(color = colors.border.copy(alpha = 0.4f))
+                            DropdownMenuItem(
+                                text = { Text("旁路快问".loc) },
+                                leadingIcon = { Icon(Icons.AutoMirrored.Outlined.LiveHelp, contentDescription = "旁路快问".loc) },
+                                onClick = {
+                                    showContextMenu = false
+                                    onAskBtwClick(message.stepIndex, userBodyText)
+                                }
+                            )
+                        }
+                        if (onUndoClick != null) {
+                            HorizontalDivider(color = colors.border.copy(alpha = 0.4f))
+                            DropdownMenuItem(
+                                text = { Text("撤回".loc) },
+                                leadingIcon = {
+                                    Icon(
+                                        imageVector = Icons.Default.Undo,
+                                        contentDescription = "撤回".loc
+                                    )
+                                },
                                 onClick = {
                                     showContextMenu = false
                                     onUndoClick(message)
@@ -1098,7 +1265,8 @@ fun SimpleMarkdownContent(
 private data class ShareCardRequest(
     val content: String,
     val isUser: Boolean,
-    val images: List<ImageViewerItem>
+    val images: List<ImageViewerItem>,
+    val isScheduledTask: Boolean = false
 )
 
 /**

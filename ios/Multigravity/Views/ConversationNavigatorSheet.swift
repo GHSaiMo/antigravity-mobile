@@ -527,6 +527,28 @@ public struct ConversationNavigatorSheet: View {
                                 .lineLimit(1)
                         }
                     }
+                } else if turn.isScheduledTask {
+                    HStack(alignment: .center, spacing: 8) {
+                        HStack(spacing: 5) {
+                            Image(systemName: "alarm")
+                                .font(.system(size: 11.5, weight: .semibold))
+                                .foregroundColor(.white)
+                            Text("定时任务")
+                                .font(.system(size: 11.5, weight: .semibold))
+                                .foregroundColor(.white)
+                        }
+                        .padding(.horizontal, 7.5)
+                        .padding(.vertical, 3.5)
+                        .background(Color.indigo)
+                        .clipShape(Capsule())
+                        
+                        if !turn.promptSummary.isEmpty {
+                            Text(turn.promptSummary)
+                                .font(.system(size: 13.5, weight: isCurrent ? .semibold : .medium))
+                                .foregroundColor(.primary)
+                                .lineLimit(1)
+                        }
+                    }
                 } else {
                     Text(turn.promptSummary)
                         .font(.system(size: 14, weight: isCurrent ? .semibold : .medium))

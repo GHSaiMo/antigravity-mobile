@@ -143,6 +143,7 @@ struct ShareCardQuestion {
     let images: [UIImage]
     let files: [AttachmentRules.ParsedFile]
     var isVoiceMessage: Bool = false
+    var isScheduledTask: Bool = false
 }
 
 extension ChatMessage {
@@ -184,6 +185,7 @@ struct MessageShareCardView: View {
 
     let content: String
     let isUserMessage: Bool
+    var isScheduledTask: Bool = false
     let question: ShareCardQuestion?
     let images: [UIImage]
     let theme: ShareCardTheme
@@ -235,14 +237,29 @@ struct MessageShareCardView: View {
                     }
                     .frame(maxWidth: .infinity, alignment: .leading)
                 } else {
-                    SlashCommandTextRenderer.render(
-                        text: content,
-                        iconColor: UIColor.label.withAlphaComponent(0.8)
-                    )
-                    .font(.system(size: 15.5))
-                    .foregroundColor(theme.primaryText)
-                    .fixedSize(horizontal: false, vertical: true)
-                    .frame(maxWidth: .infinity, alignment: .leading)
+                    VStack(alignment: .leading, spacing: 10) {
+                        if isScheduledTask {
+                            HStack(spacing: 6) {
+                                Image(systemName: "alarm")
+                                    .font(.system(size: 13, weight: .semibold))
+                                    .foregroundColor(.white)
+                                Text("定时任务")
+                                    .font(.system(size: 13, weight: .semibold))
+                                    .foregroundColor(.white)
+                            }
+                            .padding(.horizontal, 10)
+                            .padding(.vertical, 5)
+                            .background(Color.indigo, in: Capsule())
+                        }
+                        SlashCommandTextRenderer.render(
+                            text: content,
+                            iconColor: UIColor.label.withAlphaComponent(0.8)
+                        )
+                        .font(.system(size: 15.5))
+                        .foregroundColor(theme.primaryText)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                    }
                 }
             } else {
                 MarkdownContentView(content: content)
@@ -273,6 +290,18 @@ struct MessageShareCardView: View {
                         .fill(Color.white)
                         .frame(width: 15, height: 15)
                     Text("语音交互")
+                        .font(.system(size: 13, weight: .semibold))
+                        .foregroundColor(.white)
+                }
+                .padding(.horizontal, 10)
+                .padding(.vertical, 5)
+                .background(Color.indigo, in: Capsule())
+            } else if question.isScheduledTask {
+                HStack(spacing: 6) {
+                    Image(systemName: "alarm")
+                        .font(.system(size: 13, weight: .semibold))
+                        .foregroundColor(.white)
+                    Text("定时任务")
                         .font(.system(size: 13, weight: .semibold))
                         .foregroundColor(.white)
                 }
@@ -594,13 +623,14 @@ struct MessageShareCardSheet: View {
             let filteredFiles = isVoice
                 ? parsed.files.filter { !["wav", "m4a", "aac", "mp3", "caf", "opus"].contains($0.ext.lowercased()) }
                 : parsed.files
-            questionContent = ShareCardQuestion(text: parsed.body, images: questionImages, files: filteredFiles, isVoiceMessage: isVoice)
+            questionContent = ShareCardQuestion(text: parsed.body, images: questionImages, files: filteredFiles, isVoiceMessage: isVoice, isScheduledTask: !isVoice && (previous.isScheduledTask == true))
         }
         if Task.isCancelled { return }
 
         let card = MessageShareCardView(
             content: isUserMessage ? AttachmentRules.parseBlock(message.content).body : message.content,
             isUserMessage: isUserMessage,
+            isScheduledTask: isUserMessage && (message.isScheduledTask == true),
             question: questionContent,
             images: loadedImages,
             theme: theme,

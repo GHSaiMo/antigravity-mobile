@@ -787,6 +787,7 @@ extension ChatView {
             message: message,
             isActive: isActive,
             isActivePlan: isActivePlan,
+            isScheduledTaskPrompt: viewModel.isScheduledTaskPromptMessage(message),
             isHighlighted: isHighlighted,
             canRevert: canRevert,
             canExport: canExport,
@@ -1253,6 +1254,7 @@ private struct EquatableMessageRow: View, Equatable {
     let message: ChatMessage
     let isActive: Bool
     let isActivePlan: Bool
+    let isScheduledTaskPrompt: Bool
     let isHighlighted: Bool
     let canRevert: Bool
     let canExport: Bool
@@ -1277,6 +1279,7 @@ private struct EquatableMessageRow: View, Equatable {
         lhs.message == rhs.message
             && lhs.isActive == rhs.isActive
             && lhs.isActivePlan == rhs.isActivePlan
+            && lhs.isScheduledTaskPrompt == rhs.isScheduledTaskPrompt
             && lhs.isHighlighted == rhs.isHighlighted
             && lhs.canRevert == rhs.canRevert
             && lhs.canExport == rhs.canExport
@@ -1291,6 +1294,7 @@ private struct EquatableMessageRow: View, Equatable {
                 isActiveToolBatch: isActive,
                 isActivePlan: isActivePlan,
                 isStreaming: streaming,
+                isScheduledTaskPrompt: isScheduledTaskPrompt,
                 onUndo: canRevert ? onUndo : nil,
                 onExportMarkdown: canExport ? onExportMarkdown : nil,
                 onCompact: onCompact,

@@ -135,7 +135,8 @@ private fun ChatViewModel.buildStateFromCachedSession(
     defaultTitle: String,
     resolvedWs: String,
     isDraft: Boolean,
-    attachments: List<AttachmentImage>
+    attachments: List<AttachmentImage>,
+    isScheduledTask: Boolean = false
 ): ChatUiState {
     val healed = sanitizeMessageOrder(cached.messages)
     if (healed.size != cached.messages.size) {
@@ -158,6 +159,7 @@ private fun ChatViewModel.buildStateFromCachedSession(
         queuedMessages = (cached.queuedMessages ?: emptyList()).filter { isUserQueuedItem(it) },
         isLoading = false,
         isNewConversation = false,
+        isScheduledTask = isScheduledTask || healed.any { it.isScheduledTask },
         isRunning = isRunning,
         isAwaitingResponse = false,
         selectedImages = attachments,
@@ -200,7 +202,8 @@ internal fun ChatViewModel.prepareSession(
     isUnread: Boolean = false,
     conversationStatus: ConversationStatus? = null,
     draftProject: ProjectItem? = null,
-    lastModifiedTime: String? = null
+    lastModifiedTime: String? = null,
+    isScheduledTask: Boolean = false
 ) {
     com.antigravity.mobile.data.service.ApiClient.currentCascadeId = cascadeId
     this.currentLastModifiedTime = lastModifiedTime
@@ -256,7 +259,8 @@ internal fun ChatViewModel.prepareSession(
             defaultTitle = defaultTitle,
             resolvedWs = resolvedWs,
             isDraft = isDraft,
-            attachments = attachments
+            attachments = attachments,
+            isScheduledTask = isScheduledTask
         )
     } else {
         _uiState.value = ChatUiState(
@@ -268,6 +272,7 @@ internal fun ChatViewModel.prepareSession(
             queuedMessages = emptyList(),
             isLoading = !isNewConversation && !isDraft,
             isNewConversation = isNewConversation,
+            isScheduledTask = isScheduledTask,
             isRunning = false,
             isAwaitingResponse = false,
             selectedImages = attachments,
@@ -578,7 +583,8 @@ internal fun ChatViewModel.initSession(
                         activeFocusStartedAt = payload.activeFocusStartedAt,
                         activePlan = payload.activePlan,
                         branchOrigin = payload.branchOrigin ?: _uiState.value.branchOrigin,
-                        sideQuestions = payload.sideQuestions.orEmpty()
+                        sideQuestions = payload.sideQuestions.orEmpty(),
+                        isScheduledTask = payload.isScheduledTask || _uiState.value.isScheduledTask
                     )
 
                     if (isRunning) {
@@ -847,7 +853,8 @@ internal fun ChatViewModel.ensureWebSocketObserving() {
                     activeFocusStartedAt = payload.activeFocusStartedAt,
                     activePlan = payload.activePlan,
                     branchOrigin = payload.branchOrigin ?: _uiState.value.branchOrigin,
-                    sideQuestions = payload.sideQuestions.orEmpty()
+                    sideQuestions = payload.sideQuestions.orEmpty(),
+                    isScheduledTask = payload.isScheduledTask || _uiState.value.isScheduledTask
                 )
 
                 if (isRunning) {
@@ -963,7 +970,8 @@ internal fun ChatViewModel.refresh(onComplete: (() -> Unit)? = null) {
                             activeFocusStartedAt = payload.activeFocusStartedAt,
                             activePlan = payload.activePlan,
                             branchOrigin = payload.branchOrigin ?: _uiState.value.branchOrigin,
-                            sideQuestions = payload.sideQuestions.orEmpty()
+                            sideQuestions = payload.sideQuestions.orEmpty(),
+                            isScheduledTask = payload.isScheduledTask || _uiState.value.isScheduledTask
                         )
                         if (isRunning) {
                             val stepCount = msgs.count { !it.isUser }

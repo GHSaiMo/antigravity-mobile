@@ -111,19 +111,20 @@ func buildTurnOutline(allMessages []CascadeMessageItem) []TurnOutlineItem {
 		}
 
 		turns = append(turns, TurnOutlineItem{
-			TurnIndex:      turnIndex,
-			FirstMessageID: firstID,
-			MessageOffset:  turnStartOffset,
-			MessageCount:   len(currentMsgs),
-			StartStepIndex: startStep,
-			EndStepIndex:   endStep,
-			PromptSummary:  summary,
-			TotalTools:     totalTools,
-			Artifacts:      artifacts,
-			HasError:       hasError,
-			ModelName:      modelName,
-			Timestamp:      timestamp,
-			IsVoiceTurn:    isVoice,
+			TurnIndex:       turnIndex,
+			FirstMessageID:  firstID,
+			MessageOffset:   turnStartOffset,
+			MessageCount:    len(currentMsgs),
+			StartStepIndex:  startStep,
+			EndStepIndex:    endStep,
+			PromptSummary:   summary,
+			TotalTools:      totalTools,
+			Artifacts:       artifacts,
+			HasError:        hasError,
+			ModelName:       modelName,
+			Timestamp:       timestamp,
+			IsVoiceTurn:     isVoice,
+			IsScheduledTask: currentUser != nil && currentUser.IsScheduledTask,
 		})
 
 		turnIndex++

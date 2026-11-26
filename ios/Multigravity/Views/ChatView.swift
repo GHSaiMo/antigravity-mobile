@@ -123,6 +123,7 @@ public struct ChatView: View {
                     cascadeId: conversation.id,
                     initialTitle: conversation.title,
                     workspaceName: conversation.workspaceName,
+                    isScheduledTask: conversation.isScheduledTask,
                     isNewConversation: isNewOrEmpty,
                     isUnread: conversation.isUnread,
                     conversationStatus: conversation.status
@@ -147,6 +148,7 @@ public struct ChatView: View {
                 cascadeId: conversation.id,
                 initialTitle: conversation.title,
                 workspaceName: conversation.workspaceName,
+                isScheduledTask: conversation.isScheduledTask,
                 isNewConversation: isNewOrEmpty,
                 isUnread: conversation.isUnread,
                 conversationStatus: conversation.status,

@@ -8,6 +8,7 @@ public struct MessageBubbleView: View {
     public let isActiveToolBatch: Bool
     public let isActivePlan: Bool
     public let isStreaming: Bool
+    public let isScheduledTaskPrompt: Bool
     public let onUndo: ((ChatMessage) -> Void)?
     let onExportMarkdown: (() -> Void)?
     let onCompact: (() -> Void)?
@@ -21,6 +22,7 @@ public struct MessageBubbleView: View {
     let makeShareContext: (() -> ShareCardContext)?
     @State var showShareCard: Bool = false
     @State var isThinkingExpanded: Bool = false
+    @State var isScheduledPromptExpanded: Bool = false
     
     @State var previewGallery: ImageGalleryData? = nil
     @State var showTextSelectionSheet: Bool = false
@@ -30,6 +32,7 @@ public struct MessageBubbleView: View {
         isActiveToolBatch: Bool = false,
         isActivePlan: Bool = false,
         isStreaming: Bool = false,
+        isScheduledTaskPrompt: Bool = false,
         onUndo: ((ChatMessage) -> Void)? = nil,
         onExportMarkdown: (() -> Void)? = nil,
         onCompact: (() -> Void)? = nil,
@@ -46,6 +49,7 @@ public struct MessageBubbleView: View {
         self.isActiveToolBatch = isActiveToolBatch
         self.isActivePlan = isActivePlan
         self.isStreaming = isStreaming
+        self.isScheduledTaskPrompt = isScheduledTaskPrompt
         self.onUndo = onUndo
         self.onExportMarkdown = onExportMarkdown
         self.onCompact = onCompact

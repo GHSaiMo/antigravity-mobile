@@ -138,6 +138,8 @@ function closeMessageActions(exceptRow) {
 const MESSAGE_ACTION_IGNORE = "a, button, summary, details, input, textarea, select, img, video, .code-copy-btn, .artifact-preview-card, .thumbnail-card, [data-action]";
 
 function messageRowText(row) {
+  const scheduledBody = row.querySelector(".scheduled-task-body");
+  if (scheduledBody) return (scheduledBody.textContent || "").trim();
   const body = row.querySelector(".agent-message-body") || row.querySelector(".bubble");
   return body ? body.innerText.trim() : "";
 }
@@ -180,6 +182,20 @@ function initMessageActions() {
       closeMessageActions();
       return;
     }
+    if (bubble.classList.contains("scheduled-task-bubble")) {
+      if (e.target.closest("a, button, img, video, .thumbnail-card, .slash-skill-link")) return;
+      const sel = window.getSelection && window.getSelection();
+      if (sel && !sel.isCollapsed && sel.toString().length > 0) return;
+      const expanded = bubble.classList.toggle("expanded");
+      bubble.setAttribute("aria-expanded", expanded ? "true" : "false");
+      if (typeof triggerHaptic === "function") triggerHaptic("light");
+      const row = bubble.closest(".message-row");
+      if (row && row.querySelector(".msg-actions")) {
+        closeMessageActions(row);
+        row.classList.toggle("actions-open", expanded);
+      }
+      return;
+    }
     if (e.target.closest(MESSAGE_ACTION_IGNORE)) return;
     // 正在选字时不展开，避免打断选择
     const sel = window.getSelection && window.getSelection();
@@ -190,6 +206,20 @@ function initMessageActions() {
     const willOpen = !row.classList.contains("actions-open");
     closeMessageActions(row);
     row.classList.toggle("actions-open", willOpen);
+  });
+
+  stream.addEventListener("keydown", (e) => {
+    if (e.key !== "Enter" && e.key !== " ") return;
+    const bubble = e.target.closest?.(".scheduled-task-bubble");
+    if (!bubble) return;
+    e.preventDefault();
+    const expanded = bubble.classList.toggle("expanded");
+    bubble.setAttribute("aria-expanded", expanded ? "true" : "false");
+    const row = bubble.closest(".message-row");
+    if (row && row.querySelector(".msg-actions")) {
+      closeMessageActions(row);
+      row.classList.toggle("actions-open", expanded);
+    }
   });
 }
 

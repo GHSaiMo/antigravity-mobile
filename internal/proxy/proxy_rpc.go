@@ -922,6 +922,7 @@ func (p *Proxy) handleGetAllCascadeTrajectories(w http.ResponseWriter, r *http.R
 			}
 		}
 		wsRes := resolveWorkspace(curPID, wsURIs, sourceMeta)
+		setCachedCascadeScheduled(id, wsRes.IsScheduledTask)
 		if wsRes.IsScheduledTask {
 			s["isScheduledTask"] = true
 			if (curPID == "" || curPID == "outside-of-project") && wsRes.ProjectID != "" {
@@ -1024,6 +1025,7 @@ func (p *Proxy) handleGetAllCascadeTrajectories(w http.ResponseWriter, r *http.R
 			if _, exists := s["isScheduledTask"]; !exists {
 				s["isScheduledTask"] = true
 			}
+			setCachedCascadeScheduled(sid, true)
 		}
 		if pMeta, ok := parent["trajectoryMetadata"].(map[string]interface{}); ok && pMeta != nil {
 			if ppid, ok := pMeta["projectId"].(string); ok && ppid != "" {
