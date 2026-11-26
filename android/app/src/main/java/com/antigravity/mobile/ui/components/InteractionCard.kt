@@ -12,11 +12,15 @@ import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.shrinkVertically
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.interaction.DragInteraction
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.relocation.BringIntoViewRequester
+import androidx.compose.foundation.relocation.bringIntoViewRequester
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -46,6 +50,8 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.focus.onFocusChanged
+import kotlinx.coroutines.launch
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.graphicsLayer
@@ -257,14 +263,22 @@ fun InteractionCard(
     val focusManager = LocalFocusManager.current
     val keyboardController = LocalSoftwareKeyboardController.current
     var pendingAutoFocusKey by remember(interactionKey) { mutableStateOf<String?>(null) }
+    var autoFocusNonce by remember(interactionKey) { mutableIntStateOf(0) }
+    val requestWriteInFocus: (String) -> Unit = { key ->
+        pendingAutoFocusKey = key
+        autoFocusNonce++
+    }
     val dismissCardKeyboard = {
         pendingAutoFocusKey = null
         focusManager.clearFocus()
         keyboardController?.hide()
     }
-    LaunchedEffect(scrollState.isScrollInProgress) {
-        if (scrollState.isScrollInProgress) {
-            dismissCardKeyboard()
+    // 仅在用户主动拖动滚动区时收起软键盘；避免 BasicTextField 获焦或 IME 弹出触发 BringIntoView 程序化滚动时误杀软键盘
+    LaunchedEffect(scrollState.interactionSource) {
+        scrollState.interactionSource.interactions.collect { scrollInteraction ->
+            if (scrollInteraction is DragInteraction.Start) {
+                dismissCardKeyboard()
+            }
         }
     }
     val canExpand = isExpanded || (scrollState.maxValue > 0 && fullHeight > halfHeight + 24.dp)
@@ -771,10 +785,8 @@ fun InteractionCard(
                                 haptic.light()
                                 if (q.isMultiSelect) {
                                     if (isWriteInOpt) {
-                                        if (!currentWriteInActive) {
-                                            multiWriteInActives[qIdx] = true
-                                            pendingAutoFocusKey = "multi:$qIdx"
-                                        }
+                                        multiWriteInActives[qIdx] = true
+                                        requestWriteInFocus("multi:$qIdx")
                                     } else {
                                         val next = currentMultiSet.toMutableSet()
                                         if (next.contains(optId)) next.remove(optId) else next.add(optId)
@@ -782,12 +794,9 @@ fun InteractionCard(
                                         dismissCardKeyboard()
                                     }
                                 } else {
-                                    val wasSelected = currentSelected == optId
                                     multiSelections[qIdx] = optId
                                     if (isWriteInOpt) {
-                                        if (!wasSelected) {
-                                            pendingAutoFocusKey = "multi:$qIdx"
-                                        }
+                                        requestWriteInFocus("multi:$qIdx")
                                     } else {
                                         dismissCardKeyboard()
                                     }
@@ -800,6 +809,7 @@ fun InteractionCard(
                             },
                             onHeaderTap = { dismissCardKeyboard() },
                             pendingAutoFocusKey = pendingAutoFocusKey,
+                            autoFocusNonce = autoFocusNonce,
                             onConsumeAutoFocus = {
                                 if (pendingAutoFocusKey == "multi:$qIdx") {
                                     pendingAutoFocusKey = null
@@ -841,14 +851,14 @@ fun InteractionCard(
                                     isMultiSelect = isSingleMultiSelect,
                                     onClick = {
                                         if (isSingleMultiSelect && isWriteIn && isSelected) {
-                                            pendingAutoFocusKey = "single"
+                                            requestWriteInFocus("single")
                                             return@OptionRow
                                         }
                                         haptic.light()
                                         if (isSingleMultiSelect) {
                                             if (isWriteIn) {
                                                 singleWriteInActive = true
-                                                pendingAutoFocusKey = "single"
+                                                requestWriteInFocus("single")
                                             } else {
                                                 if (singleMultiSelectedIds.contains(opt.id)) {
                                                     singleMultiSelectedIds.remove(opt.id)
@@ -858,12 +868,9 @@ fun InteractionCard(
                                                 dismissCardKeyboard()
                                             }
                                         } else {
-                                            val wasSelected = isSelected
                                             selectedOptionId = opt.id
                                             if (isWriteIn) {
-                                                if (!wasSelected) {
-                                                    pendingAutoFocusKey = "single"
-                                                }
+                                                requestWriteInFocus("single")
                                             } else {
                                                 dismissCardKeyboard()
                                             }
@@ -879,6 +886,7 @@ fun InteractionCard(
                                     displayIndex = optIdx,
                                     isWriteIn = isWriteIn,
                                     shouldAutoFocus = pendingAutoFocusKey == "single",
+                                    autoFocusNonce = autoFocusNonce,
                                     onConsumeAutoFocus = {
                                         if (pendingAutoFocusKey == "single") {
                                             pendingAutoFocusKey = null
@@ -1041,6 +1049,7 @@ private fun QuestionSection(
     onToggleWriteInOff: () -> Unit = {},
     onHeaderTap: () -> Unit = {},
     pendingAutoFocusKey: String? = null,
+    autoFocusNonce: Int = 0,
     onConsumeAutoFocus: () -> Unit = {},
     writeInText: String,
     onWriteInChange: (String) -> Unit
@@ -1114,6 +1123,7 @@ private fun QuestionSection(
                     displayIndex = optIdx,
                     isWriteIn = isWriteIn,
                     shouldAutoFocus = pendingAutoFocusKey == "multi:$questionIndex",
+                    autoFocusNonce = autoFocusNonce,
                     onConsumeAutoFocus = onConsumeAutoFocus,
                     writeInText = writeInText,
                     onWriteInChange = onWriteInChange,
@@ -1124,6 +1134,7 @@ private fun QuestionSection(
     }
 }
 
+@OptIn(ExperimentalFoundationApi::class, ExperimentalLayoutApi::class)
 @Composable
 private fun OptionRow(
     option: InteractionOption,
@@ -1134,6 +1145,7 @@ private fun OptionRow(
     displayIndex: Int = -1,
     isWriteIn: Boolean = false,
     shouldAutoFocus: Boolean = false,
+    autoFocusNonce: Int = 0,
     onConsumeAutoFocus: () -> Unit = {},
     writeInText: String = "",
     onWriteInChange: (String) -> Unit = {},
@@ -1141,11 +1153,28 @@ private fun OptionRow(
 ) {
     val colors = AntigravityTheme.colors
     val focusRequester = remember { FocusRequester() }
+    val keyboardController = LocalSoftwareKeyboardController.current
+    val bringIntoViewRequester = remember { BringIntoViewRequester() }
+    val coroutineScope = rememberCoroutineScope()
+    var isFieldFocused by remember { mutableStateOf(false) }
+    val isImeVisible = WindowInsets.isImeVisible
 
-    LaunchedEffect(isSelected, isWriteIn, shouldAutoFocus) {
-        if (isSelected && isWriteIn && shouldAutoFocus) {
+    LaunchedEffect(isSelected, isWriteIn, shouldAutoFocus, autoFocusNonce) {
+        if (isSelected && isWriteIn && shouldAutoFocus && autoFocusNonce > 0) {
+            // 等待一帧确保刚挂载的 BasicTextField 完成布局并绑定焦点节点后再获焦与拉起软键盘
+            withFrameNanos { }
+            runCatching { focusRequester.requestFocus() }
+            keyboardController?.show()
+            runCatching { bringIntoViewRequester.bringIntoView() }
             onConsumeAutoFocus()
-            focusRequester.requestFocus()
+        }
+    }
+
+    // 键盘弹出压缩卡片高度时，确保正在输入的自定义选项始终留在可视滚动区域内
+    LaunchedEffect(isFieldFocused, isImeVisible) {
+        if (isFieldFocused && isImeVisible) {
+            withFrameNanos { }
+            runCatching { bringIntoViewRequester.bringIntoView() }
         }
     }
 
@@ -1154,6 +1183,7 @@ private fun OptionRow(
         horizontalArrangement = Arrangement.spacedBy(8.dp),
         modifier = Modifier
             .fillMaxWidth()
+            .bringIntoViewRequester(bringIntoViewRequester)
             .clip(RoundedCornerShape(8.dp))
             .background(if (isSelected) colors.accentBlue.copy(alpha = 0.08f) else colors.surfaceVariant.copy(alpha = 0.5f))
             .border(
@@ -1161,7 +1191,18 @@ private fun OptionRow(
                 color = if (isSelected) colors.accentBlue.copy(alpha = 0.5f) else Color.Transparent,
                 shape = RoundedCornerShape(8.dp)
             )
-            .clickable(onClick = onClick)
+            .clickable {
+                if (isWriteIn && isSelected) {
+                    // 已处于选中态时，点击自定义选项行内任意区域同步请求焦点并呼出输入法
+                    runCatching { focusRequester.requestFocus() }
+                    keyboardController?.show()
+                    coroutineScope.launch {
+                        runCatching { bringIntoViewRequester.bringIntoView() }
+                    }
+                } else {
+                    onClick()
+                }
+            }
             .padding(horizontal = 9.dp, vertical = 8.dp)
     ) {
         val badgeText = when {
@@ -1203,19 +1244,33 @@ private fun OptionRow(
                 cursorBrush = SolidColor(colors.accentBlue),
                 modifier = Modifier
                     .weight(1f)
+                    .defaultMinSize(minHeight = 20.dp)
                     .padding(vertical = 1.dp)
-                    .focusRequester(focusRequester),
+                    .focusRequester(focusRequester)
+                    .onFocusChanged { focusState ->
+                        isFieldFocused = focusState.isFocused
+                        if (focusState.isFocused) {
+                            keyboardController?.show()
+                        }
+                    },
                 decorationBox = { innerTextField ->
-                    if (writeInText.isEmpty()) {
-                        Text(
-                            text = placeholderText,
-                            color = colors.textSecondary.copy(alpha = 0.7f),
-                            fontSize = 12.5.sp,
-                            fontWeight = FontWeight.Normal,
-                            lineHeight = 17.sp
-                        )
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .defaultMinSize(minHeight = 20.dp),
+                        contentAlignment = Alignment.CenterStart
+                    ) {
+                        if (writeInText.isEmpty()) {
+                            Text(
+                                text = placeholderText,
+                                color = colors.textSecondary.copy(alpha = 0.7f),
+                                fontSize = 12.5.sp,
+                                fontWeight = FontWeight.Normal,
+                                lineHeight = 17.sp
+                            )
+                        }
+                        innerTextField()
                     }
-                    innerTextField()
                 }
             )
         } else {

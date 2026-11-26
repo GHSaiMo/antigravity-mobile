@@ -1171,9 +1171,12 @@ fun ChatScreen(
         }
     }
 
-    // 在有选项状态下默认收起软键盘
-    LaunchedEffect(uiState.pendingInteraction) {
-        if (uiState.pendingInteraction != null) {
+    // 在新选项卡片出现时默认收起旧的底部软键盘；按交互稳定标识去重，避免流式/轮询刷新误关自定义回答键盘
+    val pendingInteractionKey = uiState.pendingInteraction?.let {
+        "${it.trajectoryId}:${it.stepIndex}:${it.type}:${it.title.hashCode()}"
+    }
+    LaunchedEffect(pendingInteractionKey) {
+        if (pendingInteractionKey != null) {
             dismissKeyboard()
         }
     }
