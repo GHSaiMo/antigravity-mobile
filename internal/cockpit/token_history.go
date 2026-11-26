@@ -17,6 +17,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"antigravity-mobile/internal/procutil"
 )
 
 // ModelTokenBreakdown represents per-model token usage and reference cost.
@@ -1022,7 +1024,7 @@ func queryGenMetadataBlobs(dbPath string) ([][]byte, error) {
 	var out []byte
 	var runErr error
 	if sqliteBin, lookErr := exec.LookPath("sqlite3"); lookErr == nil && isExecutableValid(sqliteBin) {
-		cmd := exec.CommandContext(ctx, sqliteBin, "-readonly", "-batch", "-noheader", "-cmd", ".timeout 2000", cleanDB, "SELECT hex(data) FROM gen_metadata ORDER BY idx;")
+		cmd := procutil.HideWindow(exec.CommandContext(ctx, sqliteBin, "-readonly", "-batch", "-noheader", "-cmd", ".timeout 2000", cleanDB, "SELECT hex(data) FROM gen_metadata ORDER BY idx;"))
 		out, runErr = cmd.Output()
 	} else {
 		runErr = os.ErrNotExist
@@ -1047,7 +1049,7 @@ finally:
 			if pErr != nil || !isExecutableValid(pyBin) {
 				continue
 			}
-			cmd := exec.CommandContext(ctx, pyBin, "-c", pyScript, cleanDB)
+			cmd := procutil.HideWindow(exec.CommandContext(ctx, pyBin, "-c", pyScript, cleanDB))
 			if pyOut, pyErr := cmd.Output(); pyErr == nil {
 				out = pyOut
 				runErr = nil
@@ -1601,7 +1603,7 @@ func loadAllParentConvIDsFromSummariesDB(source string) map[string]string {
 		sqlStdin := ".timeout 1500\n.mode list\n.separator \"\\t\"\n" +
 			"SELECT conversation_id, parent_id FROM conversation_parents WHERE parent_id IS NOT NULL AND parent_id != '';\n" +
 			"SELECT conversation_id, parent_conversation_id FROM conversation_summaries WHERE parent_conversation_id IS NOT NULL AND parent_conversation_id != '';\n"
-		cmd := exec.CommandContext(ctx, sqliteBin, "-readonly", "-batch", "-noheader", cleanDB)
+		cmd := procutil.HideWindow(exec.CommandContext(ctx, sqliteBin, "-readonly", "-batch", "-noheader", cleanDB))
 		cmd.Stdin = strings.NewReader(sqlStdin)
 		out, runErr = cmd.Output()
 	} else {
@@ -1633,7 +1635,7 @@ finally:
 			if pErr != nil || !isExecutableValid(pyBin) {
 				continue
 			}
-			cmd := exec.CommandContext(ctx, pyBin, "-c", pyScript, cleanDB)
+			cmd := procutil.HideWindow(exec.CommandContext(ctx, pyBin, "-c", pyScript, cleanDB))
 			if pyOut, pyErr := cmd.Output(); pyErr == nil {
 				out = pyOut
 				break
@@ -1690,7 +1692,7 @@ func lookupParentConvIDFromSummariesDB(convID, source string) string {
 		sqlStdin := ".timeout 1000\n" +
 			"SELECT parent_id FROM conversation_parents WHERE conversation_id = '" + escaped + "' LIMIT 1;\n" +
 			"SELECT parent_conversation_id FROM conversation_summaries WHERE conversation_id = '" + escaped + "' LIMIT 1;\n"
-		cmd := exec.CommandContext(ctx, sqliteBin, "-readonly", "-batch", "-noheader", cleanDB)
+		cmd := procutil.HideWindow(exec.CommandContext(ctx, sqliteBin, "-readonly", "-batch", "-noheader", cleanDB))
 		cmd.Stdin = strings.NewReader(sqlStdin)
 		out, runErr = cmd.Output()
 	} else {
@@ -1723,7 +1725,7 @@ finally:
 			if pErr != nil || !isExecutableValid(pyBin) {
 				continue
 			}
-			cmd := exec.CommandContext(ctx, pyBin, "-c", pyScript, cleanDB, convID)
+			cmd := procutil.HideWindow(exec.CommandContext(ctx, pyBin, "-c", pyScript, cleanDB, convID))
 			if pyOut, pyErr := cmd.Output(); pyErr == nil {
 				out = pyOut
 				break

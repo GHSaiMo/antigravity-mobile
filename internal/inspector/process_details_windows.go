@@ -9,6 +9,8 @@ import (
 	"os/exec"
 	"strings"
 	"time"
+
+	"antigravity-mobile/internal/procutil"
 )
 
 func lookupProcessDetails(pid int) ProcessDetails {
@@ -16,7 +18,7 @@ func lookupProcessDetails(pid int) ProcessDetails {
 	defer cancel()
 
 	script := fmt.Sprintf(`Get-CimInstance Win32_Process -Filter "ProcessId=%d" | Select-Object ExecutablePath,CommandLine | ConvertTo-Json -Compress`, pid)
-	out, err := exec.CommandContext(ctx, "powershell.exe", "-NoProfile", "-NonInteractive", "-Command", script).Output()
+	out, err := procutil.HideWindow(exec.CommandContext(ctx, "powershell.exe", "-NoProfile", "-NonInteractive", "-Command", script)).Output()
 	if err != nil {
 		return ProcessDetails{}
 	}

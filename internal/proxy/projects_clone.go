@@ -19,6 +19,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"antigravity-mobile/internal/procutil"
 )
 
 const (
@@ -675,7 +677,7 @@ func parseGitHubCloneInput(raw string) (slug, repoName, cloneURL string, ok bool
 func detectOriginGitHubSlug(ctx context.Context, dir string) string {
 	gCtx, cancel := context.WithTimeout(ctx, 2*time.Second)
 	defer cancel()
-	cmd := exec.CommandContext(gCtx, "git", "-C", dir, "remote", "get-url", "origin")
+	cmd := procutil.HideWindow(exec.CommandContext(gCtx, "git", "-C", dir, "remote", "get-url", "origin"))
 	out, err := cmd.Output()
 	if err != nil {
 		return ""
@@ -1045,7 +1047,7 @@ func (p *Proxy) runLocalGitClone(ctx context.Context, job *cloneRepoJob) (error,
 		return err, "git not found"
 	}
 
-	cmd := exec.CommandContext(ctx, "git", "clone", "--progress", "--", job.cloneURL, job.targetDir)
+	cmd := procutil.HideWindow(exec.CommandContext(ctx, "git", "clone", "--progress", "--", job.cloneURL, job.targetDir))
 	cmd.Env = append(os.Environ(),
 		"GIT_TERMINAL_PROMPT=0",
 		"GCM_INTERACTIVE=never",

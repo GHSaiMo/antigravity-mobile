@@ -211,6 +211,13 @@ mgy clear all
 
 # 5. 查看网关版本
 mgy version
+
+# 6. 开机自动接管与后台常驻守护（Windows 任务计划 / macOS launchd / Linux systemd）
+mgy service install        # 注册并立即启动（Windows 请以管理员 PowerShell 执行）
+mgy service status         # 查看托管状态与 127.0.0.1:58900 探活
+mgy service logs -f        # 实时追踪 ~/.multigravity/logs/service.log
+mgy service restart        # 升级或改完 .env 后重启后台服务
+mgy service uninstall      # 停止并取消开机自动接管
 ```
 
 ---

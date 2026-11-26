@@ -15,6 +15,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"antigravity-mobile/internal/procutil"
 )
 
 var validBranchNameRe = regexp.MustCompile(`^[A-Za-z0-9._/\-]+$`)
@@ -691,7 +693,7 @@ func (p *Proxy) HandleGitExtra(w http.ResponseWriter, r *http.Request) {
 		} else {
 			args = append(args, branch)
 		}
-		cmd := exec.CommandContext(ctx, "git", args...)
+		cmd := procutil.HideWindow(exec.CommandContext(ctx, "git", args...))
 		out, err := cmd.CombinedOutput()
 		if err != nil {
 			writeRPCError(w, http.StatusBadRequest, firstNonEmpty(strings.TrimSpace(string(out)), err.Error()))
@@ -738,7 +740,7 @@ func (p *Proxy) HandleGitExtra(w http.ResponseWriter, r *http.Request) {
 }
 
 func gitListBranches(ctx context.Context, repoRoot string) ([]string, string, error) {
-	cmd := exec.CommandContext(ctx, "git", "-C", repoRoot, "branch", "--format=%(HEAD)|%(refname:short)")
+	cmd := procutil.HideWindow(exec.CommandContext(ctx, "git", "-C", repoRoot, "branch", "--format=%(HEAD)|%(refname:short)"))
 	out, err := cmd.Output()
 	if err != nil {
 		return nil, "", err
@@ -834,7 +836,7 @@ func gitDiscardPaths(ctx context.Context, repoRoot string, paths []string) error
 	realRoot := evalSymlinksExistingPrefix(cleanRoot)
 	// Check untracked status first so we only delete verified untracked files.
 	untracked := make(map[string]bool)
-	stCmd := exec.CommandContext(ctx, "git", "-C", realRoot, "status", "--porcelain", "-uall", "-z")
+	stCmd := procutil.HideWindow(exec.CommandContext(ctx, "git", "-C", realRoot, "status", "--porcelain", "-uall", "-z"))
 	if stOut, stErr := stCmd.Output(); stErr == nil {
 		for _, rec := range strings.Split(string(stOut), "\x00") {
 			if len(rec) > 3 && strings.HasPrefix(rec, "?? ") {
@@ -864,7 +866,7 @@ func gitDiscardPaths(ctx context.Context, repoRoot string, paths []string) error
 	}
 	if len(tracked) > 0 {
 		args := append([]string{"-C", realRoot, "checkout", "--"}, tracked...)
-		cmd := exec.CommandContext(ctx, "git", args...)
+		cmd := procutil.HideWindow(exec.CommandContext(ctx, "git", args...))
 		if out, err := cmd.CombinedOutput(); err != nil {
 			return fmt.Errorf("%s: %w", strings.TrimSpace(string(out)), err)
 		}

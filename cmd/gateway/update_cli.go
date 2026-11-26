@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"antigravity-mobile/internal/service"
 	"antigravity-mobile/internal/updater"
 )
 
@@ -91,10 +92,14 @@ func runUpdateCmd(args []string) {
 	}
 
 	if runningVer, ok := updater.ProbeRunningGatewayVersion(*port); ok {
+		svcRestartHint := "请重启网关以使新版本生效"
+		if service.IsInstalled(ctx) {
+			svcRestartHint = "可执行 `mgy service restart` 重启后台服务使新版本生效"
+		}
 		if runningVer != "" {
-			fmt.Printf("💡 提示: 检测到本地网关仍在运行 (v%s, 端口 %d)，请重启网关以使新版本生效。\n", updater.NormalizeVersion(runningVer), *port)
+			fmt.Printf("💡 提示: 检测到本地网关仍在运行 (v%s, 端口 %d)，%s。\n", updater.NormalizeVersion(runningVer), *port, svcRestartHint)
 		} else {
-			fmt.Printf("💡 提示: 检测到本地网关仍在运行 (端口 %d)，请重启网关以使新版本生效。\n", *port)
+			fmt.Printf("💡 提示: 检测到本地网关仍在运行 (端口 %d)，%s。\n", *port, svcRestartHint)
 		}
 	}
 }

@@ -124,6 +124,9 @@ func main() {
 		case "update", "upgrade":
 			runUpdateCmd(args[1:])
 			return
+		case "service", "daemon":
+			runServiceCmd(args[1:])
+			return
 		case "version":
 			runVersionCmd()
 			return
@@ -206,6 +209,7 @@ func runGatewayServerWithMode(mode gatewayMode, args []string) {
 	preventSleepDefault := !envDisabled("MGY_PREVENT_SLEEP") && !envDisabled("MULTIGRAVITY_PREVENT_SLEEP")
 	preventSleep := fs.Bool("prevent-sleep", preventSleepDefault, i18n.T("仅在有活跃 Antigravity 任务时自动阻止宿主机空闲休眠（默认开启，MGY_PREVENT_SLEEP=0 可关闭）", "Prevent host idle sleep only while Antigravity sessions are running (default: true, env: MGY_PREVENT_SLEEP=0 to disable)"))
 	langFlag := fs.String("lang", "", i18n.T("界面与终端语言 (zh/en/ja，默认自适应系统)", "Interface and terminal language (zh/en/ja, defaults to system locale)"))
+	logFileFlag := fs.String("log-file", firstNonEmptyEnv("MULTIGRAVITY_LOG_FILE", "MGY_LOG_FILE"), i18n.T("将运行日志追加写入指定文件（自动按 10MB 轮转，适合后台服务模式）", "Append runtime logs to the specified file with automatic 10MB rotation (ideal for background service mode)"))
 
 	// Hub / Node cluster flags
 	defaultHeadless := os.Getenv("MGY_HUB_HEADLESS") == "1" || strings.EqualFold(os.Getenv("MGY_HUB_HEADLESS"), "true")
@@ -246,6 +250,16 @@ func runGatewayServerWithMode(mode gatewayMode, args []string) {
 
 	if *langFlag != "" {
 		i18n.SetLang(*langFlag)
+	}
+
+	if logFilePath := strings.TrimSpace(*logFileFlag); logFilePath != "" {
+		rotLog, logErr := logx.NewRotatingFileWriter(logFilePath, logx.DefaultLogMaxBytes)
+		if logErr != nil {
+			fmt.Fprintf(os.Stderr, "⚠️  Failed to open log file %s: %v\n", logFilePath, logErr)
+		} else {
+			defer rotLog.Close()
+			logx.Init(io.MultiWriter(os.Stderr, rotLog))
+		}
 	}
 
 	qrExplicitlySet := false
@@ -1315,6 +1329,7 @@ func runHelpCmd() {
   lan               交互式配置局域网安全配对策略 (支持 status/trust/pair)
   list              查看所有已配对授权的移动设备 (支持在线与离线查看)
   clear [all|id]    清除已配对的设备授权 (支持: mgy clear all 或 mgy clear <device-id>)
+  service           安装与管理开机自动接管后台服务 (install/uninstall/start/stop/restart/status/logs)
   update            检查并一键更新 mgy 网关到最新正式版 (支持 -check/-force/-version)
   version           查看当前版本信息
   help              显示帮助信息
@@ -1328,7 +1343,7 @@ func runHelpCmd() {
   -trust-lan=<true|false> 是否信任局域网免配对访问 (默认: false, 环境变量: MULTIGRAVITY_TRUST_LAN)
   -prevent-sleep=<bool>   仅在活跃任务期阻止宿主机空闲休眠 (默认: true, 环境变量: MGY_PREVENT_SLEEP)
   -lang <zh|en|ja>        界面与终端语言 (默认: 自适应系统语言, 环境变量: MGY_LANG)
-  -open=<true|false>      启动时是否自动在默认浏览器打开主页 (默认: true, 无头系统自动跳过)
+  -log-file <文件路径>    追加写入运行日志并自动按 10MB 轮转 (环境变量: MULTIGRAVITY_LOG_FILE)
 `, Version)
 	} else {
 		fmt.Printf(`Multigravity (mgy) %s - Unified Mobile Gateway for Antigravity
@@ -1346,6 +1361,7 @@ Common Subcommands:
   lan               Interactively configure LAN pairing security policy (supports status/trust/pair)
   list              List all paired and authorized mobile devices (online & offline)
   clear [all|id]    Revoke paired device credentials (supports: mgy clear all or mgy clear <device-id>)
+  service           Install & manage native auto-start background service (install/uninstall/start/stop/restart/status/logs)
   update            Check and update mgy gateway to the latest release (supports -check/-force/-version)
   version           Show current version information
   help              Show this help message
@@ -1359,7 +1375,7 @@ Gateway Startup Flags (for mgy or mgy run):
   -trust-lan=<true|false> Trust LAN access without pairing code (default: false, env: MULTIGRAVITY_TRUST_LAN)
   -prevent-sleep=<bool>   Prevent host idle sleep only while tasks run (default: true, env: MGY_PREVENT_SLEEP)
   -lang <zh|en|ja>        Interface and terminal language (default: auto-detect system locale, env: MGY_LANG)
-  -open=<true|false>      Auto-open homepage in default browser on launch (default: true, skipped on headless)
+  -log-file <file-path>   Append runtime logs with automatic 10MB rotation (env: MULTIGRAVITY_LOG_FILE)
 `, Version)
 	}
 }

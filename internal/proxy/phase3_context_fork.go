@@ -17,6 +17,8 @@ import (
 	"sort"
 	"strings"
 	"time"
+
+	"antigravity-mobile/internal/procutil"
 )
 
 var validWorktreeNameRe = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9_.-]{0,63}$`)
@@ -464,7 +466,7 @@ func scanWorkspaceMentions(ctx context.Context, root, queryLower string, limit i
 	// Fast path via `git ls-files` inside git repositories.
 	if _, err := os.Stat(filepath.Join(root, ".git")); err == nil {
 		cmdCtx, cancel := context.WithTimeout(ctx, 1200*time.Millisecond)
-		cmd := exec.CommandContext(cmdCtx, "git", "-C", root, "ls-files", "-z")
+		cmd := procutil.HideWindow(exec.CommandContext(cmdCtx, "git", "-C", root, "ls-files", "-z"))
 		outBytes, err := cmd.Output()
 		cancel()
 		if err == nil && len(outBytes) > 0 {
@@ -914,7 +916,7 @@ func (p *Proxy) registerProjectFolder(ctx context.Context, cleanPath, preferredN
 func detectLocalGitBranch(ctx context.Context, repoDir string) string {
 	bCtx, cancel := context.WithTimeout(ctx, 2*time.Second)
 	defer cancel()
-	cmd := exec.CommandContext(bCtx, "git", "-C", repoDir, "rev-parse", "--abbrev-ref", "HEAD")
+	cmd := procutil.HideWindow(exec.CommandContext(bCtx, "git", "-C", repoDir, "rev-parse", "--abbrev-ref", "HEAD"))
 	out, err := cmd.Output()
 	if err != nil {
 		return ""

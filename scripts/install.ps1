@@ -369,11 +369,22 @@ foreach ($url in $urls) {
     }
 }
 
+$wasServiceRunning = $false
 if ($downloadSuccess) {
     Write-Host (Get-Msg `
         "📦 校验通过，正在定向提取 mgy.exe..." `
         "📦 Verified. Extracting mgy.exe..." `
         "📦 検証完了。mgy.exe を展開しています...") -ForegroundColor Green
+
+    # 若已注册后台自启任务且正在运行，先暂停防止升级期间文件被占用或触发重启
+    try {
+        $mgyTask = Get-ScheduledTask -TaskName "MultigravityGateway" -ErrorAction SilentlyContinue
+        if ($mgyTask -and ($mgyTask.State -eq "Running")) {
+            $wasServiceRunning = $true
+            Stop-ScheduledTask -TaskName "MultigravityGateway" -ErrorAction SilentlyContinue
+            Start-Sleep -Milliseconds 300
+        }
+    } catch {}
 
     # 停止旧版本 mgy 进程以防文件占用锁
     Get-Process -Name mgy -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
@@ -414,6 +425,17 @@ $windowsApps = "$env:LOCALAPPDATA\Microsoft\WindowsApps"
 if (Test-Path $windowsApps) {
     try {
         Copy-Item -Path "$installDir\mgy.exe" -Destination "$windowsApps\mgy.exe" -Force
+    } catch {}
+}
+
+# 若升级前后台自启服务正在运行，自动恢复启动新版
+if ($wasServiceRunning) {
+    try {
+        Start-ScheduledTask -TaskName "MultigravityGateway" -ErrorAction SilentlyContinue
+        Write-Host (Get-Msg `
+            "🔄 已自动重启后台自启服务 (MultigravityGateway)" `
+            "🔄 Automatically restarted background service (MultigravityGateway)" `
+            "🔄 バックグラウンドサービス (MultigravityGateway) を自動再起動しました") -ForegroundColor Green
     } catch {}
 }
 
@@ -743,8 +765,9 @@ Write-Host (Get-Msg `
     "📄 設定ファイル:     $confDir\.env")
 Write-Host ""
 Write-Host (Get-Msg "🚀 常用指令:" "🚀 Common commands:" "🚀 主なコマンド:") -ForegroundColor Yellow
-Write-Host (Get-Msg "   • 启动网关主服务:   mgy"            "   • Start gateway server:     mgy"            "   • ゲートウェイを起動:       mgy") -ForegroundColor White
-Write-Host (Get-Msg "   • 终端打印配对码:   mgy pair"       "   • Show pairing QR code:     mgy pair"       "   • ペアリング QR を表示:     mgy pair") -ForegroundColor White
+Write-Host (Get-Msg "   • 启动网关主服务:   mgy"                 "   • Start gateway server:     mgy"                 "   • ゲートウェイを起動:       mgy") -ForegroundColor White
+Write-Host (Get-Msg "   • 开机后台自动接管: mgy service install" "   • Auto-start on boot:       mgy service install" "   • 自動起動サービス登録:     mgy service install") -ForegroundColor White
+Write-Host (Get-Msg "   • 终端打印配对码:   mgy pair"            "   • Show pairing QR code:     mgy pair"            "   • ペアリング QR を表示:     mgy pair") -ForegroundColor White
 Write-Host (Get-Msg "   • 配置座舱报表:     mgy cockpit"    "   • Configure Cockpit sync:   mgy cockpit"    "   • Cockpit レポート設定:     mgy cockpit") -ForegroundColor White
 Write-Host (Get-Msg "   • 配置公网穿透:     mgy cloudflare" "   • Configure public tunnel:  mgy cloudflare" "   • パブリックトンネル設定:   mgy cloudflare") -ForegroundColor White
 Write-Host (Get-Msg "   • 查看已连接设备:   mgy list"       "   • List paired devices:      mgy list"       "   • ペアリング済み端末一覧:   mgy list") -ForegroundColor White

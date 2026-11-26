@@ -10,6 +10,8 @@ import (
 	"runtime"
 	"strings"
 	"time"
+
+	"antigravity-mobile/internal/procutil"
 )
 
 const clipboardCommandTimeout = 3 * time.Second
@@ -87,7 +89,7 @@ func copyTextToClipboard(text string) error {
 	ctx, cancel := context.WithTimeout(context.Background(), clipboardCommandTimeout)
 	defer cancel()
 
-	cmd := exec.CommandContext(ctx, spec.name, spec.args...)
+	cmd := procutil.HideWindow(exec.CommandContext(ctx, spec.name, spec.args...))
 	cmd.Stdin = strings.NewReader(text)
 	var stderr bytes.Buffer
 	cmd.Stderr = &stderr

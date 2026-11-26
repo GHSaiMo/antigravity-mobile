@@ -177,15 +177,17 @@ mgy
 ## 🛠️ 常用 CLI 与配置
 
 ```bash
-mgy                # 前台启动网关并打印配对二维码
-mgy pair           # 申请新的 5 分钟有效配对二维码 (加 -hub 可签发 6 位 Hub 接入码)
-mgy hub            # 启动多机聚合 Hub（启动自动扫描局域网 mgy，支持 -headless）
-mgy hub pair <名>  # 通过 6 位确认码热接入局域网普通 mgy（亦可用 mgy hub scan 扫描）
-mgy cockpit        # 配置 Cockpit 报表服务与 Token
-mgy cloudflare     # 配置 Cloudflare 穿透隧道 (别名: mgy cf)
-mgy list           # 查看已配对设备
-mgy clear all      # 吊销所有已配对设备 (或 mgy clear <dev_id>)
-mgy help           # 查看完整命令与启动参数
+mgy                  # 前台启动网关并打印配对二维码
+mgy service install  # 注册开机自动接管后台守护 (Windows 任务计划 / macOS launchd / Linux systemd)
+mgy service status   # 查看后台自启服务状态与日志 (支持 start / stop / restart / logs -f / uninstall)
+mgy pair             # 申请新的 5 分钟有效配对二维码 (加 -hub 可签发 6 位 Hub 接入码)
+mgy hub              # 启动多机聚合 Hub（启动自动扫描局域网 mgy，支持 -headless）
+mgy hub pair <名>    # 通过 6 位确认码热接入局域网普通 mgy（亦可用 mgy hub scan 扫描）
+mgy cockpit          # 配置 Cockpit 报表服务与 Token
+mgy cloudflare       # 配置 Cloudflare 穿透隧道 (别名: mgy cf)
+mgy list             # 查看已配对设备
+mgy clear all        # 吊销所有已配对设备 (或 mgy clear <dev_id>)
+mgy help             # 查看完整命令与启动参数
 ```
 
 - **默认配置目录**：`~/.multigravity/.env`（自动兼容迁移旧版 `~/.antigravity-mobile/`）。

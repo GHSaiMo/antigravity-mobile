@@ -15,6 +15,8 @@ import (
 	"sync"
 	"time"
 	"unicode/utf8"
+
+	"antigravity-mobile/internal/procutil"
 )
 
 // AntigravityLocalStore provides direct, zero-RPC read access to Antigravity's local SQLite database
@@ -184,7 +186,7 @@ func searchConversationsViaSQLiteCLI(ctx context.Context, dbPath, query string, 
 			args = append(args, "-readonly")
 		}
 		args = append(args, "-cmd", ".timeout 2500", "-json", safeDB, sqlQuery)
-		cmd := exec.CommandContext(execCtx, bin, args...)
+		cmd := procutil.HideWindow(exec.CommandContext(execCtx, bin, args...))
 		var outBuf, errBuf bytes.Buffer
 		cmd.Stdout = &outBuf
 		cmd.Stderr = &errBuf
@@ -389,7 +391,7 @@ sys.stdout.buffer.write(json.dumps({'results': results}, ensure_ascii=False).enc
 	execCtx, cancel := context.WithTimeout(ctx, 4*time.Second)
 	defer cancel()
 
-	cmd := exec.CommandContext(execCtx, pyBin, "-c", pyScript, dbPath, query, fmt.Sprintf("%d", limit))
+	cmd := procutil.HideWindow(exec.CommandContext(execCtx, pyBin, "-c", pyScript, dbPath, query, fmt.Sprintf("%d", limit)))
 	cmd.Env = append(os.Environ(), "PYTHONIOENCODING=utf-8")
 	var outBuf, errBuf bytes.Buffer
 	cmd.Stdout = &outBuf
@@ -543,7 +545,7 @@ sys.stdout.buffer.write(json.dumps(summaries, ensure_ascii=False).encode('utf-8'
 		execCtx, cancel := context.WithTimeout(ctx, 4*time.Second)
 		defer cancel()
 
-		cmd := exec.CommandContext(execCtx, pyBin, "-c", pyScript, dbPath)
+		cmd := procutil.HideWindow(exec.CommandContext(execCtx, pyBin, "-c", pyScript, dbPath))
 		cmd.Env = append(os.Environ(), "PYTHONIOENCODING=utf-8")
 		var outBuf, errBuf bytes.Buffer
 		cmd.Stdout = &outBuf
@@ -744,7 +746,7 @@ func fetchHierarchyViaSQLiteCLI(ctx context.Context, dbPath string) ([]sqliteHie
 	}
 	args = append(args, "-cmd", ".timeout 2500", "-json", safeDB, sqlQuery)
 
-	cmd := exec.CommandContext(execCtx, bin, args...)
+	cmd := procutil.HideWindow(exec.CommandContext(execCtx, bin, args...))
 	var outBuf, errBuf bytes.Buffer
 	cmd.Stdout = &outBuf
 	cmd.Stderr = &errBuf
@@ -781,7 +783,7 @@ func fetchSummariesViaSQLiteCLI(ctx context.Context, dbPath string) (map[string]
 	}
 	args = append(args, "-cmd", ".timeout 2500", "-json", safeDB, sqlQuery)
 
-	cmd := exec.CommandContext(execCtx, bin, args...)
+	cmd := procutil.HideWindow(exec.CommandContext(execCtx, bin, args...))
 	var outBuf, errBuf bytes.Buffer
 	cmd.Stdout = &outBuf
 	cmd.Stderr = &errBuf
@@ -851,12 +853,12 @@ func findSQLiteExecutable() (string, bool, error) {
 			cachedSQLiteErr = fmt.Errorf("sqlite3 not found in PATH")
 			return
 		}
-		if out, err := exec.Command(path, "-readonly", "-json", ":memory:", "SELECT 1 AS ok").Output(); err == nil && bytes.Contains(out, []byte(`"ok"`)) {
+		if out, err := procutil.HideWindow(exec.Command(path, "-readonly", "-json", ":memory:", "SELECT 1 AS ok")).Output(); err == nil && bytes.Contains(out, []byte(`"ok"`)) {
 			cachedSQLiteBin = path
 			cachedSQLiteRO = true
 			return
 		}
-		if out, err := exec.Command(path, "-json", ":memory:", "SELECT 1 AS ok").Output(); err == nil && bytes.Contains(out, []byte(`"ok"`)) {
+		if out, err := procutil.HideWindow(exec.Command(path, "-json", ":memory:", "SELECT 1 AS ok")).Output(); err == nil && bytes.Contains(out, []byte(`"ok"`)) {
 			cachedSQLiteBin = path
 			cachedSQLiteRO = false
 			return
@@ -897,7 +899,7 @@ func findPythonExecutable() (string, error) {
 		for _, bin := range pythonCandidates() {
 			if path, err := exec.LookPath(bin); err == nil && isExecutableValid(path) {
 				// Verify candidate actually executes without crashing (filters out broken execution aliases / code 9009)
-				cmd := exec.Command(bin, "-c", "import sys; sys.exit(0)")
+				cmd := procutil.HideWindow(exec.Command(bin, "-c", "import sys; sys.exit(0)"))
 				if cmdErr := cmd.Run(); cmdErr == nil {
 					cachedPyBin = bin
 					return

@@ -1094,6 +1094,10 @@ msg \
     "   • Start gateway server:     mgy" \
     "   • ゲートウェイを起動:       mgy"
 msg \
+    "   • 开机后台自动接管: mgy service install" \
+    "   • Auto-start on boot:       mgy service install" \
+    "   • 自動起動サービス登録:     mgy service install"
+msg \
     "   • 终端打印配对码:   mgy pair" \
     "   • Show pairing QR code:     mgy pair" \
     "   • ペアリング QR を表示:     mgy pair"

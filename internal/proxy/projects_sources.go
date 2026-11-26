@@ -14,6 +14,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"antigravity-mobile/internal/procutil"
 )
 
 type vscdbHistoryEntry struct {
@@ -958,10 +960,10 @@ func fetchProjectsFromStateDB() []ProjectItem {
 				args = append(args, "-readonly")
 			}
 			args = append(args, safeDB, "SELECT value FROM ItemTable WHERE key = 'history.recentlyOpenedPathsList';")
-			cmd := exec.CommandContext(ctx, bin, args...)
+			cmd := procutil.HideWindow(exec.CommandContext(ctx, bin, args...))
 			out, err = cmd.Output()
 		} else if p, lookErr2 := exec.LookPath("sqlite3"); lookErr2 == nil && isExecutableValid(p) {
-			cmd := exec.CommandContext(ctx, p, safeDB, "SELECT value FROM ItemTable WHERE key = 'history.recentlyOpenedPathsList';")
+			cmd := procutil.HideWindow(exec.CommandContext(ctx, p, safeDB, "SELECT value FROM ItemTable WHERE key = 'history.recentlyOpenedPathsList';"))
 			out, err = cmd.Output()
 		}
 	}
@@ -982,7 +984,7 @@ func fetchProjectsFromStateDB() []ProjectItem {
 			if lookErr != nil || !isExecutableValid(p) {
 				continue
 			}
-			cmd := exec.CommandContext(ctx, pyExe, "-c", pyScript, dbPath, "history.recentlyOpenedPathsList")
+			cmd := procutil.HideWindow(exec.CommandContext(ctx, pyExe, "-c", pyScript, dbPath, "history.recentlyOpenedPathsList"))
 			if pyOut, pyErr := cmd.Output(); pyErr == nil && len(pyOut) > 0 {
 				out = pyOut
 				err = nil

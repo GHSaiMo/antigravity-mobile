@@ -12,6 +12,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"antigravity-mobile/internal/procutil"
 )
 
 type winProcessInfo struct {
@@ -28,7 +30,7 @@ func (i *Inspector) findProcessCandidates(ctx context.Context) processScanResult
 	defer cancel()
 
 	psScript := `Get-CimInstance Win32_Process | Where-Object { $_.Name -like '*language_server*' -or $_.Name -eq 'agy.exe' -or $_.Name -eq 'antigravity-cli.exe' -or $_.Name -like 'Antigravity*' } | Select-Object ProcessId,Name,CommandLine | ConvertTo-Json -Compress`
-	cmd := exec.CommandContext(cmdCtx, "powershell.exe", "-NoProfile", "-NonInteractive", "-Command", psScript)
+	cmd := procutil.HideWindow(exec.CommandContext(cmdCtx, "powershell.exe", "-NoProfile", "-NonInteractive", "-Command", psScript))
 	out, err := cmd.Output()
 	if err != nil {
 		return processScanResult{Err: fmt.Errorf("failed to query language_server via PowerShell: %w", err)}
@@ -159,12 +161,12 @@ func (i *Inspector) findListeningPorts(ctx context.Context, pid int) ([]int, err
 	var ports []int
 	seen := make(map[int]bool)
 
-	out, err := exec.CommandContext(cmdCtx, "netstat", "-ano", "-p", "tcp").Output()
+	out, err := procutil.HideWindow(exec.CommandContext(cmdCtx, "netstat", "-ano", "-p", "tcp")).Output()
 	if err == nil {
 		parseWindowsNetstatPorts(out, pidStr, seen, &ports)
 	}
 	if len(ports) == 0 {
-		if outV6, errV6 := exec.CommandContext(cmdCtx, "netstat", "-ano", "-p", "tcpv6").Output(); errV6 == nil {
+		if outV6, errV6 := procutil.HideWindow(exec.CommandContext(cmdCtx, "netstat", "-ano", "-p", "tcpv6")).Output(); errV6 == nil {
 			parseWindowsNetstatPorts(outV6, pidStr, seen, &ports)
 		} else if err != nil {
 			return nil, fmt.Errorf("failed to run netstat: %w", err)

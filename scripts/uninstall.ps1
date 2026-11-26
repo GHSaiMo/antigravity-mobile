@@ -69,6 +69,38 @@ Write-Host (Get-Msg `
     "  🗑️  Multigravity (mgy) - Windows アンインストール ") -ForegroundColor Cyan
 Write-Host "==================================================" -ForegroundColor Cyan
 
+# 0. 先停止并移除 Windows 开机自启任务（防止崩溃自动重启在卸载途中复活幽灵进程）
+$taskName = "MultigravityGateway"
+$scheduledTask = Get-ScheduledTask -TaskName $taskName -ErrorAction SilentlyContinue
+if ($scheduledTask) {
+    Write-Host (Get-Msg `
+        "⏹️  正在停止并移除 Windows 开机自启任务: $taskName" `
+        "⏹️  Stopping and removing Windows scheduled task: $taskName" `
+        "⏹️  Windows 自動起動タスクを停止・削除しています: $taskName") -ForegroundColor Yellow
+    Stop-ScheduledTask -TaskName $taskName -ErrorAction SilentlyContinue
+    Start-Sleep -Milliseconds 300
+    try {
+        Unregister-ScheduledTask -TaskName $taskName -Confirm:$false -ErrorAction Stop
+        Write-Host (Get-Msg `
+            "✅ 已移除 Windows 自启任务: $taskName" `
+            "✅ Removed Windows scheduled task: $taskName" `
+            "✅ Windows 自動起動タスクを削除しました: $taskName") -ForegroundColor Green
+    } catch {
+        & schtasks.exe /Delete /TN $taskName /F 2>$null | Out-Null
+        if ($LASTEXITCODE -eq 0) {
+            Write-Host (Get-Msg `
+                "✅ 已移除 Windows 自启任务: $taskName" `
+                "✅ Removed Windows scheduled task: $taskName" `
+                "✅ Windows 自動起動タスクを削除しました: $taskName") -ForegroundColor Green
+        } else {
+            Write-Host (Get-Msg `
+                "⚠️  移除自启任务 $taskName 需要管理员权限，请以管理员身份运行后执行: schtasks /Delete /TN $taskName /F" `
+                "⚠️  Administrator privileges required to remove scheduled task $taskName; run elevated: schtasks /Delete /TN $taskName /F" `
+                "⚠️  タスク $taskName の削除には管理者権限が必要です。管理者で次を実行してください: schtasks /Delete /TN $taskName /F") -ForegroundColor Yellow
+        }
+    }
+}
+
 # 1. 停止运行中的 mgy 进程
 $mgyProc = Get-Process -Name mgy -ErrorAction SilentlyContinue
 if ($mgyProc) {

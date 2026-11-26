@@ -26,6 +26,7 @@ import (
 	"time"
 
 	"antigravity-mobile/internal/config"
+	"antigravity-mobile/internal/procutil"
 	"antigravity-mobile/internal/relay"
 )
 
@@ -160,7 +161,7 @@ func (t *CloudflareTunnel) launchProcessLocked(ctx context.Context, binPath stri
 	t.locMu.Unlock()
 	args := buildTunnelArgs(cfg)
 
-	cmd := exec.CommandContext(ctx, binPath, args...)
+	cmd := procutil.HideWindow(exec.CommandContext(ctx, binPath, args...))
 	// SEC-AUDIT H-3: Pass TUNNEL_TOKEN via environment variable instead of CLI argument
 	// to prevent leaking the token in process listings (e.g. ps aux / tasklist).
 	cmd.Env = append(os.Environ(), "TUNNEL_TOKEN="+t.result.Token)
@@ -453,7 +454,7 @@ func isValidCloudflared(binPath string) bool {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
-	cmd := exec.CommandContext(ctx, binPath, "--version")
+	cmd := procutil.HideWindow(exec.CommandContext(ctx, binPath, "--version"))
 	if err := cmd.Run(); err != nil {
 		return false
 	}

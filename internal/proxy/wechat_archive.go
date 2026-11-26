@@ -24,6 +24,8 @@ import (
 	"sync"
 	"time"
 	"unicode/utf8"
+
+	"antigravity-mobile/internal/procutil"
 )
 
 const (
@@ -692,7 +694,7 @@ func probeZipVideoDuration(zipPath string, f *zip.File) string {
 
 	if ffprobeBin := findMediaBinary("ffprobe"); ffprobeBin != "" {
 		ctx, cancel := context.WithTimeout(context.Background(), mediaSubprocessTimeout)
-		cmd := exec.CommandContext(ctx, ffprobeBin, "-v", "error", "-show_entries", "format=duration", "-of", "default=noprint_wrappers=1:nokey=1", localPath)
+		cmd := procutil.HideWindow(exec.CommandContext(ctx, ffprobeBin, "-v", "error", "-show_entries", "format=duration", "-of", "default=noprint_wrappers=1:nokey=1", localPath))
 		out, err := cmd.Output()
 		cancel()
 		if err == nil {
@@ -707,7 +709,7 @@ func probeZipVideoDuration(zipPath string, f *zip.File) string {
 	}
 	if ffmpegBin := findMediaBinary("ffmpeg"); ffmpegBin != "" {
 		ctx, cancel := context.WithTimeout(context.Background(), mediaSubprocessTimeout)
-		cmd := exec.CommandContext(ctx, ffmpegBin, "-i", localPath)
+		cmd := procutil.HideWindow(exec.CommandContext(ctx, ffmpegBin, "-i", localPath))
 		out, _ := cmd.CombinedOutput()
 		cancel()
 		if m := ffmpegDurationRe.FindStringSubmatch(string(out)); m != nil {
@@ -745,7 +747,7 @@ func generateZipVideoThumb(zipPath string, f *zip.File) (string, error) {
 	}
 	tmpThumb := fmt.Sprintf("%s.tmp.%d.jpg", thumbPath, time.Now().UnixNano())
 	ctx, cancel := context.WithTimeout(context.Background(), mediaSubprocessTimeout)
-	cmd := exec.CommandContext(ctx, ffmpegBin, "-y", "-ss", "0.1", "-i", localPath, "-vframes", "1", "-vf", "scale='min(480,iw)':-2", "-q:v", "4", tmpThumb)
+	cmd := procutil.HideWindow(exec.CommandContext(ctx, ffmpegBin, "-y", "-ss", "0.1", "-i", localPath, "-vframes", "1", "-vf", "scale='min(480,iw)':-2", "-q:v", "4", tmpThumb))
 	runErr := cmd.Run()
 	cancel()
 	if runErr != nil {

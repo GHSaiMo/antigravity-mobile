@@ -14,30 +14,31 @@ import (
 	"time"
 
 	"antigravity-mobile/internal/inspector"
+	"antigravity-mobile/internal/procutil"
 )
 
 func runCmdTimeout(d time.Duration, name string, args ...string) ([]byte, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), d)
 	defer cancel()
-	return exec.CommandContext(ctx, name, args...).Output()
+	return procutil.HideWindow(exec.CommandContext(ctx, name, args...)).Output()
 }
 
 func runCmdCombinedTimeout(d time.Duration, name string, args ...string) ([]byte, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), d)
 	defer cancel()
-	return exec.CommandContext(ctx, name, args...).CombinedOutput()
+	return procutil.HideWindow(exec.CommandContext(ctx, name, args...)).CombinedOutput()
 }
 
 func runCmdRunTimeout(d time.Duration, name string, args ...string) error {
 	ctx, cancel := context.WithTimeout(context.Background(), d)
 	defer cancel()
-	return exec.CommandContext(ctx, name, args...).Run()
+	return procutil.HideWindow(exec.CommandContext(ctx, name, args...)).Run()
 }
 
 func runCmdStdinTimeout(d time.Duration, stdin string, name string, args ...string) ([]byte, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), d)
 	defer cancel()
-	cmd := exec.CommandContext(ctx, name, args...)
+	cmd := procutil.HideWindow(exec.CommandContext(ctx, name, args...))
 	cmd.Stdin = strings.NewReader(stdin)
 	return cmd.Output()
 }
@@ -45,7 +46,7 @@ func runCmdStdinTimeout(d time.Duration, stdin string, name string, args ...stri
 func runCmdCombinedStdinTimeout(d time.Duration, stdin string, name string, args ...string) ([]byte, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), d)
 	defer cancel()
-	cmd := exec.CommandContext(ctx, name, args...)
+	cmd := procutil.HideWindow(exec.CommandContext(ctx, name, args...))
 	cmd.Stdin = strings.NewReader(stdin)
 	return cmd.CombinedOutput()
 }

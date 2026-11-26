@@ -179,6 +179,8 @@ Mobile Clients (iOS / Android / PWA) ──[LAN / Tailscale / Zero-Knowledge E2E
 
 ```bash
 mgy                  # Start gateway in foreground and print pairing QR code
+mgy service install  # Register native auto-start background daemon (Windows Task Scheduler / macOS launchd / Linux systemd)
+mgy service status   # Inspect daemon status & logs (supports start / stop / restart / logs -f / uninstall)
 mgy pair             # Generate a new pairing QR code (add -hub for a 6-char Hub code)
 mgy hub              # Start multi-host Hub (auto-scans LAN mgy hosts; supports -headless)
 mgy hub pair <name>  # Pair a discovered LAN mgy host with a 6-char confirmation code

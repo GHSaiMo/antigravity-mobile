@@ -25,6 +25,7 @@ import (
 
 	"antigravity-mobile/internal/config"
 	"antigravity-mobile/internal/localtls"
+	"antigravity-mobile/internal/procutil"
 )
 
 const (
@@ -754,7 +755,7 @@ func prepareDarwinBinary(binPath string) {
 func verifyBinaryExecutable(ctx context.Context, binPath string) error {
 	vctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
-	out, err := exec.CommandContext(vctx, binPath, "version").CombinedOutput()
+	out, err := procutil.HideWindow(exec.CommandContext(vctx, binPath, "version")).CombinedOutput()
 	if err != nil {
 		return fmt.Errorf("执行新版本 `mgy version` 失败: %w (%s)", err, strings.TrimSpace(string(out)))
 	}

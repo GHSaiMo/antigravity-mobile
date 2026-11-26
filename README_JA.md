@@ -179,6 +179,8 @@ mgy
 
 ```bash
 mgy                  # ゲートウェイをフォアグラウンド起動し、ペアリング用 QR コードを表示
+mgy service install  # OS ネイティブ自動起動サービスを登録（Windows タスク スケジューラ / macOS launchd / Linux systemd）
+mgy service status   # 自動起動サービス状態・ログを確認（start / stop / restart / logs -f / uninstall 対応）
 mgy pair             # 新しいペアリング用 QR コードを発行（-hub で 6 桁の Hub 確認コードを発行）
 mgy hub              # マルチホスト集約 Hub を起動（LAN 内の mgy を自動スキャン、-headless 対応）
 mgy hub pair <name>  # 検出された LAN 内 mgy を 6 桁確認コードでペアリング接続

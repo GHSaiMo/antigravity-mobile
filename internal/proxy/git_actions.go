@@ -18,6 +18,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"antigravity-mobile/internal/procutil"
 )
 
 // 手机端 Git 提交：直接在会话所属工作区执行 git status / add / commit / push，
@@ -234,7 +236,7 @@ func runGit(parent context.Context, dir string, timeout time.Duration, args ...s
 	ctx, cancel := context.WithTimeout(parent, timeout)
 	defer cancel()
 
-	cmd := exec.CommandContext(ctx, "git", append([]string{"-C", dir}, args...)...)
+	cmd := procutil.HideWindow(exec.CommandContext(ctx, "git", append([]string{"-C", dir}, args...)...))
 	cmd.Env = append(os.Environ(),
 		"GIT_TERMINAL_PROMPT=0", // 绝不在无人值守的网关上等待用户名密码
 		"GIT_OPTIONAL_LOCKS=0",
@@ -621,8 +623,8 @@ func parseGitHubRemoteURL(raw string) (host, owner, repo string, ok bool) {
 func fetchGitHubPRsFromGH(ctx context.Context, repoRoot string) []GitPullRequestItem {
 	ctx, cancel := context.WithTimeout(ctx, 3*time.Second)
 	defer cancel()
-	cmd := exec.CommandContext(ctx, "gh", "pr", "list", "--state", "all", "--limit", "20",
-		"--json", "number,title,url,state,author,headRefName,baseRefName")
+	cmd := procutil.HideWindow(exec.CommandContext(ctx, "gh", "pr", "list", "--state", "all", "--limit", "20",
+		"--json", "number,title,url,state,author,headRefName,baseRefName"))
 	cmd.Dir = repoRoot
 	out, err := cmd.Output()
 	if err != nil || len(out) == 0 {
@@ -1107,9 +1109,9 @@ func lookupGitHubPRViaGH(ctx context.Context, ref GitHubPullRequestRef) (GitPull
 	if ref.Host != "" && !strings.EqualFold(ref.Host, "github.com") {
 		repoSlug = ref.Host + "/" + repoSlug
 	}
-	cmd := exec.CommandContext(ctx, "gh", "pr", "view", strconv.Itoa(ref.Number),
+	cmd := procutil.HideWindow(exec.CommandContext(ctx, "gh", "pr", "view", strconv.Itoa(ref.Number),
 		"--repo", repoSlug,
-		"--json", "number,title,url,state,isDraft,author,headRefName,baseRefName,body")
+		"--json", "number,title,url,state,isDraft,author,headRefName,baseRefName,body"))
 	out, err := cmd.Output()
 	if err != nil || len(out) == 0 {
 		return GitPullRequestItem{}, false
