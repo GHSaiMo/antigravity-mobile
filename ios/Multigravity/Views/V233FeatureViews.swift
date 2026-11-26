@@ -1034,11 +1034,10 @@ public struct BtwSideQuestionSheet: View {
     }
 }
 
-// MARK: - Fast Dense PDF Viewer (PDFKit + Find-in-Page + Deferred Text Selection)
+// MARK: - Fast Dense PDF Viewer (PDFKit + Deferred Text Selection)
 
 public struct PdfDocumentPreviewView: View {
     public let url: URL
-    @State private var findTrigger: Int = 0
     @State private var enableTextSelection: Bool = false
 
     public init(url: URL) {
@@ -1057,15 +1056,6 @@ public struct PdfDocumentPreviewView: View {
                 .tint(.indigo)
 
                 Spacer()
-
-                Button {
-                    findTrigger &+= 1
-                } label: {
-                    Label("页内查找", systemImage: "magnifyingglass")
-                        .font(.system(size: 12.5, weight: .medium))
-                }
-                .buttonStyle(.bordered)
-                .controlSize(.small)
             }
             .padding(.horizontal, 12)
             .padding(.vertical, 6)
@@ -1075,8 +1065,7 @@ public struct PdfDocumentPreviewView: View {
 
             PDFKitRepresentable(
                 url: url,
-                enableTextSelection: enableTextSelection,
-                findTrigger: findTrigger
+                enableTextSelection: enableTextSelection
             )
         }
     }
@@ -1085,13 +1074,6 @@ public struct PdfDocumentPreviewView: View {
 private struct PDFKitRepresentable: UIViewRepresentable {
     let url: URL
     let enableTextSelection: Bool
-    let findTrigger: Int
-
-    final class Coordinator {
-        var lastFindTrigger: Int = 0
-    }
-
-    func makeCoordinator() -> Coordinator { Coordinator() }
 
     func makeUIView(context: Context) -> PDFView {
         let view = PDFView()
@@ -1100,7 +1082,6 @@ private struct PDFKitRepresentable: UIViewRepresentable {
         view.displayDirection = .vertical
         view.displaysPageBreaks = true
         view.backgroundColor = .systemBackground
-        view.isFindInteractionEnabled = true
         view.isUserInteractionEnabled = true
         view.document = PDFDocument(url: url)
         return view
@@ -1112,14 +1093,7 @@ private struct PDFKitRepresentable: UIViewRepresentable {
         }
         // Defer expensive text-layer selection hit-testing on dense multi-page PDFs unless toggled on.
         if let docView = pdfView.documentView {
-            docView.isUserInteractionEnabled = enableTextSelection || findTrigger != context.coordinator.lastFindTrigger
-        }
-        if findTrigger != context.coordinator.lastFindTrigger {
-            context.coordinator.lastFindTrigger = findTrigger
-            DispatchQueue.main.async {
-                pdfView.becomeFirstResponder()
-                pdfView.findInteraction.presentFindNavigator(showingReplace: false)
-            }
+            docView.isUserInteractionEnabled = enableTextSelection
         }
     }
 }

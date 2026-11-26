@@ -55,7 +55,7 @@
   <link rel="icon" type="image/png" sizes="192x192" href="/icons/icon-192.png?v=4" />
   <link rel="apple-touch-icon" href="/icons/apple-touch-icon.png?v=4" />
   <link rel="manifest" href="/manifest-en.json" />
-  <link rel="stylesheet" href="/style.css?v=68" />
+  <link rel="stylesheet" href="/style.css?v=69" />
 </head>
 <body>
   <div id="app">
@@ -1104,19 +1104,9 @@
             <button id="btn-md-viewer-history" class="sheet-header-btn md-viewer-icon-btn hidden" type="button" aria-label="历史版本快照" title="历史版本快照">
               <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"></circle><polyline points="12 7 12 12 15 14"></polyline></svg>
             </button>
-            <button id="btn-md-viewer-find" class="sheet-header-btn md-viewer-icon-btn hidden" type="button" aria-label="在文档中查找" title="在文档中查找">
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line></svg>
-            </button>
             <button id="btn-md-viewer-close" class="sheet-header-btn primary" type="button">完成</button>
           </div>
         </div>
-        <dialog id="md-find-dialog" popover="manual" class="md-find-popover" aria-label="在文档中查找">
-          <input id="md-find-input" class="md-find-input" type="search" placeholder="在页面中查找…" autocomplete="off" />
-          <span id="md-find-count" class="md-find-count">0/0</span>
-          <button id="btn-md-find-prev" class="md-find-nav" type="button" aria-label="上一个">↑</button>
-          <button id="btn-md-find-next" class="md-find-nav" type="button" aria-label="下一个">↓</button>
-          <button id="btn-md-find-close" class="md-find-nav" type="button" aria-label="关闭查找">✕</button>
-        </dialog>
         <div class="sheet-body md-viewer-sheet-body">
           <div id="md-viewer-loading" class="md-viewer-loading">
             <div class="loading-spinner"></div>
@@ -1329,10 +1319,7 @@
   <dialog id="dialog-media-preview" class="v233-dialog" aria-labelledby="media-dialog-title">
     <div class="v233-dialog-head">
       <h2 id="media-dialog-title" class="v233-dialog-title">文件预览</h2>
-      <div style="display:flex;gap:8px;align-items:center;">
-        <button type="button" id="btn-media-dialog-find" class="v233-btn hidden">查找</button>
-        <button type="button" id="btn-media-dialog-close" class="v233-dialog-close" aria-label="关闭">✕</button>
-      </div>
+      <button type="button" id="btn-media-dialog-close" class="v233-dialog-close" aria-label="关闭">✕</button>
     </div>
     <div id="media-dialog-body" class="v233-dialog-body"></div>
     <div class="v233-dialog-foot">
@@ -1346,7 +1333,7 @@
   <script defer src="/js/nav.js?v=55"></script>
   <script defer src="/js/wechat_archive.js?v=1"></script>
   <script defer src="/js/chat.js?v=48"></script>
-  <script defer src="/js/actions.js?v=42"></script>
+  <script defer src="/js/actions.js?v=43"></script>
   <script defer src="/js/media.js?v=39"></script>
   <script defer src="/js/cockpit.js?v=37"></script>
   <script defer src="/js/scan.js?v=2"></script>
@@ -1360,7 +1347,7 @@
   <script defer src="/js/swarm.js?v=6"></script>
   <script defer src="/js/egg.js?v=1"></script>
   <script defer src="/js/phase3.js?v=9"></script>
-  <script defer src="/js/v233.js?v=8"></script>
+  <script defer src="/js/v233.js?v=9"></script>
   <script defer src="/js/phase4.js?v=1"></script>
   <!-- init.js 必须最后加载：它在执行时就会调用 initApp()，依赖前面所有脚本里的函数 -->
   <script defer src="/js/init.js?v=48"></script>

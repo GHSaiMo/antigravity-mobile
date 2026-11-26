@@ -50,9 +50,6 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalTextToolbar
-import androidx.compose.ui.text.AnnotatedString
-import androidx.compose.ui.text.SpanStyle
-import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -770,11 +767,6 @@ private fun HtmlDocumentViewer(file: File, colors: AppColors = AntigravityTheme.
     val context = LocalContext.current
     val isDark = colors.isDark
     val initialIsDark = remember(file) { isDark }
-    var webViewRef by remember { mutableStateOf<WebView?>(null) }
-    var showFindBar by remember { mutableStateOf(false) }
-    var findQuery by remember { mutableStateOf("") }
-    var matchCount by remember { mutableStateOf(0) }
-    var activeMatchIdx by remember { mutableStateOf(0) }
     val preparedHtml by produceState<PreparedHtmlDocument?>(initialValue = null, key1 = file) {
         value = withContext(Dispatchers.IO) {
             try {
@@ -904,209 +896,141 @@ private fun HtmlDocumentViewer(file: File, colors: AppColors = AntigravityTheme.
         }
     }
 
-    Column(modifier = Modifier.fillMaxSize()) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .background(colors.surfaceVariant)
-                .padding(horizontal = 12.dp, vertical = 6.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(8.dp)
-        ) {
-            if (showFindBar) {
-                OutlinedTextField(
-                    value = findQuery,
-                    onValueChange = { q ->
-                        findQuery = q
-                        if (q.isBlank()) {
-                            webViewRef?.clearMatches()
-                            matchCount = 0
-                            activeMatchIdx = 0
-                        } else {
-                            webViewRef?.findAllAsync(q)
-                        }
-                    },
-                    placeholder = { Text("页内查找...".loc, fontSize = 12.5.sp) },
-                    singleLine = true,
-                    modifier = Modifier.weight(1f)
-                )
-                if (findQuery.isNotEmpty()) {
-                    Text(
-                        text = if (matchCount > 0) "${activeMatchIdx + 1}/$matchCount" else "0/0",
-                        color = colors.textSecondary,
-                        fontSize = 11.5.sp,
-                        fontFamily = FontFamily.Monospace
-                    )
-                    IconButton(onClick = { webViewRef?.findNext(false) }, modifier = Modifier.size(32.dp)) {
-                        Icon(Icons.Default.KeyboardArrowUp, contentDescription = "上一个".loc, tint = colors.textPrimary)
-                    }
-                    IconButton(onClick = { webViewRef?.findNext(true) }, modifier = Modifier.size(32.dp)) {
-                        Icon(Icons.Default.KeyboardArrowDown, contentDescription = "下一个".loc, tint = colors.textPrimary)
-                    }
-                }
-                IconButton(
-                    onClick = {
-                        showFindBar = false
-                        findQuery = ""
-                        webViewRef?.clearMatches()
-                    },
-                    modifier = Modifier.size(32.dp)
-                ) {
-                    Icon(Icons.Default.Close, contentDescription = "关闭查找".loc, tint = colors.textSecondary)
-                }
-            } else {
-                Spacer(Modifier.weight(1f))
-                TextButton(onClick = { showFindBar = true }, contentPadding = PaddingValues(horizontal = 10.dp, vertical = 2.dp)) {
-                    Icon(Icons.Default.Search, contentDescription = null, modifier = Modifier.size(16.dp))
-                    Spacer(Modifier.width(4.dp))
-                    Text("页内查找".loc, fontSize = 12.5.sp)
-                }
-            }
+    val currentPrepared = preparedHtml
+    if (currentPrepared == null) {
+        Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+            CircularProgressIndicator(color = colors.accentIndigo)
         }
-
-        val currentPrepared = preparedHtml
-        if (currentPrepared == null) {
-            Box(modifier = Modifier.fillMaxWidth().weight(1f), contentAlignment = Alignment.Center) {
-                CircularProgressIndicator(color = colors.accentIndigo)
-            }
-        } else {
-            AndroidView(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .weight(1f),
-                factory = { ctx ->
-                    WebView(ctx).apply {
-                        webViewRef = this
-                        // Prevent ModalBottomSheet swipe-to-dismiss from hijacking vertical/horizontal
-                        // scrolling and interactive controls inside HTML dashboards.
-                        @Suppress("ClickableViewAccessibility")
-                        setOnTouchListener { v, event ->
-                            when (event.actionMasked) {
-                                android.view.MotionEvent.ACTION_DOWN,
-                                android.view.MotionEvent.ACTION_MOVE -> {
-                                    v.parent?.requestDisallowInterceptTouchEvent(true)
-                                }
-                                android.view.MotionEvent.ACTION_UP,
-                                android.view.MotionEvent.ACTION_CANCEL -> {
-                                    v.parent?.requestDisallowInterceptTouchEvent(false)
-                                }
+    } else {
+        AndroidView(
+            modifier = Modifier.fillMaxSize(),
+            factory = { ctx ->
+                WebView(ctx).apply {
+                    // Prevent ModalBottomSheet swipe-to-dismiss from hijacking vertical/horizontal
+                    // scrolling and interactive controls inside HTML dashboards.
+                    @Suppress("ClickableViewAccessibility")
+                    setOnTouchListener { v, event ->
+                        when (event.actionMasked) {
+                            android.view.MotionEvent.ACTION_DOWN,
+                            android.view.MotionEvent.ACTION_MOVE -> {
+                                v.parent?.requestDisallowInterceptTouchEvent(true)
                             }
-                            false
-                        }
-                        setBackgroundColor(
-                            when {
-                                currentPrepared.isMarp -> android.graphics.Color.parseColor("#F4F5F7")
-                                currentPrepared.isGenerativeUi -> android.graphics.Color.parseColor(
-                                    if (isDark) GenerativeUIHtmlHelper.DARK_BG_HEX else GenerativeUIHtmlHelper.LIGHT_BG_HEX
-                                )
-                                else -> android.graphics.Color.WHITE
-                            }
-                        )
-                        webViewClient = object : WebViewClient() {
-                            override fun shouldOverrideUrlLoading(view: WebView?, request: WebResourceRequest?): Boolean {
-                                val reqUrl = request?.url ?: return true
-                                val scheme = reqUrl.scheme?.lowercase().orEmpty()
-                                if (reqUrl.toString() == "about:blank" || scheme == "about") {
-                                    return false
-                                }
-                                if (scheme == "file" || scheme == "content" || scheme == "intent" || scheme == "javascript") {
-                                    return true
-                                }
-                                if (request.isForMainFrame && request.hasGesture() && (scheme == "http" || scheme == "https")) {
-                                    com.antigravity.mobile.ui.util.InAppBrowserUtils.openUrl(context, reqUrl.toString())
-                                }
-                                return true
-                            }
-
-                            override fun shouldInterceptRequest(view: WebView?, request: WebResourceRequest?): WebResourceResponse? {
-                                val scheme = request?.url?.scheme?.lowercase().orEmpty()
-                                if (scheme == "file" || scheme == "content" || scheme == "intent") {
-                                    return WebResourceResponse(
-                                        "text/plain",
-                                        "UTF-8",
-                                        403,
-                                        "Forbidden",
-                                        emptyMap(),
-                                        ByteArrayInputStream(ByteArray(0))
-                                    )
-                                }
-                                return super.shouldInterceptRequest(view, request)
+                            android.view.MotionEvent.ACTION_UP,
+                            android.view.MotionEvent.ACTION_CANCEL -> {
+                                v.parent?.requestDisallowInterceptTouchEvent(false)
                             }
                         }
-                        webChromeClient = WebChromeClient()
-                        setFindListener { activeOrdinal, numberOfMatches, _ ->
-                            activeMatchIdx = activeOrdinal
-                            matchCount = numberOfMatches
-                        }
-                        settings.apply {
-                            @Suppress("SetJavaScriptEnabled")
-                            javaScriptEnabled = true
-                            domStorageEnabled = false
-                            databaseEnabled = false
-                            allowFileAccess = false
-                            allowContentAccess = false
-                            @Suppress("DEPRECATION")
-                            allowFileAccessFromFileURLs = false
-                            @Suppress("DEPRECATION")
-                            allowUniversalAccessFromFileURLs = false
-                            mixedContentMode = WebSettings.MIXED_CONTENT_NEVER_ALLOW
-                            builtInZoomControls = true
-                            displayZoomControls = false
-                            useWideViewPort = true
-                            loadWithOverviewMode = true
-                        }
-                        tag = LoadedDocWebViewState(
-                            html = currentPrepared.html,
-                            isDark = currentPrepared.initialIsDark,
-                            isGenerativeUi = currentPrepared.isGenerativeUi
-                        )
-                        loadDataWithBaseURL("about:blank", currentPrepared.html, "text/html", "utf-8", null)
+                        false
                     }
-                },
-                update = { wv ->
-                    val prev = wv.tag as? LoadedDocWebViewState
-                    if (prev == null || prev.html != currentPrepared.html) {
-                        wv.setBackgroundColor(
-                            when {
-                                currentPrepared.isMarp -> android.graphics.Color.parseColor("#F4F5F7")
-                                currentPrepared.isGenerativeUi -> android.graphics.Color.parseColor(
-                                    if (isDark) GenerativeUIHtmlHelper.DARK_BG_HEX else GenerativeUIHtmlHelper.LIGHT_BG_HEX
-                                )
-                                else -> android.graphics.Color.WHITE
-                            }
-                        )
-                        wv.tag = LoadedDocWebViewState(
-                            html = currentPrepared.html,
-                            isDark = currentPrepared.initialIsDark,
-                            isGenerativeUi = currentPrepared.isGenerativeUi
-                        )
-                        wv.loadDataWithBaseURL("about:blank", currentPrepared.html, "text/html", "utf-8", null)
-                        if (currentPrepared.isGenerativeUi && currentPrepared.initialIsDark != isDark) {
-                            wv.tag = LoadedDocWebViewState(
-                                html = currentPrepared.html,
-                                isDark = isDark,
-                                isGenerativeUi = true
-                            )
-                            wv.evaluateJavascript(
-                                GenerativeUIHtmlHelper.liveThemeUpdateJs(isDark, GenerativeUIHtmlHelper.RenderMode.STANDALONE),
-                                null
-                            )
-                        }
-                    } else if (prev.isDark != isDark && prev.isGenerativeUi) {
-                        wv.setBackgroundColor(
-                            android.graphics.Color.parseColor(
+                    setBackgroundColor(
+                        when {
+                            currentPrepared.isMarp -> android.graphics.Color.parseColor("#F4F5F7")
+                            currentPrepared.isGenerativeUi -> android.graphics.Color.parseColor(
                                 if (isDark) GenerativeUIHtmlHelper.DARK_BG_HEX else GenerativeUIHtmlHelper.LIGHT_BG_HEX
                             )
+                            else -> android.graphics.Color.WHITE
+                        }
+                    )
+                    webViewClient = object : WebViewClient() {
+                        override fun shouldOverrideUrlLoading(view: WebView?, request: WebResourceRequest?): Boolean {
+                            val reqUrl = request?.url ?: return true
+                            val scheme = reqUrl.scheme?.lowercase().orEmpty()
+                            if (reqUrl.toString() == "about:blank" || scheme == "about") {
+                                return false
+                            }
+                            if (scheme == "file" || scheme == "content" || scheme == "intent" || scheme == "javascript") {
+                                return true
+                            }
+                            if (request.isForMainFrame && request.hasGesture() && (scheme == "http" || scheme == "https")) {
+                                com.antigravity.mobile.ui.util.InAppBrowserUtils.openUrl(context, reqUrl.toString())
+                            }
+                            return true
+                        }
+
+                        override fun shouldInterceptRequest(view: WebView?, request: WebResourceRequest?): WebResourceResponse? {
+                            val scheme = request?.url?.scheme?.lowercase().orEmpty()
+                            if (scheme == "file" || scheme == "content" || scheme == "intent") {
+                                return WebResourceResponse(
+                                    "text/plain",
+                                    "UTF-8",
+                                    403,
+                                    "Forbidden",
+                                    emptyMap(),
+                                    ByteArrayInputStream(ByteArray(0))
+                                )
+                            }
+                            return super.shouldInterceptRequest(view, request)
+                        }
+                    }
+                    webChromeClient = WebChromeClient()
+                    settings.apply {
+                        @Suppress("SetJavaScriptEnabled")
+                        javaScriptEnabled = true
+                        domStorageEnabled = false
+                        databaseEnabled = false
+                        allowFileAccess = false
+                        allowContentAccess = false
+                        @Suppress("DEPRECATION")
+                        allowFileAccessFromFileURLs = false
+                        @Suppress("DEPRECATION")
+                        allowUniversalAccessFromFileURLs = false
+                        mixedContentMode = WebSettings.MIXED_CONTENT_NEVER_ALLOW
+                        builtInZoomControls = true
+                        displayZoomControls = false
+                        useWideViewPort = true
+                        loadWithOverviewMode = true
+                    }
+                    tag = LoadedDocWebViewState(
+                        html = currentPrepared.html,
+                        isDark = currentPrepared.initialIsDark,
+                        isGenerativeUi = currentPrepared.isGenerativeUi
+                    )
+                    loadDataWithBaseURL("about:blank", currentPrepared.html, "text/html", "utf-8", null)
+                }
+            },
+            update = { wv ->
+                val prev = wv.tag as? LoadedDocWebViewState
+                if (prev == null || prev.html != currentPrepared.html) {
+                    wv.setBackgroundColor(
+                        when {
+                            currentPrepared.isMarp -> android.graphics.Color.parseColor("#F4F5F7")
+                            currentPrepared.isGenerativeUi -> android.graphics.Color.parseColor(
+                                if (isDark) GenerativeUIHtmlHelper.DARK_BG_HEX else GenerativeUIHtmlHelper.LIGHT_BG_HEX
+                            )
+                            else -> android.graphics.Color.WHITE
+                        }
+                    )
+                    wv.tag = LoadedDocWebViewState(
+                        html = currentPrepared.html,
+                        isDark = currentPrepared.initialIsDark,
+                        isGenerativeUi = currentPrepared.isGenerativeUi
+                    )
+                    wv.loadDataWithBaseURL("about:blank", currentPrepared.html, "text/html", "utf-8", null)
+                    if (currentPrepared.isGenerativeUi && currentPrepared.initialIsDark != isDark) {
+                        wv.tag = LoadedDocWebViewState(
+                            html = currentPrepared.html,
+                            isDark = isDark,
+                            isGenerativeUi = true
                         )
-                        wv.tag = prev.copy(isDark = isDark)
                         wv.evaluateJavascript(
                             GenerativeUIHtmlHelper.liveThemeUpdateJs(isDark, GenerativeUIHtmlHelper.RenderMode.STANDALONE),
                             null
                         )
                     }
+                } else if (prev.isDark != isDark && prev.isGenerativeUi) {
+                    wv.setBackgroundColor(
+                        android.graphics.Color.parseColor(
+                            if (isDark) GenerativeUIHtmlHelper.DARK_BG_HEX else GenerativeUIHtmlHelper.LIGHT_BG_HEX
+                        )
+                    )
+                    wv.tag = prev.copy(isDark = isDark)
+                    wv.evaluateJavascript(
+                        GenerativeUIHtmlHelper.liveThemeUpdateJs(isDark, GenerativeUIHtmlHelper.RenderMode.STANDALONE),
+                        null
+                    )
                 }
-            )
-        }
+            }
+        )
     }
 }
 
@@ -1688,121 +1612,32 @@ private fun TextDocumentViewer(file: File, colors: AppColors) {
             }
         }
     }
-    var showFindBar by remember { mutableStateOf(false) }
-    var findQuery by remember { mutableStateOf("") }
-    val trimmedQuery = remember(findQuery) { findQuery.trim() }
-
-    val matchCount by produceState(initialValue = 0, key1 = linesState, key2 = trimmedQuery) {
-        val loadedLines = linesState
-        if (loadedLines == null || trimmedQuery.isEmpty()) {
-            value = 0
-        } else {
-            delay(120)
-            value = withContext(Dispatchers.Default) {
-                var total = 0
-                for (line in loadedLines) {
-                    var start = 0
-                    while (start < line.length) {
-                        val found = line.indexOf(trimmedQuery, startIndex = start, ignoreCase = true)
-                        if (found < 0) break
-                        total++
-                        start = found + trimmedQuery.length.coerceAtLeast(1)
-                    }
-                }
-                total
-            }
+    val currentLines = linesState
+    if (currentLines == null) {
+        Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+            CircularProgressIndicator(color = colors.accentIndigo)
         }
-    }
-
-    Column(modifier = Modifier.fillMaxSize()) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .background(colors.surfaceVariant)
-                .padding(horizontal = 12.dp, vertical = 6.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(8.dp)
-        ) {
-            if (showFindBar) {
-                OutlinedTextField(
-                    value = findQuery,
-                    onValueChange = { findQuery = it },
-                    placeholder = { Text("在文本中查找...".loc, fontSize = 12.5.sp) },
-                    singleLine = true,
-                    modifier = Modifier.weight(1f),
-                    trailingIcon = {
-                        if (findQuery.isNotEmpty()) {
-                            Text("$matchCount 处".loc, color = colors.textSecondary, fontSize = 11.5.sp, modifier = Modifier.padding(end = 6.dp))
-                        }
-                    }
-                )
-                IconButton(
-                    onClick = {
-                        showFindBar = false
-                        findQuery = ""
-                    },
-                    modifier = Modifier.size(32.dp)
-                ) {
-                    Icon(Icons.Default.Close, contentDescription = "关闭查找".loc, tint = colors.textSecondary)
+    } else {
+        val horizScroll = rememberScrollState()
+        SelectionContainer {
+            LazyColumn(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .horizontalScroll(horizScroll),
+                contentPadding = PaddingValues(horizontal = 16.dp, vertical = 12.dp)
+            ) {
+                itemsIndexed(currentLines, key = { index, _ -> index }) { _, rawLine ->
+                    Text(
+                        text = rawLine,
+                        color = colors.textPrimary,
+                        fontSize = 12.5.sp,
+                        fontFamily = FontFamily.Monospace,
+                        lineHeight = 18.sp,
+                        softWrap = false
+                    )
                 }
-            } else {
-                Spacer(Modifier.weight(1f))
-                TextButton(onClick = { showFindBar = true }, contentPadding = PaddingValues(horizontal = 10.dp, vertical = 2.dp)) {
-                    Icon(Icons.Default.Search, contentDescription = null, modifier = Modifier.size(16.dp))
-                    Spacer(Modifier.width(4.dp))
-                    Text("页内查找".loc, fontSize = 12.5.sp)
-                }
-            }
-        }
-
-        val currentLines = linesState
-        if (currentLines == null) {
-            Box(modifier = Modifier.fillMaxWidth().weight(1f), contentAlignment = Alignment.Center) {
-                CircularProgressIndicator(color = colors.accentIndigo)
-            }
-        } else {
-            val horizScroll = rememberScrollState()
-            SelectionContainer {
-                LazyColumn(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .weight(1f)
-                        .horizontalScroll(horizScroll),
-                    contentPadding = PaddingValues(horizontal = 16.dp, vertical = 12.dp)
-                ) {
-                    itemsIndexed(currentLines, key = { index, _ -> index }) { _, rawLine ->
-                        val renderedLine = remember(rawLine, trimmedQuery, colors.textPrimary) {
-                            if (trimmedQuery.isEmpty() || !rawLine.contains(trimmedQuery, ignoreCase = true)) {
-                                AnnotatedString(rawLine)
-                            } else {
-                                buildAnnotatedString {
-                                    append(rawLine)
-                                    var start = 0
-                                    while (start < rawLine.length) {
-                                        val found = rawLine.indexOf(trimmedQuery, startIndex = start, ignoreCase = true)
-                                        if (found < 0) break
-                                        addStyle(
-                                            SpanStyle(background = Color(0x66FFEB3B), color = colors.textPrimary),
-                                            found,
-                                            found + trimmedQuery.length
-                                        )
-                                        start = found + trimmedQuery.length.coerceAtLeast(1)
-                                    }
-                                }
-                            }
-                        }
-                        Text(
-                            text = renderedLine,
-                            color = colors.textPrimary,
-                            fontSize = 12.5.sp,
-                            fontFamily = FontFamily.Monospace,
-                            lineHeight = 18.sp,
-                            softWrap = false
-                        )
-                    }
-                    item(key = "bottom_nav_spacer") {
-                        Spacer(modifier = Modifier.navigationBarsPadding().height(8.dp))
-                    }
+                item(key = "bottom_nav_spacer") {
+                    Spacer(modifier = Modifier.navigationBarsPadding().height(8.dp))
                 }
             }
         }

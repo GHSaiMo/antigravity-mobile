@@ -999,7 +999,6 @@ public struct HTMLPreviewSheet: View {
     @Environment(\.colorScheme) private var colorScheme
     @State private var isShowingDocumentPicker: Bool = false
     @State private var toastSuccessMessage: String? = nil
-    @State private var findTrigger: Int = 0
     
     public init(url: URL, title: String = "", onDismiss: @escaping () -> Void) {
         self.url = url
@@ -1010,7 +1009,7 @@ public struct HTMLPreviewSheet: View {
     
     public var body: some View {
         NavigationStack {
-            HTMLWebViewRepresentable(url: url, isDark: colorScheme == .dark, findTrigger: findTrigger)
+            HTMLWebViewRepresentable(url: url, isDark: colorScheme == .dark)
                 .ignoresSafeArea(edges: .bottom)
                 .navigationTitle(title)
                 .navigationBarTitleDisplayMode(.inline)
@@ -1025,15 +1024,7 @@ public struct HTMLPreviewSheet: View {
                         }
                         .accessibilityLabel("存储到“文件”")
                     }
-                    ToolbarItemGroup(placement: .topBarTrailing) {
-                        Button {
-                            findTrigger &+= 1
-                        } label: {
-                            Image(systemName: "magnifyingglass")
-                                .font(.system(size: 15, weight: .semibold))
-                        }
-                        .accessibilityLabel("页内查找")
-
+                    ToolbarItem(placement: .topBarTrailing) {
                         ShareLink(item: url, preview: SharePreview(title)) {
                             Image(systemName: "square.and.arrow.up")
                                 .font(.system(size: 16, weight: .semibold))
@@ -1128,10 +1119,8 @@ public struct DocumentExporterRepresentable: UIViewControllerRepresentable {
 public struct HTMLWebViewRepresentable: UIViewRepresentable {
     public let url: URL
     public var isDark: Bool = false
-    public var findTrigger: Int = 0
 
     public final class Coordinator {
-        var lastFindTrigger: Int = 0
         var lastURL: URL?
         var lastIsDark: Bool = false
         var isGenerativeUI: Bool = false
@@ -1148,7 +1137,6 @@ public struct HTMLWebViewRepresentable: UIViewRepresentable {
         config.defaultWebpagePreferences = prefs
         let webView = WKWebView(frame: .zero, configuration: config)
         webView.allowsBackForwardNavigationGestures = false
-        webView.isFindInteractionEnabled = true
         webView.scrollView.contentInsetAdjustmentBehavior = .automatic
         loadDocument(into: webView, coordinator: context.coordinator)
         return webView
@@ -1163,13 +1151,6 @@ public struct HTMLWebViewRepresentable: UIViewRepresentable {
                 applyWebViewBackground(uiView, isGenerativeUI: true, isDark: isDark)
                 let js = AntigravityHTMLThemeHelper.liveThemeUpdateJS(isDark: isDark, mode: .standalone)
                 uiView.evaluateJavaScript(js, completionHandler: nil)
-            }
-        }
-        if findTrigger != context.coordinator.lastFindTrigger {
-            context.coordinator.lastFindTrigger = findTrigger
-            DispatchQueue.main.async {
-                uiView.becomeFirstResponder()
-                uiView.findInteraction?.presentFindNavigator(showingReplace: false)
             }
         }
     }

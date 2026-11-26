@@ -1,7 +1,6 @@
 // Antigravity 2.33.0 Feature Pack for Web & PWA
 // Covers: Nord Theme & Color-Scheme toggle, R/Rmd syntax highlighting,
 // GitHub PR pills + detail <dialog>, Workspace Trust banner, /btw side-questions,
-// Find-in-Page (<dialog popover="manual"> + TreeWalker + CSS.highlights),
 // and 200 MB Audio/Video/.amr & PDF/Code modal preview.
 
 (function () {
@@ -17,11 +16,6 @@
   const prCache = new Map();
   const prInFlight = new Set();
   const dismissedTrust = new Set();
-
-  let currentFindRoot = null;
-  let currentFindMatches = [];
-  let currentFindIndex = -1;
-  let fallbackMarks = [];
 
   let activeBtwParentId = "";
   let activeBtwStepIndex = null;
@@ -1108,234 +1102,12 @@
     });
   }
 
-  // --- 6. In-App Find in Page (TreeWalker + CSS.highlights + sandboxed HTML iframe bridge) ---
-  function activeHtmlFindFrame() {
-    const rootEl = currentFindRoot || document.getElementById("md-viewer-content");
-    return rootEl?.querySelector?.("iframe.html-artifact-preview-frame") || null;
-  }
-
-  function clearFindHighlights() {
-    const htmlFrame = activeHtmlFindFrame();
-    if (htmlFrame?.contentWindow) {
-      try { htmlFrame.contentWindow.postMessage({ type: "mgy-html-find-clear" }, "*"); } catch (_) {}
-    }
-    if ("highlights" in CSS) {
-      // MANDATORY: Clear previous highlights before registering new ones.
-      CSS.highlights.clear();
-    }
-    if (fallbackMarks.length > 0) {
-      for (const mark of fallbackMarks) {
-        const parent = mark.parentNode;
-        if (parent) {
-          parent.replaceChild(document.createTextNode(mark.textContent || ""), mark);
-          parent.normalize();
-        }
-      }
-      fallbackMarks = [];
-    }
-    currentFindMatches = [];
-    currentFindIndex = -1;
-  }
-
-  function collectTextNodes(rootEl) {
-    // MANDATORY: Use TreeWalker to collect text nodes — do not manipulate innerHTML.
-    const walker = document.createTreeWalker(rootEl, NodeFilter.SHOW_TEXT);
-    const nodes = [];
-    let node;
-    while ((node = walker.nextNode())) {
-      if (node.nodeValue && node.nodeValue.length > 0) nodes.push(node);
-    }
-    return nodes;
-  }
-
-  function applyFindHighlights() {
-    if ("highlights" in CSS) {
-      // MANDATORY: Clear previous highlights before registering new ones.
-      CSS.highlights.clear();
-      if (currentFindMatches.length > 0) {
-        const resultsHighlight = new Highlight();
-        for (let i = 0; i < currentFindMatches.length; i++) {
-          resultsHighlight.add(currentFindMatches[i]);
-        }
-        CSS.highlights.set("find-results", resultsHighlight);
-        if (currentFindIndex >= 0 && currentFindMatches[currentFindIndex]) {
-          const currentHighlight = new Highlight();
-          currentHighlight.add(currentFindMatches[currentFindIndex]);
-          CSS.highlights.set("find-current", currentHighlight);
-        }
-      }
-    } else if (fallbackMarks.length > 0) {
-      fallbackMarks.forEach((m, idx) => m.classList.toggle("active", idx === currentFindIndex));
-    }
-
-    const countEl = document.getElementById("md-find-count");
-    if (countEl) {
-      countEl.textContent = currentFindMatches.length > 0 ? `${currentFindIndex + 1}/${currentFindMatches.length}` : "0/0";
-    }
-    if (currentFindIndex >= 0) {
-      const target = currentFindMatches[currentFindIndex];
-      const anchorEl = target?.startContainer?.parentElement || fallbackMarks[currentFindIndex];
-      anchorEl?.scrollIntoView?.({ block: "center", behavior: "smooth" });
-    }
-  }
-
-  function runFindQuery(query) {
-    const htmlFrame = activeHtmlFindFrame();
-    if (htmlFrame?.contentWindow) {
-      const q = String(query || "").trim();
-      if (!q) {
-        try { htmlFrame.contentWindow.postMessage({ type: "mgy-html-find-clear" }, "*"); } catch (_) {}
-        const countEl = document.getElementById("md-find-count");
-        if (countEl) countEl.textContent = "0/0";
-        return;
-      }
-      try { htmlFrame.contentWindow.postMessage({ type: "mgy-html-find", query: q }, "*"); } catch (_) {}
-      return;
-    }
-
-    clearFindHighlights();
-    const rootEl = currentFindRoot || document.getElementById("md-viewer-content");
-    const q = String(query || "").trim().toLowerCase();
-    if (!rootEl || !q) {
-      const countEl = document.getElementById("md-find-count");
-      if (countEl) countEl.textContent = "0/0";
-      return;
-    }
-
-    const nodes = collectTextNodes(rootEl);
-    for (const node of nodes) {
-      const lower = node.nodeValue.toLowerCase();
-      let pos = 0;
-      while ((pos = lower.indexOf(q, pos)) !== -1) {
-        const range = document.createRange();
-        range.setStart(node, pos);
-        range.setEnd(node, pos + q.length);
-        currentFindMatches.push(range);
-        pos += q.length;
-      }
-    }
-
-    if (!("highlights" in CSS) && currentFindMatches.length > 0) {
-      // Old browser fallback using Range.surroundContents backwards so offsets stay valid
-      for (let i = currentFindMatches.length - 1; i >= 0; i--) {
-        try {
-          const mark = document.createElement("mark");
-          mark.className = "md-find-mark";
-          currentFindMatches[i].surroundContents(mark);
-          fallbackMarks.unshift(mark);
-        } catch (_) {}
-      }
-      currentFindMatches = fallbackMarks;
-    }
-
-    if (currentFindMatches.length > 0) {
-      currentFindIndex = 0;
-    }
-    applyFindHighlights();
-  }
-
-  function stepFindMatch(delta) {
-    const htmlFrame = activeHtmlFindFrame();
-    if (htmlFrame?.contentWindow) {
-      try { htmlFrame.contentWindow.postMessage({ type: "mgy-html-find-step", delta }, "*"); } catch (_) {}
-      return;
-    }
-    if (!currentFindMatches.length) return;
-    currentFindIndex = (currentFindIndex + delta + currentFindMatches.length) % currentFindMatches.length;
-    applyFindHighlights();
-  }
-
-  function openFindPopover(rootEl) {
-    currentFindRoot = rootEl || document.getElementById("md-viewer-content");
-    const pop = document.getElementById("md-find-dialog");
-    const input = document.getElementById("md-find-input");
-    if (!pop) return;
-    if (typeof pop.showPopover === "function") {
-      try {
-        if (!pop.matches(":popover-open")) pop.showPopover();
-      } catch (_) {
-        pop.classList.add("open");
-      }
-    } else {
-      pop.classList.add("open");
-    }
-    setTimeout(() => input?.focus(), 40);
-  }
-
-  let findInputDebounceTimer = 0;
-
-  function closeFindPopover() {
-    clearTimeout(findInputDebounceTimer);
-    const pop = document.getElementById("md-find-dialog");
-    if (pop) {
-      if (typeof pop.hidePopover === "function") {
-        try {
-          if (pop.matches(":popover-open")) pop.hidePopover();
-        } catch (_) {}
-      }
-      pop.classList.remove("open");
-    }
-    clearFindHighlights();
-  }
-
-  function initFindInPage() {
-    window.addEventListener("message", (e) => {
-      const d = e?.data;
-      if (!d || d.type !== "mgy-html-find-result") return;
-      const htmlFrame = activeHtmlFindFrame();
-      if (!htmlFrame || e.source !== htmlFrame.contentWindow) return;
-      const countEl = document.getElementById("md-find-count");
-      if (countEl) {
-        countEl.textContent = d.total > 0 ? `${d.current}/${d.total}` : "0/0";
-      }
-    });
-    document.addEventListener("keydown", (e) => {
-      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "f") {
-        const sheet = document.getElementById("sheet-markdown-viewer");
-        if (sheet && !sheet.classList.contains("hidden") && activeHtmlFindFrame()) {
-          e.preventDefault();
-          openFindPopover(document.getElementById("md-viewer-content"));
-        }
-      }
-    });
-    document.getElementById("btn-md-viewer-find")?.addEventListener("click", () => {
-      openFindPopover(document.getElementById("md-viewer-content"));
-    });
-    document.getElementById("btn-md-viewer-close")?.addEventListener("click", () => {
-      closeFindPopover();
-      window.closeMarkdownViewer?.();
-    });
-    document.getElementById("btn-md-find-close")?.addEventListener("click", closeFindPopover);
-    document.getElementById("btn-md-find-prev")?.addEventListener("click", () => stepFindMatch(-1));
-    document.getElementById("btn-md-find-next")?.addEventListener("click", () => stepFindMatch(1));
-    document.getElementById("md-find-input")?.addEventListener("input", (e) => {
-      const val = e.target.value;
-      clearTimeout(findInputDebounceTimer);
-      findInputDebounceTimer = setTimeout(() => runFindQuery(val), 150);
-    });
-    document.getElementById("md-find-input")?.addEventListener("keydown", (e) => {
-      if (e.key === "Enter") {
-        e.preventDefault();
-        if (findInputDebounceTimer) {
-          clearTimeout(findInputDebounceTimer);
-          findInputDebounceTimer = 0;
-          runFindQuery(e.target.value);
-          return;
-        }
-        stepFindMatch(e.shiftKey ? -1 : 1);
-      } else if (e.key === "Escape") {
-        closeFindPopover();
-      }
-    });
-  }
-
-  // --- 7. 200 MB Audio/Video/.amr & PDF/Code Preview Modal ---
+  // --- 6. 200 MB Audio/Video/.amr & PDF/Code Preview Modal ---
   function openMediaPreviewModal(uri, title) {
     const dlg = document.getElementById("dialog-media-preview");
     const bodyEl = document.getElementById("media-dialog-body");
     const titleEl = document.getElementById("media-dialog-title");
     const extLink = document.getElementById("media-dialog-open-ext");
-    const findBtn = document.getElementById("btn-media-dialog-find");
     if (!dlg || !bodyEl) return false;
 
     const ext = fileExt(uri || title);
@@ -1343,7 +1115,6 @@
 
     if (titleEl) titleEl.textContent = title || (uri.split("/").pop() || "文件预览");
     if (extLink) extLink.href = rawUrl;
-    findBtn?.classList.add("hidden");
 
     if (AUDIO_EXTS.has(ext)) {
       const amrHint = ext === "amr"
@@ -1419,7 +1190,6 @@
     installRHighlighter();
     initTrustBanner();
     initBtwDialog();
-    initFindInPage();
     initMediaDialog();
   }
 
@@ -1437,8 +1207,6 @@
     startBtwAndOpen,
     syncBranchState,
     applyBranchDecorations,
-    openFindPopover,
-    closeFindPopover,
     openMediaPreviewModal,
   };
 

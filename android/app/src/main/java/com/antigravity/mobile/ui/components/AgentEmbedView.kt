@@ -13,7 +13,6 @@ import android.webkit.WebSettings
 import android.webkit.WebView
 import android.webkit.WebViewClient
 import java.io.ByteArrayInputStream
-import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateContentSize
 import androidx.compose.animation.core.spring
 import androidx.compose.foundation.background
@@ -417,44 +416,6 @@ fun AgentEmbedView(
                 color = colors.background
             ) {
                 Column(modifier = Modifier.fillMaxSize()) {
-                    var showFindBar by remember { mutableStateOf(false) }
-                    var findQuery by remember { mutableStateOf("") }
-                    var findCurrent by remember { mutableIntStateOf(0) }
-                    var findTotal by remember { mutableIntStateOf(0) }
-                    var fullscreenWebView by remember { mutableStateOf<WebView?>(null) }
-
-                    fun parseFindResult(raw: String?) {
-                        val cleaned = raw?.trim()?.removePrefix("\"")?.removeSuffix("\"")
-                            ?.replace("\\\"", "\"")
-                            ?.replace("\\\\", "\\")
-                            ?: return
-                        runCatching {
-                            val obj = JSONObject(cleaned)
-                            findCurrent = obj.optInt("current", 0)
-                            findTotal = obj.optInt("total", 0)
-                        }
-                    }
-
-                    fun runHtmlFind(query: String) {
-                        val wv = fullscreenWebView ?: return
-                        val qJson = JSONObject.quote(query)
-                        wv.evaluateJavascript("${AgentEmbedHtmlBuilder.findHelperJs}\nwindow.__mgyHtmlFind($qJson);") { res ->
-                            parseFindResult(res)
-                        }
-                    }
-
-                    fun stepHtmlFind(delta: Int) {
-                        val wv = fullscreenWebView ?: return
-                        wv.evaluateJavascript("${AgentEmbedHtmlBuilder.findHelperJs}\nwindow.__mgyHtmlFindStep($delta);") { res ->
-                            parseFindResult(res)
-                        }
-                    }
-
-                    fun clearHtmlFind() {
-                        val wv = fullscreenWebView ?: return
-                        wv.evaluateJavascript("${AgentEmbedHtmlBuilder.findHelperJs}\nwindow.__mgyHtmlFindClear();", null)
-                    }
-
                     // Top Bar
                     Row(
                         modifier = Modifier
@@ -481,122 +442,16 @@ fun AgentEmbedView(
                             modifier = Modifier.weight(1f).padding(horizontal = 6.dp)
                         )
 
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            IconButton(onClick = {
-                                haptic.light()
-                                if (showFindBar) {
-                                    findQuery = ""
-                                    findCurrent = 0
-                                    findTotal = 0
-                                    clearHtmlFind()
-                                    showFindBar = false
-                                } else {
-                                    showFindBar = true
-                                }
-                            }) {
-                                Icon(
-                                    imageVector = Icons.Default.Search,
-                                    contentDescription = "页内搜索".loc,
-                                    tint = if (showFindBar) colors.accentIndigo else colors.textSecondary
-                                )
-                            }
-
-                            IconButton(onClick = {
-                                haptic.light()
-                                findCurrent = 0
-                                findTotal = 0
-                                AgentEmbedCache.remove(src)
-                                reloadTrigger++
-                            }) {
-                                Icon(
-                                    imageVector = Icons.Default.Refresh,
-                                    contentDescription = "刷新".loc,
-                                    tint = colors.accentIndigo
-                                )
-                            }
-                        }
-                    }
-
-                    AnimatedVisibility(visible = showFindBar) {
-                        Column(modifier = Modifier.fillMaxWidth()) {
-                            HorizontalDivider(color = colors.border.copy(alpha = 0.35f))
-                            Row(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .background(colors.surfaceVariant.copy(alpha = 0.6f))
-                                    .padding(horizontal = 10.dp, vertical = 6.dp),
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(6.dp)
-                            ) {
-                                Icon(
-                                    imageVector = Icons.Default.Search,
-                                    contentDescription = null,
-                                    tint = colors.textSecondary,
-                                    modifier = Modifier.size(16.dp)
-                                )
-                                OutlinedTextField(
-                                    value = findQuery,
-                                    onValueChange = { next ->
-                                        findQuery = next
-                                        runHtmlFind(next)
-                                    },
-                                    placeholder = { Text("页内搜索...".loc, fontSize = 13.sp, color = colors.textSecondary) },
-                                    singleLine = true,
-                                    colors = OutlinedTextFieldDefaults.colors(
-                                        focusedBorderColor = Color.Transparent,
-                                        unfocusedBorderColor = Color.Transparent,
-                                        focusedContainerColor = Color.Transparent,
-                                        unfocusedContainerColor = Color.Transparent
-                                    ),
-                                    modifier = Modifier.weight(1f)
-                                )
-                                if (findQuery.isNotBlank()) {
-                                    Text(
-                                        text = if (findTotal > 0) "$findCurrent/$findTotal" else "0",
-                                        color = colors.textSecondary,
-                                        fontSize = 11.5.sp,
-                                        fontFamily = FontFamily.Monospace
-                                    )
-                                }
-                                IconButton(
-                                    onClick = { stepHtmlFind(-1) },
-                                    enabled = findTotal > 0,
-                                    modifier = Modifier.size(28.dp)
-                                ) {
-                                    Icon(
-                                        imageVector = Icons.Default.KeyboardArrowUp,
-                                        contentDescription = "上一个".loc,
-                                        tint = if (findTotal > 0) colors.textPrimary else colors.textSecondary.copy(alpha = 0.4f)
-                                    )
-                                }
-                                IconButton(
-                                    onClick = { stepHtmlFind(1) },
-                                    enabled = findTotal > 0,
-                                    modifier = Modifier.size(28.dp)
-                                ) {
-                                    Icon(
-                                        imageVector = Icons.Default.KeyboardArrowDown,
-                                        contentDescription = "下一个".loc,
-                                        tint = if (findTotal > 0) colors.textPrimary else colors.textSecondary.copy(alpha = 0.4f)
-                                    )
-                                }
-                                IconButton(
-                                    onClick = {
-                                        findQuery = ""
-                                        findCurrent = 0
-                                        findTotal = 0
-                                        clearHtmlFind()
-                                        showFindBar = false
-                                    },
-                                    modifier = Modifier.size(28.dp)
-                                ) {
-                                    Icon(
-                                        imageVector = Icons.Default.Close,
-                                        contentDescription = "关闭搜索".loc,
-                                        tint = colors.textSecondary
-                                    )
-                                }
-                            }
+                        IconButton(onClick = {
+                            haptic.light()
+                            AgentEmbedCache.remove(src)
+                            reloadTrigger++
+                        }) {
+                            Icon(
+                                imageVector = Icons.Default.Refresh,
+                                contentDescription = "刷新".loc,
+                                tint = colors.accentIndigo
+                            )
                         }
                     }
 
@@ -612,8 +467,7 @@ fun AgentEmbedView(
                             .fillMaxWidth()
                             .weight(1f),
                         onHeightMeasured = null,
-                        onTitleDetected = null,
-                        onWebViewReady = { fullscreenWebView = it }
+                        onTitleDetected = null
                     )
                 }
             }
@@ -687,8 +541,7 @@ private fun AgentEmbedWebViewContainer(
     boundCascadeId: String,
     modifier: Modifier = Modifier,
     onHeightMeasured: ((Int) -> Unit)? = null,
-    onTitleDetected: ((String) -> Unit)? = null,
-    onWebViewReady: ((WebView) -> Unit)? = null
+    onTitleDetected: ((String) -> Unit)? = null
 ) {
     val initialIsDark = remember(htmlContent) { isDark }
     val enhancedHtml = remember(htmlContent, initialIsDark) {
@@ -699,13 +552,11 @@ private fun AgentEmbedWebViewContainer(
     val latestCascadeId by rememberUpdatedState(boundCascadeId)
     val latestOnHeight by rememberUpdatedState(onHeightMeasured)
     val latestOnTitle by rememberUpdatedState(onTitleDetected)
-    val latestOnWebViewReady by rememberUpdatedState(onWebViewReady)
 
     AndroidView(
         modifier = modifier,
         factory = { ctx ->
             WebView(ctx).apply {
-                latestOnWebViewReady?.invoke(this)
                 setBackgroundColor(android.graphics.Color.TRANSPARENT)
                 isVerticalScrollBarEnabled = true
                 isHorizontalScrollBarEnabled = false
@@ -927,77 +778,6 @@ private fun AgentEmbedWebViewContainer(
  * Injects Antigravity theme variables and mobile viewport into HTML content.
  */
 private object AgentEmbedHtmlBuilder {
-    val findHelperJs: String = """
-        (function(){
-          if (window.__mgyHtmlFindReady) return;
-          window.__mgyHtmlFindReady = true;
-          var marks = [];
-          var activeIdx = -1;
-          function clearMarks() {
-            for (var i = 0; i < marks.length; i++) {
-              var m = marks[i];
-              if (m && m.parentNode) {
-                var p = m.parentNode;
-                p.replaceChild(document.createTextNode(m.textContent || ''), m);
-                p.normalize();
-              }
-            }
-            marks = [];
-            activeIdx = -1;
-          }
-          function focusIdx(idx) {
-            if (!marks.length) return JSON.stringify({current:0,total:0});
-            if (activeIdx >= 0 && marks[activeIdx]) {
-              marks[activeIdx].style.background = '#fde047';
-              marks[activeIdx].style.color = '#111827';
-            }
-            activeIdx = ((idx % marks.length) + marks.length) % marks.length;
-            var el = marks[activeIdx];
-            el.style.background = '#f97316';
-            el.style.color = '#ffffff';
-            try { el.scrollIntoView({block:'center', behavior:'smooth'}); } catch(e) {}
-            return JSON.stringify({current: activeIdx + 1, total: marks.length});
-          }
-          window.__mgyHtmlFindClear = function() { clearMarks(); return JSON.stringify({current:0,total:0}); };
-          window.__mgyHtmlFindStep = function(delta) { return focusIdx(activeIdx + (delta || 1)); };
-          window.__mgyHtmlFind = function(q) {
-            clearMarks();
-            var needle = (q || '').trim();
-            if (!needle || !document.body) return JSON.stringify({current:0,total:0});
-            var lowerNeedle = needle.toLowerCase();
-            var skip = {SCRIPT:1, STYLE:1, NOSCRIPT:1, TEXTAREA:1, INPUT:1, SELECT:1};
-            var nodes = [];
-            var walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT, null);
-            var n;
-            while ((n = walker.nextNode())) {
-              if (!n.nodeValue || !n.parentNode || skip[n.parentNode.nodeName]) continue;
-              if (n.nodeValue.toLowerCase().indexOf(lowerNeedle) !== -1) nodes.push(n);
-            }
-            for (var i = 0; i < nodes.length && marks.length < 400; i++) {
-              var tn = nodes[i];
-              var text = tn.nodeValue;
-              var lower = text.toLowerCase();
-              var frag = document.createDocumentFragment();
-              var pos = 0;
-              var found;
-              while ((found = lower.indexOf(lowerNeedle, pos)) !== -1 && marks.length < 400) {
-                if (found > pos) frag.appendChild(document.createTextNode(text.slice(pos, found)));
-                var mk = document.createElement('mark');
-                mk.setAttribute('data-mgy-find', '1');
-                mk.style.cssText = 'background:#fde047;color:#111827;border-radius:2px;padding:0 1px;';
-                mk.textContent = text.slice(found, found + needle.length);
-                frag.appendChild(mk);
-                marks.push(mk);
-                pos = found + needle.length;
-              }
-              if (pos < text.length) frag.appendChild(document.createTextNode(text.slice(pos)));
-              if (tn.parentNode) tn.parentNode.replaceChild(frag, tn);
-            }
-            return focusIdx(0);
-          };
-        })();
-    """.trimIndent()
-
     fun build(html: String, isDark: Boolean): String {
         val viewportMeta = """<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, minimum-scale=1.0, user-scalable=no, viewport-fit=cover">"""
 
