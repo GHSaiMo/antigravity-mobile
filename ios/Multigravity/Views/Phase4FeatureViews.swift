@@ -773,79 +773,144 @@ public struct OAuthHybridSheet: View {
     }
 }
 
-// MARK: - 3. DesktopUpdateSheet (Antigravity Desktop Self-Update & Changelog)
+// MARK: - 3. DesktopUpdateSheet (Host Updates: Antigravity Desktop + mgy Gateway)
 
 public struct DesktopUpdateSheet: View {
     @Environment(\.colorScheme) private var colorScheme
     public let initialStatus: DesktopUpdateStatus?
+    public let initialGatewayStatus: GatewaySelfUpdateStatus?
+    public let onStatusUpdated: ((DesktopUpdateStatus?, GatewaySelfUpdateStatus?) -> Void)?
 
     @State private var status: DesktopUpdateStatus?
     @State private var changelogMarkdown: String = ""
     @State private var isLoading: Bool = true
-    @State private var isApplying: Bool = false
-    @State private var showConfirmApply: Bool = false
-    @State private var messageText: String? = nil
-    @State private var errorText: String? = nil
+    @State private var isApplyingDesktop: Bool = false
+    @State private var showConfirmDesktopApply: Bool = false
+    @State private var desktopMessageText: String? = nil
+    @State private var desktopErrorText: String? = nil
 
-    public init(initialStatus: DesktopUpdateStatus? = nil) {
+    @State private var gatewayStatus: GatewaySelfUpdateStatus?
+    @State private var isApplyingGateway: Bool = false
+    @State private var isWaitingGatewayReconnect: Bool = false
+    @State private var showConfirmGatewayApply: Bool = false
+    @State private var gatewayMessageText: String? = nil
+    @State private var gatewayErrorText: String? = nil
+    @State private var gatewayUnsupported: Bool = false
+    @State private var gatewayPollTask: Task<Void, Never>? = nil
+
+    public init(
+        initialStatus: DesktopUpdateStatus? = nil,
+        initialGatewayStatus: GatewaySelfUpdateStatus? = nil,
+        onStatusUpdated: ((DesktopUpdateStatus?, GatewaySelfUpdateStatus?) -> Void)? = nil
+    ) {
         self.initialStatus = initialStatus
+        self.initialGatewayStatus = initialGatewayStatus
+        self.onStatusUpdated = onStatusUpdated
         _status = State(initialValue: initialStatus)
+        _gatewayStatus = State(initialValue: initialGatewayStatus)
     }
 
     private var gatewayURL: URL? { AppSettings.shared.gatewayURL ?? AppSettings.shared.serverURL }
 
-    private var currentVersionDisplay: String {
+    private var desktopCurrentVersionDisplay: String {
         if let cur = status?.currentVersion, !cur.isEmpty {
+            return "v\(cur)"
+        }
+        return desktopErrorText != nil ? String(localized: "未连接") : String(localized: "未知")
+    }
+
+    private var desktopLatestVersionDisplay: String? {
+        guard let latest = status?.latestVersion, !latest.isEmpty else { return nil }
+        return "v\(latest)"
+    }
+
+    private var gatewayCurrentVersionDisplay: String {
+        if let cur = gatewayStatus?.currentVersion, !cur.isEmpty {
             return "v\(cur)"
         }
         return String(localized: "未知")
     }
 
-    private var latestVersionDisplay: String? {
-        guard let latest = status?.latestVersion, !latest.isEmpty else { return nil }
+    private var gatewayLatestVersionDisplay: String? {
+        guard let latest = gatewayStatus?.latestVersion, !latest.isEmpty else { return nil }
         return "v\(latest)"
     }
 
+    private var isGatewayBusy: Bool {
+        isApplyingGateway || isWaitingGatewayReconnect || (gatewayStatus?.isInProgress == true)
+    }
+
+    private var anyHasUpdate: Bool {
+        (status?.hasUpdate == true) || (gatewayStatus?.hasUpdate == true)
+    }
+
+    private var hasAnyLoadedData: Bool {
+        status != nil || gatewayStatus != nil
+    }
+
+    private var bothFailed: Bool {
+        !isLoading && !hasAnyLoadedData && (desktopErrorText != nil || gatewayErrorText != nil)
+    }
+
     private var heroAccentColor: Color {
-        if isLoading && status == nil { return .secondary }
-        if errorText != nil && status == nil { return .orange }
-        if status?.hasUpdate == true { return .indigo }
+        if isLoading && !hasAnyLoadedData { return .secondary }
+        if bothFailed { return .orange }
+        if anyHasUpdate || isGatewayBusy { return .indigo }
         return .green
     }
 
     private var heroBadgeSymbol: String? {
-        if isLoading && status == nil { return nil }
-        if errorText != nil && status == nil { return "exclamationmark.circle.fill" }
-        if status?.hasUpdate == true { return "arrow.down.circle.fill" }
-        if status != nil { return "checkmark.circle.fill" }
+        if isLoading && !hasAnyLoadedData { return nil }
+        if bothFailed { return "exclamationmark.circle.fill" }
+        if anyHasUpdate || isGatewayBusy { return "arrow.down.circle.fill" }
+        if hasAnyLoadedData { return "checkmark.circle.fill" }
         return nil
     }
 
     private var heroTitle: String {
-        if isLoading && status == nil {
+        if isLoading && !hasAnyLoadedData {
             return String(localized: "正在检查更新...")
         }
-        if errorText != nil && status == nil {
+        if bothFailed {
             return String(localized: "检查更新失败")
         }
-        if status?.hasUpdate == true {
+        if isWaitingGatewayReconnect {
+            return String(localized: "正在重启网关...")
+        }
+        if anyHasUpdate {
             return String(localized: "发现新版本")
         }
         return String(localized: "已是最新版本")
     }
 
     private var heroSubtitle: String? {
-        if isLoading && status == nil {
-            return nil
+        if isLoading && !hasAnyLoadedData { return nil }
+        if bothFailed { return nil }
+        if isWaitingGatewayReconnect {
+            return String(localized: "mgy 网关正在重启并恢复连接，请稍候")
         }
-        if errorText != nil && status == nil {
-            return nil
+        let dUp = status?.hasUpdate == true
+        let gUp = gatewayStatus?.hasUpdate == true
+        if dUp && gUp {
+            return String(localized: "Antigravity 桌面端与 mgy 网关均有新版本")
         }
-        if status?.hasUpdate == true {
-            if let latest = latestVersionDisplay {
+        if dUp {
+            if let latest = desktopLatestVersionDisplay {
                 return String(localized: "桌面端可升级至 \(latest)")
             }
             return String(localized: "检测到可用的桌面端新版本")
+        }
+        if gUp {
+            if let latest = gatewayLatestVersionDisplay {
+                return String(localized: "mgy 网关可升级至 \(latest)")
+            }
+            return String(localized: "检测到可用的 mgy 网关新版本")
+        }
+        if status != nil && gatewayStatus != nil {
+            return String(localized: "宿主机 Antigravity 与 mgy 网关均已是最新版本")
+        }
+        if gatewayStatus != nil {
+            return String(localized: "宿主机 mgy 网关已是最新版本")
         }
         if status != nil {
             return String(localized: "宿主机 Antigravity 已是最新版本")
@@ -853,12 +918,35 @@ public struct DesktopUpdateSheet: View {
         return nil
     }
 
+    private var gatewayStageDisplayText: String {
+        if isWaitingGatewayReconnect {
+            return String(localized: "正在重启网关并自动重连...")
+        }
+        if let msg = gatewayStatus?.stageMessage, !msg.isEmpty {
+            return msg
+        }
+        switch gatewayStatus?.state {
+        case "checking":
+            return String(localized: "正在检查 mgy 最新版本...")
+        case "downloading":
+            return String(localized: "正在下载 mgy 新版本...")
+        case "verifying":
+            return String(localized: "正在校验文件完整性...")
+        case "replacing":
+            return String(localized: "正在替换网关程序...")
+        case "restarting":
+            return String(localized: "正在重启网关并自动重连...")
+        default:
+            return String(localized: "正在更新 mgy 网关...")
+        }
+    }
+
     private var cardBorderColor: Color {
         Color.primary.opacity(colorScheme == .dark ? 0.08 : 0.05)
     }
 
     private var shouldCenterVertically: Bool {
-        changelogMarkdown.isEmpty
+        changelogMarkdown.isEmpty && !anyHasUpdate && !isGatewayBusy
     }
 
     public var body: some View {
@@ -867,96 +955,20 @@ public struct DesktopUpdateSheet: View {
                 ScrollView {
                     VStack(spacing: 0) {
                         if shouldCenterVertically {
-                            Spacer(minLength: 28)
+                            Spacer(minLength: 16)
                         }
 
-                        VStack(spacing: 24) {
+                        VStack(spacing: 22) {
                             statusHeroSection
 
-                            if status != nil || !isLoading {
-                                versionCard
-                            }
-
-                            if let running = status?.runningCount, running > 0, status?.hasUpdate == true {
-                                HStack(alignment: .top, spacing: 12) {
-                                    Image(systemName: "exclamationmark.triangle.fill")
-                                        .font(.system(size: 16))
-                                        .foregroundColor(.orange)
-                                        .padding(.top, 2)
-                                    Text("当前有 \(running) 个活跃会话正在运行。Antigravity 2.35.1+ 重启后会自动恢复会话，但仍建议等关键操作完成后更新。")
-                                        .font(.system(size: 13.5))
-                                        .foregroundColor(.secondary)
-                                        .lineSpacing(3.5)
-                                        .fixedSize(horizontal: false, vertical: true)
-                                }
-                                .padding(16)
-                                .frame(maxWidth: .infinity, alignment: .leading)
-                                .background(Color.orange.opacity(colorScheme == .dark ? 0.14 : 0.10))
-                                .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
-                            }
-
-                            if let msg = messageText {
-                                HStack(alignment: .top, spacing: 10) {
-                                    Image(systemName: "checkmark.circle.fill")
-                                        .font(.system(size: 15))
-                                        .foregroundColor(.green)
-                                        .padding(.top, 1)
-                                    Text(msg)
-                                        .font(.system(size: 13.5, weight: .medium))
-                                        .foregroundColor(.green)
-                                        .lineSpacing(3)
-                                        .fixedSize(horizontal: false, vertical: true)
-                                }
-                                .padding(.horizontal, 16)
-                                .padding(.vertical, 13)
-                                .frame(maxWidth: .infinity, alignment: .leading)
-                                .background(Color.green.opacity(colorScheme == .dark ? 0.14 : 0.10))
-                                .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
-                            }
-
-                            if let err = errorText {
-                                HStack(alignment: .top, spacing: 10) {
-                                    Image(systemName: "exclamationmark.circle.fill")
-                                        .font(.system(size: 15))
-                                        .foregroundColor(.red)
-                                        .padding(.top, 1)
-                                    Text(err)
-                                        .font(.system(size: 13.5))
-                                        .foregroundColor(.red)
-                                        .lineSpacing(3)
-                                        .fixedSize(horizontal: false, vertical: true)
-                                }
-                                .padding(.horizontal, 16)
-                                .padding(.vertical, 13)
-                                .frame(maxWidth: .infinity, alignment: .leading)
-                                .background(Color.red.opacity(colorScheme == .dark ? 0.14 : 0.10))
-                                .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
-                            }
-
-                            if status?.hasUpdate == true {
-                                Button {
-                                    showConfirmApply = true
-                                } label: {
-                                    HStack(spacing: 8) {
-                                        if isApplying {
-                                            ProgressView().tint(.white)
-                                        }
-                                        Text(isApplying ? String(localized: "正在通知桌面端...") : String(localized: "立即应用更新并重启桌面端"))
-                                            .font(.system(size: 16, weight: .semibold))
-                                    }
-                                    .frame(maxWidth: .infinity)
-                                    .padding(.vertical, 6)
-                                }
-                                .buttonStyle(.borderedProminent)
-                                .controlSize(.large)
-                                .tint(.indigo)
-                                .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
-                                .disabled(isApplying)
+                            if hasAnyLoadedData || !isLoading {
+                                desktopSection
+                                gatewaySection
                             }
 
                             if !changelogMarkdown.isEmpty {
                                 VStack(alignment: .leading, spacing: 10) {
-                                    Text("更新日志")
+                                    Text("桌面端更新日志")
                                         .font(.system(size: 13.5, weight: .semibold))
                                         .foregroundColor(.secondary)
                                         .padding(.horizontal, 4)
@@ -975,37 +987,49 @@ public struct DesktopUpdateSheet: View {
                         .frame(maxWidth: 520)
 
                         if shouldCenterVertically {
-                            Spacer(minLength: 36)
-                            Spacer(minLength: 28)
+                            Spacer(minLength: 24)
+                            Spacer(minLength: 16)
                         }
                     }
                     .padding(.horizontal, 20)
-                    .padding(.top, shouldCenterVertically ? 12 : 28)
+                    .padding(.top, shouldCenterVertically ? 12 : 24)
                     .padding(.bottom, 36)
                     .frame(maxWidth: .infinity)
                     .frame(minHeight: proxy.size.height)
                     .animation(.easeInOut(duration: 0.22), value: shouldCenterVertically)
                 }
                 .refreshable {
-                    await loadUpdateAndChangelog()
+                    await loadAllUpdates(forceGatewayRefresh: true)
                 }
             }
             .background(Color(uiColor: .systemGroupedBackground).ignoresSafeArea())
-            .navigationTitle("Antigravity 桌面端更新")
+            .navigationTitle("宿主机更新")
             .navigationBarTitleDisplayMode(.inline)
             .presentationDragIndicator(.visible)
-            .confirmationDialog("确认更新并重启电脑端 Antigravity？", isPresented: $showConfirmApply, titleVisibility: .visible) {
+            .confirmationDialog("确认更新并重启电脑端 Antigravity？", isPresented: $showConfirmDesktopApply, titleVisibility: .visible) {
                 Button("确认更新并重启") {
-                    Task { await triggerApplyUpdate() }
+                    Task { await triggerApplyDesktopUpdate() }
                 }
                 Button("取消", role: .cancel) {}
             } message: {
                 Text("电脑端将安装新版本并短暂停机重启，网关会自动重连。")
             }
+            .confirmationDialog("确认更新并重启 mgy 网关？", isPresented: $showConfirmGatewayApply, titleVisibility: .visible) {
+                Button("确认升级并重启") {
+                    Task { await triggerApplyGatewayUpdate() }
+                }
+                Button("取消", role: .cancel) {}
+            } message: {
+                Text("电脑端将下载校验最新 mgy 网关并重启，期间手机会短暂断开并自动恢复连接。")
+            }
         }
         .presentationDragIndicator(.visible)
         .task {
-            await loadUpdateAndChangelog()
+            await loadAllUpdates(forceGatewayRefresh: false)
+        }
+        .onDisappear {
+            gatewayPollTask?.cancel()
+            gatewayPollTask = nil
         }
     }
 
@@ -1020,17 +1044,17 @@ public struct DesktopUpdateSheet: View {
                         .stroke(heroAccentColor.opacity(colorScheme == .dark ? 0.24 : 0.16), lineWidth: 1)
                         .frame(width: 76, height: 76)
 
-                    if isLoading && status == nil {
+                    if (isLoading && !hasAnyLoadedData) || isGatewayBusy {
                         ProgressView()
                             .controlSize(.regular)
                     } else {
                         Image(systemName: "desktopcomputer")
                             .font(.system(size: 30, weight: .medium))
-                            .foregroundStyle(status?.hasUpdate == true ? Color.indigo : Color.primary.opacity(0.88))
+                            .foregroundStyle(anyHasUpdate ? Color.indigo : Color.primary.opacity(0.88))
                     }
                 }
 
-                if let badgeSymbol = heroBadgeSymbol {
+                if let badgeSymbol = heroBadgeSymbol, !isGatewayBusy {
                     Image(systemName: badgeSymbol)
                         .font(.system(size: 21, weight: .semibold))
                         .symbolRenderingMode(.palette)
@@ -1065,31 +1089,227 @@ public struct DesktopUpdateSheet: View {
         .padding(.bottom, 4)
     }
 
-    private var versionCard: some View {
-        VStack(spacing: 0) {
-            versionRow(
-                title: String(localized: "当前桌面端版本"),
-                value: currentVersionDisplay,
-                valueColor: .primary,
-                valueWeight: .semibold
+    private var desktopSection: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            sectionHeaderRow(
+                title: String(localized: "Antigravity 桌面端"),
+                badgeText: status?.hasUpdate == true ? String(localized: "有新版") : nil
             )
-            if let latest = latestVersionDisplay {
-                Divider()
-                    .padding(.leading, 18)
+
+            VStack(spacing: 0) {
                 versionRow(
-                    title: String(localized: "最新可用版本"),
-                    value: latest,
-                    valueColor: status?.hasUpdate == true ? .indigo : .secondary,
-                    valueWeight: status?.hasUpdate == true ? .bold : .medium
+                    title: String(localized: "当前桌面端版本"),
+                    value: desktopCurrentVersionDisplay,
+                    valueColor: status != nil ? .primary : .secondary,
+                    valueWeight: .semibold
+                )
+                if let latest = desktopLatestVersionDisplay {
+                    Divider()
+                        .padding(.leading, 18)
+                    versionRow(
+                        title: String(localized: "最新可用版本"),
+                        value: latest,
+                        valueColor: status?.hasUpdate == true ? .indigo : .secondary,
+                        valueWeight: status?.hasUpdate == true ? .bold : .medium
+                    )
+                }
+            }
+            .background(Color(uiColor: .secondarySystemGroupedBackground))
+            .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+            .overlay(
+                RoundedRectangle(cornerRadius: 16, style: .continuous)
+                    .stroke(cardBorderColor, lineWidth: 0.5)
+            )
+
+            if let running = status?.runningCount, running > 0, status?.hasUpdate == true {
+                noticeBanner(
+                    icon: "exclamationmark.triangle.fill",
+                    color: .orange,
+                    text: String(localized: "当前有 \(running) 个活跃会话正在运行。Antigravity 2.35.1+ 重启后会自动恢复会话，但仍建议等关键操作完成后更新。"),
+                    textColor: .secondary
                 )
             }
+
+            if let msg = desktopMessageText {
+                noticeBanner(icon: "checkmark.circle.fill", color: .green, text: msg, textColor: .green)
+            }
+
+            if let err = desktopErrorText {
+                noticeBanner(icon: "exclamationmark.circle.fill", color: status == nil ? .orange : .red, text: err, textColor: status == nil ? .secondary : .red)
+            }
+
+            if status?.hasUpdate == true {
+                Button {
+                    showConfirmDesktopApply = true
+                } label: {
+                    HStack(spacing: 8) {
+                        if isApplyingDesktop {
+                            ProgressView().tint(.white)
+                        }
+                        Text(isApplyingDesktop ? String(localized: "正在通知桌面端...") : String(localized: "立即应用更新并重启桌面端"))
+                            .font(.system(size: 15.5, weight: .semibold))
+                    }
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 5)
+                }
+                .buttonStyle(.borderedProminent)
+                .controlSize(.large)
+                .tint(.indigo)
+                .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+                .disabled(isApplyingDesktop)
+            }
         }
-        .background(Color(uiColor: .secondarySystemGroupedBackground))
-        .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
-        .overlay(
-            RoundedRectangle(cornerRadius: 16, style: .continuous)
-                .stroke(cardBorderColor, lineWidth: 0.5)
-        )
+    }
+
+    private var gatewaySection: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            sectionHeaderRow(
+                title: String(localized: "mgy 网关"),
+                badgeText: gatewayStatus?.hasUpdate == true ? String(localized: "有新版") : nil
+            )
+
+            if gatewayUnsupported {
+                noticeBanner(
+                    icon: "info.circle.fill",
+                    color: .secondary,
+                    text: String(localized: "当前网关版本暂不支持远程自更新检测，请在电脑端执行 mgy update 升级。"),
+                    textColor: .secondary
+                )
+            } else {
+                VStack(spacing: 0) {
+                    versionRow(
+                        title: String(localized: "当前网关版本"),
+                        value: gatewayCurrentVersionDisplay,
+                        valueColor: gatewayStatus != nil ? .primary : .secondary,
+                        valueWeight: .semibold
+                    )
+                    if let latest = gatewayLatestVersionDisplay {
+                        Divider()
+                            .padding(.leading, 18)
+                        versionRow(
+                            title: String(localized: "最新可用版本"),
+                            value: latest,
+                            valueColor: gatewayStatus?.hasUpdate == true ? .indigo : .secondary,
+                            valueWeight: gatewayStatus?.hasUpdate == true ? .bold : .medium
+                        )
+                    } else if let checkErr = gatewayStatus?.checkError, !checkErr.isEmpty {
+                        Divider()
+                            .padding(.leading, 18)
+                        versionRow(
+                            title: String(localized: "最新可用版本"),
+                            value: String(localized: "检测失败"),
+                            valueColor: .orange,
+                            valueWeight: .medium
+                        )
+                    }
+                }
+                .background(Color(uiColor: .secondarySystemGroupedBackground))
+                .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 16, style: .continuous)
+                        .stroke(cardBorderColor, lineWidth: 0.5)
+                )
+
+                if isGatewayBusy {
+                    HStack(spacing: 12) {
+                        ProgressView()
+                            .controlSize(.small)
+                            .tint(.indigo)
+                        Text(gatewayStageDisplayText)
+                            .font(.system(size: 13.5, weight: .medium))
+                            .foregroundColor(.indigo)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 13)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .background(Color.indigo.opacity(colorScheme == .dark ? 0.16 : 0.10))
+                    .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+                }
+
+                if let running = gatewayStatus?.runningCount, running > 0, gatewayStatus?.hasUpdate == true, !isGatewayBusy {
+                    noticeBanner(
+                        icon: "exclamationmark.triangle.fill",
+                        color: .orange,
+                        text: String(localized: "当前有 \(running) 个活跃会话正在运行。重启 mgy 网关会短暂断开重连，不会中断电脑端任务。"),
+                        textColor: .secondary
+                    )
+                }
+
+                if let msg = gatewayMessageText {
+                    noticeBanner(icon: "checkmark.circle.fill", color: .green, text: msg, textColor: .green)
+                }
+
+                if let err = gatewayErrorText {
+                    noticeBanner(icon: "exclamationmark.circle.fill", color: .red, text: err, textColor: .red)
+                }
+
+                if gatewayStatus?.hasUpdate == true && !isGatewayBusy {
+                    if gatewayStatus?.canSelfUpdate == true {
+                        Button {
+                            showConfirmGatewayApply = true
+                        } label: {
+                            HStack(spacing: 8) {
+                                Text(String(localized: "升级并重启 mgy 网关"))
+                                    .font(.system(size: 15.5, weight: .semibold))
+                            }
+                            .frame(maxWidth: .infinity)
+                            .padding(.vertical, 5)
+                        }
+                        .buttonStyle(.borderedProminent)
+                        .controlSize(.large)
+                        .tint(.indigo)
+                        .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+                    } else {
+                        let reason = gatewayStatus?.cannotUpdateReason?.trimmingCharacters(in: .whitespacesAndNewlines)
+                        noticeBanner(
+                            icon: "terminal.fill",
+                            color: .orange,
+                            text: (reason?.isEmpty == false ? reason! : String(localized: "当前安装环境不支持一键覆盖，请在电脑端执行 mgy update 升级。")),
+                            textColor: .secondary
+                        )
+                    }
+                }
+            }
+        }
+    }
+
+    private func sectionHeaderRow(title: String, badgeText: String?) -> some View {
+        HStack(spacing: 8) {
+            Text(title)
+                .font(.system(size: 13.5, weight: .semibold))
+                .foregroundColor(.secondary)
+            if let badge = badgeText {
+                Text(badge)
+                    .font(.system(size: 10.5, weight: .semibold))
+                    .foregroundColor(.white)
+                    .padding(.horizontal, 6.5)
+                    .padding(.vertical, 2)
+                    .background(Color.indigo)
+                    .clipShape(Capsule())
+            }
+            Spacer()
+        }
+        .padding(.horizontal, 4)
+    }
+
+    private func noticeBanner(icon: String, color: Color, text: String, textColor: Color) -> some View {
+        HStack(alignment: .top, spacing: 10) {
+            Image(systemName: icon)
+                .font(.system(size: 15))
+                .foregroundColor(color)
+                .padding(.top, 1)
+            Text(text)
+                .font(.system(size: 13.5, weight: textColor == .green ? .medium : .regular))
+                .foregroundColor(textColor)
+                .lineSpacing(3)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 13)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(color.opacity(colorScheme == .dark ? 0.14 : 0.10))
+        .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
     }
 
     private func versionRow(
@@ -1108,18 +1328,28 @@ public struct DesktopUpdateSheet: View {
                 .foregroundColor(valueColor)
         }
         .padding(.horizontal, 18)
-        .padding(.vertical, 16)
+        .padding(.vertical, 15)
     }
 
     @MainActor
-    private func loadUpdateAndChangelog() async {
+    private func loadAllUpdates(forceGatewayRefresh: Bool) async {
         guard let gw = gatewayURL else {
             isLoading = false
             return
         }
         isLoading = true
-        errorText = nil
+        desktopErrorText = nil
+        gatewayErrorText = nil
         defer { isLoading = false }
+
+        async let desktopTask: Void = loadDesktopUpdate(gw: gw)
+        async let gatewayTask: Void = loadGatewayUpdate(gw: gw, refresh: forceGatewayRefresh)
+        _ = await (desktopTask, gatewayTask)
+        onStatusUpdated?(status, gatewayStatus)
+    }
+
+    @MainActor
+    private func loadDesktopUpdate(gw: URL) async {
         do {
             let st = try await APIClient.shared.fetchDesktopUpdateStatus(baseURL: gw)
             status = st
@@ -1129,21 +1359,151 @@ public struct DesktopUpdateSheet: View {
                 changelogMarkdown = md
             }
         } catch {
-            errorText = error.localizedDescription
+            desktopErrorText = error.localizedDescription
         }
     }
 
     @MainActor
-    private func triggerApplyUpdate() async {
+    private func loadGatewayUpdate(gw: URL, refresh: Bool) async {
+        do {
+            let gSt = try await APIClient.shared.fetchGatewaySelfUpdateStatus(baseURL: gw, refresh: refresh)
+            gatewayUnsupported = false
+            gatewayStatus = gSt
+            if gSt.state == "failed", let err = gSt.error, !err.isEmpty {
+                gatewayErrorText = err
+            }
+            if gSt.isInProgress {
+                startPollingGatewayUpdate(
+                    gw: gw,
+                    previousVersion: gSt.currentVersion ?? "",
+                    expectedVersion: gSt.targetVersion ?? gSt.latestVersion
+                )
+            }
+        } catch let apiErr as APIError {
+            if case .serverError(let code, _) = apiErr, code == 404 {
+                gatewayUnsupported = true
+            } else {
+                gatewayErrorText = apiErr.localizedDescription
+            }
+        } catch {
+            gatewayErrorText = error.localizedDescription
+        }
+    }
+
+    @MainActor
+    private func triggerApplyDesktopUpdate() async {
         guard let gw = gatewayURL else { return }
-        isApplying = true
-        errorText = nil
-        defer { isApplying = false }
+        isApplyingDesktop = true
+        desktopErrorText = nil
+        defer { isApplyingDesktop = false }
         do {
             let resp = try await APIClient.shared.applyDesktopUpdate(baseURL: gw)
-            messageText = resp.message ?? String(localized: "已通知桌面端应用更新并重启")
+            desktopMessageText = resp.message ?? String(localized: "已通知桌面端应用更新并重启")
         } catch {
-            errorText = error.localizedDescription
+            desktopErrorText = error.localizedDescription
+        }
+    }
+
+    @MainActor
+    private func triggerApplyGatewayUpdate() async {
+        guard let gw = gatewayURL else { return }
+        isApplyingGateway = true
+        gatewayErrorText = nil
+        gatewayMessageText = nil
+        let prevVer = gatewayStatus?.currentVersion ?? ""
+        let expectedVer = gatewayStatus?.latestVersion
+        do {
+            let resp = try await APIClient.shared.applyGatewaySelfUpdate(baseURL: gw)
+            if resp.ok == false {
+                isApplyingGateway = false
+                gatewayErrorText = resp.error ?? String(localized: "触发 mgy 网关更新失败")
+                return
+            }
+            startPollingGatewayUpdate(gw: gw, previousVersion: prevVer, expectedVersion: expectedVer)
+        } catch {
+            isApplyingGateway = false
+            gatewayErrorText = error.localizedDescription
+        }
+    }
+
+    @MainActor
+    private func startPollingGatewayUpdate(gw: URL, previousVersion: String, expectedVersion: String?) {
+        gatewayPollTask?.cancel()
+        gatewayPollTask = Task { @MainActor in
+            var sawRestarting = (gatewayStatus?.state == "restarting")
+            var consecutiveErrors = 0
+            let maxAttempts = 180 // up to ~3.5 minutes for slow downloads + restart
+
+            for _ in 0..<maxAttempts {
+                if Task.isCancelled { return }
+                try? await Task.sleep(nanoseconds: 1_200_000_000)
+                if Task.isCancelled { return }
+
+                do {
+                    let st = try await APIClient.shared.fetchGatewaySelfUpdateStatus(baseURL: gw, refresh: false)
+                    consecutiveErrors = 0
+                    gatewayStatus = st
+
+                    if st.state == "restarting" {
+                        sawRestarting = true
+                        isWaitingGatewayReconnect = true
+                        continue
+                    }
+
+                    if st.isInProgress {
+                        continue
+                    }
+
+                    if st.state == "failed" {
+                        isApplyingGateway = false
+                        isWaitingGatewayReconnect = false
+                        gatewayErrorText = st.error ?? String(localized: "mgy 网关更新失败")
+                        onStatusUpdated?(status, st)
+                        return
+                    }
+
+                    let cur = st.currentVersion ?? ""
+                    let versionChanged = !cur.isEmpty && !previousVersion.isEmpty && cur != previousVersion
+                    let reachedExpected = !(expectedVersion ?? "").isEmpty && cur == expectedVersion
+                    if sawRestarting || versionChanged || reachedExpected || st.state == "completed" {
+                        isApplyingGateway = false
+                        isWaitingGatewayReconnect = false
+                        if !cur.isEmpty && (versionChanged || reachedExpected || sawRestarting) {
+                            gatewayMessageText = String(localized: "mgy 网关已升级至 v\(cur)")
+                        } else {
+                            gatewayMessageText = st.stageMessage ?? String(localized: "mgy 网关更新完成")
+                        }
+                        if let refreshed = try? await APIClient.shared.fetchGatewaySelfUpdateStatus(baseURL: gw, refresh: true) {
+                            gatewayStatus = refreshed
+                            onStatusUpdated?(status, refreshed)
+                        } else {
+                            onStatusUpdated?(status, st)
+                        }
+                        return
+                    }
+                } catch {
+                    consecutiveErrors += 1
+                    // After entering restarting (or during binary swap), brief network disconnects are expected.
+                    if sawRestarting || isApplyingGateway {
+                        isWaitingGatewayReconnect = true
+                        if consecutiveErrors >= 35 {
+                            isApplyingGateway = false
+                            isWaitingGatewayReconnect = false
+                            gatewayErrorText = String(localized: "网关重启重连超时，请下拉刷新检查状态")
+                            return
+                        }
+                    } else if consecutiveErrors >= 5 {
+                        isApplyingGateway = false
+                        isWaitingGatewayReconnect = false
+                        gatewayErrorText = error.localizedDescription
+                        return
+                    }
+                }
+            }
+
+            isApplyingGateway = false
+            isWaitingGatewayReconnect = false
+            gatewayErrorText = String(localized: "等待更新超时，请下拉刷新检查当前版本")
         }
     }
 }

@@ -620,6 +620,9 @@ func (h *Hub) WrapHandler(local http.Handler) http.Handler {
 		case path == "/gateway/hub/pair/confirm":
 			h.handleHubPairConfirm(w, r)
 			return
+		case strings.HasPrefix(path, "/gateway/self/"):
+			local.ServeHTTP(w, r)
+			return
 		}
 
 		// 2. Readiness probe: ready if local LS is healthy OR any remote node is healthy.

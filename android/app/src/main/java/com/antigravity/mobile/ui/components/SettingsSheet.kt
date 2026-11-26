@@ -66,6 +66,7 @@ import com.antigravity.mobile.data.service.AppUpdateState
 import com.antigravity.mobile.data.service.ConnectionManager
 import com.antigravity.mobile.data.service.PreferencesManager
 import com.antigravity.mobile.data.service.fetchDesktopUpdateStatus
+import com.antigravity.mobile.data.service.fetchGatewaySelfUpdateStatus
 import com.antigravity.mobile.data.service.fetchPermissionSettings
 import com.antigravity.mobile.data.service.updatePermissionPreset
 import com.antigravity.mobile.ui.theme.AntigravityTheme
@@ -1512,11 +1513,19 @@ private fun MainSettingsContent(
         val updateHaptic = rememberHaptic()
         var showAppUpdateDialog by remember { mutableStateOf(false) }
         var desktopUpdateStatus by remember { mutableStateOf<com.antigravity.mobile.data.model.DesktopUpdateStatus?>(null) }
+        var gatewayUpdateStatus by remember { mutableStateOf<com.antigravity.mobile.data.model.GatewaySelfUpdateStatus?>(null) }
         var showDesktopUpdateDialog by remember { mutableStateOf(false) }
         LaunchedEffect(isPaired) {
             if (isPaired) {
-                ApiClient.defaultInstance?.fetchDesktopUpdateStatus()?.onSuccess {
-                    desktopUpdateStatus = it
+                launch {
+                    ApiClient.defaultInstance?.fetchDesktopUpdateStatus()?.onSuccess {
+                        desktopUpdateStatus = it
+                    }
+                }
+                launch {
+                    ApiClient.defaultInstance?.fetchGatewaySelfUpdateStatus(refresh = false)?.onSuccess {
+                        gatewayUpdateStatus = it
+                    }
                 }
             }
         }
@@ -1673,6 +1682,8 @@ private fun MainSettingsContent(
                     }
                 }
                 if (isPaired) {
+                    val anyHostUpdate = (desktopUpdateStatus?.updateAvailable == true) || (gatewayUpdateStatus?.updateAvailable == true)
+                    val hasHostStatus = (desktopUpdateStatus != null) || (gatewayUpdateStatus != null)
                     HorizontalDivider(color = colors.separator.copy(alpha = 0.4f), thickness = 0.5.dp)
                     Row(
                         modifier = Modifier
@@ -1682,26 +1693,24 @@ private fun MainSettingsContent(
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.SpaceBetween
                     ) {
-                        Text(text = "Antigravity 桌面端".loc, color = colors.textPrimary, fontSize = 15.sp)
+                        Text(text = "宿主机更新".loc, color = colors.textPrimary, fontSize = 15.sp)
                         Row(
                             verticalAlignment = Alignment.CenterVertically,
                             horizontalArrangement = Arrangement.spacedBy(6.dp)
                         ) {
-                            val curVer = desktopUpdateStatus?.currentVersion?.takeIf { it.isNotBlank() }
-                            if (curVer != null) {
-                                Text(text = "v$curVer", color = colors.textSecondary, fontSize = 13.5.sp)
-                            }
-                            if (desktopUpdateStatus?.updateAvailable == true) {
+                            if (anyHostUpdate) {
                                 Text(
                                     text = "有更新".loc,
-                                    color = colors.accentOrange,
+                                    color = colors.accentIndigo,
                                     fontSize = 11.5.sp,
                                     fontWeight = FontWeight.SemiBold,
                                     modifier = Modifier
                                         .clip(RoundedCornerShape(999.dp))
-                                        .background(colors.accentOrange.copy(alpha = 0.14f))
+                                        .background(colors.accentIndigo.copy(alpha = 0.14f))
                                         .padding(horizontal = 7.dp, vertical = 2.dp)
                                 )
+                            } else if (hasHostStatus) {
+                                Text(text = "已是最新".loc, color = colors.textSecondary, fontSize = 13.5.sp)
                             }
                             Icon(
                                 imageVector = Icons.AutoMirrored.Filled.KeyboardArrowRight,
@@ -1736,7 +1745,15 @@ private fun MainSettingsContent(
         }
 
         if (showDesktopUpdateDialog) {
-            DesktopUpdateDialog(onDismiss = { showDesktopUpdateDialog = false })
+            DesktopUpdateDialog(
+                initialDesktopStatus = desktopUpdateStatus,
+                initialGatewayStatus = gatewayUpdateStatus,
+                onStatusUpdated = { dSt, gSt ->
+                    if (dSt != null) desktopUpdateStatus = dSt
+                    if (gSt != null) gatewayUpdateStatus = gSt
+                },
+                onDismiss = { showDesktopUpdateDialog = false }
+            )
         }
 
         if (AppUpdateInstaller.isSupported && showAppUpdateDialog) {

@@ -21,6 +21,7 @@ import (
 
 	"antigravity-mobile/internal/inspector"
 	"antigravity-mobile/internal/localtls"
+	"antigravity-mobile/internal/updater"
 
 	"github.com/gorilla/websocket"
 )
@@ -116,9 +117,19 @@ type Proxy struct {
 	activeProxy *httputil.ReverseProxy
 	activePort  int
 	activeToken string
-	notifier    NotificationSink
-	gatewayID   string
-	gatewayName string
+	notifier        NotificationSink
+	gatewayID       string
+	gatewayName     string
+	gatewayVersion  string
+	selfRestartFn   func(binaryPath string)
+	selfRestartMode string
+
+	// Gateway self-update job state & test hooks
+	selfUpdate        gatewaySelfUpdateState
+	selfUpdateCapFn   func(curVer string) updater.SelfUpdateCapability
+	selfUpdateCheckFn func(ctx context.Context, curVer string, force bool) (string, error)
+	selfUpdateRunFn   func(ctx context.Context, opts updater.Options) (*updater.Result, error)
+	selfRestartDelay  time.Duration
 
 	slashCache slashCommandCache
 	compat     compatState
@@ -974,6 +985,9 @@ func (p *Proxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	case strings.HasPrefix(r.URL.Path, "/gateway/desktop/"):
 		p.HandleDesktopUpdate(w, r)
+		return
+	case strings.HasPrefix(r.URL.Path, "/gateway/self/"):
+		p.HandleGatewaySelfUpdate(w, r)
 		return
 	case r.URL.Path == "/gateway/search/code",
 		r.URL.Path == "/gateway/search/files":

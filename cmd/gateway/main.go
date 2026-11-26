@@ -185,6 +185,12 @@ func runGatewayServer(args []string) {
 }
 
 func runGatewayServerWithMode(mode gatewayMode, args []string) {
+	if restartBinaryPath := runGatewayServerOnce(mode, args); restartBinaryPath != "" {
+		performSelfRestart(restartBinaryPath)
+	}
+}
+
+func runGatewayServerOnce(mode gatewayMode, args []string) string {
 	// ==============================================================================
 	// 启动项配置参数定义与中文说明
 	// 1. host: 监听主机/IP 地址。默认 "" 监听本机所有 IPv4 接口；设为 127.0.0.1 则仅限本机访问
@@ -301,6 +307,14 @@ func runGatewayServerWithMode(mode gatewayMode, args []string) {
 
 	// 2. Initialize Reverse Proxy & WebSocket handler
 	p := proxy.NewProxy(insp)
+	p.SetGatewayVersion(Version)
+	restartCh := make(chan string, 1)
+	p.SetSelfRestartFunc(func(binaryPath string) {
+		select {
+		case restartCh <- binaryPath:
+		default:
+		}
+	}, detectSelfRestartMode(context.Background()))
 
 	// 3. Initialize Auth Store & Pairing Manager
 	authStorePath := os.Getenv("AUTH_STORE_PATH")
@@ -1286,8 +1300,13 @@ func runGatewayServerWithMode(mode gatewayMode, args []string) {
 	// Non-blocking background check for newer gateway releases (rate-limited to once per 12h)
 	updater.StartBackgroundUpdateCheck(watcherCtx, Version)
 
-	<-stopCh
-	slog.Info(i18n.T("🛑 网关正在安全停止...", "🛑 Gateway is gracefully shutting down..."))
+	var restartBinaryPath string
+	select {
+	case <-stopCh:
+		slog.Info(i18n.T("🛑 网关正在安全停止...", "🛑 Gateway is gracefully shutting down..."))
+	case restartBinaryPath = <-restartCh:
+		slog.Info(i18n.T("🔄 mgy 网关更新完成，正在优雅重启以加载新版本...", "🔄 mgy gateway updated, gracefully restarting to load the new version..."), "binary", restartBinaryPath)
+	}
 
 	// 1. Stop background watchers and inspector polling first to prevent new requests
 	cancelWatcher()
@@ -1311,6 +1330,7 @@ func runGatewayServerWithMode(mode gatewayMode, args []string) {
 		slog.Warn("Server shutdown error", "err", err)
 	}
 	slog.Info(i18n.T("✅ 网关已完全退出。", "✅ Gateway stopped cleanly."))
+	return restartBinaryPath
 }
 
 func runVersionCmd() {

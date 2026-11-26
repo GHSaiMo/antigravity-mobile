@@ -235,6 +235,15 @@ suspend fun ApiClient.applyDesktopUpdate(): Result<DesktopApplyUpdateResponse> =
     p3PostJson("/gateway/desktop/update/apply", buildJsonObject { put("confirm", true) })
         .mapCatching { json.decodeFromString(it) }
 
+suspend fun ApiClient.fetchGatewaySelfUpdateStatus(refresh: Boolean = false): Result<GatewaySelfUpdateStatus> {
+    val path = if (refresh) "/gateway/self/update?refresh=1" else "/gateway/self/update"
+    return p3Get(path).mapCatching { json.decodeFromString(it) }
+}
+
+suspend fun ApiClient.applyGatewaySelfUpdate(): Result<GatewaySelfUpdateApplyResponse> =
+    p3PostJson("/gateway/self/update/apply", buildJsonObject { put("confirm", true) })
+        .mapCatching { json.decodeFromString(it) }
+
 // endregion
 
 // region 5. Workspace Code & File Search

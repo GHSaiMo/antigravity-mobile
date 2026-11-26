@@ -45,6 +45,7 @@ import com.antigravity.mobile.data.model.*
 import com.antigravity.mobile.data.service.*
 import com.antigravity.mobile.ui.theme.AntigravityTheme
 import com.antigravity.mobile.ui.util.loc
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
@@ -686,103 +687,399 @@ fun OAuthHybridDialog(
 
 // endregion
 
-// region 3. DesktopUpdateDialog (Antigravity Desktop Self-Update & Changelog)
+// region 3. DesktopUpdateDialog (Host Updates: Antigravity Desktop + mgy Gateway)
 
 @Composable
 fun DesktopUpdateDialog(
+    initialDesktopStatus: DesktopUpdateStatus? = null,
+    initialGatewayStatus: GatewaySelfUpdateStatus? = null,
+    onStatusUpdated: ((DesktopUpdateStatus?, GatewaySelfUpdateStatus?) -> Unit)? = null,
     onDismiss: () -> Unit
 ) {
     val colors = AntigravityTheme.colors
     val scope = rememberCoroutineScope()
     val api = ApiClient.defaultInstance
 
-    var status by remember { mutableStateOf<DesktopUpdateStatus?>(null) }
+    var desktopStatus by remember { mutableStateOf(initialDesktopStatus) }
     var changelog by remember { mutableStateOf<String?>(null) }
     var isLoading by remember { mutableStateOf(true) }
-    var isApplying by remember { mutableStateOf(false) }
-    var showConfirmApply by remember { mutableStateOf(false) }
-    var resultNotice by remember { mutableStateOf<String?>(null) }
-    var errorMsg by remember { mutableStateOf<String?>(null) }
+    var isApplyingDesktop by remember { mutableStateOf(false) }
+    var showConfirmDesktopApply by remember { mutableStateOf(false) }
+    var desktopResultNotice by remember { mutableStateOf<String?>(null) }
+    var desktopErrorMsg by remember { mutableStateOf<String?>(null) }
+
+    var gatewayStatus by remember { mutableStateOf(initialGatewayStatus) }
+    var isApplyingGateway by remember { mutableStateOf(false) }
+    var isWaitingGatewayReconnect by remember { mutableStateOf(false) }
+    var showConfirmGatewayApply by remember { mutableStateOf(false) }
+    var gatewayResultNotice by remember { mutableStateOf<String?>(null) }
+    var gatewayErrorMsg by remember { mutableStateOf<String?>(null) }
+    var gatewayUnsupported by remember { mutableStateOf(false) }
+    var pollJob by remember { mutableStateOf<Job?>(null) }
+
+    val isGatewayBusy = isApplyingGateway || isWaitingGatewayReconnect || (gatewayStatus?.isInProgress == true)
+
+    fun startPollingGateway(previousVersion: String, expectedVersion: String?) {
+        pollJob?.cancel()
+        pollJob = scope.launch {
+            var sawRestarting = (gatewayStatus?.state == "restarting")
+            var consecutiveErrors = 0
+            for (attempt in 0 until 180) {
+                if (!isActive) return@launch
+                delay(1200)
+                if (!isActive) return@launch
+
+                val res = api?.fetchGatewaySelfUpdateStatus(refresh = false)
+                if (res != null && res.isSuccess) {
+                    val st = res.getOrNull() ?: continue
+                    consecutiveErrors = 0
+                    gatewayStatus = st
+
+                    if (st.state == "restarting") {
+                        sawRestarting = true
+                        isWaitingGatewayReconnect = true
+                        continue
+                    }
+                    if (st.isInProgress) {
+                        continue
+                    }
+                    if (st.state == "failed") {
+                        isApplyingGateway = false
+                        isWaitingGatewayReconnect = false
+                        gatewayErrorMsg = st.error?.takeIf { it.isNotBlank() } ?: "mgy 网关更新失败".loc
+                        onStatusUpdated?.invoke(desktopStatus, st)
+                        return@launch
+                    }
+
+                    val cur = st.currentVersion.orEmpty()
+                    val versionChanged = cur.isNotBlank() && previousVersion.isNotBlank() && cur != previousVersion
+                    val reachedExpected = !expectedVersion.isNullOrBlank() && cur == expectedVersion
+                    if (sawRestarting || versionChanged || reachedExpected || st.state == "completed") {
+                        isApplyingGateway = false
+                        isWaitingGatewayReconnect = false
+                        gatewayResultNotice = if (cur.isNotBlank() && (sawRestarting || versionChanged || reachedExpected)) {
+                            "mgy 网关已升级至 v%s".loc(cur)
+                        } else {
+                            st.stageMessage?.takeIf { it.isNotBlank() } ?: "mgy 网关更新完成".loc
+                        }
+                        val refreshed = api.fetchGatewaySelfUpdateStatus(refresh = true).getOrNull()
+                        if (refreshed != null) {
+                            gatewayStatus = refreshed
+                            onStatusUpdated?.invoke(desktopStatus, refreshed)
+                        } else {
+                            onStatusUpdated?.invoke(desktopStatus, st)
+                        }
+                        return@launch
+                    }
+                } else {
+                    consecutiveErrors++
+                    if (sawRestarting || isApplyingGateway) {
+                        isWaitingGatewayReconnect = true
+                        if (consecutiveErrors >= 35) {
+                            isApplyingGateway = false
+                            isWaitingGatewayReconnect = false
+                            gatewayErrorMsg = "网关重启重连超时，请刷新检查状态".loc
+                            return@launch
+                        }
+                    } else if (consecutiveErrors >= 5) {
+                        isApplyingGateway = false
+                        isWaitingGatewayReconnect = false
+                        gatewayErrorMsg = res?.exceptionOrNull()?.message ?: "检查更新失败".loc
+                        return@launch
+                    }
+                }
+            }
+            isApplyingGateway = false
+            isWaitingGatewayReconnect = false
+            gatewayErrorMsg = "等待更新超时，请刷新检查当前版本".loc
+        }
+    }
+
+    fun loadAll(forceGatewayRefresh: Boolean) {
+        scope.launch {
+            isLoading = true
+            desktopErrorMsg = null
+            gatewayErrorMsg = null
+
+            val desktopJob = launch {
+                api?.fetchDesktopUpdateStatus()
+                    ?.onSuccess { desktopStatus = it }
+                    ?.onFailure { desktopErrorMsg = it.message }
+                api?.fetchDesktopChangelog()?.onSuccess { changelog = it.markdown }
+            }
+            val gatewayJob = launch {
+                api?.fetchGatewaySelfUpdateStatus(refresh = forceGatewayRefresh)
+                    ?.onSuccess { st ->
+                        gatewayUnsupported = false
+                        gatewayStatus = st
+                        if (st.state == "failed" && !st.error.isNullOrBlank()) {
+                            gatewayErrorMsg = st.error
+                        }
+                        if (st.isInProgress) {
+                            startPollingGateway(
+                                previousVersion = st.currentVersion.orEmpty(),
+                                expectedVersion = st.targetVersion ?: st.latestVersion
+                            )
+                        }
+                    }
+                    ?.onFailure { err ->
+                        val msg = err.message.orEmpty()
+                        if (msg.contains("HTTP 404")) {
+                            gatewayUnsupported = true
+                        } else {
+                            gatewayErrorMsg = msg
+                        }
+                    }
+            }
+            desktopJob.join()
+            gatewayJob.join()
+            onStatusUpdated?.invoke(desktopStatus, gatewayStatus)
+            isLoading = false
+        }
+    }
 
     LaunchedEffect(Unit) {
-        isLoading = true
-        api?.fetchDesktopUpdateStatus()?.onSuccess { status = it }?.onFailure { errorMsg = it.message }
-        api?.fetchDesktopChangelog()?.onSuccess { changelog = it.markdown }
-        isLoading = false
+        loadAll(forceGatewayRefresh = false)
+    }
+
+    DisposableEffect(Unit) {
+        onDispose {
+            pollJob?.cancel()
+            pollJob = null
+        }
+    }
+
+    val gatewayStageLabel = when {
+        isWaitingGatewayReconnect -> "正在重启网关并自动重连...".loc
+        !gatewayStatus?.stageMessage.isNullOrBlank() -> gatewayStatus?.stageMessage.orEmpty()
+        gatewayStatus?.state == "checking" -> "正在检查 mgy 最新版本...".loc
+        gatewayStatus?.state == "downloading" -> "正在下载 mgy 新版本...".loc
+        gatewayStatus?.state == "verifying" -> "正在校验文件完整性...".loc
+        gatewayStatus?.state == "replacing" -> "正在替换网关程序...".loc
+        gatewayStatus?.state == "restarting" -> "正在重启网关并自动重连...".loc
+        else -> "正在更新 mgy 网关...".loc
     }
 
     AlertDialog(
         onDismissRequest = onDismiss,
         containerColor = colors.surface,
         title = {
-            Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                Text("Antigravity 桌面端更新".loc, fontSize = 16.5.sp, fontWeight = FontWeight.Bold, color = colors.textPrimary)
-                val cur = status?.currentVersion?.takeIf { it.isNotBlank() } ?: "-"
-                val latest = status?.latestVersion?.takeIf { it.isNotBlank() } ?: cur
-                Text(
-                    text = if (status?.updateAvailable == true) "v$cur → v$latest" else "${"当前版本".loc}: v$cur",
-                    fontSize = 12.sp,
-                    fontFamily = FontFamily.Monospace,
-                    color = colors.textSecondary
-                )
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                Text("宿主机更新".loc, fontSize = 16.5.sp, fontWeight = FontWeight.Bold, color = colors.textPrimary)
+                IconButton(
+                    onClick = { if (!isLoading && !isGatewayBusy) loadAll(forceGatewayRefresh = true) },
+                    enabled = !isLoading && !isGatewayBusy,
+                    modifier = Modifier.size(32.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Refresh,
+                        contentDescription = null,
+                        tint = if (isLoading || isGatewayBusy) colors.textMuted else colors.accentIndigo,
+                        modifier = Modifier.size(18.dp)
+                    )
+                }
             }
         },
         text = {
             Column(
-                modifier = Modifier.fillMaxWidth().heightIn(max = 320.dp).verticalScroll(rememberScrollState()),
-                verticalArrangement = Arrangement.spacedBy(10.dp)
+                modifier = Modifier.fillMaxWidth().heightIn(max = 420.dp).verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(12.dp)
             ) {
-                if (isLoading) {
+                if (isLoading && desktopStatus == null && gatewayStatus == null) {
                     Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp, color = colors.accentIndigo)
-                        Text("正在检查桌面端版本与更新日志...".loc, fontSize = 13.sp, color = colors.textSecondary)
+                        Text("正在检查宿主机版本...".loc, fontSize = 13.sp, color = colors.textSecondary)
                     }
                 } else {
-                    if ((status?.runningCount ?: 0) > 0 && status?.updateAvailable == true) {
-                        Text(
-                            text = "注意：电脑端当前有 %d 个活跃会话运行中，应用更新会重启 Antigravity 桌面客户端。".loc(status?.runningCount ?: 0),
-                            fontSize = 12.sp,
-                            color = colors.accentOrange
-                        )
+                    // Card 1: Antigravity Desktop
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(12.dp))
+                            .background(colors.surfaceVariant)
+                            .border(0.5.dp, colors.border, RoundedCornerShape(12.dp))
+                            .padding(12.dp),
+                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            Text("Antigravity 桌面端".loc, fontSize = 14.sp, fontWeight = FontWeight.SemiBold, color = colors.textPrimary)
+                            if (desktopStatus?.updateAvailable == true) {
+                                Text(
+                                    text = "有更新".loc,
+                                    color = colors.accentIndigo,
+                                    fontSize = 11.sp,
+                                    fontWeight = FontWeight.SemiBold,
+                                    modifier = Modifier
+                                        .clip(RoundedCornerShape(999.dp))
+                                        .background(colors.accentIndigo.copy(alpha = 0.14f))
+                                        .padding(horizontal = 7.dp, vertical = 2.dp)
+                                )
+                            } else if (desktopStatus != null) {
+                                Text("已是最新".loc, fontSize = 11.5.sp, color = colors.accentGreen, fontWeight = FontWeight.Medium)
+                            }
+                        }
+
+                        val dCur = desktopStatus?.currentVersion?.takeIf { it.isNotBlank() }?.let { "v$it" }
+                            ?: if (desktopErrorMsg != null) "未连接".loc else "-"
+                        val dLatest = desktopStatus?.latestVersion?.takeIf { it.isNotBlank() }?.let { "v$it" }
+                        HostUpdateVersionRow("当前版本".loc, dCur, colors.textPrimary)
+                        if (dLatest != null) {
+                            HostUpdateVersionRow(
+                                "最新可用版本".loc,
+                                dLatest,
+                                if (desktopStatus?.updateAvailable == true) colors.accentIndigo else colors.textSecondary
+                            )
+                        }
+
+                        if ((desktopStatus?.runningCount ?: 0) > 0 && desktopStatus?.updateAvailable == true) {
+                            Text(
+                                text = "注意：电脑端当前有 %d 个活跃会话运行中，应用更新会重启 Antigravity 桌面客户端。".loc(desktopStatus?.runningCount ?: 0),
+                                fontSize = 11.5.sp,
+                                color = colors.accentOrange
+                            )
+                        }
+                        desktopResultNotice?.let { Text(it, fontSize = 12.sp, color = colors.accentGreen) }
+                        desktopErrorMsg?.let { Text(it, fontSize = 12.sp, color = if (desktopStatus == null) colors.accentOrange else colors.accentRed) }
+
+                        if (desktopStatus?.updateAvailable == true && desktopResultNotice == null) {
+                            Button(
+                                enabled = !isApplyingDesktop,
+                                onClick = { showConfirmDesktopApply = true },
+                                modifier = Modifier.fillMaxWidth(),
+                                colors = ButtonDefaults.buttonColors(containerColor = colors.accentIndigo)
+                            ) {
+                                Text(if (isApplyingDesktop) "正在触发更新...".loc else "立即更新桌面端".loc, fontSize = 13.sp)
+                            }
+                        }
                     }
-                    resultNotice?.let { Text(it, fontSize = 12.5.sp, color = colors.accentGreen) }
-                    errorMsg?.let { Text(it, fontSize = 12.5.sp, color = colors.accentRed) }
+
+                    // Card 2: mgy Gateway
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(12.dp))
+                            .background(colors.surfaceVariant)
+                            .border(0.5.dp, colors.border, RoundedCornerShape(12.dp))
+                            .padding(12.dp),
+                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            Text("mgy 网关".loc, fontSize = 14.sp, fontWeight = FontWeight.SemiBold, color = colors.textPrimary)
+                            if (gatewayStatus?.updateAvailable == true && !isGatewayBusy) {
+                                Text(
+                                    text = "有更新".loc,
+                                    color = colors.accentIndigo,
+                                    fontSize = 11.sp,
+                                    fontWeight = FontWeight.SemiBold,
+                                    modifier = Modifier
+                                        .clip(RoundedCornerShape(999.dp))
+                                        .background(colors.accentIndigo.copy(alpha = 0.14f))
+                                        .padding(horizontal = 7.dp, vertical = 2.dp)
+                                )
+                            } else if (gatewayStatus != null && !isGatewayBusy && !gatewayUnsupported && gatewayStatus?.checkError.isNullOrBlank()) {
+                                Text("已是最新".loc, fontSize = 11.5.sp, color = colors.accentGreen, fontWeight = FontWeight.Medium)
+                            }
+                        }
+
+                        if (gatewayUnsupported) {
+                            Text(
+                                text = "当前网关版本暂不支持远程自更新检测，请在电脑端执行 mgy update 升级。".loc,
+                                fontSize = 12.sp,
+                                color = colors.textSecondary
+                            )
+                        } else {
+                            val gCur = gatewayStatus?.currentVersion?.takeIf { it.isNotBlank() }?.let { "v$it" } ?: "-"
+                            val gLatest = gatewayStatus?.latestVersion?.takeIf { it.isNotBlank() }?.let { "v$it" }
+                            HostUpdateVersionRow("当前版本".loc, gCur, colors.textPrimary)
+                            if (gLatest != null) {
+                                HostUpdateVersionRow(
+                                    "最新可用版本".loc,
+                                    gLatest,
+                                    if (gatewayStatus?.updateAvailable == true) colors.accentIndigo else colors.textSecondary
+                                )
+                            } else if (!gatewayStatus?.checkError.isNullOrBlank()) {
+                                HostUpdateVersionRow("最新可用版本".loc, "检测失败".loc, colors.accentOrange)
+                            }
+
+                            if (isGatewayBusy) {
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .clip(RoundedCornerShape(8.dp))
+                                        .background(colors.accentIndigo.copy(alpha = 0.10f))
+                                        .padding(horizontal = 10.dp, vertical = 8.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                ) {
+                                    CircularProgressIndicator(modifier = Modifier.size(14.dp), strokeWidth = 2.dp, color = colors.accentIndigo)
+                                    Text(gatewayStageLabel, fontSize = 12.sp, color = colors.accentIndigo)
+                                }
+                            }
+
+                            if ((gatewayStatus?.runningCount ?: 0) > 0 && gatewayStatus?.updateAvailable == true && !isGatewayBusy) {
+                                Text(
+                                    text = "当前有 %d 个活跃会话运行中，重启网关会短暂断开重连，不会中断电脑端任务。".loc(gatewayStatus?.runningCount ?: 0),
+                                    fontSize = 11.5.sp,
+                                    color = colors.accentOrange
+                                )
+                            }
+
+                            gatewayResultNotice?.let { Text(it, fontSize = 12.sp, color = colors.accentGreen) }
+                            gatewayErrorMsg?.let { Text(it, fontSize = 12.sp, color = colors.accentRed) }
+
+                            if (gatewayStatus?.updateAvailable == true && !isGatewayBusy) {
+                                if (gatewayStatus?.canSelfUpdate == true) {
+                                    Button(
+                                        onClick = { showConfirmGatewayApply = true },
+                                        modifier = Modifier.fillMaxWidth(),
+                                        colors = ButtonDefaults.buttonColors(containerColor = colors.accentIndigo)
+                                    ) {
+                                        Text("升级并重启 mgy 网关".loc, fontSize = 13.sp)
+                                    }
+                                } else {
+                                    Text(
+                                        text = gatewayStatus?.cannotUpdateReason?.takeIf { it.isNotBlank() }
+                                            ?: "当前安装环境不支持一键覆盖，请在电脑端执行 mgy update 升级。".loc,
+                                        fontSize = 12.sp,
+                                        color = colors.accentOrange
+                                    )
+                                }
+                            }
+                        }
+                    }
+
                     val md = changelog?.trim().orEmpty()
                     if (md.isNotEmpty()) {
-                        MarkdownContentView(content = md)
-                    } else if (status?.updateAvailable != true) {
-                        Text("电脑端 Antigravity 已是最新版本。".loc, fontSize = 13.sp, color = colors.textSecondary)
+                        Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                            Text("桌面端更新日志".loc, fontSize = 12.5.sp, fontWeight = FontWeight.SemiBold, color = colors.textSecondary)
+                            MarkdownContentView(content = md)
+                        }
                     }
                 }
             }
         },
         confirmButton = {
-            if (status?.updateAvailable == true && resultNotice == null) {
-                Button(
-                    enabled = !isApplying,
-                    onClick = { showConfirmApply = true },
-                    colors = ButtonDefaults.buttonColors(containerColor = colors.accentIndigo)
-                ) {
-                    Text(if (isApplying) "正在触发更新...".loc else "立即更新桌面端".loc)
-                }
-            } else {
-                TextButton(onClick = onDismiss) {
-                    Text("关闭".loc, color = colors.accentIndigo)
-                }
-            }
-        },
-        dismissButton = {
-            if (status?.updateAvailable == true && resultNotice == null) {
-                TextButton(onClick = onDismiss) {
-                    Text("稍后".loc, color = colors.textSecondary)
-                }
+            TextButton(onClick = onDismiss) {
+                Text("关闭".loc, color = colors.accentIndigo)
             }
         }
     )
 
-    if (showConfirmApply) {
+    if (showConfirmDesktopApply) {
         AlertDialog(
-            onDismissRequest = { showConfirmApply = false },
+            onDismissRequest = { showConfirmDesktopApply = false },
             containerColor = colors.surface,
             title = { Text("确认重启并更新桌面端？".loc, fontSize = 16.sp, fontWeight = FontWeight.Bold) },
             text = {
@@ -795,17 +1092,17 @@ fun DesktopUpdateDialog(
             confirmButton = {
                 Button(
                     onClick = {
-                        showConfirmApply = false
-                        isApplying = true
-                        errorMsg = null
+                        showConfirmDesktopApply = false
+                        isApplyingDesktop = true
+                        desktopErrorMsg = null
                         scope.launch {
                             api?.applyDesktopUpdate()
                                 ?.onSuccess { resp ->
-                                    if (resp.ok) resultNotice = resp.message ?: "已下发桌面端更新指令".loc
-                                    else errorMsg = resp.error ?: "触发更新失败".loc
+                                    if (resp.ok) desktopResultNotice = resp.message ?: "已下发桌面端更新指令".loc
+                                    else desktopErrorMsg = resp.error ?: "触发更新失败".loc
                                 }
-                                ?.onFailure { errorMsg = it.message }
-                            isApplying = false
+                                ?.onFailure { desktopErrorMsg = it.message }
+                            isApplyingDesktop = false
                         }
                     },
                     colors = ButtonDefaults.buttonColors(containerColor = colors.accentOrange)
@@ -814,10 +1111,79 @@ fun DesktopUpdateDialog(
                 }
             },
             dismissButton = {
-                TextButton(onClick = { showConfirmApply = false }) {
+                TextButton(onClick = { showConfirmDesktopApply = false }) {
                     Text("取消".loc, color = colors.textSecondary)
                 }
             }
+        )
+    }
+
+    if (showConfirmGatewayApply) {
+        AlertDialog(
+            onDismissRequest = { showConfirmGatewayApply = false },
+            containerColor = colors.surface,
+            title = { Text("确认更新并重启 mgy 网关？".loc, fontSize = 16.sp, fontWeight = FontWeight.Bold) },
+            text = {
+                Text(
+                    "电脑端将下载校验最新 mgy 网关并重启，期间手机会短暂断开并自动恢复连接。".loc,
+                    fontSize = 13.sp,
+                    color = colors.textSecondary
+                )
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        showConfirmGatewayApply = false
+                        isApplyingGateway = true
+                        gatewayErrorMsg = null
+                        gatewayResultNotice = null
+                        val prevVer = gatewayStatus?.currentVersion.orEmpty()
+                        val expectedVer = gatewayStatus?.latestVersion
+                        scope.launch {
+                            api?.applyGatewaySelfUpdate()
+                                ?.onSuccess { resp ->
+                                    if (resp.ok) {
+                                        startPollingGateway(previousVersion = prevVer, expectedVersion = expectedVer)
+                                    } else {
+                                        isApplyingGateway = false
+                                        gatewayErrorMsg = resp.error ?: "触发 mgy 网关更新失败".loc
+                                    }
+                                }
+                                ?.onFailure {
+                                    isApplyingGateway = false
+                                    gatewayErrorMsg = it.message ?: "触发 mgy 网关更新失败".loc
+                                }
+                        }
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = colors.accentIndigo)
+                ) {
+                    Text("确认升级并重启".loc)
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showConfirmGatewayApply = false }) {
+                    Text("取消".loc, color = colors.textSecondary)
+                }
+            }
+        )
+    }
+}
+
+@Composable
+private fun HostUpdateVersionRow(label: String, value: String, valueColor: Color) {
+    val colors = AntigravityTheme.colors
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.SpaceBetween
+    ) {
+        Text(label, fontSize = 12.5.sp, color = colors.textSecondary)
+        Text(
+            text = value,
+            fontSize = 13.sp,
+            fontFamily = FontFamily.Monospace,
+            fontWeight = FontWeight.Medium,
+            color = valueColor
         )
     }
 }

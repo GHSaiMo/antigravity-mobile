@@ -243,6 +243,45 @@ public struct DesktopApplyUpdateResponse: Codable, Sendable {
     public let error: String?
 }
 
+public struct GatewaySelfUpdateStatus: Codable, Hashable, Sendable {
+    public let ok: Bool?
+    public let currentVersion: String?
+    public let latestVersion: String?
+    public let tag: String?
+    public let updateAvailable: Bool?
+    public let canSelfUpdate: Bool?
+    public let cannotUpdateReason: String?
+    public let restartMode: String?
+    public let os: String?
+    public let arch: String?
+    public let runningCount: Int?
+    public let state: String?
+    public let stageMessage: String?
+    public let targetVersion: String?
+    public let error: String?
+    public let checkError: String?
+    public let releaseUrl: String?
+
+    public var hasUpdate: Bool { updateAvailable ?? false }
+    public var isInProgress: Bool {
+        switch state {
+        case "checking", "downloading", "verifying", "replacing", "restarting":
+            return true
+        default:
+            return false
+        }
+    }
+}
+
+public struct GatewaySelfUpdateApplyResponse: Codable, Sendable {
+    public let ok: Bool?
+    public let accepted: Bool?
+    public let state: String?
+    public let restartMode: String?
+    public let message: String?
+    public let error: String?
+}
+
 // MARK: - 5. Workspace Code & File Search
 
 public struct CodeSearchHit: Codable, Hashable, Sendable, Identifiable {

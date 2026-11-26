@@ -312,6 +312,15 @@ extension APIClient {
         try await p4PostJSON(path: "gateway/desktop/update/apply", payload: ["confirm": .bool(true)], baseURL: baseURL, timeout: 15)
     }
 
+    public func fetchGatewaySelfUpdateStatus(baseURL: URL, refresh: Bool = false) async throws -> GatewaySelfUpdateStatus {
+        let path = refresh ? "gateway/self/update?refresh=1" : "gateway/self/update"
+        return try await p4Get(pathAndQuery: path, baseURL: baseURL, timeout: 12)
+    }
+
+    public func applyGatewaySelfUpdate(baseURL: URL) async throws -> GatewaySelfUpdateApplyResponse {
+        try await p4PostJSON(path: "gateway/self/update/apply", payload: ["confirm": .bool(true)], baseURL: baseURL, timeout: 15)
+    }
+
     // MARK: - 5. Workspace Code & File Search
 
     public func searchWorkspaceCode(

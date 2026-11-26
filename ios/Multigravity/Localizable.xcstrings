@@ -39728,6 +39728,710 @@
           }
         }
       }
+    },
+    "宿主机更新": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Host Updates"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ホスト更新"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "宿主机更新"
+          }
+        }
+      }
+    },
+    "已是最新": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Up to date"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "最新"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已是最新"
+          }
+        }
+      }
+    },
+    "mgy 网关": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "mgy Gateway"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "mgy ゲートウェイ"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "mgy 网关"
+          }
+        }
+      }
+    },
+    "当前网关版本": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Current Gateway"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "現在のゲートウェイ"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "当前网关版本"
+          }
+        }
+      }
+    },
+    "正在重启网关...": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Restarting Gateway..."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ゲートウェイを再起動中..."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "正在重启网关..."
+          }
+        }
+      }
+    },
+    "mgy 网关正在重启并恢复连接，请稍候": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "mgy gateway is restarting and reconnecting, please wait"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "mgy ゲートウェイを再起動して再接続しています。しばらくお待ちください"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "mgy 网关正在重启并恢复连接，请稍候"
+          }
+        }
+      }
+    },
+    "Antigravity 桌面端与 mgy 网关均有新版本": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Updates available for both Antigravity Desktop and mgy Gateway"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Antigravity デスクトップと mgy ゲートウェイの両方に更新があります"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Antigravity 桌面端与 mgy 网关均有新版本"
+          }
+        }
+      }
+    },
+    "mgy 网关可升级至 %@": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "mgy Gateway can be updated to %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "mgy ゲートウェイを %@ に更新できます"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "mgy 网关可升级至 %@"
+          }
+        }
+      }
+    },
+    "检测到可用的 mgy 网关新版本": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A new mgy Gateway version is available"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "mgy ゲートウェイの新しいバージョンがあります"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "检测到可用的 mgy 网关新版本"
+          }
+        }
+      }
+    },
+    "宿主机 Antigravity 与 mgy 网关均已是最新版本": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Both Antigravity Desktop and mgy Gateway are up to date"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ホストの Antigravity と mgy ゲートウェイはどちらも最新です"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "宿主机 Antigravity 与 mgy 网关均已是最新版本"
+          }
+        }
+      }
+    },
+    "宿主机 mgy 网关已是最新版本": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Host mgy Gateway is up to date"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ホストの mgy ゲートウェイは最新です"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "宿主机 mgy 网关已是最新版本"
+          }
+        }
+      }
+    },
+    "正在重启网关并自动重连...": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Restarting gateway and reconnecting..."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ゲートウェイを再起動して再接続中..."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "正在重启网关并自动重连..."
+          }
+        }
+      }
+    },
+    "正在检查 mgy 最新版本...": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Checking latest mgy version..."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "最新の mgy バージョンを確認中..."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "正在检查 mgy 最新版本..."
+          }
+        }
+      }
+    },
+    "正在下载 mgy 新版本...": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Downloading new mgy version..."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "新しい mgy をダウンロード中..."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "正在下载 mgy 新版本..."
+          }
+        }
+      }
+    },
+    "正在校验文件完整性...": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Verifying checksum & binary..."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "整合性を検証中..."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "正在校验文件完整性..."
+          }
+        }
+      }
+    },
+    "正在替换网关程序...": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Replacing gateway binary..."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ゲートウェイを更新中..."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "正在替换网关程序..."
+          }
+        }
+      }
+    },
+    "正在更新 mgy 网关...": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Updating mgy Gateway..."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "mgy ゲートウェイを更新中..."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "正在更新 mgy 网关..."
+          }
+        }
+      }
+    },
+    "桌面端更新日志": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Desktop Changelog"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "デスクトップ変更履歴"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "桌面端更新日志"
+          }
+        }
+      }
+    },
+    "确认更新并重启 mgy 网关？": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Update and restart mgy Gateway?"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "mgy ゲートウェイを更新して再起動しますか？"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "确认更新并重启 mgy 网关？"
+          }
+        }
+      }
+    },
+    "确认升级并重启": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Update & Restart"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "更新して再起動"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "确认升级并重启"
+          }
+        }
+      }
+    },
+    "电脑端将下载校验最新 mgy 网关并重启，期间手机会短暂断开并自动恢复连接。": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The host will download, verify, and restart mgy Gateway. Mobile connection will briefly reconnect automatically."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ホスト側で最新の mgy をダウンロード・検証して再起動します。接続は一時的に切れた後、自動で復帰します。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "电脑端将下载校验最新 mgy 网关并重启，期间手机会短暂断开并自动恢复连接。"
+          }
+        }
+      }
+    },
+    "检测失败": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Check failed"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "確認失敗"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "检测失败"
+          }
+        }
+      }
+    },
+    "当前网关版本暂不支持远程自更新检测，请在电脑端执行 mgy update 升级。": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This gateway version does not support remote self-update yet. Run `mgy update` on the host computer."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このゲートウェイバージョンはリモート更新確認に未対応です。PC で `mgy update` を実行してください。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "当前网关版本暂不支持远程自更新检测，请在电脑端执行 mgy update 升级。"
+          }
+        }
+      }
+    },
+    "当前有 %lld 个活跃会话正在运行。重启 mgy 网关会短暂断开重连，不会中断电脑端任务。": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld active session(s) running. Restarting mgy briefly reconnects without interrupting tasks on the host."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld 件のアクティブなセッションが実行中です。mgy の再起動で一時的に再接続されますが、PC 上のタスクは中断されません。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "当前有 %lld 个活跃会话正在运行。重启 mgy 网关会短暂断开重连，不会中断电脑端任务。"
+          }
+        }
+      }
+    },
+    "升级并重启 mgy 网关": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Update & Restart mgy Gateway"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "mgy ゲートウェイを更新して再起動"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "升级并重启 mgy 网关"
+          }
+        }
+      }
+    },
+    "当前安装环境不支持一键覆盖，请在电脑端执行 mgy update 升级。": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "In-place update is not available in this installation. Run `mgy update` on the host computer."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このインストール環境では自動上書きできません。PC で `mgy update` を実行してください。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "当前安装环境不支持一键覆盖，请在电脑端执行 mgy update 升级。"
+          }
+        }
+      }
+    },
+    "触发 mgy 网关更新失败": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Failed to start mgy Gateway update"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "mgy ゲートウェイ更新の開始に失敗しました"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "触发 mgy 网关更新失败"
+          }
+        }
+      }
+    },
+    "mgy 网关更新失败": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "mgy Gateway update failed"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "mgy ゲートウェイの更新に失敗しました"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "mgy 网关更新失败"
+          }
+        }
+      }
+    },
+    "mgy 网关已升级至 v%@": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "mgy Gateway updated to v%@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "mgy ゲートウェイを v%@ に更新しました"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "mgy 网关已升级至 v%@"
+          }
+        }
+      }
+    },
+    "mgy 网关更新完成": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "mgy Gateway update completed"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "mgy ゲートウェイの更新が完了しました"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "mgy 网关更新完成"
+          }
+        }
+      }
+    },
+    "网关重启重连超时，请下拉刷新检查状态": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Timed out waiting for gateway to reconnect. Pull to refresh."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ゲートウェイの再接続がタイムアウトしました。下に引いて更新してください。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "网关重启重连超时，请下拉刷新检查状态"
+          }
+        }
+      }
+    },
+    "等待更新超时，请下拉刷新检查当前版本": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Update timed out. Pull to refresh and check current version."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "更新がタイムアウトしました。下に引いて現在のバージョンを確認してください。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "等待更新超时，请下拉刷新检查当前版本"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

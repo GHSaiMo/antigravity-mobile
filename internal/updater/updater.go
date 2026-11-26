@@ -60,6 +60,7 @@ type Options struct {
 	Force          bool   // Reinstall even if already on the target/latest version.
 	TargetPath     string // Optional override for executable path (defaults to current binary).
 	Out            io.Writer
+	OnProgress     func(stage, detail string) // Optional stage callback ("checking", "downloading", "verifying", "replacing").
 
 	// Overridable fields for testing and platform simulation.
 	GOOS              string
@@ -417,6 +418,66 @@ func checkDirWritable(dir string) error {
 	return nil
 }
 
+// SelfUpdateCapability reports whether the running mgy binary can safely self-update in place.
+type SelfUpdateCapability struct {
+	CanUpdate  bool
+	Reason     string
+	TargetPath string
+	Dir        string
+}
+
+// InspectSelfUpdateCapability checks platform support, binary path, and directory writability
+// without performing any network request.
+func InspectSelfUpdateCapability(targetPathOverride, currentVersion string) SelfUpdateCapability {
+	if _, err := AssetCandidates(runtime.GOOS, runtime.GOARCH); err != nil {
+		return SelfUpdateCapability{
+			CanUpdate: false,
+			Reason:    err.Error(),
+		}
+	}
+	targetPath, err := ResolveExecutablePath(targetPathOverride)
+	if err != nil {
+		return SelfUpdateCapability{
+			CanUpdate: false,
+			Reason:    err.Error(),
+		}
+	}
+	targetDir := filepath.Dir(targetPath)
+	cap := SelfUpdateCapability{
+		CanUpdate:  true,
+		TargetPath: targetPath,
+		Dir:        targetDir,
+	}
+
+	slashPath := filepath.ToSlash(targetPath)
+	if strings.Contains(slashPath, "/go-build") {
+		cap.CanUpdate = false
+		cap.Reason = "当前为临时编译运行实例（go run），请在电脑端手动更新"
+		return cap
+	}
+	if strings.EqualFold(strings.TrimSpace(currentVersion), "dev") {
+		cap.CanUpdate = false
+		cap.Reason = "当前为开发版构建，请在电脑端手动更新"
+		return cap
+	}
+	if err := checkDirWritable(targetDir); err != nil {
+		cap.CanUpdate = false
+		if runtime.GOOS != "windows" {
+			cap.Reason = fmt.Sprintf("目录 %s 无写入权限，请在电脑端执行 sudo mgy update", targetDir)
+		} else {
+			cap.Reason = fmt.Sprintf("目录 %s 无写入权限，请以管理员身份执行 mgy update", targetDir)
+		}
+		return cap
+	}
+	return cap
+}
+
+func (o Options) emitProgress(stage, detail string) {
+	if o.OnProgress != nil {
+		o.OnProgress(stage, detail)
+	}
+}
+
 // Run checks for updates and optionally downloads and atomically replaces the mgy binary.
 func Run(ctx context.Context, opts Options) (*Result, error) {
 	o := opts.withDefaults()
@@ -430,6 +491,7 @@ func Run(ctx context.Context, opts Options) (*Result, error) {
 			return nil, fmt.Errorf("版本号格式无效: %w", err)
 		}
 	} else {
+		o.emitProgress("checking", "正在检查 mgy 最新版本...")
 		fmt.Fprintf(o.Out, "🔍 正在检查 Multigravity 最新版本 (当前: v%s)...\n", curVer)
 		tag, err = FetchLatestTag(ctx, o)
 		if err != nil {
@@ -520,6 +582,7 @@ func Run(ctx context.Context, opts Options) (*Result, error) {
 				sourceDesc = "GitHub 官方源"
 			}
 			fmt.Fprintf(o.Out, "📥 尝试从%s下载 %s...\n", sourceDesc, asset)
+			o.emitProgress("downloading", fmt.Sprintf("正在从%s下载 %s...", sourceDesc, tag))
 
 			archivePath := filepath.Join(tmpDir, asset)
 			_ = os.Remove(archivePath)
@@ -531,6 +594,7 @@ func Run(ctx context.Context, opts Options) (*Result, error) {
 				continue
 			}
 
+			o.emitProgress("verifying", "正在校验 SHA-256 与可执行文件...")
 			if !strings.EqualFold(gotHash, expected) {
 				_ = os.Remove(archivePath)
 				lastErr = fmt.Errorf("SHA-256 校验不匹配 (expected %s, got %s)", expected, gotHash)
@@ -575,6 +639,7 @@ func Run(ctx context.Context, opts Options) (*Result, error) {
 				}
 			}
 
+			o.emitProgress("replacing", "正在替换网关程序...")
 			if err := replaceBinary(stagedPath, targetPath, o.GOOS); err != nil {
 				_ = os.Remove(stagedPath)
 				return nil, fmt.Errorf("替换可执行文件失败: %w", err)

@@ -266,6 +266,40 @@ data class DesktopApplyUpdateResponse(
     val error: String? = null
 )
 
+@Serializable
+data class GatewaySelfUpdateStatus(
+    val ok: Boolean = false,
+    val currentVersion: String? = null,
+    val latestVersion: String? = null,
+    val tag: String? = null,
+    val updateAvailable: Boolean = false,
+    val canSelfUpdate: Boolean = false,
+    val cannotUpdateReason: String? = null,
+    val restartMode: String? = null,
+    val os: String? = null,
+    val arch: String? = null,
+    val runningCount: Int = 0,
+    val state: String = "idle",
+    val stageMessage: String? = null,
+    val targetVersion: String? = null,
+    val error: String? = null,
+    val checkError: String? = null,
+    val releaseUrl: String? = null
+) {
+    val isInProgress: Boolean
+        get() = state == "checking" || state == "downloading" || state == "verifying" || state == "replacing" || state == "restarting"
+}
+
+@Serializable
+data class GatewaySelfUpdateApplyResponse(
+    val ok: Boolean = false,
+    val accepted: Boolean = false,
+    val state: String? = null,
+    val restartMode: String? = null,
+    val message: String? = null,
+    val error: String? = null
+)
+
 // endregion
 
 // region 5. Workspace Code & File Search

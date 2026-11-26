@@ -20,6 +20,7 @@ public struct SettingsSheet: View {
     @State private var showLicensesSheet: Bool = false
     @State private var showDesktopUpdateSheet: Bool = false
     @State private var desktopUpdateStatus: DesktopUpdateStatus? = nil
+    @State private var gatewayUpdateStatus: GatewaySelfUpdateStatus? = nil
     @State private var permissionPreset: String = AppSettings.shared.cachedPermissionPreset
     @State private var confirmedPermissionPreset: String = AppSettings.shared.cachedPermissionPreset
     @State private var showAutoPermissionConfirm: Bool = false
@@ -453,19 +454,16 @@ public struct SettingsSheet: View {
                             .foregroundColor(.secondary)
                     }
                     if settings.isPaired && !settings.isDemoMode {
+                        let anyHostUpdate = (desktopUpdateStatus?.hasUpdate == true) || (gatewayUpdateStatus?.hasUpdate == true)
+                        let hasHostStatus = (desktopUpdateStatus != nil) || (gatewayUpdateStatus != nil)
                         Button {
                             showDesktopUpdateSheet = true
                         } label: {
                             HStack(spacing: 6) {
-                                Text("Antigravity 桌面端")
+                                Text("宿主机更新")
                                     .foregroundColor(.primary)
                                 Spacer()
-                                if let ver = desktopUpdateStatus?.currentVersion, !ver.isEmpty {
-                                    Text("v\(ver)")
-                                        .font(.subheadline)
-                                        .foregroundColor(.secondary)
-                                }
-                                if desktopUpdateStatus?.hasUpdate == true {
+                                if anyHostUpdate {
                                     Text("有新版")
                                         .font(.system(size: 10.5, weight: .semibold))
                                         .foregroundColor(.white)
@@ -473,6 +471,10 @@ public struct SettingsSheet: View {
                                         .padding(.vertical, 2)
                                         .background(Color.indigo)
                                         .clipShape(Capsule())
+                                } else if hasHostStatus {
+                                    Text("已是最新")
+                                        .font(.subheadline)
+                                        .foregroundColor(.secondary)
                                 }
                                 Image(systemName: "chevron.right")
                                     .font(.caption)
@@ -592,9 +594,15 @@ public struct SettingsSheet: View {
                     confirmedPermissionPreset = state.effectiveMode
                     permissionPreset = state.effectiveMode
                 }
-                if !settings.isDemoMode,
-                   let upd = try? await APIClient.shared.fetchDesktopUpdateStatus(baseURL: gwUrl) {
-                    desktopUpdateStatus = upd
+                if !settings.isDemoMode {
+                    async let desktopUpd = try? APIClient.shared.fetchDesktopUpdateStatus(baseURL: gwUrl)
+                    async let gwUpd = try? APIClient.shared.fetchGatewaySelfUpdateStatus(baseURL: gwUrl, refresh: false)
+                    if let upd = await desktopUpd {
+                        desktopUpdateStatus = upd
+                    }
+                    if let gUpd = await gwUpd {
+                        gatewayUpdateStatus = gUpd
+                    }
                 }
             }
         }
@@ -680,7 +688,14 @@ public struct SettingsSheet: View {
             OpenSourceLicensesSheet()
         }
         .sheet(isPresented: $showDesktopUpdateSheet) {
-            DesktopUpdateSheet(initialStatus: desktopUpdateStatus)
+            DesktopUpdateSheet(
+                initialStatus: desktopUpdateStatus,
+                initialGatewayStatus: gatewayUpdateStatus,
+                onStatusUpdated: { dStatus, gStatus in
+                    if let dStatus { desktopUpdateStatus = dStatus }
+                    if let gStatus { gatewayUpdateStatus = gStatus }
+                }
+            )
         }
     }
 
