@@ -978,33 +978,38 @@ public struct ConversationListView: View {
         settings.isPaired && !settings.isDemoMode && gatewayStore.hasMultipleGateways
     }
 
-    private var collapsedHostTitleView: some View {
-        let hostName = gatewayStore.activeProfile?.resolvedDisplayName ?? "Multigravity"
-        let hasPendingAction = gatewayStore.hasInactivePendingAction
+    private var collapsedNavigationTitleView: some View {
+        let isMultiHost = shouldUseCollapsedHostHeader
+        let titleText = isMultiHost
+            ? (gatewayStore.activeProfile?.resolvedDisplayName ?? "Multigravity")
+            : "Multigravity"
+        let hasPendingAction = isMultiHost && gatewayStore.hasInactivePendingAction
         return HStack(spacing: 4) {
-            Text(hostName)
-                .font(.system(size: 16.5, weight: .semibold))
+            Text(titleText)
+                .font(.system(size: isMultiHost ? 16.5 : 17, weight: .semibold))
                 .foregroundColor(.primary)
                 .lineLimit(1)
                 .truncationMode(.tail)
-            Image(systemName: "chevron.down")
-                .font(.system(size: 10.5, weight: .bold))
-                .foregroundColor(.secondary)
-                .rotationEffect(.degrees(gatewayPickerState.isPresented ? 180 : 0))
-                .animation(.spring(response: 0.25, dampingFraction: 0.82), value: gatewayPickerState.isPresented)
-                .fixedSize()
-            if hasPendingAction {
-                Circle()
-                    .fill(Color.orange)
-                    .frame(width: 5.5, height: 5.5)
+            if isMultiHost {
+                Image(systemName: "chevron.down")
+                    .font(.system(size: 10.5, weight: .bold))
+                    .foregroundColor(.secondary)
+                    .rotationEffect(.degrees(gatewayPickerState.isPresented ? 180 : 0))
+                    .animation(.spring(response: 0.25, dampingFraction: 0.82), value: gatewayPickerState.isPresented)
                     .fixedSize()
+                if hasPendingAction {
+                    Circle()
+                        .fill(Color.orange)
+                        .frame(width: 5.5, height: 5.5)
+                        .fixedSize()
+                }
             }
         }
         .padding(.horizontal, 14)
         .padding(.vertical, 8)
         .frame(minWidth: 108, minHeight: 36)
         .contentShape(Rectangle())
-        .opacity(isNavTitleCollapsed ? (isCollapsedTitlePressed ? 0.55 : 1) : 0)
+        .opacity(isNavTitleCollapsed ? ((isMultiHost && isCollapsedTitlePressed) ? 0.55 : 1) : 0)
         .offset(y: isNavTitleCollapsed ? 0 : 4)
         .animation(.easeOut(duration: 0.16), value: isNavTitleCollapsed)
         .animation(.easeOut(duration: 0.10), value: isCollapsedTitlePressed)
@@ -1012,21 +1017,29 @@ public struct ConversationListView: View {
             CollapsedHostTitleGestureOverlay(
                 isEnabled: isNavTitleCollapsed,
                 onPressChanged: { pressed in
-                    if isCollapsedTitlePressed != pressed {
-                        isCollapsedTitlePressed = pressed
+                    let effective = pressed && shouldUseCollapsedHostHeader
+                    if isCollapsedTitlePressed != effective {
+                        isCollapsedTitlePressed = effective
                     }
                 },
                 onTap: { anchorRectInWindow, windowSize in
-                    if gatewayPickerState.isPresented {
-                        gatewayPickerState.dismiss()
-                        return
+                    if shouldUseCollapsedHostHeader {
+                        if gatewayPickerState.isPresented {
+                            gatewayPickerState.dismiss()
+                            return
+                        }
+                        GatewayProfileStore.shared.updateActiveSummary(from: viewModel.conversations)
+                        gatewayPickerState.openInteractive(
+                            anchorRect: anchorRectInWindow,
+                            containerSize: windowSize,
+                            centered: true
+                        )
+                    } else {
+                        handleEasterEggTap()
                     }
-                    GatewayProfileStore.shared.updateActiveSummary(from: viewModel.conversations)
-                    gatewayPickerState.openInteractive(
-                        anchorRect: anchorRectInWindow,
-                        containerSize: windowSize,
-                        centered: true
-                    )
+                },
+                canBeginLongPress: {
+                    AppSettings.shared.isPaired && !AppSettings.shared.isDemoMode
                 },
                 onLongPressBegan: { anchorRectInWindow, windowSize in
                     gatewayPickerState.containerSize = windowSize
@@ -1078,14 +1091,20 @@ public struct ConversationListView: View {
         }
         .allowsHitTesting(isNavTitleCollapsed)
         .accessibilityElement(children: .combine)
-        .accessibilityAddTraits(.isButton)
+        .accessibilityAddTraits(isMultiHost ? .isButton : .isHeader)
         .accessibilityHidden(!isNavTitleCollapsed)
         .accessibilityLabel(
-            hasPendingAction
-                ? String(localized: "当前主机 \(hostName)，其他主机有待审批")
-                : String(localized: "当前主机 \(hostName)")
+            isMultiHost
+                ? (hasPendingAction
+                    ? String(localized: "当前主机 \(titleText)，其他主机有待审批")
+                    : String(localized: "当前主机 \(titleText)"))
+                : "Multigravity"
         )
-        .accessibilityHint(String(localized: "轻点展开主机切换面板，左右轻扫快速切换主机"))
+        .accessibilityHint(
+            isMultiHost
+                ? String(localized: "轻点展开主机切换面板，左右轻扫快速切换主机")
+                : ""
+        )
     }
 
     /// The conversation list with its navigation chrome (title, search, toolbar).
@@ -1111,6 +1130,11 @@ public struct ConversationListView: View {
                     viewModel.scheduleContentSearch()
                 }
             }
+            .onChange(of: shouldUseCollapsedHostHeader) { _, isMulti in
+                if !isMulti && isCollapsedTitlePressed {
+                    isCollapsedTitlePressed = false
+                }
+            }
             .toolbar {
                 ToolbarItem(placement: .topBarLeading) {
                     Button(action: { showSettings = true }) {
@@ -1119,10 +1143,11 @@ public struct ConversationListView: View {
                     .keyboardShortcut(",", modifiers: .command)
                     .help("设置")
                 }
-                if shouldUseCollapsedHostHeader {
-                    ToolbarItem(placement: .principal) {
-                        collapsedHostTitleView
-                    }
+                // Always keep `.principal` mounted so switching between multi-host and single-host
+                // never sets `navigationItem.titleView = nil` on an expanded large-title navigation bar
+                // (which causes UIKit to reinstate its inline "Multigravity" label at alpha 1.0).
+                ToolbarItem(placement: .principal) {
+                    collapsedNavigationTitleView
                 }
                 ToolbarItem(placement: .topBarTrailing) {
                     Button(action: handleNewConversationTapped) {
@@ -1793,6 +1818,8 @@ public struct ConversationListView: View {
 
     private func handleAllGatewaysCleared() {
         isPairingInProgress = false
+        isNavTitleCollapsed = false
+        isCollapsedTitlePressed = false
         viewModel.stopAutoRefresh()
         viewModel.conversations.removeAll()
         viewModel.resetBranchExpansionState()
@@ -3011,6 +3038,7 @@ private struct CollapsedHostTitleGestureOverlay: UIViewRepresentable {
     let isEnabled: Bool
     let onPressChanged: (Bool) -> Void
     let onTap: (CGRect, CGSize) -> Void
+    let canBeginLongPress: () -> Bool
     let onLongPressBegan: (CGRect, CGSize) -> Void
     let onLongPressChanged: (CGPoint) -> Void
     let onLongPressEnded: () -> Void
@@ -3022,6 +3050,7 @@ private struct CollapsedHostTitleGestureOverlay: UIViewRepresentable {
         Coordinator(
             onPressChanged: onPressChanged,
             onTap: onTap,
+            canBeginLongPress: canBeginLongPress,
             onLongPressBegan: onLongPressBegan,
             onLongPressChanged: onLongPressChanged,
             onLongPressEnded: onLongPressEnded,
@@ -3068,10 +3097,13 @@ private struct CollapsedHostTitleGestureOverlay: UIViewRepresentable {
         uiView.isUserInteractionEnabled = isEnabled
         uiView.onPressChanged = onPressChanged
         if !isEnabled {
-            onPressChanged(false)
+            DispatchQueue.main.async {
+                onPressChanged(false)
+            }
         }
         context.coordinator.onPressChanged = onPressChanged
         context.coordinator.onTap = onTap
+        context.coordinator.canBeginLongPress = canBeginLongPress
         context.coordinator.onLongPressBegan = onLongPressBegan
         context.coordinator.onLongPressChanged = onLongPressChanged
         context.coordinator.onLongPressEnded = onLongPressEnded
@@ -3087,6 +3119,7 @@ private struct CollapsedHostTitleGestureOverlay: UIViewRepresentable {
 
         var onPressChanged: (Bool) -> Void
         var onTap: (CGRect, CGSize) -> Void
+        var canBeginLongPress: () -> Bool
         var onLongPressBegan: (CGRect, CGSize) -> Void
         var onLongPressChanged: (CGPoint) -> Void
         var onLongPressEnded: () -> Void
@@ -3100,6 +3133,7 @@ private struct CollapsedHostTitleGestureOverlay: UIViewRepresentable {
         init(
             onPressChanged: @escaping (Bool) -> Void,
             onTap: @escaping (CGRect, CGSize) -> Void,
+            canBeginLongPress: @escaping () -> Bool,
             onLongPressBegan: @escaping (CGRect, CGSize) -> Void,
             onLongPressChanged: @escaping (CGPoint) -> Void,
             onLongPressEnded: @escaping () -> Void,
@@ -3109,6 +3143,7 @@ private struct CollapsedHostTitleGestureOverlay: UIViewRepresentable {
         ) {
             self.onPressChanged = onPressChanged
             self.onTap = onTap
+            self.canBeginLongPress = canBeginLongPress
             self.onLongPressBegan = onLongPressBegan
             self.onLongPressChanged = onLongPressChanged
             self.onLongPressEnded = onLongPressEnded
@@ -3193,6 +3228,9 @@ private struct CollapsedHostTitleGestureOverlay: UIViewRepresentable {
         }
 
         func gestureRecognizerShouldBegin(_ gestureRecognizer: UIGestureRecognizer) -> Bool {
+            if gestureRecognizer === longPressGesture {
+                return canBeginLongPress()
+            }
             if gestureRecognizer === panGesture, let pan = gestureRecognizer as? UIPanGestureRecognizer {
                 guard canHorizontalSwipe(), let view = pan.view else { return false }
                 let vel = pan.velocity(in: view)
