@@ -277,6 +277,7 @@ func (p *Proxy) ExecuteRevert(cascadeID string, messageStepIndex int, targetInde
 
 	// Revert succeeded: Invalidate all caches and notify stream listeners
 	ClearTrajectoryCache(cascadeID)
+	MarkCascadeMutated(cascadeID, 4*time.Second)
 	ClearPendingMessagesCache(cascadeID)
 	p.notifyStreamTouch(cascadeID)
 

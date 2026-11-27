@@ -119,6 +119,28 @@ extension ChatViewModel {
         return result
     }
     
+    /// 仅当服务端消息携带匹配的 clientMessageId，或出现发送前不存在且步骤号晚于发送前最大步骤的新用户消息时，
+    /// 才认为本地乐观气泡已被服务端正式承接；禁止用历史旧轮次的同文案（如重复发送「继续」）误消乐观气泡。
+    private func serverHasConfirmedOptimisticMessage(
+        _ optimisticMessage: ChatMessage?,
+        in incoming: [ChatMessage]
+    ) -> Bool {
+        incoming.contains { msg in
+            guard msg.sender == .user else { return false }
+            if let optClientId = optimisticMessage?.clientMessageId, !optClientId.isEmpty,
+               msg.clientMessageId == optClientId {
+                return true
+            }
+            if !knownServerMessageIds.contains(msg.id) {
+                if let stepIdx = extractStepIndex(from: msg), preSendMaxStepIndex >= 0 {
+                    return stepIdx > preSendMaxStepIndex
+                }
+                return true
+            }
+            return false
+        }
+    }
+
     /// Applies a full trajectory snapshot directly without destructive slicing or reverse appends.
     @MainActor
     func applySnapshotMessages(_ incoming: [ChatMessage], hasMore: Bool = false, nextOffset: Int = 0) {
@@ -146,12 +168,7 @@ extension ChatViewModel {
         var optimisticMessage: ChatMessage? = nil
         if let optId = currentOptId {
             optimisticMessage = messages.first(where: { $0.id == optId })
-            let serverHasNewUserMsg = incoming.contains(where: {
-                ($0.sender == .user && optimisticMessage?.clientMessageId != nil && $0.clientMessageId == optimisticMessage?.clientMessageId) ||
-                ($0.sender == .user && !knownServerMessageIds.contains($0.id)) ||
-                ($0.sender == .user && optimisticMessage != nil && $0.content == optimisticMessage?.content)
-            })
-            if serverHasNewUserMsg {
+            if serverHasConfirmedOptimisticMessage(optimisticMessage, in: incoming) {
                 self.pendingOptimisticMessageId = nil
                 optimisticMessage = nil
             }
@@ -192,13 +209,7 @@ extension ChatViewModel {
         var optimisticMessage: ChatMessage? = nil
         if let optId = currentOptId {
             optimisticMessage = messages.first(where: { $0.id == optId })
-            // Server only incorporates the new turn if incoming contains a user message with a NEW ID not known before sending, or matching text
-            let serverHasNewUserMsg = incoming.contains(where: {
-                ($0.sender == .user && optimisticMessage?.clientMessageId != nil && $0.clientMessageId == optimisticMessage?.clientMessageId) ||
-                ($0.sender == .user && !knownServerMessageIds.contains($0.id)) ||
-                ($0.sender == .user && optimisticMessage != nil && $0.content == optimisticMessage?.content)
-            })
-            if serverHasNewUserMsg {
+            if serverHasConfirmedOptimisticMessage(optimisticMessage, in: incoming) {
                 // Server now has incorporated the new turn; clear optimistic tracker
                 self.pendingOptimisticMessageId = nil
                 optimisticMessage = nil

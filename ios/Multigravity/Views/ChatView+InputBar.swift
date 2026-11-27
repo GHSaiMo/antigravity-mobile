@@ -817,7 +817,7 @@ private struct ChatSuggestedReplyChipsHost: View {
 }
 
 /// 建议回复气泡按钮：优先沿首行向右延伸（可把模型胶囊挤出可视区），占满整行后再折成多行完整展示，右上角带小叉；
-/// 短按填入输入框，长按 1 秒配合实时进度条防呆确认后直接发送，提前松手自动取消。
+/// 短按填入输入框，长按 1.5 秒配合实时进度条防呆确认后直接发送，提前松手自动取消。
 private struct SuggestedReplyChipView: View {
     let text: String
     let isPredicted: Bool
@@ -831,9 +831,9 @@ private struct SuggestedReplyChipView: View {
     @State private var holdProgress: CGFloat = 0
     @State private var holdGraceTask: Task<Void, Never>? = nil
 
-    private static let totalHoldDuration: Double = 1.0
-    private static let visualGraceDelay: Double = 0.16
-    private static let fillAnimationDuration: Double = 0.84 // 0.16 + 0.84 = 1.00s
+    private static let totalHoldDuration: Double = 1.5
+    private static let visualGraceDelay: Double = 0.18
+    private static let fillAnimationDuration: Double = 1.32 // 0.18 + 1.32 = 1.50s
 
     private func resetHoldVisuals(animated: Bool) {
         holdGraceTask?.cancel()
@@ -959,7 +959,7 @@ private struct SuggestedReplyChipView: View {
         .accessibilityElement(children: .ignore)
         .accessibilityAddTraits(.isButton)
         .accessibilityLabel(text)
-        .accessibilityHint(String(localized: "轻点填入输入框，长按 1 秒直接发送"))
+        .accessibilityHint(String(localized: "轻点填入输入框，长按 1.5 秒直接发送"))
         .accessibilityAction(named: String(localized: "填入输入框")) {
             onTapFill()
         }

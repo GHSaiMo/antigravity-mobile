@@ -147,7 +147,7 @@ fun TipsAndGesturesSubpageContent() {
                     dark = Color(0xFF6B70B8) // 深色模式保持灰调靛蓝
                 ),
                 title = "提示词建议胶囊".loc,
-                desc = "短按建议胶囊可将其填入输入框方便修改；长按 1 秒待进度条走满后直接发送，提前松手即可取消防误触。".loc
+                desc = "短按建议胶囊可将其填入输入框方便修改；长按 1.5 秒待进度条走满后直接发送，提前松手即可取消防误触。".loc
             )
             GuideDivider()
             GuideRow(

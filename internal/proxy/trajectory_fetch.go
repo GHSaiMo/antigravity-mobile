@@ -71,22 +71,26 @@ func (p *Proxy) fetchUpstreamTrajectoryWithContext(ctx context.Context, cascadeI
 
 	tc := defaultTrajCache
 	// Status-aware TTL: completed sessions rarely change, so cache them longer.
-	// But if title is missing or session has few/no steps, keep TTL short (1.5s)
-	// so newly generated titles/summaries are quickly discovered.
+	// But if the cascade was just mutated (send/revert/cancel/interaction), bypass idle TTLs
+	// so upstream commit lag never gets pinned in cache for 60s.
 	maxAge := 800 * time.Millisecond
-	tc.trajCacheMu.RLock()
-	if cached, ok := tc.trajCache[cascadeID]; ok && cached.port == port {
-		if cached.data.Status != "" && cached.data.Status != "CASCADE_RUN_STATUS_RUNNING" {
-			hasTitle := (cached.data.Trajectory.Annotations != nil && cached.data.Trajectory.Annotations.Title != "") ||
-				cached.data.Trajectory.Summary != ""
-			if hasTitle && len(cached.data.Trajectory.Steps) > 0 {
-				maxAge = 60 * time.Second
-			} else {
-				maxAge = 5 * time.Second
+	if isCascadeRecentlyMutated(cascadeID) {
+		maxAge = 250 * time.Millisecond
+	} else {
+		tc.trajCacheMu.RLock()
+		if cached, ok := tc.trajCache[cascadeID]; ok && cached.port == port {
+			if cached.data.Status != "" && cached.data.Status != "CASCADE_RUN_STATUS_RUNNING" {
+				hasTitle := (cached.data.Trajectory.Annotations != nil && cached.data.Trajectory.Annotations.Title != "") ||
+					cached.data.Trajectory.Summary != ""
+				if hasTitle && len(cached.data.Trajectory.Steps) > 0 {
+					maxAge = 60 * time.Second
+				} else {
+					maxAge = 5 * time.Second
+				}
 			}
 		}
+		tc.trajCacheMu.RUnlock()
 	}
-	tc.trajCacheMu.RUnlock()
 
 	resp, err := p.fetchUpstreamTrajectoryWithMaxAgeContext(ctx, cascadeID, port, token, maxAge)
 	// Fallback: If not found or empty steps, try loading from disk via LoadTrajectory and retry once

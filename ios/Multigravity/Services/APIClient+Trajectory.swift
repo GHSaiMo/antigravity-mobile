@@ -9,6 +9,14 @@ private struct CachedMessagesETagEntry: Sendable {
 private let cascadeMessagesETagCache = OSAllocatedUnfairLock(initialState: [String: CachedMessagesETagEntry]())
 
 extension APIClient {
+    public func invalidateMessagesETagCache(for cascadeId: String) {
+        guard !cascadeId.isEmpty else { return }
+        let token = "cascadeId=\(cascadeId)"
+        cascadeMessagesETagCache.withLock { store in
+            store = store.filter { !$0.key.contains(token) }
+        }
+    }
+
     internal func decodeFetchMessagesResult(from data: Data, baseURL: URL) throws -> FetchMessagesResult {
         let decoded = try JSONDecoder().decode(PaginatedMessagesResponse.self, from: data)
         let chatMessages = (decoded.messages ?? []).map { item -> ChatMessage in

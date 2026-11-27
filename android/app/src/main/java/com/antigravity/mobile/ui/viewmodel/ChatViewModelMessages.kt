@@ -160,17 +160,38 @@ internal fun collapseAttemptErrors(list: List<GatewayMessageItem>): List<Gateway
 internal fun ChatViewModel.mergeIncomingMessages(incoming: List<GatewayMessageItem>): List<GatewayMessageItem> {
     if (incoming.isEmpty()) return _uiState.value.messages
     val currentMessages = _uiState.value.messages
-    if (currentMessages.isEmpty()) return sanitizeMessageOrder(incoming)
+    if (currentMessages.isEmpty()) {
+        val healed = sanitizeMessageOrder(incoming)
+        if (pendingOptimisticMessageId == null) {
+            knownServerMessageIds = healed.filterNot { it.id.startsWith("opt_") || it.id.startsWith("optimistic-") }.map { it.id }.toSet()
+        }
+        return healed
+    }
+
+    val clientMaxStep = maxStepIndexOf(currentMessages)
+    val incomingMaxStep = maxStepIndexOf(incoming)
+    if (shouldIgnoreStaleStepRegression(incomingMaxStep, clientMaxStep)) {
+        return currentMessages
+    }
 
     val currentOptId = pendingOptimisticMessageId
     var optimisticMessage: GatewayMessageItem? = null
     if (currentOptId != null) {
         optimisticMessage = currentMessages.firstOrNull { it.id == currentOptId }
-        val serverHasUserTurn = incoming.any {
-            it.isUser && (
-                (!optimisticMessage?.clientMessageId.isNullOrEmpty() && it.clientMessageId == optimisticMessage?.clientMessageId) ||
-                (it.id != currentOptId && (optimisticMessage == null || it.effectiveText == optimisticMessage.effectiveText))
-            )
+        val serverHasUserTurn = incoming.any { msg ->
+            if (!msg.isUser) return@any false
+            val optClientId = optimisticMessage?.clientMessageId
+            if (!optClientId.isNullOrEmpty() && msg.clientMessageId == optClientId) {
+                return@any true
+            }
+            if (msg.id != currentOptId && !knownServerMessageIds.contains(msg.id)) {
+                val stepIdx = msg.stepIndex ?: extractStepIndex(msg.id)
+                if (stepIdx != null && preSendMaxStepIndex >= 0) {
+                    return@any stepIdx > preSendMaxStepIndex
+                }
+                return@any true
+            }
+            false
         }
         if (serverHasUserTurn) {
             pendingOptimisticMessageId = null
@@ -223,7 +244,11 @@ internal fun ChatViewModel.mergeIncomingMessages(incoming: List<GatewayMessageIt
         base = base + optimisticMessage
     }
 
-    return sanitizeMessageOrder(base)
+    val sanitized = sanitizeMessageOrder(base)
+    if (pendingOptimisticMessageId == null) {
+        knownServerMessageIds = sanitized.filterNot { it.id.startsWith("opt_") || it.id.startsWith("optimistic-") }.map { it.id }.toSet()
+    }
+    return sanitized
 }
 
 internal fun ChatViewModel.refreshMessages() {
@@ -233,14 +258,24 @@ internal fun ChatViewModel.refreshMessages() {
         apiClient.fetchMessages(cascadeId, limit = 15).onSuccess { payload ->
             if (_uiState.value.cascadeId == cascadeId) {
                 val incoming = payload.messages ?: emptyList()
+                val clientMaxStep = maxStepIndexOf(_uiState.value.messages)
+                val incomingMaxStep = maxStepIndexOf(incoming)
+                if (_uiState.value.messages.isNotEmpty() && shouldIgnoreStaleStepRegression(incomingMaxStep, clientMaxStep)) {
+                    return@onSuccess
+                }
                 if (incoming.isEmpty()) {
+                    if (pendingOptimisticMessageId != null) {
+                        return@onSuccess
+                    }
                     val emptyTitle = if (_uiState.value.workspaceName.isNotBlank() && _uiState.value.workspaceName != "Chat") {
                         _uiState.value.workspaceName
                     } else {
                         "新对话".loc
                     }
+                    knownServerMessageIds = emptySet()
                     _uiState.value = _uiState.value.copy(
                         messages = emptyList(),
+                        turnOutline = emptyList(),
                         stepCount = 0,
                         totalTools = 0,
                         duration = "0秒".loc,
@@ -249,9 +284,18 @@ internal fun ChatViewModel.refreshMessages() {
                     )
                     cacheManager?.updateSessionTitle(cascadeId, emptyTitle)
                 } else {
-                    val sanitized = sanitizeMessageOrder(incoming)
+                    val merged = if (_uiState.value.messages.isNotEmpty() && incomingMaxStep >= clientMaxStep) {
+                        mergeIncomingMessages(incoming)
+                    } else {
+                        val healed = sanitizeMessageOrder(incoming)
+                        if (pendingOptimisticMessageId == null) {
+                            knownServerMessageIds = healed.filterNot { it.id.startsWith("opt_") || it.id.startsWith("optimistic-") }.map { it.id }.toSet()
+                        }
+                        healed
+                    }
                     _uiState.value = _uiState.value.copy(
-                        messages = sanitized,
+                        messages = merged,
+                        turnOutline = payload.turnOutline ?: _uiState.value.turnOutline,
                         stepCount = payload.totalSteps,
                         totalTools = payload.totalTools,
                         duration = payload.duration ?: _uiState.value.duration

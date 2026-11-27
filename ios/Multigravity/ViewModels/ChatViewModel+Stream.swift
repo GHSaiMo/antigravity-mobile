@@ -47,6 +47,27 @@ extension ChatViewModel {
     }
     
     func handleStreamPayload(_ payload: StreamUpdatePayload) {
+        let existingClientMaxStep = self.messages.compactMap { self.extractStepIndex(from: $0) }.max() ?? -1
+        if !self.messages.isEmpty {
+            if let rawMessages = payload.messages {
+                let incomingMaxStep = rawMessages.compactMap {
+                    $0.stepIndex ?? ($0.id.hasPrefix("step-") ? Int($0.id.dropFirst(5)) : nil)
+                }.max() ?? -1
+                if self.shouldIgnoreStaleStepRegression(
+                    incomingMaxStep: incomingMaxStep,
+                    clientMaxStep: existingClientMaxStep
+                ) {
+                    return
+                }
+            } else if let incomingTotalSteps = payload.totalSteps,
+                      self.shouldIgnoreStaleStepRegression(
+                        incomingMaxStep: incomingTotalSteps - 1,
+                        clientMaxStep: existingClientMaxStep
+                      ) {
+                return
+            }
+        }
+
         if let steps = payload.totalSteps, self.stepCount != steps {
             self.stepCount = steps
         }

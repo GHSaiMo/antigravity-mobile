@@ -50,6 +50,10 @@ type TrajectoryCache struct {
 	// genByID tracks per-cascade invalidation generations (under trajCacheMu) so ClearTrajectoryCache(A)
 	// prevents pre-invalidation fetches of A from repopulating trajCache without dropping concurrent fetches of B.
 	genByID map[string]uint64
+	// mutatedUntil tracks per-cascade short fast-poll windows (under trajCacheMu) after mutations
+	// like SendUserCascadeMessage / RevertToCascadeStep / CancelCascadeInvocation so idle 15s/60s caches
+	// and 2s idle stream tickers do not pin pre-commit snapshots.
+	mutatedUntil map[string]time.Time
 
 	cascadeTitles        map[string]string
 	cascadeTitleFallback map[string]bool
@@ -92,6 +96,7 @@ func NewTrajectoryCache() *TrajectoryCache {
 	return &TrajectoryCache{
 		trajCache:            make(map[string]*trajectoryCacheEntry),
 		genByID:              make(map[string]uint64),
+		mutatedUntil:         make(map[string]time.Time),
 		cascadeTitles:        make(map[string]string),
 		cascadeTitleFallback: make(map[string]bool),
 		cascadeScheduled:     make(map[string]bool),
@@ -455,6 +460,51 @@ func ClearTrajectoryCache(cascadeID string) {
 	defaultTrajCache.annotationTitleCacheMu.Unlock()
 
 	InvalidateCascadeValidCache(cascadeID)
+}
+
+// MarkCascadeMutated marks a cascade as having just received a state-changing mutation
+// (send, revert, cancel, or user interaction) so trajectory fetches and stream polling
+// bypass idle 15s/60s TTLs and 2s idle tickers until upstream commits the new state.
+func MarkCascadeMutated(cascadeID string, window time.Duration) {
+	if cascadeID == "" || window <= 0 {
+		return
+	}
+	until := time.Now().Add(window)
+	defaultTrajCache.trajCacheMu.Lock()
+	if defaultTrajCache.mutatedUntil == nil {
+		defaultTrajCache.mutatedUntil = make(map[string]time.Time)
+	}
+	if len(defaultTrajCache.mutatedUntil) > maxTrajCacheSize*4 {
+		now := time.Now()
+		for k, exp := range defaultTrajCache.mutatedUntil {
+			if !now.Before(exp) {
+				delete(defaultTrajCache.mutatedUntil, k)
+			}
+		}
+	}
+	if cur, ok := defaultTrajCache.mutatedUntil[cascadeID]; !ok || until.After(cur) {
+		defaultTrajCache.mutatedUntil[cascadeID] = until
+	}
+	defaultTrajCache.trajCacheMu.Unlock()
+}
+
+func isCascadeRecentlyMutated(cascadeID string) bool {
+	if cascadeID == "" {
+		return false
+	}
+	defaultTrajCache.trajCacheMu.RLock()
+	exp, ok := defaultTrajCache.mutatedUntil[cascadeID]
+	defaultTrajCache.trajCacheMu.RUnlock()
+	return ok && time.Now().Before(exp)
+}
+
+func clearCascadeMutated(cascadeID string) {
+	if cascadeID == "" {
+		return
+	}
+	defaultTrajCache.trajCacheMu.Lock()
+	delete(defaultTrajCache.mutatedUntil, cascadeID)
+	defaultTrajCache.trajCacheMu.Unlock()
 }
 
 func readAnnotationTitle(cascadeID string) string {

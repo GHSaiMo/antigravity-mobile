@@ -415,6 +415,7 @@ func (p *Proxy) handleCancelCascadeInvocation(w http.ResponseWriter, r *http.Req
 
 	if targetID != "" {
 		ClearTrajectoryCache(targetID)
+		MarkCascadeMutated(targetID, 4*time.Second)
 		ClearPendingMessagesCache(targetID)
 		p.notifyStreamTouch(targetID)
 		if verboseRPC {

@@ -211,9 +211,9 @@ extension ChatView {
         guard !scrollHUD.hasUserInteracted,
               !scrollHUD.isUserDragging,
               !scrollHUD.isScrollMoving,
-              !scrollHUD.lastRowMaterialized,
               !preserveScrollOnReturn,
-              let lastId = viewModel.messages.last?.id else { return }
+              let lastId = viewModel.messages.last?.id,
+              !scrollHUD.isLastRowMaterialized(lastMessageId: lastId, useLazyStack: useLazyMessagesStack) else { return }
         proxy.scrollTo(lastId, anchor: .bottom)
         DispatchQueue.main.async {
             scrollToBottom(proxy: proxy, animated: false)

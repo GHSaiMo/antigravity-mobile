@@ -246,6 +246,9 @@ internal fun ChatViewModel.confirmUndo() {
 
         val res = apiClient.executeRevert(cascadeId = activeCid, stepIndex = stepIndex, conversationOnly = false)
         res.onSuccess {
+            lastLocalSendAtMs = 0L
+            preSendMaxStepIndex = -1
+            knownServerMessageIds = emptySet()
             _inputText.value = message.effectiveText
             pendingOptimisticMessageId = null
 

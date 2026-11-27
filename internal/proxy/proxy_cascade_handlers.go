@@ -429,9 +429,10 @@ func (p *Proxy) handleSendUserCascadeMessage(w http.ResponseWriter, r *http.Requ
 	respBody := rw.body.Bytes()
 	if rw.statusCode >= 200 && rw.statusCode < 300 && cascadeID != "" {
 		// The pre-send invalidation above can race with a stream poll that reads the old state while
-		// upstream is still processing the send; drop that again and wake the stream so the user
-		// message and the run start show up immediately instead of on the next (idle) tick.
+		// upstream is still processing the send; drop that again, keep a short fast-poll window, and
+		// wake the stream so the user message and run start show up immediately instead of on an idle tick.
 		ClearTrajectoryCache(cascadeID)
+		MarkCascadeMutated(cascadeID, 4*time.Second)
 		ClearPendingMessagesCache(cascadeID)
 		p.notifyStreamTouch(cascadeID)
 	}
@@ -1176,6 +1177,8 @@ func (p *Proxy) HandleCascadeInteraction(w http.ResponseWriter, r *http.Request)
 
 	// Invalidate cache immediately so next poll and stream capture the new active state
 	ClearTrajectoryCache(req.CascadeID)
+	MarkCascadeMutated(req.CascadeID, 4*time.Second)
+	p.notifyStreamTouch(req.CascadeID)
 
 	w.Header().Set("Content-Type", "application/json")
 	w.Write([]byte(`{"success":true}`))
@@ -1269,6 +1272,7 @@ func (p *Proxy) handleCascadeTaskStop(w http.ResponseWriter, r *http.Request) {
 
 	// Immediately invalidate trajectory cache so next stream tick picks up the changed status
 	ClearTrajectoryCache(cascadeID)
+	MarkCascadeMutated(cascadeID, 4*time.Second)
 	ClearPendingMessagesCache(cascadeID)
 	p.notifyStreamTouch(cascadeID)
 

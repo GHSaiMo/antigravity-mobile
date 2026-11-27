@@ -107,7 +107,7 @@ public struct TipsAndGesturesGuideView: View {
                         dark: Color(red: 0.42, green: 0.44, blue: 0.72) // 深色模式保持灰调靛蓝
                     ),
                     title: String(localized: "提示词建议胶囊"),
-                    description: String(localized: "短按建议胶囊可将其填入输入框方便修改；长按 1 秒待进度条走满后直接发送，提前松手即可取消防误触。")
+                    description: String(localized: "短按建议胶囊可将其填入输入框方便修改；长按 1.5 秒待进度条走满后直接发送，提前松手即可取消防误触。")
                 )
                 TipRow(
                     icon: "hand.tap.fill",

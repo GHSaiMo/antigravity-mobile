@@ -197,7 +197,7 @@ fun QuickActionChips(
             )
         }
 
-        // 1b. 建议回复气泡（短按填入输入框，长按 1 秒带进度条防呆直发；优先单行向右延伸挤出模型胶囊，占满可视宽度后再折行）
+        // 1b. 建议回复气泡（短按填入输入框，长按 1.5 秒带进度条防呆直发；优先单行向右延伸挤出模型胶囊，占满可视宽度后再折行）
         suggestedResponses.forEach { suggestion ->
             SuggestedReplyChip(
                 text = suggestion,
@@ -736,14 +736,14 @@ private fun SuggestedReplyChip(
                         var engaged = false
 
                         val holdJob = scope.launch {
-                            delay(160L)
+                            delay(180L)
                             engaged = true
                             isHoldEngaged = true
                             haptic.light()
                             holdProgress.snapTo(0f)
                             holdProgress.animateTo(
                                 targetValue = 1f,
-                                animationSpec = tween(durationMillis = 840, easing = LinearEasing)
+                                animationSpec = tween(durationMillis = 1320, easing = LinearEasing)
                             )
                             completed = true
                             isHoldEngaged = false

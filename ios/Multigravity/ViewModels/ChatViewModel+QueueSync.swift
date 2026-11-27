@@ -603,8 +603,14 @@ extension ChatViewModel {
         // Haptic feedback
         UIImpactFeedbackGenerator(style: .medium).impactOccurred()
         
-        // Snapshot known server message IDs before sending (excluding any optimistic items)
-        self.knownServerMessageIds = Set(messages.filter { $0.id != pendingOptimisticMessageId && !$0.id.hasPrefix("optimistic-") }.map(\.id))
+        // Snapshot known server message IDs and max step before sending (excluding any optimistic items)
+        let confirmedMessages = messages.filter { $0.id != pendingOptimisticMessageId && !$0.id.hasPrefix("optimistic-") }
+        self.knownServerMessageIds = Set(confirmedMessages.map(\.id))
+        self.preSendMaxStepIndex = confirmedMessages.compactMap { self.extractStepIndex(from: $0) }.max() ?? -1
+        self.lastLocalSendAt = Date()
+        if !cascadeId.isEmpty {
+            apiClient.invalidateMessagesETagCache(for: cascadeId)
+        }
         
         // If this was an uninitiated session, clear the flag upon sending first message
         if self.isNewConversation {
@@ -775,6 +781,7 @@ extension ChatViewModel {
                 isRunning = false
                 isAwaitingResponse = false
                 awaitingResponseSince = nil
+                lastLocalSendAt = .distantPast
                 if let optId = pendingOptimisticMessageId {
                     messages.removeAll(where: { $0.id == optId })
                     self.pendingOptimisticMessageId = nil

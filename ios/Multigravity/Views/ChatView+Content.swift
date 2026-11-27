@@ -328,8 +328,12 @@ extension ChatView {
                 let anchorMaxY = effectiveVH + metrics.quantizedDistanceFromBottom
                 let isContentFitting = metrics.contentHeight <= effectiveVH
                 // 必须确认最后一行已实际挂载且距底落在合理区间 [-96, 90]，排除 LazyVStack 卸载超长行引起的负值假贴底
+                let isLastRowReady = scrollHUD.isLastRowMaterialized(
+                    lastMessageId: viewModel.messages.last?.id,
+                    useLazyStack: useLazyMessagesStack
+                )
                 let near = isContentFitting || (
-                    (scrollHUD.lastRowMaterialized || viewModel.messages.isEmpty)
+                    isLastRowReady
                     && metrics.quantizedDistanceFromBottom >= -96
                     && metrics.quantizedDistanceFromBottom <= 90
                 )
@@ -398,6 +402,11 @@ extension ChatView {
                 scrollToTurnStart(proxy: proxy, animated: true)
             }
             .onChange(of: viewModel.scrollToBottomTrigger) { _, _ in
+                scrollHUD.hasUserInteracted = false
+                if !scrollHUD.isNearBottom {
+                    scrollHUD.isNearBottom = true
+                }
+                updateCurrentVisibleTurn(viewportHeight: currentViewportHeight)
                 scrollToBottom(proxy: proxy, animated: true)
             }
     }
@@ -466,7 +475,8 @@ extension ChatView {
                     scrollHUD.turnJumpTask = Task { @MainActor in
                         try? await Task.sleep(nanoseconds: 240_000_000)
                         guard !Task.isCancelled, !scrollHUD.isUserDragging, !scrollHUD.hasUserInteracted else { return }
-                        if !scrollHUD.lastRowMaterialized, let lastId = viewModel.messages.last?.id {
+                        if let lastId = viewModel.messages.last?.id,
+                           !scrollHUD.isLastRowMaterialized(lastMessageId: lastId, useLazyStack: useLazyMessagesStack) {
                             proxy.scrollTo(lastId, anchor: .bottom)
                         }
                         proxy.scrollTo("BOTTOM_ANCHOR", anchor: .bottom)
@@ -854,6 +864,7 @@ extension ChatView {
             }
         )
         .onAppear {
+            scrollHUD.materializedMessageIds.insert(message.id)
             if isLast {
                 scrollHUD.lastRowMaterialized = true
                 let dist = scrollHUD.lastQuantizedDistanceFromBottom
@@ -866,7 +877,13 @@ extension ChatView {
                 }
             }
         }
-        .onDisappear { if isLast { scrollHUD.lastRowMaterialized = false } }
+        .onDisappear {
+            scrollHUD.materializedMessageIds.remove(message.id)
+            scrollHUD.lastRowMaterialized = scrollHUD.isLastRowMaterialized(
+                lastMessageId: viewModel.messages.last?.id,
+                useLazyStack: useLazyMessagesStack
+            )
+        }
     }
     
     func updateCurrentVisibleTurn(viewportHeight: CGFloat) {

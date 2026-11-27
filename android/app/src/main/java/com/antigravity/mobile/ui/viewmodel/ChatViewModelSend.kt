@@ -353,6 +353,14 @@ internal fun ChatViewModel.sendMessage(
 
     val imageBytesList = attachments.map { it.byteArray }
 
+    // Snapshot known server message IDs & max step before appending the optimistic user bubble
+    val confirmedMessages = _uiState.value.messages.filterNot {
+        it.id == pendingOptimisticMessageId || it.id.startsWith("opt_") || it.id.startsWith("optimistic-")
+    }
+    knownServerMessageIds = confirmedMessages.map { it.id }.toSet()
+    preSendMaxStepIndex = maxStepIndexOf(confirmedMessages)
+    lastLocalSendAtMs = System.currentTimeMillis()
+
     // Optimistically add user bubble
     val optId = "opt_${System.currentTimeMillis()}"
     pendingOptimisticMessageId = optId
@@ -464,6 +472,7 @@ internal fun ChatViewModel.sendMessage(
                     )
                     sendResult.onFailure { err ->
                         awaitingStartedAtMs = 0L
+                        lastLocalSendAtMs = 0L
                         hasObservedServerRunningForAwaiting = false
                         stopRunningFallbackPolling()
                         _uiState.value = _uiState.value.copy(
@@ -532,6 +541,7 @@ internal fun ChatViewModel.sendMessage(
                 }
             }.onFailure { err ->
                 awaitingStartedAtMs = 0L
+                lastLocalSendAtMs = 0L
                 hasObservedServerRunningForAwaiting = false
                 stopRunningFallbackPolling()
                 _uiState.value = _uiState.value.copy(
@@ -574,6 +584,7 @@ internal fun ChatViewModel.sendMessage(
         )
         result.onFailure { err ->
             awaitingStartedAtMs = 0L
+            lastLocalSendAtMs = 0L
             hasObservedServerRunningForAwaiting = false
             stopRunningFallbackPolling()
             _uiState.value = _uiState.value.copy(

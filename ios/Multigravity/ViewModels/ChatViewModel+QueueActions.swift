@@ -27,8 +27,12 @@ extension ChatViewModel {
             self.queuedMessages.removeAll(where: { $0.id == item.id })
         }
         
-        // Snapshot known server message IDs before sending (excluding any optimistic items)
-        self.knownServerMessageIds = Set(messages.filter { $0.id != pendingOptimisticMessageId && !$0.id.hasPrefix("optimistic-") }.map(\.id))
+        // Snapshot known server message IDs and max step before sending (excluding any optimistic items)
+        let confirmedMessages = messages.filter { $0.id != pendingOptimisticMessageId && !$0.id.hasPrefix("optimistic-") }
+        self.knownServerMessageIds = Set(confirmedMessages.map(\.id))
+        self.preSendMaxStepIndex = confirmedMessages.compactMap { self.extractStepIndex(from: $0) }.max() ?? -1
+        self.lastLocalSendAt = Date()
+        apiClient.invalidateMessagesETagCache(for: cascadeId)
         
         let imgDataList = (item.media ?? []).compactMap { raw -> Data? in
             let cleaned: String
@@ -119,6 +123,7 @@ extension ChatViewModel {
             await self.loadMessages(isBackgroundPoll: true)
         } catch {
             print("❌ sendQueuedMessageNow error: \(error)")
+            self.lastLocalSendAt = .distantPast
             self.deletedQueueItemTombstones.removeAll(where: { $0.id == item.id || $0.text == trimmedText })
             withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) {
                 self.queuedMessages = originalQueued

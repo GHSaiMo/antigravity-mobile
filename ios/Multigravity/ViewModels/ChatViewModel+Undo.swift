@@ -149,6 +149,9 @@ extension ChatViewModel {
             do {
                 try await self.apiClient.executeRevert(cascadeId: activeCid, stepIndex: stepIndex, conversationOnly: false, baseURL: url)
 
+                self.lastLocalSendAt = .distantPast
+                self.preSendMaxStepIndex = -1
+                self.apiClient.invalidateMessagesETagCache(for: activeCid)
                 self.restoreUndoneDraft(from: message)
                 self.pendingOptimisticMessageId = nil
                 self.isRunning = false

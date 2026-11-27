@@ -115,6 +115,9 @@ internal fun ChatViewModel.resetSession() {
     wsJob = null
     wsClient.disconnect()
     pendingOptimisticMessageId = null
+    knownServerMessageIds = emptySet()
+    preSendMaxStepIndex = -1
+    lastLocalSendAtMs = 0L
     awaitingStartedAtMs = 0L
     hasObservedServerRunningForAwaiting = false
     pendingOptimisticQueueItems.clear()
@@ -218,6 +221,9 @@ internal fun ChatViewModel.prepareSession(
     wsJob = null
     wsClient.disconnect()
     pendingOptimisticMessageId = null
+    knownServerMessageIds = emptySet()
+    preSendMaxStepIndex = -1
+    lastLocalSendAtMs = 0L
     awaitingStartedAtMs = 0L
     hasObservedServerRunningForAwaiting = false
     pendingOptimisticQueueItems.clear()
@@ -509,8 +515,14 @@ internal fun ChatViewModel.initSession(
         apiClient.fetchMessages(cascadeId, limit = 15)
             .onSuccess { payload ->
                 if (_uiState.value.cascadeId == cascadeId) {
-                    prefs?.updateDesktopActiveModel(payload.desktopActiveModel, payload.desktopActiveModelName)
                     val incoming = payload.messages ?: emptyList()
+                    val currentClientMaxStep = maxStepIndexOf(_uiState.value.messages)
+                    val incomingMaxStep = maxStepIndexOf(incoming)
+                    if (_uiState.value.messages.isNotEmpty() && shouldIgnoreStaleStepRegression(incomingMaxStep, currentClientMaxStep)) {
+                        _uiState.value = _uiState.value.copy(isLoading = false)
+                        return@onSuccess
+                    }
+                    prefs?.updateDesktopActiveModel(payload.desktopActiveModel, payload.desktopActiveModelName)
                     val mergedMsgs = if (_uiState.value.messages.isNotEmpty()) {
                         mergeIncomingMessages(incoming)
                     } else {
@@ -777,6 +789,18 @@ internal fun ChatViewModel.ensureWebSocketObserving() {
             wsClient.streamUpdates.collect { payload ->
                 if (payload == null) return@collect
                 if (payload.cascadeId != _uiState.value.cascadeId) return@collect
+                val currentClientMaxStep = maxStepIndexOf(_uiState.value.messages)
+                if (_uiState.value.messages.isNotEmpty()) {
+                    val rawMsgsCheck = payload.messages
+                    if (rawMsgsCheck != null) {
+                        val incomingMaxStep = maxStepIndexOf(rawMsgsCheck)
+                        if (shouldIgnoreStaleStepRegression(incomingMaxStep, currentClientMaxStep)) {
+                            return@collect
+                        }
+                    } else if (payload.totalSteps > 0 && shouldIgnoreStaleStepRegression(payload.totalSteps - 1, currentClientMaxStep)) {
+                        return@collect
+                    }
+                }
                 prefs?.updateDesktopActiveModel(payload.desktopActiveModel, payload.desktopActiveModelName)
                 val isCurrentDraft = _uiState.value.cascadeId.let {
                     it.isBlank() || it.startsWith("local_draft_") || it.startsWith("draft_")
@@ -918,6 +942,11 @@ internal fun ChatViewModel.refresh(onComplete: (() -> Unit)? = null) {
                 .onSuccess { payload ->
                     if (_uiState.value.cascadeId == cid) {
                         val incoming = payload.messages ?: emptyList()
+                        val currentClientMaxStep = maxStepIndexOf(_uiState.value.messages)
+                        val incomingMaxStep = maxStepIndexOf(incoming)
+                        if (_uiState.value.messages.isNotEmpty() && shouldIgnoreStaleStepRegression(incomingMaxStep, currentClientMaxStep, allowExplicitReset = true)) {
+                            return@onSuccess
+                        }
                         val msgs = if (_uiState.value.messages.isNotEmpty()) {
                             mergeIncomingMessages(incoming)
                         } else {

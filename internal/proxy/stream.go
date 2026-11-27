@@ -405,6 +405,7 @@ func (p *Proxy) HandleCascadeStream(w http.ResponseWriter, r *http.Request) {
 	var lastSummarySig uint64
 	haveSummarySig := false
 	var lastFetchAt time.Time
+	forceFreshNext := false
 	const streamTouchCoalesceWindow = 65 * time.Millisecond
 
 	emitJSON := func(v interface{}) error {
@@ -425,10 +426,16 @@ func (p *Proxy) HandleCascadeStream(w http.ResponseWriter, r *http.Request) {
 			return true
 		}
 
+		recentlyMutated := isCascadeRecentlyMutated(cascadeID)
 		maxAge := 340 * time.Millisecond
-		if firstPush {
+		if forceFreshNext {
+			maxAge = 0
+			forceFreshNext = false
+		} else if firstPush {
 			// Baseline for the idle change detector below, taken before the first full fetch.
 			lastSummarySig, haveSummarySig = p.cascadeSummarySignature(cascadeID, port, token)
+		} else if recentlyMutated {
+			maxAge = 250 * time.Millisecond
 		} else if lastDetails.Status != "" && lastDetails.Status != "CASCADE_RUN_STATUS_RUNNING" && len(lastDetails.QueuedMessages) == 0 {
 			// Idle: the full trajectory is only refetched every 15s, but a run started elsewhere (e.g. on
 			// the desktop) must show up promptly. The shared conversation list (1s TTL, also used by list
@@ -489,6 +496,8 @@ func (p *Proxy) HandleCascadeStream(w http.ResponseWriter, r *http.Request) {
 				} else {
 					ticker.Reset(350 * time.Millisecond)
 				}
+			} else if recentlyMutated {
+				ticker.Reset(300 * time.Millisecond)
 			} else {
 				ticker.Reset(2000 * time.Millisecond)
 			}
@@ -676,6 +685,8 @@ func (p *Proxy) HandleCascadeStream(w http.ResponseWriter, r *http.Request) {
 			} else {
 				ticker.Reset(350 * time.Millisecond)
 			}
+		} else if recentlyMutated {
+			ticker.Reset(300 * time.Millisecond)
 		} else {
 			ticker.Reset(2000 * time.Millisecond)
 		}
@@ -692,6 +703,8 @@ func (p *Proxy) HandleCascadeStream(w http.ResponseWriter, r *http.Request) {
 		case <-closeCh:
 			return
 		case <-touchCh:
+			// Force the woken fetch to bypass idle maxAge so touch notifications never read stale cache.
+			forceFreshNext = true
 			// Coalesce bursty reactive delta wakeups within a 65ms window while preserving lastRawSig
 			// so unchanged frames hit the fast-path short-circuit cleanly.
 			wait := streamTouchCoalesceWindow - time.Since(lastFetchAt)

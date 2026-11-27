@@ -1887,8 +1887,8 @@
           <button type="button" class="suggest-chip-clear" data-suggest-dismiss="${idx}" aria-label="关闭建议">&times;</button>
         </div>`).join("");
 
-      const HOLD_GRACE_MS = 160;
-      const HOLD_FILL_MS = 840; // 160 + 840 = 1000ms (1s)
+      const HOLD_GRACE_MS = 180;
+      const HOLD_FILL_MS = 1320; // 180 + 1320 = 1500ms (1.5s)
       const MOVE_SLOP_PX = 10;
 
       const fillSuggestion = (text) => {

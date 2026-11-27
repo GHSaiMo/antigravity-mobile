@@ -107,6 +107,23 @@ public final class ChatViewModel {
     @ObservationIgnored private var draftSaveTask: Task<Void, Never>? = nil
     @ObservationIgnored private var draftRestoreTask: Task<Void, Never>? = nil
     @ObservationIgnored private var draftMutationGeneration: UInt64 = 0
+    @ObservationIgnored var lastLocalSendAt: Date = .distantPast
+    @ObservationIgnored var preSendMaxStepIndex: Int = -1
+
+    /// 防止本地刚发送消息后，乱序到达的旧 HTTP/WebSocket 帧把已确认的新气泡（如 step-60）回退抹掉。
+    /// 主动撤回（confirmUndo 会清空 lastLocalSendAt）与静默超过 8 秒后的桌面端回退不受影响。
+    func shouldIgnoreStaleStepRegression(
+        incomingMaxStep: Int,
+        clientMaxStep: Int,
+        allowExplicitReset: Bool = false
+    ) -> Bool {
+        guard incomingMaxStep < clientMaxStep else { return false }
+        let recentlySent = Date().timeIntervalSince(lastLocalSendAt) < 8.0
+        if allowExplicitReset && pendingOptimisticMessageId == nil && !recentlySent {
+            return false
+        }
+        return pendingOptimisticMessageId != nil || isAwaitingResponse || recentlySent
+    }
     
     /// 当前会话按问答轮次自动聚合的结构列表（融合服务端全量目录索引与本地已加载消息）
     public func isScheduledTaskPromptMessage(_ msg: ChatMessage) -> Bool {
@@ -1011,6 +1028,16 @@ public final class ChatViewModel {
                 offset: nil,
                 baseURL: url
             )
+            let clientMaxStep = self.messages.compactMap { self.extractStepIndex(from: $0) }.max() ?? -1
+            let serverMaxStep = result.messages.compactMap { self.extractStepIndex(from: $0) }.max() ?? -1
+            if !self.messages.isEmpty && self.shouldIgnoreStaleStepRegression(
+                incomingMaxStep: serverMaxStep,
+                clientMaxStep: clientMaxStep,
+                allowExplicitReset: !isBackgroundPoll
+            ) {
+                self.isLoading = false
+                return
+            }
             if let configRaw = result.cascadeConfigRaw, !configRaw.isEmpty {
                 self.cascadeConfigRaw = configRaw
                 if self.hasUserManuallySelectedModel {
@@ -1111,8 +1138,6 @@ public final class ChatViewModel {
                     }
                 }
                 
-                let clientMaxStep = self.messages.compactMap { self.extractStepIndex(from: $0) }.max() ?? -1
-                let serverMaxStep = result.messages.compactMap { self.extractStepIndex(from: $0) }.max() ?? -1
                 let isTruncatedOrReverted = serverMaxStep < clientMaxStep
                 
                 if (isBackgroundPoll || self.pendingOptimisticMessageId != nil) && !self.messages.isEmpty && !isTruncatedOrReverted {
@@ -1129,14 +1154,11 @@ public final class ChatViewModel {
                         self.nextOffset = 0
                     }
                 } else {
-                    let healed = self.sanitizeMessageOrder(result.messages)
-                    self.messages = healed
-                    let hasEarliest = healed.contains(where: { self.extractStepIndex(from: $0) == 0 })
-                    self.hasMore = hasEarliest ? false : result.hasMore
-                    self.nextOffset = hasEarliest ? 0 : result.nextOffset
-                    if self.pendingOptimisticMessageId == nil {
-                        self.knownServerMessageIds = Set(healed.map(\.id))
-                    }
+                    self.applySnapshotMessages(
+                        result.messages,
+                        hasMore: result.hasMore,
+                        nextOffset: result.nextOffset
+                    )
                 }
             }
             

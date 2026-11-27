@@ -1206,6 +1206,7 @@ func (p *Proxy) handleCascadeTouch(w http.ResponseWriter, r *http.Request) {
 	}
 	if cascadeID != "" {
 		ClearTrajectoryCache(cascadeID)
+		MarkCascadeMutated(cascadeID, 4*time.Second)
 		ClearPendingMessagesCache(cascadeID)
 		p.notifyStreamTouch(cascadeID)
 		if verboseRPC {

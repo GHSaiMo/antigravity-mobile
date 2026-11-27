@@ -283,7 +283,30 @@ class ChatViewModel(
     internal var mentionSearchJob: Job? = null
     internal var undoPreviewJob: Job? = null
     internal var pendingOptimisticMessageId: String? = null
+    internal var knownServerMessageIds: Set<String> = emptySet()
+    internal var preSendMaxStepIndex: Int = -1
+    internal var lastLocalSendAtMs: Long = 0L
     internal var awaitingStartedAtMs: Long = 0L
+
+    internal fun maxStepIndexOf(messages: List<GatewayMessageItem>): Int {
+        return messages
+            .filterNot { it.id.startsWith("opt_") || it.id.startsWith("optimistic-") }
+            .mapNotNull { it.stepIndex ?: extractStepIndex(it.id) }
+            .maxOrNull() ?: -1
+    }
+
+    internal fun shouldIgnoreStaleStepRegression(
+        incomingMaxStep: Int,
+        clientMaxStep: Int,
+        allowExplicitReset: Boolean = false
+    ): Boolean {
+        if (incomingMaxStep >= clientMaxStep) return false
+        val recentlySent = lastLocalSendAtMs > 0L && (System.currentTimeMillis() - lastLocalSendAtMs) < 8_000L
+        if (allowExplicitReset && pendingOptimisticMessageId == null && !recentlySent) {
+            return false
+        }
+        return pendingOptimisticMessageId != null || _uiState.value.isAwaitingResponse || recentlySent
+    }
     internal var hasObservedServerRunningForAwaiting: Boolean = false
     internal var currentLastModifiedTime: String? = null
     internal val pendingOptimisticQueueItems = mutableListOf<PendingOptimisticQueueItem>()

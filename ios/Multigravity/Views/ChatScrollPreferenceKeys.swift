@@ -13,7 +13,13 @@ final class ChatScrollHUDState {
     @ObservationIgnored var isUserDragging: Bool = false
     @ObservationIgnored var isScrollMoving: Bool = false
     @ObservationIgnored var lastRowMaterialized: Bool = false
+    @ObservationIgnored var materializedMessageIds: Set<String> = []
     @ObservationIgnored var isPacingActive: Bool = false
+
+    func isLastRowMaterialized(lastMessageId: String?, useLazyStack: Bool) -> Bool {
+        guard useLazyStack, let lastId = lastMessageId else { return true }
+        return materializedMessageIds.contains(lastId)
+    }
     @ObservationIgnored weak var underlyingScrollView: UIScrollView? = nil
     @ObservationIgnored var lastFollowScrollAt: Date = .distantPast
     @ObservationIgnored var lastKnownVisibleMessageId: String? = nil
