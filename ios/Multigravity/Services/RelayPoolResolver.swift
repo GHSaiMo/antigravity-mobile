@@ -9,7 +9,8 @@ import os
 public final class RelayPoolResolver: Sendable {
     public static let shared = RelayPoolResolver()
 
-    public static let defaultPoolURL = URL(string: "https://dispatcher.jiuge.space/api/relay/pool")!
+    public static let defaultPoolURL = URL(string: "https://dispatcher.multigravity.app/api/relay/pool")!
+    public static let legacyPoolURL = URL(string: "https://dispatcher.jiuge.space/api/relay/pool")!
 
     public struct PoolNode: Decodable, Sendable {
         public let id: String
@@ -60,19 +61,21 @@ public final class RelayPoolResolver: Sendable {
         return suffixes.contains { clean.hasSuffix($0) }
     }
 
-    /// Returns true if `hostOrURL` belongs to the official managed relay pool (`.jiuge.space` or a
-    /// suffix advertised by the official pool manifest). Custom self-hosted BYO-Relay domains return
-    /// false so clients never phone home to `dispatcher.jiuge.space`.
+    /// Returns true if `hostOrURL` belongs to the official managed relay pool (`.multigravity.app`,
+    /// `.jiuge.space`, or a suffix advertised by the official pool manifest). Custom self-hosted
+    /// BYO-Relay domains return false so clients never phone home to the official dispatcher.
     public func isOfficialOrPoolHost(_ hostOrURL: String) -> Bool {
         let clean = NetworkTransport.extractHost(from: hostOrURL)
         guard !clean.isEmpty else { return false }
-        if clean.hasSuffix(".jiuge.space") || clean == "jiuge.space" {
+        if clean.hasSuffix(".multigravity.app") || clean == "multigravity.app" ||
+           clean.hasSuffix(".jiuge.space") || clean == "jiuge.space" {
             return true
         }
         return isPoolDomainHost(clean)
     }
 
-    /// Fetches (or returns 60s-cached) pool node templates from the dispatcher Worker.
+    /// Fetches (or returns 60s-cached) pool node templates from the dispatcher Worker,
+    /// falling back to the legacy dispatcher domain if the primary domain is unreachable.
     public func fetchPoolNodes(forceRefresh: Bool = false) async -> [PoolNode] {
         let cached = cacheLock.withLock { state -> [PoolNode]? in
             if !forceRefresh && !state.nodes.isEmpty && Date().timeIntervalSince(state.fetchedAt) < 60 {
@@ -82,35 +85,39 @@ public final class RelayPoolResolver: Sendable {
         }
         if let cached { return cached }
 
-        var req = URLRequest(url: Self.defaultPoolURL)
-        req.httpMethod = "GET"
-        req.timeoutInterval = 4.0
+        for endpoint in [Self.defaultPoolURL, Self.legacyPoolURL] {
+            var req = URLRequest(url: endpoint)
+            req.httpMethod = "GET"
+            req.timeoutInterval = 4.0
 
-        do {
-            let (data, resp) = try await NetworkTransport.shared.send(request: req)
-            guard let http = resp as? HTTPURLResponse, http.statusCode == 200 else {
-                return cacheLock.withLock { $0.nodes }
-            }
-            let manifest = try JSONDecoder().decode(PoolManifest.self, from: data)
-            let nodes = manifest.nodes ?? []
-            var suffixes = Set<String>()
-            for node in nodes {
-                if let dotIdx = node.host_template.firstIndex(of: ".") {
-                    let suffix = String(node.host_template[dotIdx...]).lowercased()
-                    if suffix.count > 2 {
-                        suffixes.insert(suffix)
+            do {
+                let (data, resp) = try await NetworkTransport.shared.send(request: req)
+                guard let http = resp as? HTTPURLResponse, http.statusCode == 200 else {
+                    continue
+                }
+                let manifest = try JSONDecoder().decode(PoolManifest.self, from: data)
+                let nodes = manifest.nodes ?? []
+                guard !nodes.isEmpty else { continue }
+                var suffixes = Set<String>()
+                for node in nodes {
+                    if let dotIdx = node.host_template.firstIndex(of: ".") {
+                        let suffix = String(node.host_template[dotIdx...]).lowercased()
+                        if suffix.count > 2 {
+                            suffixes.insert(suffix)
+                        }
                     }
                 }
+                cacheLock.withLock { state in
+                    state.nodes = nodes
+                    state.fetchedAt = Date()
+                    state.trustedSuffixes.formUnion(suffixes)
+                }
+                return nodes
+            } catch {
+                continue
             }
-            cacheLock.withLock { state in
-                state.nodes = nodes
-                state.fetchedAt = Date()
-                state.trustedSuffixes.formUnion(suffixes)
-            }
-            return nodes
-        } catch {
-            return cacheLock.withLock { $0.nodes }
         }
+        return cacheLock.withLock { $0.nodes }
     }
 
     /// Discovers which VPS node in `RELAY_POOL` currently serves this paired gateway.

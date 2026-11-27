@@ -297,7 +297,7 @@ MULTIGRAVITY_PORT=58900
 MULTIGRAVITY_TRUST_LAN=0
 
 # ☁️ Cloudflare Tunnel 专属公网穿透配置 (开箱即用)
-# CF_WORKER_URL=https://dispatcher.jiuge.space
+# CF_WORKER_URL=https://dispatcher.multigravity.app
 # CF_INVITE_CODE=
 # CF_TUNNEL_TOKEN=
 # CF_TUNNEL_ENABLED=1
@@ -305,7 +305,7 @@ MULTIGRAVITY_TRUST_LAN=0
 # 🔔 iOS 原生 APNs 推送与灵动岛远程更新 (开箱即用，默认开启)
 # APNS_ENABLED=1
 # LIVE_ACTIVITY_PUSH_ENABLED=1
-# APNS_RELAY_URL=https://push.jiuge.space
+# APNS_RELAY_URL=https://push.multigravity.app
 ENVEOF
     elif [ "${UI_LANG}" = "ja" ]; then
         cat << 'ENVEOF' > "${CONF_DIR}/.env"
@@ -320,7 +320,7 @@ MULTIGRAVITY_PORT=58900
 MULTIGRAVITY_TRUST_LAN=0
 
 # ☁️ Cloudflare Tunnel リモート公開設定 (そのまま利用可能)
-# CF_WORKER_URL=https://dispatcher.jiuge.space
+# CF_WORKER_URL=https://dispatcher.multigravity.app
 # CF_INVITE_CODE=
 # CF_TUNNEL_TOKEN=
 # CF_TUNNEL_ENABLED=1
@@ -328,7 +328,7 @@ MULTIGRAVITY_TRUST_LAN=0
 # 🔔 iOS ネイティブ APNs プッシュ通知と Dynamic Island 更新 (デフォルト有効)
 # APNS_ENABLED=1
 # LIVE_ACTIVITY_PUSH_ENABLED=1
-# APNS_RELAY_URL=https://push.jiuge.space
+# APNS_RELAY_URL=https://push.multigravity.app
 ENVEOF
     else
         cat << 'ENVEOF' > "${CONF_DIR}/.env"
@@ -343,7 +343,7 @@ MULTIGRAVITY_PORT=58900
 MULTIGRAVITY_TRUST_LAN=0
 
 # ☁️ Cloudflare Tunnel remote access configuration (ready out of the box)
-# CF_WORKER_URL=https://dispatcher.jiuge.space
+# CF_WORKER_URL=https://dispatcher.multigravity.app
 # CF_INVITE_CODE=
 # CF_TUNNEL_TOKEN=
 # CF_TUNNEL_ENABLED=1
@@ -351,7 +351,7 @@ MULTIGRAVITY_TRUST_LAN=0
 # 🔔 Native iOS APNs push & Live Activity Dynamic Island updates (enabled by default)
 # APNS_ENABLED=1
 # LIVE_ACTIVITY_PUSH_ENABLED=1
-# APNS_RELAY_URL=https://push.jiuge.space
+# APNS_RELAY_URL=https://push.multigravity.app
 ENVEOF
     fi
     chmod 600 "${CONF_DIR}/.env" 2>/dev/null || true

@@ -815,7 +815,8 @@ class ConnectionManager(private val context: Context) {
 
         fun isRelayHost(host: String): Boolean {
             val clean = host.trim().trim('[', ']').lowercase()
-            return clean.endsWith(".mgy.jiuge.space") ||
+            return clean.endsWith(".multigravity.app") ||
+                clean.endsWith(".mgy.jiuge.space") ||
                 clean.endsWith(".jiuge.space") ||
                 clean.endsWith(".trycloudflare.com")
         }
@@ -856,7 +857,8 @@ class ConnectionManager(private val context: Context) {
             if (usedHost.isNotBlank()) allowed.add(usedHost)
 
             if (allowed.contains(clean)) return true
-            if (isHttps && (clean.endsWith(".mgy.jiuge.space") ||
+            if (isHttps && (clean.endsWith(".multigravity.app") ||
+                    clean.endsWith(".mgy.jiuge.space") ||
                     clean.endsWith(".jiuge.space") ||
                     clean.endsWith(".trycloudflare.com") ||
                     clean.endsWith(".antigravity.internal"))
@@ -900,7 +902,7 @@ class ConnectionManager(private val context: Context) {
             if (trustedByE2ee || RelayPoolResolver.isPoolDomainHost(host)) {
                 return true
             }
-            if (host.endsWith(".trycloudflare.com") || host.endsWith(".jiuge.space")) {
+            if (host.endsWith(".trycloudflare.com") || host.endsWith(".multigravity.app") || host.endsWith(".jiuge.space")) {
                 return true
             }
 

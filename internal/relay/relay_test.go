@@ -540,3 +540,60 @@ func TestRelayMultiSlotFailoverOnDeadSlot(t *testing.T) {
 		}
 	}
 }
+
+func TestRelayDualDomain_OfficialAppReservedHostsAndForwarding(t *testing.T) {
+	secret := "dual-domain-test-secret"
+	srv, err := NewServer(ServerConfig{
+		SigningSecret: secret,
+		ControlHosts: []string{
+			"relay.jiuge.space",
+			"ctl.jp1.jiuge.space",
+			"relay.multigravity.app",
+			"ctl.jp1.multigravity.app",
+		},
+		AllowedSuffixes: []string{
+			".jp1.jiuge.space",
+			".jp1.multigravity.app",
+			".multigravity.app",
+		},
+	})
+	if err != nil {
+		t.Fatalf("NewServer dual-domain: %v", err)
+	}
+	defer srv.Close()
+
+	// Both legacy jiuge.space and new multigravity.app reserved infrastructure hosts must be blocked.
+	for _, reserved := range []string{
+		"multigravity.app",
+		"www.multigravity.app",
+		"dispatcher.multigravity.app",
+		"push.multigravity.app",
+		"relay.multigravity.app",
+		"ctl.jp1.multigravity.app",
+		"jiuge.space",
+		"dispatcher.jiuge.space",
+		"push.jiuge.space",
+		"relay.jiuge.space",
+		"ctl.jp1.jiuge.space",
+	} {
+		if srv.isDomainAllowed(reserved) {
+			t.Errorf("expected reserved/control host %q to be rejected", reserved)
+		}
+	}
+
+	// Valid user subdomains on BOTH domains must be allowed.
+	for _, valid := range []string{
+		"r-a1b2c3d4.jp1.jiuge.space",
+		"r-a1b2c3d4.jp1.multigravity.app",
+		"r-a1b2c3d4.multigravity.app",
+	} {
+		if !srv.isDomainAllowed(valid) {
+			t.Errorf("expected user relay host %q to be allowed", valid)
+		}
+	}
+
+	// Unrelated external domain must still be rejected.
+	if srv.isDomainAllowed("r-a1b2c3d4.evil.example") {
+		t.Errorf("expected unrelated domain to be rejected")
+	}
+}

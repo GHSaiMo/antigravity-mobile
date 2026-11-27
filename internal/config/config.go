@@ -11,7 +11,7 @@ import (
 const DefaultAntigravityIcon = "https://raw.githubusercontent.com/GHSaiMo/antigravity-mobile/main/web/icons/icon-192.png"
 
 // DefaultAPNSRelayURL is the default stateless APNs relay Worker URL for App Store iOS clients.
-const DefaultAPNSRelayURL = "https://push.jiuge.space"
+const DefaultAPNSRelayURL = "https://push.multigravity.app"
 
 // NotificationConfig holds settings for push notifications (APNs / FCM / Webhook).
 type NotificationConfig struct {
@@ -217,7 +217,7 @@ func RedactFCMKey(raw string) string {
 }
 
 // DefaultCloudflareWorkerURL is the default public dispatcher URL.
-const DefaultCloudflareWorkerURL = "https://dispatcher.jiuge.space"
+const DefaultCloudflareWorkerURL = "https://dispatcher.multigravity.app"
 
 // CloudflareConfig holds settings for the automated Cloudflare Tunnel dispatcher.
 type CloudflareConfig struct {

@@ -25,5 +25,6 @@
         <domain includeSubdomains="true">googleapis.com</domain>
         <domain includeSubdomains="true">cloudflare.com</domain>
         <domain includeSubdomains="true">jiuge.space</domain>
+        <domain includeSubdomains="true">multigravity.app</domain>
     </domain-config>
 </network-security-config>

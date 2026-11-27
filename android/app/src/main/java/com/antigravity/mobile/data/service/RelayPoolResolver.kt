@@ -11,12 +11,14 @@ import java.util.concurrent.ConcurrentHashMap
 
 /**
  * Stateless mobile auto-discovery for multi-VPS relay pools.
- * Queries `GET https://dispatcher.jiuge.space/api/relay/pool` (cached 60s), expands all
+ * Queries `GET https://dispatcher.multigravity.app/api/relay/pool` (falling back to
+ * `https://dispatcher.jiuge.space/api/relay/pool`, cached 60s), expands all
  * `host_template` entries with the machine's deterministic `sid`, concurrently probes `/healthz`,
  * and re-locks onto the active VPS node when a paired gateway fails over or migrates.
  */
 object RelayPoolResolver {
-    private const val POOL_URL = "https://dispatcher.jiuge.space/api/relay/pool"
+    private const val POOL_URL = "https://dispatcher.multigravity.app/api/relay/pool"
+    private const val LEGACY_POOL_URL = "https://dispatcher.jiuge.space/api/relay/pool"
     private const val CACHE_TTL_MS = 60_000L
 
     data class PoolNode(
@@ -51,14 +53,18 @@ object RelayPoolResolver {
     }
 
     /**
-     * Returns true if [hostOrUrl] belongs to the official managed relay pool (`.jiuge.space` or a
-     * suffix published by the official pool manifest). Custom self-hosted BYO-Relay domains return
-     * false so clients never contact `dispatcher.jiuge.space`.
+     * Returns true if [hostOrUrl] belongs to the official managed relay pool (`.multigravity.app`,
+     * `.jiuge.space`, or a suffix published by the official pool manifest). Custom self-hosted
+     * BYO-Relay domains return false so clients never contact the official dispatcher.
      */
     fun isOfficialOrPoolHost(hostOrUrl: String): Boolean {
         val clean = ConnectionManager.extractHost(hostOrUrl)
         if (clean.isEmpty()) return false
-        if (clean.endsWith(".jiuge.space") || clean == "jiuge.space") return true
+        if (clean.endsWith(".multigravity.app") || clean == "multigravity.app" ||
+            clean.endsWith(".jiuge.space") || clean == "jiuge.space"
+        ) {
+            return true
+        }
         return isPoolDomainHost(clean)
     }
 
@@ -67,41 +73,44 @@ object RelayPoolResolver {
         if (!forceRefresh && cachedNodes.isNotEmpty() && (now - cachedAtMs) < CACHE_TTL_MS) {
             return cachedNodes
         }
-        return try {
-            val req = Request.Builder().url(POOL_URL).get().build()
-            httpClient.newCall(req).execute().use { resp ->
-                if (!resp.isSuccessful) return cachedNodes
-                val body = resp.body?.string().orEmpty()
-                val json = JSONObject(body)
-                val arr = json.optJSONArray("nodes") ?: return cachedNodes
-                val list = mutableListOf<PoolNode>()
-                for (i in 0 until arr.length()) {
-                    val obj = arr.optJSONObject(i) ?: continue
-                    val id = obj.optString("id").trim()
-                    val tmpl = obj.optString("host_template").trim().lowercase()
-                    if (id.isEmpty() || tmpl.isEmpty() || !tmpl.contains("{sid}")) continue
-                    val dotIdx = tmpl.indexOf('.')
-                    if (dotIdx > 0 && dotIdx < tmpl.length - 2) {
-                        trustedSuffixes.add(tmpl.substring(dotIdx))
-                    }
-                    list.add(
-                        PoolNode(
-                            id = id,
-                            region = obj.optString("region", "global"),
-                            priority = obj.optInt("priority", 100),
-                            hostTemplate = tmpl
+        for (endpoint in listOf(POOL_URL, LEGACY_POOL_URL)) {
+            try {
+                val req = Request.Builder().url(endpoint).get().build()
+                httpClient.newCall(req).execute().use { resp ->
+                    if (!resp.isSuccessful) return@use
+                    val body = resp.body?.string().orEmpty()
+                    val json = JSONObject(body)
+                    val arr = json.optJSONArray("nodes") ?: return@use
+                    val list = mutableListOf<PoolNode>()
+                    for (i in 0 until arr.length()) {
+                        val obj = arr.optJSONObject(i) ?: continue
+                        val id = obj.optString("id").trim()
+                        val tmpl = obj.optString("host_template").trim().lowercase()
+                        if (id.isEmpty() || tmpl.isEmpty() || !tmpl.contains("{sid}")) continue
+                        val dotIdx = tmpl.indexOf('.')
+                        if (dotIdx > 0 && dotIdx < tmpl.length - 2) {
+                            trustedSuffixes.add(tmpl.substring(dotIdx))
+                        }
+                        list.add(
+                            PoolNode(
+                                id = id,
+                                region = obj.optString("region", "global"),
+                                priority = obj.optInt("priority", 100),
+                                hostTemplate = tmpl
+                            )
                         )
-                    )
+                    }
+                    if (list.isNotEmpty()) {
+                        cachedNodes = list
+                        cachedAtMs = now
+                        return cachedNodes
+                    }
                 }
-                if (list.isNotEmpty()) {
-                    cachedNodes = list
-                    cachedAtMs = now
-                }
-                cachedNodes
+            } catch (_: Exception) {
+                // Fall through to next endpoint
             }
-        } catch (_: Exception) {
-            cachedNodes
         }
+        return cachedNodes
     }
 
     suspend fun resolveReachableCloudUrl(
@@ -146,7 +155,7 @@ object RelayPoolResolver {
         // try the DualTrack legacy Cloudflare tunnel domain (`https://<sid>.jiuge.space`) so the
         // client stays online and can re-learn the active relay node via X-Antigravity-Cloud-URL.
         val currentHost = currentCloudUrl?.let { ConnectionManager.extractHost(it) }.orEmpty()
-        if (currentHost.endsWith(".jiuge.space")) {
+        if (currentHost.endsWith(".jiuge.space") || currentHost.endsWith(".multigravity.app")) {
             val legacyCfUrl = "https://$sid.jiuge.space"
             if (legacyCfUrl != currentClean) {
                 val cfStatus = connectionManager.testSingleEndpoint(legacyCfUrl)

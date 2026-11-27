@@ -118,7 +118,7 @@ MULTIGRAVITY_PORT=58900
 # MULTIGRAVITY_HOST=127.0.0.1
 
 # ☁️ Cloudflare Tunnel 专属公网穿透配置 (开箱即用)
-# CF_WORKER_URL=https://dispatcher.jiuge.space
+# CF_WORKER_URL=https://dispatcher.multigravity.app
 # CF_INVITE_CODE=
 # CF_TUNNEL_TOKEN=
 # CF_TUNNEL_ENABLED=1
@@ -126,7 +126,7 @@ MULTIGRAVITY_PORT=58900
 # 🔔 iOS 原生 APNs 推送与灵动岛远程更新 (开箱即用，默认开启)
 # APNS_ENABLED=1
 # LIVE_ACTIVITY_PUSH_ENABLED=1
-# APNS_RELAY_URL=https://push.jiuge.space
+# APNS_RELAY_URL=https://push.multigravity.app
 
 # 局域网免配对信任模式 (0: 需配对码[默认推荐], 1: 信任局域网免配对直连)
 # 本机 127.0.0.1 始终免配对，Cloudflare 公网穿透始终强制验证
@@ -144,7 +144,7 @@ MULTIGRAVITY_PORT=58900
 # MULTIGRAVITY_HOST=127.0.0.1
 
 # ☁️ Cloudflare Tunnel リモート公開設定 (そのまま利用可能)
-# CF_WORKER_URL=https://dispatcher.jiuge.space
+# CF_WORKER_URL=https://dispatcher.multigravity.app
 # CF_INVITE_CODE=
 # CF_TUNNEL_TOKEN=
 # CF_TUNNEL_ENABLED=1
@@ -152,7 +152,7 @@ MULTIGRAVITY_PORT=58900
 # 🔔 iOS ネイティブ APNs プッシュ通知と Dynamic Island 更新 (デフォルト有効)
 # APNS_ENABLED=1
 # LIVE_ACTIVITY_PUSH_ENABLED=1
-# APNS_RELAY_URL=https://push.jiuge.space
+# APNS_RELAY_URL=https://push.multigravity.app
 
 # LAN アクセスセキュリティ設定 (0: ペアリングコード必須 [推奨], 1: LAN を信頼してペアリング不要)
 # ローカル 127.0.0.1 は常にペアリング不要、Cloudflare パブリックトンネルは常に認証必須
@@ -170,7 +170,7 @@ MULTIGRAVITY_PORT=58900
 # MULTIGRAVITY_HOST=127.0.0.1
 
 # ☁️ Cloudflare Tunnel remote access configuration (ready out of the box)
-# CF_WORKER_URL=https://dispatcher.jiuge.space
+# CF_WORKER_URL=https://dispatcher.multigravity.app
 # CF_INVITE_CODE=
 # CF_TUNNEL_TOKEN=
 # CF_TUNNEL_ENABLED=1
@@ -178,7 +178,7 @@ MULTIGRAVITY_PORT=58900
 # 🔔 Native iOS APNs push & Live Activity Dynamic Island updates (enabled by default)
 # APNS_ENABLED=1
 # LIVE_ACTIVITY_PUSH_ENABLED=1
-# APNS_RELAY_URL=https://push.jiuge.space
+# APNS_RELAY_URL=https://push.multigravity.app
 
 # LAN access security policy (0: pairing code required [recommended], 1: trust LAN without pairing)
 # Local 127.0.0.1 never requires pairing; public Cloudflare Tunnel always requires pairing

@@ -208,6 +208,7 @@ func NewServer(cfg ServerConfig) (*Server, error) {
 
 	var suffixes []string
 	usesOfficialSpace := false
+	usesOfficialApp := false
 	for _, s := range cfg.AllowedSuffixes {
 		s = strings.ToLower(strings.TrimSpace(s))
 		if s == "" {
@@ -219,12 +220,17 @@ func NewServer(cfg ServerConfig) (*Server, error) {
 		if s == ".jiuge.space" || strings.HasSuffix(s, ".jiuge.space") {
 			usesOfficialSpace = true
 		}
+		if s == ".multigravity.app" || strings.HasSuffix(s, ".multigravity.app") {
+			usesOfficialApp = true
+		}
 		suffixes = append(suffixes, s)
 	}
 	for h := range ctrl {
 		if h == "jiuge.space" || strings.HasSuffix(h, ".jiuge.space") {
 			usesOfficialSpace = true
-			break
+		}
+		if h == "multigravity.app" || strings.HasSuffix(h, ".multigravity.app") {
+			usesOfficialApp = true
 		}
 	}
 
@@ -238,6 +244,17 @@ func NewServer(cfg ServerConfig) (*Server, error) {
 			"push.jiuge.space",
 			"relay.jiuge.space",
 			"hal9000.jiuge.space",
+		} {
+			reserved[official] = true
+		}
+	}
+	if usesOfficialApp {
+		for _, official := range []string{
+			"multigravity.app",
+			"www.multigravity.app",
+			"dispatcher.multigravity.app",
+			"push.multigravity.app",
+			"relay.multigravity.app",
 		} {
 			reserved[official] = true
 		}

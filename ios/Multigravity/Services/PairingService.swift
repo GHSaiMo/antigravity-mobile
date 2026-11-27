@@ -610,7 +610,7 @@ public final class PairingService: Sendable {
         if allowed.contains(h) {
             return true
         }
-        if h.hasSuffix(".trycloudflare.com") || h.hasSuffix(".mgy.jiuge.space") || h.hasSuffix(".jiuge.space") || h.hasSuffix(".antigravity.internal") {
+        if h.hasSuffix(".trycloudflare.com") || h.hasSuffix(".multigravity.app") || h.hasSuffix(".mgy.jiuge.space") || h.hasSuffix(".jiuge.space") || h.hasSuffix(".antigravity.internal") {
             return true
         }
         // Allow sibling subdomains under the same registrable parent domain as the QR host

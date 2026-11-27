@@ -14,9 +14,9 @@ import os
 public final class CloudflareAnycastAccelerator: @unchecked Sendable {
     public static let shared = CloudflareAnycastAccelerator()
 
-    nonisolated private static let probeHost = "dispatcher.jiuge.space"
+    nonisolated private static let probeHost = "dispatcher.multigravity.app"
     nonisolated private static let probeRequestData = Data(
-        "GET /cdn-cgi/trace HTTP/1.1\r\nHost: dispatcher.jiuge.space\r\nUser-Agent: Multigravity-Probe/1.0\r\nConnection: close\r\n\r\n".utf8
+        "GET /cdn-cgi/trace HTTP/1.1\r\nHost: dispatcher.multigravity.app\r\nUser-Agent: Multigravity-Probe/1.0\r\nConnection: close\r\n\r\n".utf8
     )
     nonisolated private static let probeTimeoutSeconds: TimeInterval = 1.8
     nonisolated private static let banTTLSeconds: TimeInterval = 24 * 60 * 60
@@ -89,12 +89,12 @@ public final class CloudflareAnycastAccelerator: @unchecked Sendable {
 
     public static func isCloudflareTunnelHost(_ host: String) -> Bool {
         let clean = host.trimmingCharacters(in: CharacterSet(charactersIn: "[]")).lowercased()
-        if clean == "jiuge.space" || clean.hasSuffix(".trycloudflare.com") {
+        if clean == "multigravity.app" || clean == "jiuge.space" || clean.hasSuffix(".trycloudflare.com") {
             return true
         }
-        // Only 1st-level *.jiuge.space subdomains (3 DNS labels) are Cloudflare Orange-Cloud proxied;
-        // 2nd-level regional VPS subdomains (e.g. r-xxxx.jp1.jiuge.space, >=4 labels) use direct DNS.
-        if clean.hasSuffix(".jiuge.space") {
+        // Only 1st-level *.multigravity.app / *.jiuge.space subdomains (3 DNS labels) are Cloudflare Orange-Cloud proxied;
+        // 2nd-level regional VPS subdomains (e.g. r-xxxx.jp1.multigravity.app, >=4 labels) use direct DNS.
+        if clean.hasSuffix(".multigravity.app") || clean.hasSuffix(".jiuge.space") {
             let labels = clean.split(separator: ".")
             return labels.count == 3
         }

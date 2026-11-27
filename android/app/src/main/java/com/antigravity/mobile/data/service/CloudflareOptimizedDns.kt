@@ -33,7 +33,7 @@ import javax.net.ssl.SSLSocketFactory
  */
 object CloudflareOptimizedDns : Dns {
     private const val TAG = "CFOptimizedDns"
-    private const val PROBE_HOST = "dispatcher.jiuge.space"
+    private const val PROBE_HOST = "dispatcher.multigravity.app"
     private const val PROBE_REQUEST =
         "GET /cdn-cgi/trace HTTP/1.1\r\n" +
             "Host: $PROBE_HOST\r\n" +
@@ -86,9 +86,11 @@ object CloudflareOptimizedDns : Dns {
 
     fun isCloudflareTunnelHost(hostname: String): Boolean {
         val lowerHost = hostname.trim().lowercase()
-        // Only 1st-level *.jiuge.space (3 labels) and jiuge.space are Cloudflare Orange-Cloud proxied;
-        // 2nd-level regional VPS subdomains (e.g. r-xxxx.jp1.jiuge.space, >=4 labels) use direct DNS.
-        return lowerHost == "jiuge.space" ||
+        // Only 1st-level *.multigravity.app / *.jiuge.space (3 labels) and their apexes are Cloudflare Orange-Cloud proxied;
+        // 2nd-level regional VPS subdomains (e.g. r-xxxx.jp1.multigravity.app, >=4 labels) use direct DNS.
+        return lowerHost == "multigravity.app" ||
+            (lowerHost.endsWith(".multigravity.app") && lowerHost.split('.').size == 3) ||
+            lowerHost == "jiuge.space" ||
             (lowerHost.endsWith(".jiuge.space") && lowerHost.split('.').size == 3)
     }
 

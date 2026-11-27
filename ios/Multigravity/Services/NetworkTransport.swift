@@ -280,7 +280,7 @@ public final class NetworkTransport: Sendable {
         if trustedByE2EE || RelayPoolResolver.shared.isPoolDomainHost(host) {
             return true
         }
-        if host.hasSuffix(".trycloudflare.com") || host.hasSuffix(".jiuge.space") {
+        if host.hasSuffix(".trycloudflare.com") || host.hasSuffix(".multigravity.app") || host.hasSuffix(".jiuge.space") {
             return true
         }
         let configured = configuredGatewayHosts()
