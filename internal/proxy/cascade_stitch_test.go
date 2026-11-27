@@ -270,6 +270,32 @@ func TestCascadeStitch_AccountSwitchHandoverAndTrajectoryMerge(t *testing.T) {
 		}
 	}
 
+	// Regression check: repeated trajectory fetches across cache hits/misses must NOT
+	// overwrite segment 0 (rootID) in trajCache with the combined slice and duplicate steps!
+	firstCount := len(msgResp.Messages)
+	for poll := 0; poll < 4; poll++ {
+		expireTrajectoryCacheFreshness(rootID)
+		msgReqPoll := httptest.NewRequest(http.MethodGet, "/gateway/cascade/messages?cascadeId="+rootID+"&limit=50", nil)
+		msgRecPoll := httptest.NewRecorder()
+		p.ServeHTTP(msgRecPoll, msgReqPoll)
+		var pollResp CascadeMessagesResponse
+		if err := json.Unmarshal(msgRecPoll.Body.Bytes(), &pollResp); err != nil {
+			t.Fatalf("poll %d unmarshal: %v", poll, err)
+		}
+		if len(pollResp.Messages) != firstCount {
+			t.Fatalf("poll %d duplicated messages: got %d messages, want %d", poll, len(pollResp.Messages), firstCount)
+		}
+		dividerCount := 0
+		for _, m := range pollResp.Messages {
+			if strings.Contains(m.Text, "Compact Handover") {
+				dividerCount++
+			}
+		}
+		if dividerCount != 1 {
+			t.Fatalf("poll %d expected exactly 1 Compact Handover divider, got %d", poll, dividerCount)
+		}
+	}
+
 	// 5. Client fetches conversation list: childID must be hidden and its RUNNING status propagated to rootID
 	listReq := httptest.NewRequest(http.MethodPost, "/api/exa.language_server_pb.LanguageServerService/GetAllCascadeTrajectories", strings.NewReader(`{}`))
 	listRec := httptest.NewRecorder()

@@ -139,6 +139,14 @@ var (
 // Daemon discovery files (~/.gemini/antigravity/daemon/{hub,ls}_*.json) are checked first so
 // that an authoritative desktop/daemon instance under $HOME always takes precedence and can
 // immediately preempt any fallback process discovered during a desktop restart window.
+// ResetBackoff clears any exponential scan backoff so the next Scan() immediately probes processes.
+func (i *Inspector) ResetBackoff() {
+	i.failedScanMu.Lock()
+	i.failedBackoff = 0
+	i.failedScanAt = time.Time{}
+	i.failedScanMu.Unlock()
+}
+
 func (i *Inspector) Scan() *InstanceInfo {
 	i.scanMu.Lock()
 	defer i.scanMu.Unlock()

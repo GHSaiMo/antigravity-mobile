@@ -371,9 +371,21 @@ func expireTrajectoryCacheFreshness(cascadeID string) {
 	if cascadeID == "" {
 		return
 	}
+	rootID := ResolveVisibleRootCascadeID(cascadeID)
+	activeID := ResolveActiveCascadeID(rootID)
 	defaultTrajCache.trajCacheMu.Lock()
 	if cached, ok := defaultTrajCache.trajCache[cascadeID]; ok {
 		cached.fetchedAt = time.Time{}
+	}
+	if rootID != "" && rootID != cascadeID {
+		if cached, ok := defaultTrajCache.trajCache[rootID]; ok {
+			cached.fetchedAt = time.Time{}
+		}
+	}
+	if activeID != "" && activeID != cascadeID {
+		if cached, ok := defaultTrajCache.trajCache[activeID]; ok {
+			cached.fetchedAt = time.Time{}
+		}
 	}
 	defaultTrajCache.trajCacheMu.Unlock()
 }

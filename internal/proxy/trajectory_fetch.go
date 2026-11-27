@@ -74,8 +74,12 @@ func (p *Proxy) fetchUpstreamTrajectoryWithContext(ctx context.Context, cascadeI
 	// But if title is missing or session has few/no steps, keep TTL short (1.5s)
 	// so newly generated titles/summaries are quickly discovered.
 	maxAge := 800 * time.Millisecond
+	activeID := ResolveActiveCascadeID(cascadeID)
+	if activeID == "" {
+		activeID = cascadeID
+	}
 	tc.trajCacheMu.RLock()
-	if cached, ok := tc.trajCache[cascadeID]; ok && cached.port == port {
+	if cached, ok := tc.trajCache[activeID]; ok && cached.port == port {
 		if cached.data.Status != "" && cached.data.Status != "CASCADE_RUN_STATUS_RUNNING" {
 			hasTitle := (cached.data.Trajectory.Annotations != nil && cached.data.Trajectory.Annotations.Title != "") ||
 				cached.data.Trajectory.Summary != ""
@@ -523,15 +527,6 @@ func (p *Proxy) fetchUpstreamTrajectoryWithMaxAgeContext(ctx context.Context, ca
 	}
 	combined.Trajectory.CascadeID = rootID
 	combined.Trajectory.Steps = allSteps
-
-	defaultTrajCache.trajCacheMu.Lock()
-	defaultTrajCache.trajCache[rootID] = &trajectoryCacheEntry{
-		fetchedAt: time.Now(),
-		port:      port,
-		data:      combined,
-	}
-	defaultTrajCache.evictTrajCacheLocked()
-	defaultTrajCache.trajCacheMu.Unlock()
 
 	return combined, nil
 }

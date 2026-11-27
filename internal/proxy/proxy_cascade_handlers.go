@@ -445,6 +445,10 @@ func (p *Proxy) handleSendUserCascadeMessage(w http.ResponseWriter, r *http.Requ
 		ClearTrajectoryCache(cascadeID)
 		ClearPendingMessagesCache(cascadeID)
 		p.notifyStreamTouch(cascadeID)
+		if rootID := ResolveVisibleRootCascadeID(cascadeID); rootID != "" && rootID != cascadeID {
+			ClearPendingMessagesCache(rootID)
+			p.notifyStreamTouch(rootID)
+		}
 	}
 	if rw.statusCode >= 200 && rw.statusCode < 300 {
 		// Ensure ConnectRPC empty responses always return valid JSON "{}"

@@ -309,8 +309,12 @@ func (p *Proxy) handleGetCascadeTrajectoryRPC(w http.ResponseWriter, r *http.Req
 	// For running cascades use a short 300ms maxAge so the desktop stays responsive;
 	// for idle cascades 15s is fine since the content is static.
 	maxAge := 300 * time.Millisecond
+	activeID := ResolveActiveCascadeID(cascadeID)
+	if activeID == "" {
+		activeID = cascadeID
+	}
 	defaultTrajCache.trajCacheMu.RLock()
-	if cached, ok := defaultTrajCache.trajCache[cascadeID]; ok && cached != nil && cached.port == port && cached.data != nil {
+	if cached, ok := defaultTrajCache.trajCache[activeID]; ok && cached != nil && cached.port == port && cached.data != nil {
 		if cached.data.Status != "" && cached.data.Status != "CASCADE_RUN_STATUS_RUNNING" {
 			maxAge = 15 * time.Second
 		}
