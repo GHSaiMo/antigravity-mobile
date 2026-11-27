@@ -2428,7 +2428,7 @@ fun ChatScreen(
                             .padding(top = 4.dp, bottom = 12.dp),
                         verticalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
-                        // Quick Action Chips (including Suggested Reply chip right before Model chip)
+                        // Suggested Reply Bubbles (dedicated full-width wrapping row above Quick Action Chips) + Quick Action Chips
                         val aiAssistStatus by com.antigravity.mobile.data.service.AIAssistCache.statusFlow.collectAsState()
                         LaunchedEffect(uiState.isPredictedSuggestion) {
                             if (uiState.isPredictedSuggestion) {
@@ -2448,25 +2448,8 @@ fun ChatScreen(
                         } else {
                             emptyList()
                         }
-                        Box(modifier = Modifier.padding(horizontal = 16.dp)) {
-                            QuickActionChips(
-                                activeModel = uiState.activeModel,
-                                onToggleModel = {
-                                    workflowSlidePickerState.dismiss()
-                                    commitSlidePickerState.dismiss()
-                                    viewModel.toggleModel()
-                                },
-                                onSelectModel = { viewModel.selectModel(it) },
-                                modelCatalog = modelCatalog,
-                                modelSlidePickerState = modelSlidePickerState,
-                                onAddImage = {
-                                    dismissKeyboard()
-                                    showAttachmentSheet = true
-                                },
-                                onAddImageLongClick = {
-                                    dismissKeyboard()
-                                    viewModel.openMentionPicker("")
-                                },
+                        Column(modifier = Modifier.fillMaxWidth()) {
+                            SuggestedReplyChipsBar(
                                 suggestedResponses = visibleSuggestions,
                                 isPredictedSuggestion = uiState.isPredictedSuggestion,
                                 onSelectSuggestion = { chosen ->
@@ -2481,58 +2464,79 @@ fun ChatScreen(
                                 },
                                 onDismissSuggestion = { chosen ->
                                     viewModel.dismissPredictedSuggestion(chosen)
-                                },
-                                selectedSlashCommands = uiState.selectedSlashCommands,
-                                onRemoveSlashCommand = { viewModel.removeSlashCommand(it) },
-                                onCommitAndPush = {
-                                    dismissKeyboard()
-                                    viewModel.openGitSheet()
-                                },
-                                commitLabel = uiState.gitChipLabel,
-                                showCommit = uiState.hasGitChanges,
-                                canCommit = uiState.hasUncommittedFiles,
-                                commitSlidePickerState = commitSlidePickerState,
-                                onSelectCommitAction = { cmd ->
-                                    viewModel.onInputTextChanged(cmd)
-                                },
-                                onShowChanges = {
-                                    dismissKeyboard()
-                                    viewModel.openChangesSheet()
-                                },
-                                onShowWorkflowTemplates = {
-                                    dismissKeyboard()
-                                    modelSlidePickerState.dismiss()
-                                    workflowSlidePickerState.dismiss()
-                                    commitSlidePickerState.dismiss()
-                                    workflowSheetStartEditing = false
-                                    showWorkflowTemplateSheet = true
-                                },
-                                workflowSlidePickerState = workflowSlidePickerState,
-                                workflowTemplates = workflowTemplates,
-                                onSelectWorkflowPrompt = { prompt ->
-                                    viewModel.onInputTextChanged(prompt)
-                                    pendingSelectFirstPlaceholder = true
-                                },
-                                onOpenWorkflowSetup = {
-                                    dismissKeyboard()
-                                    modelSlidePickerState.dismiss()
-                                    workflowSlidePickerState.dismiss()
-                                    commitSlidePickerState.dismiss()
-                                    workflowSheetStartEditing = true
-                                    showWorkflowTemplateSheet = true
-                                },
-                                showChanges = uiState.hasSessionChanges,
-                                showContinue = uiState.isLatestMessageError,
-                                onContinue = {
-                                    dismissKeyboard()
-                                    viewModel.handleContinue()
-                                },
-                                showProceed = uiState.canProceed,
-                                onProceed = {
-                                    dismissKeyboard()
-                                    viewModel.proceedArtifact()
                                 }
                             )
+                            Box(modifier = Modifier.padding(horizontal = 16.dp)) {
+                                QuickActionChips(
+                                    activeModel = uiState.activeModel,
+                                    onToggleModel = {
+                                        workflowSlidePickerState.dismiss()
+                                        commitSlidePickerState.dismiss()
+                                        viewModel.toggleModel()
+                                    },
+                                    onSelectModel = { viewModel.selectModel(it) },
+                                    modelCatalog = modelCatalog,
+                                    modelSlidePickerState = modelSlidePickerState,
+                                    onAddImage = {
+                                        dismissKeyboard()
+                                        showAttachmentSheet = true
+                                    },
+                                    onAddImageLongClick = {
+                                        dismissKeyboard()
+                                        viewModel.openMentionPicker("")
+                                    },
+                                    selectedSlashCommands = uiState.selectedSlashCommands,
+                                    onRemoveSlashCommand = { viewModel.removeSlashCommand(it) },
+                                    onCommitAndPush = {
+                                        dismissKeyboard()
+                                        viewModel.openGitSheet()
+                                    },
+                                    commitLabel = uiState.gitChipLabel,
+                                    showCommit = uiState.hasGitChanges,
+                                    canCommit = uiState.hasUncommittedFiles,
+                                    commitSlidePickerState = commitSlidePickerState,
+                                    onSelectCommitAction = { cmd ->
+                                        viewModel.onInputTextChanged(cmd)
+                                    },
+                                    onShowChanges = {
+                                        dismissKeyboard()
+                                        viewModel.openChangesSheet()
+                                    },
+                                    onShowWorkflowTemplates = {
+                                        dismissKeyboard()
+                                        modelSlidePickerState.dismiss()
+                                        workflowSlidePickerState.dismiss()
+                                        commitSlidePickerState.dismiss()
+                                        workflowSheetStartEditing = false
+                                        showWorkflowTemplateSheet = true
+                                    },
+                                    workflowSlidePickerState = workflowSlidePickerState,
+                                    workflowTemplates = workflowTemplates,
+                                    onSelectWorkflowPrompt = { prompt ->
+                                        viewModel.onInputTextChanged(prompt)
+                                        pendingSelectFirstPlaceholder = true
+                                    },
+                                    onOpenWorkflowSetup = {
+                                        dismissKeyboard()
+                                        modelSlidePickerState.dismiss()
+                                        workflowSlidePickerState.dismiss()
+                                        commitSlidePickerState.dismiss()
+                                        workflowSheetStartEditing = true
+                                        showWorkflowTemplateSheet = true
+                                    },
+                                    showChanges = uiState.hasSessionChanges,
+                                    showContinue = uiState.isLatestMessageError,
+                                    onContinue = {
+                                        dismissKeyboard()
+                                        viewModel.handleContinue()
+                                    },
+                                    showProceed = uiState.canProceed,
+                                    onProceed = {
+                                        dismissKeyboard()
+                                        viewModel.proceedArtifact()
+                                    }
+                                )
+                            }
                         }
 
                         // Phase 3: Transient notice pill

@@ -28,57 +28,58 @@ extension ChatView {
 
     var inputBar: some View {
         VStack(alignment: .leading, spacing: 8) {
-            // Quick action chips at top of input box (➕ and Model Switch placed in front of Slash Command, Commit and Push)
-            ScrollView(.horizontal, showsIndicators: false) {
-                HStack(spacing: 8) {
-                    // 1. Add ➕ Button (opens the attachment panel: camera, recent photos, add file; long-press opens @ mentions)
-                    Button {
-                        isInputFocused = false
-                        showAttachmentSheet = true
-                    } label: {
-                        Image(systemName: "plus")
-                            .font(.system(size: 13, weight: .semibold))
-                            .foregroundColor(.indigo)
-                            .frame(width: 34, height: 32)
-                            .background(Color(uiColor: .secondarySystemBackground))
-                            .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
-                            .overlay(
-                                RoundedRectangle(cornerRadius: 10, style: .continuous)
-                                    .stroke(Color.secondary.opacity(0.25), lineWidth: 1)
-                            )
+            VStack(alignment: .leading, spacing: 0) {
+                // 0. 建议回复气泡（独占整行、排在快捷按钮栏上方；先占满第一行，超长自动折成两行/三行完整展示）
+                ChatSuggestedReplyChipsHost(
+                    viewModel: viewModel,
+                    isInputFocused: $isInputFocused,
+                    onSendSuggestion: { chosen in
+                        guard !viewModel.isSending else { return }
+                        guard viewModel.settings.serverURL != nil else { return }
+                        UIImpactFeedbackGenerator(style: .light).impactOccurred()
+                        scrollHUD.hasUserInteracted = false
+                        viewModel.suggestedResponses = []
+                        viewModel.suggestedResponseSource = ""
+                        viewModel.dismissedPredictedSuggestion = nil
+                        Task {
+                            _ = await viewModel.sendMessage(text: chosen)
+                        }
                     }
-                    .buttonStyle(.plain)
-                    .simultaneousGesture(
-                        LongPressGesture(minimumDuration: 0.45).onEnded { _ in
-                            UIImpactFeedbackGenerator(style: .medium).impactOccurred()
+                )
+
+                // Quick action chips at top of input box (➕ and Model Switch placed in front of Slash Command, Commit and Push)
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: 8) {
+                        // 1. Add ➕ Button (opens the attachment panel: camera, recent photos, add file; long-press opens @ mentions)
+                        Button {
+                            isInputFocused = false
+                            showAttachmentSheet = true
+                        } label: {
+                            Image(systemName: "plus")
+                                .font(.system(size: 13, weight: .semibold))
+                                .foregroundColor(.indigo)
+                                .frame(width: 34, height: 32)
+                                .background(Color(uiColor: .secondarySystemBackground))
+                                .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+                                .overlay(
+                                    RoundedRectangle(cornerRadius: 10, style: .continuous)
+                                        .stroke(Color.secondary.opacity(0.25), lineWidth: 1)
+                                )
+                        }
+                        .buttonStyle(.plain)
+                        .simultaneousGesture(
+                            LongPressGesture(minimumDuration: 0.45).onEnded { _ in
+                                UIImpactFeedbackGenerator(style: .medium).impactOccurred()
+                                viewModel.openMentionPicker()
+                            }
+                        )
+                        .accessibilityLabel("添加附件")
+                        .accessibilityHint("轻点选择照片、文件、录音或拍照；长按打开 @ 上下文引用")
+                        .accessibilityAction(named: String(localized: "打开 @ 上下文引用")) {
                             viewModel.openMentionPicker()
                         }
-                    )
-                    .accessibilityLabel("添加附件")
-                    .accessibilityHint("轻点选择照片、文件、录音或拍照；长按打开 @ 上下文引用")
-                    .accessibilityAction(named: String(localized: "打开 @ 上下文引用")) {
-                        viewModel.openMentionPicker()
-                    }
-                    
-                    // 1b. 建议回复芯片（排在模型按钮前面，样式与斜杠芯片同高对齐、右上角带小叉，点击依据设置填入输入框[默认]或直接发送）
-                    ChatSuggestedReplyChipsHost(
-                        viewModel: viewModel,
-                        isInputFocused: $isInputFocused,
-                        onSendSuggestion: { chosen in
-                            guard !viewModel.isSending else { return }
-                            guard viewModel.settings.serverURL != nil else { return }
-                            UIImpactFeedbackGenerator(style: .light).impactOccurred()
-                            scrollHUD.hasUserInteracted = false
-                            viewModel.suggestedResponses = []
-                            viewModel.suggestedResponseSource = ""
-                            viewModel.dismissedPredictedSuggestion = nil
-                            Task {
-                                _ = await viewModel.sendMessage(text: chosen)
-                            }
-                        }
-                    )
 
-                    // 2. Model Switch Button (Tap to cycle Gemini/Claude/Orchestrator, Long-press + slide up/right for custom menu)
+                        // 2. Model Switch Button (Tap to cycle Gemini/Claude/Orchestrator, Long-press + slide up/right for custom menu)
                     ModelSwitchChipButton(
                         displayName: viewModel.activeModelDisplayName,
                         foregroundColor: modelChipForegroundColor,
@@ -232,10 +233,11 @@ extension ChatView {
                 // room inside the ScrollView so they are never clipped and never stick to the top divider.
                 .padding(.top, 10)
                 .padding(.bottom, 2)
+                }
+                .animation(.easeInOut(duration: 0.2), value: viewModel.isLatestMessageError)
+                .animation(.easeInOut(duration: 0.2), value: viewModel.canProceed)
+                .animation(.easeInOut(duration: 0.15), value: viewModel.selectedSlashCommands)
             }
-            .animation(.easeInOut(duration: 0.2), value: viewModel.isLatestMessageError)
-            .animation(.easeInOut(duration: 0.2), value: viewModel.canProceed)
-            .animation(.easeInOut(duration: 0.15), value: viewModel.selectedSlashCommands)
             .animation(.easeInOut(duration: 0.15), value: viewModel.suggestedResponses)
             .animation(.easeInOut(duration: 0.15), value: viewModel.dismissedPredictedSuggestion)
             
@@ -745,35 +747,43 @@ private struct ChatSuggestedReplyChipsHost: View {
     }
 
     var body: some View {
-        ForEach(visibleSuggestions, id: \.self) { text in
-            SuggestedReplyChipView(
-                text: text,
-                isPredicted: viewModel.isPredictedSuggestion,
-                onSelect: {
-                    let shouldSendDirectly = AIAssistManager.shared.prefs.nextPromptTapAction == "send"
-                    if shouldSendDirectly {
-                        onSendSuggestion(text)
-                    } else {
-                        viewModel.dismissedPredictedSuggestion = text
-                        viewModel.inputText = text
-                        isInputFocused = true
-                    }
-                },
-                onDismiss: {
-                    withAnimation(.easeInOut(duration: 0.15)) {
-                        viewModel.dismissedPredictedSuggestion = text
-                        if viewModel.suggestedResponses.count > 1 {
-                            viewModel.suggestedResponses.removeAll { $0 == text }
+        if !visibleSuggestions.isEmpty {
+            VStack(alignment: .leading, spacing: 8) {
+                ForEach(visibleSuggestions, id: \.self) { text in
+                    SuggestedReplyChipView(
+                        text: text,
+                        isPredicted: viewModel.isPredictedSuggestion,
+                        onSelect: {
+                            let shouldSendDirectly = AIAssistManager.shared.prefs.nextPromptTapAction == "send"
+                            if shouldSendDirectly {
+                                onSendSuggestion(text)
+                            } else {
+                                viewModel.dismissedPredictedSuggestion = text
+                                viewModel.inputText = text
+                                isInputFocused = true
+                            }
+                        },
+                        onDismiss: {
+                            withAnimation(.easeInOut(duration: 0.15)) {
+                                viewModel.dismissedPredictedSuggestion = text
+                                if viewModel.suggestedResponses.count > 1 {
+                                    viewModel.suggestedResponses.removeAll { $0 == text }
+                                }
+                            }
                         }
-                    }
+                    )
+                    .transition(.opacity.combined(with: .move(edge: .bottom)))
                 }
-            )
-            .transition(.scale(scale: 0.9).combined(with: .opacity))
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.horizontal, 16)
+            .padding(.top, 10)
+            .animation(.easeInOut(duration: 0.15), value: visibleSuggestions)
         }
     }
 }
 
-/// 建议回复芯片按钮：放在模型按钮前面，与斜杠芯片同高同款（32pt、圆角 10、右上角小叉），点击按设置填入输入框（默认）或直接发出。
+/// 建议回复气泡按钮：独占整行、排在快捷按钮栏上方；先占满第一行，超长自动折成两行/三行完整展示，右上角带小叉，点击按设置填入输入框（默认）或直接发出。
 private struct SuggestedReplyChipView: View {
     let text: String
     let isPredicted: Bool
@@ -785,28 +795,32 @@ private struct SuggestedReplyChipView: View {
             UIImpactFeedbackGenerator(style: .light).impactOccurred()
             onSelect()
         } label: {
-            HStack(spacing: 5) {
+            HStack(alignment: .top, spacing: 5) {
                 if isPredicted {
                     Image(systemName: "sparkles")
                         .font(.system(size: 11.5, weight: .semibold))
                         .opacity(0.95)
+                        .padding(.top, 2.5)
                         .fixedSize()
                 }
                 Text(text)
                     .font(.system(size: 13, weight: .medium))
-                    .lineLimit(1)
-                    .truncationMode(.tail)
+                    .lineSpacing(2)
+                    .multilineTextAlignment(.leading)
+                    .fixedSize(horizontal: false, vertical: true)
             }
             .foregroundColor(.indigo)
-            .padding(.horizontal, 11)
-            .frame(height: 32)
-            .frame(maxWidth: 240, alignment: .leading)
+            .padding(.leading, 11)
+            .padding(.trailing, 14)
+            .padding(.vertical, 7)
+            .frame(minHeight: 32, alignment: .leading)
             .background(Color.indigo.opacity(0.12))
             .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
             .overlay(
                 RoundedRectangle(cornerRadius: 10, style: .continuous)
                     .stroke(Color.indigo.opacity(0.35), lineWidth: 1)
             )
+            .contentShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
         }
         .buttonStyle(.plain)
         .overlay(alignment: .topTrailing) {

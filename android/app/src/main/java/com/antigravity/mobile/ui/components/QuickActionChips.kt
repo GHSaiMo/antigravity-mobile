@@ -48,7 +48,6 @@ import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.IntRect
 import androidx.compose.ui.unit.IntSize
@@ -76,10 +75,6 @@ fun QuickActionChips(
     modelSlidePickerState: ModelSlidePickerState? = null,
     onAddImage: () -> Unit,
     onAddImageLongClick: (() -> Unit)? = null,
-    suggestedResponses: List<String> = emptyList(),
-    isPredictedSuggestion: Boolean = false,
-    onSelectSuggestion: (String) -> Unit = {},
-    onDismissSuggestion: (String) -> Unit = {},
     selectedSlashCommands: List<SlashCommandOption> = emptyList(),
     onRemoveSlashCommand: (SlashCommandOption) -> Unit = {},
     onCommitAndPush: () -> Unit,
@@ -171,22 +166,6 @@ fun QuickActionChips(
                 contentDescription = "Add Media",
                 tint = colors.accentIndigo,
                 modifier = Modifier.size(16.dp)
-            )
-        }
-
-        // 1b. 建议回复芯片（排在模型按钮前面，同高圆角 10、右上角带小叉；点击按设置填入输入框[默认]或直接发出）
-        suggestedResponses.forEach { suggestion ->
-            SuggestedReplyChip(
-                text = suggestion,
-                isPredicted = isPredictedSuggestion,
-                onSelect = {
-                    haptic.light()
-                    onSelectSuggestion(suggestion)
-                },
-                onDismiss = {
-                    haptic.light()
-                    onDismissSuggestion(suggestion)
-                }
             )
         }
 
@@ -637,7 +616,44 @@ fun QuickActionChips(
     }
 }
 
-/** 建议回复芯片按钮：放在模型按钮前面，与斜杠芯片同高同款（32dp、圆角 10、右上角小叉）。 */
+/**
+ * 建议回复气泡区：独占整行并排在快捷按钮栏上方。
+ * 单条气泡按内容展开，先占满第一行，超长后自动折成两行/三行完整展示，不做截断。
+ */
+@Composable
+fun SuggestedReplyChipsBar(
+    suggestedResponses: List<String>,
+    isPredictedSuggestion: Boolean,
+    onSelectSuggestion: (String) -> Unit,
+    onDismissSuggestion: (String) -> Unit,
+    modifier: Modifier = Modifier
+) {
+    if (suggestedResponses.isEmpty()) return
+    val haptic = com.antigravity.mobile.ui.util.rememberHaptic()
+    Column(
+        modifier = modifier
+            .fillMaxWidth()
+            .padding(start = 16.dp, end = 16.dp, top = 8.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp)
+    ) {
+        suggestedResponses.forEach { suggestion ->
+            SuggestedReplyChip(
+                text = suggestion,
+                isPredicted = isPredictedSuggestion,
+                onSelect = {
+                    haptic.light()
+                    onSelectSuggestion(suggestion)
+                },
+                onDismiss = {
+                    haptic.light()
+                    onDismissSuggestion(suggestion)
+                }
+            )
+        }
+    }
+}
+
+/** 建议回复气泡按钮：独占整行、圆角 10、右上角带小叉；单行 32dp 起，超长自动多行完整显示。 */
 @Composable
 private fun SuggestedReplyChip(
     text: String,
@@ -653,14 +669,13 @@ private fun SuggestedReplyChip(
     ) {
         Row(
             modifier = Modifier
-                .height(32.dp)
-                .widthIn(max = 240.dp)
+                .defaultMinSize(minHeight = 32.dp)
                 .clip(shape)
                 .background(colors.accentIndigo.copy(alpha = 0.12f))
                 .border(1.dp, colors.accentIndigo.copy(alpha = 0.35f), shape)
                 .clickable(onClick = onSelect)
-                .padding(horizontal = 11.dp),
-            verticalAlignment = Alignment.CenterVertically,
+                .padding(start = 11.dp, end = 14.dp, top = 7.dp, bottom = 7.dp),
+            verticalAlignment = Alignment.Top,
             horizontalArrangement = Arrangement.spacedBy(5.dp)
         ) {
             if (isPredicted) {
@@ -668,16 +683,17 @@ private fun SuggestedReplyChip(
                     imageVector = Icons.Default.AutoAwesome,
                     contentDescription = null,
                     tint = colors.accentIndigo.copy(alpha = 0.95f),
-                    modifier = Modifier.size(13.dp)
+                    modifier = Modifier
+                        .padding(top = 2.5.dp)
+                        .size(13.dp)
                 )
             }
             Text(
                 text = text,
                 color = colors.accentIndigo,
                 fontSize = 13.sp,
-                fontWeight = FontWeight.Medium,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis
+                lineHeight = 18.sp,
+                fontWeight = FontWeight.Medium
             )
         }
 

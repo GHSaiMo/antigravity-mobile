@@ -55,7 +55,7 @@
   <link rel="icon" type="image/png" sizes="192x192" href="/icons/icon-192.png?v=4" />
   <link rel="apple-touch-icon" href="/icons/apple-touch-icon.png?v=4" />
   <link rel="manifest" href="/manifest-en.json" />
-  <link rel="stylesheet" href="/style.css?v=70" />
+  <link rel="stylesheet" href="/style.css?v=71" />
 </head>
 <body>
   <div id="app">
@@ -348,6 +348,9 @@
           <!-- 斜杠命令：键入 "/" 弹出的列表（见 js/slash.js） -->
           <div id="slash-picker" class="slash-picker hidden" data-feature="slash"></div>
 
+          <!-- 建议回复气泡（独占整行、排在快捷按钮栏上方；先占满第一行，超长自动折成两行/三行完整展示） -->
+          <div id="suggested-responses-bar" class="suggest-chips hidden"></div>
+
           <!-- Quick Action Chips (Add Image, Model Switch, Slash Command, Commit & Push, Proceed) -->
           <div class="quick-actions-chips" id="quick-actions-bar">
             <button id="btn-add-image" class="chip-pill chip-add-image" type="button" title="添加图片或附件 (音视频最高 200 MB)" aria-label="添加图片或附件">
@@ -357,8 +360,6 @@
               </svg>
             </button>
             <input type="file" id="image-file-input" accept="image/*,audio/*,video/*,.amr,.ogg,.oga,.opus,.m4a,.mp3,.wav,.flac,.aac,.caf,.r,.rmd,.rmarkdown,.pdf,.txt,.md,.json,.csv,.zip" multiple style="display: none;" />
-
-            <div id="suggested-responses-bar" class="suggest-chips hidden"></div>
 
             <button id="btn-model-switch" class="chip-pill chip-model-switch chip-gemini" type="button" title="短按快切首选与次选模型，长按或右键选择全部模型">
               <span id="model-switch-text" class="model-switch-text">Gemini</span>

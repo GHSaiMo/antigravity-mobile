@@ -8962,12 +8962,15 @@ body.font-comfortable pre, body.font-comfortable code {
 .p3-auto-st-badge.failed { background: rgba(255, 69, 58, 0.16); color: #ff453a; }
 .p3-auto-st-badge.ok { background: rgba(48, 209, 88, 0.16); color: #30d158; }
 
-
 .suggest-chips {
-  display: inline-flex;
-  align-items: center;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
   gap: 8px;
-  flex-shrink: 0;
+  width: 100%;
+  padding: 5px 4px 0 0;
+  margin-bottom: -4px;
+  box-sizing: border-box;
 }
 .suggest-chips.hidden {
   display: none;
@@ -8975,41 +8978,43 @@ body.font-comfortable pre, body.font-comfortable code {
 .suggest-chip {
   position: relative;
   display: inline-flex;
-  align-items: center;
-  height: 32px;
-  max-width: 240px;
-  margin: 0 4px 0 0;
+  align-items: flex-start;
+  min-height: 32px;
+  max-width: 100%;
+  margin: 0;
   box-sizing: border-box;
   border-radius: 10px;
   background: color-mix(in srgb, var(--ios-indigo) 12%, transparent);
   border: 1px solid color-mix(in srgb, var(--ios-indigo) 35%, transparent);
   color: var(--ios-indigo);
-  flex-shrink: 0;
 }
 .suggest-chip-main {
   display: inline-flex;
-  align-items: center;
+  align-items: flex-start;
   gap: 5px;
   min-width: 0;
   max-width: 100%;
-  height: 100%;
-  padding: 0 11px;
+  padding: 6px 14px 6px 11px;
   border: none;
   background: transparent;
   color: inherit;
+  font-family: inherit;
   font-size: 13px;
   font-weight: 500;
+  line-height: 1.4;
+  text-align: left;
   cursor: pointer;
 }
 .suggest-chip-main span {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  word-break: break-word;
 }
 .p3-suggest-sparkle {
   flex: 0 0 auto;
   color: inherit;
   opacity: 0.95;
+  margin-top: 3px;
 }
 .suggest-chip-clear {
   position: absolute;
