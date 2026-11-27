@@ -1,6 +1,17 @@
 import SwiftUI
 import UIKit
 
+private func isRequestCancellation(_ error: Error) -> Bool {
+    if error is CancellationError || Task.isCancelled {
+        return true
+    }
+    if let urlErr = error as? URLError, urlErr.code == .cancelled {
+        return true
+    }
+    let nsErr = error as NSError
+    return nsErr.domain == NSURLErrorDomain && nsErr.code == NSURLErrorCancelled
+}
+
 // MARK: - 1. BrowserViewerSheet (Remote Live Browser Frame & Touch Takeover)
 
 public struct BrowserViewerSheet: View {
@@ -336,6 +347,10 @@ public struct BrowserViewerSheet: View {
             isLoading = false
             startPolling()
         } catch {
+            if isRequestCancellation(error) {
+                isLoading = false
+                return
+            }
             errorMessage = error.localizedDescription
             isLoading = false
         }
@@ -385,6 +400,7 @@ public struct BrowserViewerSheet: View {
                 errorMessage = nil
             }
         } catch {
+            if isRequestCancellation(error) { return }
             if frameImage == nil {
                 errorMessage = error.localizedDescription
             }
@@ -796,6 +812,9 @@ public struct DesktopUpdateSheet: View {
     @State private var gatewayMessageText: String? = nil
     @State private var gatewayErrorText: String? = nil
     @State private var gatewayUnsupported: Bool = false
+    @State private var loadTask: Task<Void, Never>? = nil
+    @State private var loadGeneration: UInt64 = 0
+    @State private var isForcedLoadInFlight: Bool = false
     @State private var gatewayPollTask: Task<Void, Never>? = nil
 
     public init(
@@ -998,7 +1017,7 @@ public struct DesktopUpdateSheet: View {
                 .animation(.easeInOut(duration: 0.22), value: shouldCenterVertically)
             }
             .refreshable {
-                await loadAllUpdates(forceGatewayRefresh: true)
+                await runLoadAllUpdates(forceGatewayRefresh: true)
             }
         }
         .background(Color(uiColor: .systemGroupedBackground).ignoresSafeArea())
@@ -1023,9 +1042,12 @@ public struct DesktopUpdateSheet: View {
         .task {
             if status == nil, let initialStatus { status = initialStatus }
             if gatewayStatus == nil, let initialGatewayStatus { gatewayStatus = initialGatewayStatus }
-            await loadAllUpdates(forceGatewayRefresh: false)
+            await runLoadAllUpdates(forceGatewayRefresh: false)
         }
         .onDisappear {
+            loadTask?.cancel()
+            loadTask = nil
+            isForcedLoadInFlight = false
             gatewayPollTask?.cancel()
             gatewayPollTask = nil
         }
@@ -1330,43 +1352,82 @@ public struct DesktopUpdateSheet: View {
     }
 
     @MainActor
-    private func loadAllUpdates(forceGatewayRefresh: Bool) async {
+    private func runLoadAllUpdates(forceGatewayRefresh: Bool) async {
+        if let existing = loadTask {
+            if !forceGatewayRefresh || isForcedLoadInFlight {
+                await existing.value
+                return
+            }
+            existing.cancel()
+            loadTask = nil
+            isForcedLoadInFlight = false
+        }
+
+        let generation = loadGeneration &+ 1
+        loadGeneration = generation
+        isForcedLoadInFlight = forceGatewayRefresh
+
+        // Run inside an independent Task so SwiftUI cancelling `.refreshable` or transient
+        // sheet/navigation gestures cannot abort in-flight host-update requests.
+        let task = Task { @MainActor in
+            await performLoadAllUpdates(forceGatewayRefresh: forceGatewayRefresh, generation: generation)
+        }
+        loadTask = task
+        await task.value
+    }
+
+    @MainActor
+    private func performLoadAllUpdates(forceGatewayRefresh: Bool, generation: UInt64) async {
+        defer {
+            if loadGeneration == generation {
+                isLoading = false
+                loadTask = nil
+                isForcedLoadInFlight = false
+            }
+        }
         guard let gw = gatewayURL else {
-            isLoading = false
             return
         }
         isLoading = true
         desktopErrorText = nil
         gatewayErrorText = nil
-        defer { isLoading = false }
 
-        async let desktopTask: Void = loadDesktopUpdate(gw: gw)
-        async let gatewayTask: Void = loadGatewayUpdate(gw: gw, refresh: forceGatewayRefresh)
+        async let desktopTask: Void = loadDesktopUpdate(gw: gw, generation: generation)
+        async let gatewayTask: Void = loadGatewayUpdate(gw: gw, refresh: forceGatewayRefresh, generation: generation)
         _ = await (desktopTask, gatewayTask)
+
+        guard loadGeneration == generation, !Task.isCancelled else { return }
         onStatusUpdated?(status, gatewayStatus)
     }
 
     @MainActor
-    private func loadDesktopUpdate(gw: URL) async {
+    private func loadDesktopUpdate(gw: URL, generation: UInt64) async {
         do {
             let st = try await APIClient.shared.fetchDesktopUpdateStatus(baseURL: gw)
+            guard loadGeneration == generation, !Task.isCancelled else { return }
             status = st
+            desktopErrorText = nil
             let targetVer = (st.latestVersion?.isEmpty == false ? st.latestVersion : st.currentVersion)
             if let cl = try? await APIClient.shared.fetchDesktopChangelog(version: targetVer, baseURL: gw),
+               loadGeneration == generation,
+               !Task.isCancelled,
                let md = cl.markdown, !md.isEmpty {
                 changelogMarkdown = md
             }
         } catch {
+            if isRequestCancellation(error) || loadGeneration != generation { return }
             desktopErrorText = error.localizedDescription
         }
     }
 
     @MainActor
-    private func loadGatewayUpdate(gw: URL, refresh: Bool) async {
+    private func loadGatewayUpdate(gw: URL, refresh: Bool, generation: UInt64) async {
         do {
             let gSt = try await APIClient.shared.fetchGatewaySelfUpdateStatus(baseURL: gw, refresh: refresh)
+            guard loadGeneration == generation, !Task.isCancelled else { return }
             gatewayUnsupported = false
             gatewayStatus = gSt
+            gatewayErrorText = nil
             if gSt.state == "failed", let err = gSt.error, !err.isEmpty {
                 gatewayErrorText = err
             }
@@ -1378,12 +1439,14 @@ public struct DesktopUpdateSheet: View {
                 )
             }
         } catch let apiErr as APIError {
+            if Task.isCancelled || loadGeneration != generation { return }
             if case .serverError(let code, _) = apiErr, code == 404 {
                 gatewayUnsupported = true
             } else {
                 gatewayErrorText = apiErr.localizedDescription
             }
         } catch {
+            if isRequestCancellation(error) || loadGeneration != generation { return }
             gatewayErrorText = error.localizedDescription
         }
     }
@@ -1398,6 +1461,7 @@ public struct DesktopUpdateSheet: View {
             let resp = try await APIClient.shared.applyDesktopUpdate(baseURL: gw)
             desktopMessageText = resp.message ?? String(localized: "已通知桌面端应用更新并重启")
         } catch {
+            if isRequestCancellation(error) { return }
             desktopErrorText = error.localizedDescription
         }
     }
@@ -1420,6 +1484,7 @@ public struct DesktopUpdateSheet: View {
             startPollingGatewayUpdate(gw: gw, previousVersion: prevVer, expectedVersion: expectedVer)
         } catch {
             isApplyingGateway = false
+            if isRequestCancellation(error) { return }
             gatewayErrorText = error.localizedDescription
         }
     }
@@ -1480,6 +1545,7 @@ public struct DesktopUpdateSheet: View {
                         return
                     }
                 } catch {
+                    if isRequestCancellation(error) { return }
                     consecutiveErrors += 1
                     // After entering restarting (or during binary swap), brief network disconnects are expected.
                     if sawRestarting || isApplyingGateway {

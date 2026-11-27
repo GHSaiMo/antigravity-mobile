@@ -10,6 +10,17 @@ private struct P4OkResponse: Decodable {
     let error: String?
 }
 
+private func isCancellationTransportError(_ error: Error) -> Bool {
+    if error is CancellationError || Task.isCancelled {
+        return true
+    }
+    if let urlErr = error as? URLError, urlErr.code == .cancelled {
+        return true
+    }
+    let nsErr = error as NSError
+    return nsErr.domain == NSURLErrorDomain && nsErr.code == NSURLErrorCancelled
+}
+
 extension APIClient {
     private func p4Get<Resp: Decodable>(pathAndQuery: String, baseURL: URL, timeout: TimeInterval = 15) async throws -> Resp {
         let baseStr = baseURL.absoluteString.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
@@ -26,6 +37,9 @@ extension APIClient {
         do {
             (data, response) = try await transport.send(request: request)
         } catch {
+            if isCancellationTransportError(error) {
+                throw CancellationError()
+            }
             throw APIError.networkError(error.localizedDescription)
         }
         guard let http = response as? HTTPURLResponse else {
@@ -59,6 +73,9 @@ extension APIClient {
         do {
             (data, response) = try await transport.send(request: request)
         } catch {
+            if isCancellationTransportError(error) {
+                throw CancellationError()
+            }
             throw APIError.networkError(error.localizedDescription)
         }
         guard let http = response as? HTTPURLResponse else {
