@@ -664,7 +664,7 @@ fun ChatScreen(
         try {
             val activity = DocumentScannerHelper.findActivity(context)
             if (activity != null) {
-                val remainingSlots = (9 - uiState.selectedImages.size).coerceIn(1, 9)
+                val remainingSlots = (ChatViewModel.MAX_DRAFT_IMAGES - uiState.selectedImages.size).coerceIn(1, ChatViewModel.MAX_DRAFT_IMAGES)
                 val options = GmsDocumentScannerOptions.Builder()
                     .setGalleryImportAllowed(false)
                     .setPageLimit(remainingSlots)
@@ -3169,7 +3169,7 @@ fun ChatScreen(
     // "+" attachment panel (camera, recent photos, add file)
     if (showAttachmentSheet) {
         AttachmentPickerSheet(
-            remainingImageSlots = (9 - uiState.selectedImages.size).coerceAtLeast(0),
+            remainingImageSlots = (ChatViewModel.MAX_DRAFT_IMAGES - uiState.selectedImages.size).coerceAtLeast(0),
             onDismiss = { showAttachmentSheet = false },
             onPhotosPicked = { uris ->
                 showAttachmentSheet = false

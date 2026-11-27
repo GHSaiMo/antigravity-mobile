@@ -357,6 +357,7 @@ struct AttachmentPickerSheet: View {
     @State private var selectedAssetMap: [String: PHAsset] = [:] // Preserves PHAsset references across album switches
     @State private var showAlbumDrawer = false
     @State private var showFileImporter = false
+    @State private var hasConfirmedSelection = false
     private let imageManager = PHCachingImageManager()
 
     private let columns = Array(repeating: GridItem(.flexible(), spacing: 6), count: 4)
@@ -515,7 +516,7 @@ struct AttachmentPickerSheet: View {
                 .overlay(alignment: .bottom) {
                     if !selected.isEmpty && !showAlbumDrawer {
                         footer
-                            .padding(.bottom, 12)
+                            .padding(.bottom, 4)
                             .transition(.scale(scale: 0.9).combined(with: .opacity))
                     }
                 }
@@ -751,21 +752,36 @@ struct AttachmentPickerSheet: View {
         .accessibilityLabel(isDenied ? String(localized: "前往系统设置开启相册权限") : String(localized: "授权访问相册以选择最近照片"))
     }
     
+    private func confirmSelection() {
+        guard !hasConfirmedSelection, !selected.isEmpty else { return }
+        hasConfirmedSelection = true
+        UIImpactFeedbackGenerator(style: .medium).impactOccurred()
+        let picked = selected.compactMap { selectedAssetMap[$0] }
+        dismiss()
+        onPhotosPicked(picked)
+    }
+
     private var footer: some View {
-        Button {
-            UIImpactFeedbackGenerator(style: .medium).impactOccurred()
-            let picked = selected.compactMap { selectedAssetMap[$0] }
-            dismiss()
-            onPhotosPicked(picked)
-        } label: {
+        Button(action: confirmSelection) {
             Text("添加 (\(selected.count))")
                 .font(.system(size: 16, weight: .semibold))
                 .foregroundStyle(.white)
                 .padding(.horizontal, 32)
                 .padding(.vertical, 13)
+                .frame(minWidth: 144, minHeight: 48)
+                .background(Color.indigo.opacity(0.001), in: Capsule())
+                .contentShape(Capsule())
                 .glassEffect(.regular.tint(.indigo).interactive(), in: .capsule)
+                .contentShape(Capsule())
+                // Extend the button's own hit target slightly beyond the glass capsule rim
+                // so off-center / edge taps never fall through to underlying photo cells.
+                .padding(.horizontal, 10)
+                .padding(.vertical, 8)
+                .background(Color.black.opacity(0.001), in: Capsule())
+                .contentShape(Capsule())
         }
         .buttonStyle(.plain)
+        .contentShape(Capsule())
     }
     
     private static func topViewController() -> UIViewController? {

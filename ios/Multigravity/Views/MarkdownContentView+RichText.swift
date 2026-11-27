@@ -33,7 +33,7 @@ extension MarkdownContentView {
         }
     }
     
-    public static func renderRichText(_ rawText: String, size: CGFloat = 15, weight: Font.Weight = .regular) -> Text {
+    public static func renderRichText(_ rawText: String, size: CGFloat = 15, weight: Font.Weight = .regular, colorScheme: ColorScheme? = nil) -> Text {
         var text = MathSymbolProcessor.process(rawText)
         text = replaceHtmlBreaks(in: text)
         text = unwrapBacktickBold(in: text)
@@ -93,7 +93,7 @@ extension MarkdownContentView {
             }
         }
         
-        let attr = renderInlineMarkdownNormalized(text, size: size, weight: weight)
+        let attr = renderInlineMarkdownNormalized(text, size: size, weight: weight, colorScheme: colorScheme)
         
         // Fast-path: If text does not contain markdown link signature `](` or URL scheme, return Text(attr) directly
         guard (text.contains("[") && text.contains("](")) || text.contains("http://") || text.contains("https://") || text.contains("file://") else {
@@ -813,10 +813,22 @@ extension MarkdownContentView {
         return (result, hasMarkers)
     }
     
-    public static func renderInlineMarkdown(_ text: String, size: CGFloat = 15, weight: Font.Weight = .regular) -> AttributedString {
+    /// Dark mode inline code color: Antigravity Desktop Amber (#E5C07B)
+    static let darkInlineCodeColor = Color(red: 229/255, green: 192/255, blue: 123/255)
+    /// Light mode inline code color: Warm Caramel Amber (#B45309, WCAG AA 5.02:1 on white)
+    static let lightInlineCodeColor = Color(red: 180/255, green: 83/255, blue: 9/255)
+    /// Fallback dynamic color when caller does not supply an explicit SwiftUI ColorScheme
+    static let adaptiveInlineCodeColor = Color(uiColor: UIColor { traits in
+        if traits.userInterfaceStyle == .dark {
+            return UIColor(red: 229.0/255.0, green: 192.0/255.0, blue: 123.0/255.0, alpha: 1.0)
+        }
+        return UIColor(red: 180.0/255.0, green: 83.0/255.0, blue: 9.0/255.0, alpha: 1.0)
+    })
+
+    public static func renderInlineMarkdown(_ text: String, size: CGFloat = 15, weight: Font.Weight = .regular, colorScheme: ColorScheme? = nil) -> AttributedString {
         let textWithBreaks = replaceHtmlBreaks(in: text)
         let unwrappedText = unwrapBacktickBold(in: textWithBreaks)
-        return renderInlineMarkdownNormalized(unwrappedText, size: size, weight: weight)
+        return renderInlineMarkdownNormalized(unwrappedText, size: size, weight: weight, colorScheme: colorScheme)
     }
 
     /// Strips `<16-hex>-` prefixes from WeChat chat archive display references in link labels,
@@ -888,9 +900,22 @@ extension MarkdownContentView {
         }.joined()
     }
 
-    private static func renderInlineMarkdownNormalized(_ unwrappedText: String, size: CGFloat = 15, weight: Font.Weight = .regular) -> AttributedString {
+    private static func renderInlineMarkdownNormalized(_ unwrappedText: String, size: CGFloat = 15, weight: Font.Weight = .regular, colorScheme: ColorScheme? = nil) -> AttributedString {
         let displayCleaned = stripWeChatDisplayPrefixes(in: unwrappedText)
-        let cacheKey = displayCleaned.hashValue ^ (Int(size * 100) << 2) ^ weight.hashValue
+        let schemeTag: Int = {
+            switch colorScheme {
+            case .light: return 1
+            case .dark: return 2
+            case nil: return 0
+            @unknown default: return 0
+            }
+        }()
+        var hasher = Hasher()
+        hasher.combine(displayCleaned)
+        hasher.combine(Int(size * 100))
+        hasher.combine(weight)
+        hasher.combine(schemeTag)
+        let cacheKey = hasher.finalize()
         if let cached = InlineMarkdownCache.shared.get(cacheKey) {
             return cached
         }
@@ -911,8 +936,14 @@ extension MarkdownContentView {
             }
         }
         
-        // Antigravity Desktop Code Amber/Yellow color: #E5C07B (RGB: 229, 192, 123)
-        let codeFgColor = Color(red: 229/255, green: 192/255, blue: 123/255)
+        let codeFgColor: Color = {
+            switch colorScheme {
+            case .dark: return Self.darkInlineCodeColor
+            case .light: return Self.lightInlineCodeColor
+            case nil: return Self.adaptiveInlineCodeColor
+            @unknown default: return Self.adaptiveInlineCodeColor
+            }
+        }()
         
         for run in attr.runs {
             let isBold = (run.inlinePresentationIntent?.contains(.stronglyEmphasized) == true) || weight == .bold

@@ -248,13 +248,15 @@ public final class ChatViewModel {
         saveCurrentDraft()
     }
     
+    public static let maxDraftImages = 10
+
     public func appendDraftImages(_ newImages: [Data]) {
         guard !newImages.isEmpty else { return }
         markDraftMutated()
         var current = self.selectedImageData
         current.append(contentsOf: newImages)
-        if current.count > 5 {
-            current = Array(current.prefix(5))
+        if current.count > Self.maxDraftImages {
+            current = Array(current.prefix(Self.maxDraftImages))
         }
         self.selectedImageData = current
         if var updated = draftSession {

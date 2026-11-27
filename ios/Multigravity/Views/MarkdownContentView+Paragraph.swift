@@ -3,12 +3,13 @@ import SwiftUI
 struct EquatableMarkdownParagraphView: View, Equatable {
     let text: String
     let size: CGFloat
+    let colorScheme: ColorScheme
 
     var body: some View {
         let cleanText = MarkdownContentView.replaceHtmlBreaks(in: text).trimmingCharacters(in: .whitespacesAndNewlines)
         let segments = MarkdownContentView.parsePlanSegments(cleanText)
         if segments.count <= 1 && (segments.first?.isPlanButton != true) {
-            MarkdownContentView.renderRichText(cleanText, size: size)
+            MarkdownContentView.renderRichText(cleanText, size: size, colorScheme: colorScheme)
                 .font(.system(size: size))
                 .lineSpacing(3)
                 .fixedSize(horizontal: false, vertical: true)
@@ -19,7 +20,7 @@ struct EquatableMarkdownParagraphView: View, Equatable {
                     case .text(_, let content):
                         let trimmed = content.trimmingCharacters(in: .whitespacesAndNewlines)
                         if !trimmed.isEmpty {
-                            MarkdownContentView.renderRichText(trimmed, size: size)
+                            MarkdownContentView.renderRichText(trimmed, size: size, colorScheme: colorScheme)
                                 .font(.system(size: size))
                                 .lineSpacing(3)
                         }
@@ -37,7 +38,7 @@ extension MarkdownContentView {
     
     @ViewBuilder
     func paragraphView(text: String, size: CGFloat = 15) -> some View {
-        EquatableMarkdownParagraphView(text: text, size: size)
+        EquatableMarkdownParagraphView(text: text, size: size, colorScheme: colorScheme)
     }
     
     static let planRegex = try? NSRegularExpression(

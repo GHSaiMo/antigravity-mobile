@@ -40,7 +40,7 @@ public final class ZLPhotoPickerBridge {
     /// - Parameters:
     ///   - maxCount: 最多可选照片数
     ///   - onImagesPicked: 选取或拍照完成后的图片回调
-    public func present(maxCount: Int = 5, onImagesPicked: @escaping ([UIImage]) -> Void) {
+    public func present(maxCount: Int = 10, onImagesPicked: @escaping ([UIImage]) -> Void) {
         guard maxCount > 0 else { return }
         
         guard let topVC = getTopViewController() else {

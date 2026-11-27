@@ -5334,12 +5334,12 @@ function closeAuditSheet() {
 
 function sendCompactCommand() {
   closeAuditSheet();
-  const inputEl = document.getElementById("chat-input");
-  if (inputEl) {
-    inputEl.value = "/compact";
-    if (typeof sendMessage === "function") {
-      sendMessage();
-    }
+  if (typeof sendMessage === "function") {
+    const known = (typeof slashState !== "undefined" && Array.isArray(slashState.commands))
+      ? slashState.commands.find((c) => (c?.name || "").toLowerCase() === "compact")
+      : null;
+    const compactCmd = known || { name: "compact", title: "compact", icon: "collapse_all", kind: "system" };
+    sendMessage({ overrideText: "", overrideSlashes: [compactCmd], preserveDraft: true });
   }
 }
 

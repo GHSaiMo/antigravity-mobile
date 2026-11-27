@@ -69,7 +69,7 @@ extension ChatView {
     }
     
     func openPhotoLibraryWithCamera() {
-        let maxCount = 5
+        let maxCount = ChatViewModel.maxDraftImages
         let currentCount = viewModel.selectedImageData.count
         let remaining = max(0, maxCount - currentCount)
         guard remaining > 0 else {
@@ -143,7 +143,7 @@ extension ChatView {
     }
     
     func handleScannedImages(_ images: [UIImage]) {
-        let maxSlots = max(0, 5 - viewModel.selectedImageData.count)
+        let maxSlots = max(0, ChatViewModel.maxDraftImages - viewModel.selectedImageData.count)
         let toProcess = Array(images.prefix(maxSlots))
         var datas: [Data] = []
         for img in toProcess {

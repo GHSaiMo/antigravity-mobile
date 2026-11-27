@@ -816,7 +816,7 @@ extension ChatView {
             onExportMarkdown: { viewModel.exportMarkdown() },
             onCompact: {
                 Task {
-                    _ = await viewModel.sendMessage(text: "/compact")
+                    _ = await viewModel.sendCompactCommand()
                 }
             },
             onStartNewSession: {

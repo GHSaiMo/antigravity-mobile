@@ -2,14 +2,18 @@
 
 let isSendingMessage = false;
 
-async function sendMessage() {
+async function sendMessage(options = null) {
   if ((!activeCascadeId && !activeDraftSession) || isSendingMessage) return;
 
+  const opts = (options && typeof options === "object" && !(options instanceof Event)) ? options : null;
+  const preserveDraft = Boolean(opts?.preserveDraft);
   const inputEl = document.getElementById("chat-input");
-  const text = inputEl.value.trim();
+  const text = opts && typeof opts.overrideText === "string"
+    ? opts.overrideText.trim()
+    : (inputEl ? inputEl.value.trim() : "");
 
   // Antigravity 2.33.0: /btw side-question slash command in main composer
-  if (activeCascadeId && (text === "/btw" || /^\/btw\s+/i.test(text))) {
+  if (!preserveDraft && activeCascadeId && (text === "/btw" || /^\/btw\s+/i.test(text))) {
     const q = text.replace(/^\/btw\s*/i, "").trim();
     inputEl.value = "";
     inputEl.style.height = "auto";
@@ -24,15 +28,17 @@ async function sendMessage() {
     return;
   }
 
-  const hasImages = pendingImages.length > 0;
-  const hasAttachments = typeof pendingAttachments !== "undefined" && pendingAttachments.some(a => !a.uploading);
-  if (typeof pendingAttachments !== "undefined" && pendingAttachments.some(a => a.uploading)) {
+  const hasImages = !preserveDraft && pendingImages.length > 0;
+  const hasAttachments = !preserveDraft && typeof pendingAttachments !== "undefined" && pendingAttachments.some(a => !a.uploading);
+  if (!preserveDraft && typeof pendingAttachments !== "undefined" && pendingAttachments.some(a => a.uploading)) {
     if (typeof showToast === "function") showToast(typeof t === "function" ? t("附件正在上传，请稍候…") : "附件正在上传，请稍候…");
     return;
   }
-  const slashSelected = typeof getSelectedSlashCommands === "function" ? [...getSelectedSlashCommands()] : [];
+  const slashSelected = Array.isArray(opts?.overrideSlashes)
+    ? [...opts.overrideSlashes]
+    : (typeof getSelectedSlashCommands === "function" ? [...getSelectedSlashCommands()] : []);
   const hasSlash = slashSelected.length > 0;
-  const hasContextItems = !!(window.Phase3?.contextItems?.length);
+  const hasContextItems = !preserveDraft && !!(window.Phase3?.contextItems?.length);
   if (!text && !hasImages && !hasAttachments && !hasSlash && !hasContextItems) return;
 
   if (!activeCascadeId && activeDraftSession) {
@@ -162,16 +168,18 @@ async function sendMessage() {
   isSendingMessage = true;
   const isRunning = isCascadeRunning(activeCascadeId);
 
-  const imagesToSend = [...pendingImages];
-  pendingImages = [];
-  const attachmentsToSend = typeof pendingAttachments !== "undefined" ? [...pendingAttachments] : [];
-  if (typeof pendingAttachments !== "undefined") pendingAttachments = [];
-  renderImagePreviews();
+  const imagesToSend = preserveDraft ? [] : [...pendingImages];
+  if (!preserveDraft) pendingImages = [];
+  const attachmentsToSend = (!preserveDraft && typeof pendingAttachments !== "undefined") ? [...pendingAttachments] : [];
+  if (!preserveDraft && typeof pendingAttachments !== "undefined") pendingAttachments = [];
+  if (!preserveDraft) renderImagePreviews();
 
-  inputEl.value = "";
-  inputEl.style.height = "auto";
-  clearTimeout(draftDebounceTimer);
-  DraftManager.clear(activeCascadeId);
+  if (!preserveDraft && inputEl) {
+    inputEl.value = "";
+    inputEl.style.height = "auto";
+    clearTimeout(draftDebounceTimer);
+    DraftManager.clear(activeCascadeId);
+  }
   currentCanProceed = false;
   updateProceedButton(false);
   updateContinueButton(false);
@@ -179,9 +187,9 @@ async function sendMessage() {
   const sentSlashes = [...slashSelected];
   const effectiveText = text || (attachmentsToSend.length > 0 && !imagesToSend.length ? "请查收附件" : "");
   const items = buildSendItems(effectiveText, sentSlashes);
-  const ctxItems = window.Phase3?.consumeContextItems?.() || [];
+  const ctxItems = preserveDraft ? [] : (window.Phase3?.consumeContextItems?.() || []);
   const displayText = slashDisplayText(text, sentSlashes);
-  clearSelectedSlash();
+  if (!preserveDraft) clearSelectedSlash();
   // Only media[] is stored by language_server (and read by the model); the legacy images[] copy
   // would just double the upload.
   const mediaPayload = imagesToSend.map(img => ({
@@ -230,7 +238,7 @@ async function sendMessage() {
       const timedOut = msg.includes("超时") || msg.includes("timeout") || msg.includes("timed out") || msg.includes("送达服务器");
       if (!timedOut) {
         LocalQueueManager.discardOptimistic(queuedLocalId, targetCascadeId);
-        if (text && text.trim()) {
+        if (!preserveDraft && text && text.trim()) {
           if (activeCascadeId === targetCascadeId) {
             const curInput = document.getElementById("chat-input");
             if (curInput) {
@@ -246,7 +254,7 @@ async function sendMessage() {
             DraftManager.set(targetCascadeId, saved && saved.trim() ? `${saved}\n${text}` : text);
           }
         }
-        if (sentSlashes.length > 0 && activeCascadeId === targetCascadeId && typeof slashState !== "undefined" && slashState.selected.length === 0) {
+        if (!preserveDraft && sentSlashes.length > 0 && activeCascadeId === targetCascadeId && typeof slashState !== "undefined" && slashState.selected.length === 0) {
           slashState.selected = [...sentSlashes];
           slashState.cascadeId = targetCascadeId;
           if (typeof renderSlashChip === "function") renderSlashChip();
@@ -326,15 +334,17 @@ async function sendMessage() {
     alert(typeof t === "function" ? t("发送失败: " + err.message) : "发送失败: " + err.message);
     const tempEl = document.getElementById(tempId);
     if (tempEl) tempEl.remove();
-    if (sentSlashes.length > 0) {
-      slashState.selected = [...sentSlashes];
-      slashState.cascadeId = activeCascadeId;
-      renderSlashChip();
+    if (!preserveDraft) {
+      if (sentSlashes.length > 0) {
+        slashState.selected = [...sentSlashes];
+        slashState.cascadeId = activeCascadeId;
+        renderSlashChip();
+      }
+      if (inputEl) inputEl.value = text;
+      pendingImages = imagesToSend;
+      if (typeof pendingAttachments !== "undefined") pendingAttachments = attachmentsToSend;
+      renderImagePreviews();
     }
-    inputEl.value = text;
-    pendingImages = imagesToSend;
-    if (typeof pendingAttachments !== "undefined") pendingAttachments = attachmentsToSend;
-    renderImagePreviews();
   } finally {
     isSendingMessage = false;
   }

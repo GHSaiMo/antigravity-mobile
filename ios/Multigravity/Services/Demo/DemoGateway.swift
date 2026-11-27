@@ -1186,7 +1186,17 @@ final class DemoGateway: @unchecked Sendable {
         }
 
         let step = conversations[idx].messages.count
-        var displayUserText = trimmed.isEmpty ? "Continue" : trimmed
+        let slashNames: [String] = (slashCommands ?? []).compactMap { dict in
+            let n = (dict["name"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            return n.isEmpty ? nil : n
+        }
+        let slashPrefix = slashNames.map { "/\($0)" }.joined(separator: " ")
+        var displayUserText: String
+        if !slashPrefix.isEmpty {
+            displayUserText = trimmed.isEmpty ? slashPrefix : "\(slashPrefix) \(trimmed)"
+        } else {
+            displayUserText = trimmed.isEmpty ? "Continue" : trimmed
+        }
         if !attachmentLines.isEmpty {
             let block = AttachmentRules.blockHeader + "\n" + attachmentLines.joined(separator: "\n")
             displayUserText = displayUserText == "Continue" ? block : "\(displayUserText)\n\n\(block)"
@@ -1199,7 +1209,7 @@ final class DemoGateway: @unchecked Sendable {
             slashCommands: slashCommands
         )
         userM.clientMessageId = clientMessageId
-        if trimmed != "Continue" || !attachmentLines.isEmpty {
+        if trimmed != "Continue" || !attachmentLines.isEmpty || !slashNames.isEmpty {
             conversations[idx].messages.append(userM)
         }
         conversations[idx].canProceed = false
@@ -1219,7 +1229,8 @@ final class DemoGateway: @unchecked Sendable {
 
             let promptText = trimmed.isEmpty ? "Continue" : trimmed
             let lower = promptText.lowercased()
-            if lower.hasPrefix("/compact") {
+            let isCompactSlash = slashNames.contains(where: { $0.lowercased() == "compact" })
+            if isCompactSlash || lower.hasPrefix("/compact") {
                 let s = self.conversations[i].messages.count
                 let prevPct = self.conversations[i].contextMeter?.percentage ?? 88.0
                 let newUsed: Int64 = 124_600

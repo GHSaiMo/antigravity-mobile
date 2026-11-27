@@ -60,6 +60,7 @@ func newSlashTestProxy(t *testing.T, slashCalls *int32, sent *map[string]interfa
 		case strings.HasSuffix(r.URL.Path, "/GetSlashCommands"):
 			atomic.AddInt32(slashCalls, 1)
 			_, _ = w.Write([]byte(`{"commands":[
+			  {"info":{"name":"compact","type":"SLASH_COMMAND_TYPE_SYSTEM","icon":"collapse_all","modelFacingText":"<COMPACT>summarize context</COMPACT>"},"title":"compact","description":"Compact context"},
 			  {"info":{"name":"plan","type":"SLASH_COMMAND_TYPE_SYSTEM","icon":"ballot","modelFacingText":"<PLAN>think first</PLAN>"},"title":"plan","description":"Plan carefully"},
 			  {"info":{"name":"bird-twitter","type":"SLASH_COMMAND_TYPE_SKILL","definitionPath":"/x/SKILL.md","modelFacingText":"<SKILL>use bird</SKILL>"},"title":"bird-twitter","description":"Twitter"},
 			  {"info":{"name":"schedule","type":"SLASH_COMMAND_TYPE_SYSTEM","modelFacingText":"S"},"title":"schedule","description":"hidden"}]}`))
@@ -107,7 +108,7 @@ func TestSlashCommandsEndpointAndCache(t *testing.T) {
 		return res
 	}
 	res := get("/gateway/slash-commands")
-	if len(res.Commands) != 4 || res.Commands[0].Name != "btw" || res.Commands[1].Name != "plan" || res.Commands[2].Name != "workflow" || res.Commands[3].Name != "bird-twitter" {
+	if len(res.Commands) != 5 || res.Commands[0].Name != "btw" || res.Commands[1].Name != "compact" || res.Commands[2].Name != "plan" || res.Commands[3].Name != "workflow" || res.Commands[4].Name != "bird-twitter" {
 		t.Fatalf("commands = %+v", res.Commands)
 	}
 	get("/gateway/slash-commands")
@@ -277,5 +278,97 @@ func TestExtractUserInputSlashCommands(t *testing.T) {
 	}
 	if cmds[1].Name != "vip-memory" || cmds[1].Icon != "code_blocks" || cmds[1].Kind != "skill" {
 		t.Errorf("unexpected cmd[1]: %+v", cmds[1])
+	}
+}
+
+func TestSendUpgradesLeadingPlainTextSystemSlashCommands(t *testing.T) {
+	var calls int32
+	var sent map[string]interface{}
+	p := newSlashTestProxy(t, &calls, &sent)
+
+	// 1. Plain-text "/compact" from older clients or manual typing upgrades to structured slashCommand
+	rec := doSend(p, `{"cascadeId":"c-plain-1","items":[{"text":"/compact"}]}`, nil)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status %d: %s", rec.Code, rec.Body.String())
+	}
+	items, _ := sent["items"].([]interface{})
+	if len(items) != 1 {
+		t.Fatalf("expected 1 upgraded item for /compact, got %v", sent["items"])
+	}
+	info := items[0].(map[string]interface{})["item"].(map[string]interface{})["slashCommand"].(map[string]interface{})["info"].(map[string]interface{})
+	if info["name"] != "compact" || info["modelFacingText"] != "<COMPACT>summarize context</COMPACT>" {
+		t.Fatalf("unexpected upgraded compact info: %v", info)
+	}
+
+	// 2. Leading "/Plan 帮我拆分步骤" (case-insensitive + trailing text) upgrades and preserves remainder
+	sent = nil
+	rec = doSend(p, `{"cascadeId":"c-plain-2","items":[{"text":"  /Plan 帮我拆分步骤"}]}`, nil)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status %d: %s", rec.Code, rec.Body.String())
+	}
+	items, _ = sent["items"].([]interface{})
+	if len(items) != 2 {
+		t.Fatalf("expected 2 items for /Plan + text, got %v", sent["items"])
+	}
+	info = items[0].(map[string]interface{})["item"].(map[string]interface{})["slashCommand"].(map[string]interface{})["info"].(map[string]interface{})
+	if info["name"] != "plan" || info["modelFacingText"] != "<PLAN>think first</PLAN>" {
+		t.Fatalf("unexpected upgraded plan info: %v", info)
+	}
+	if items[1].(map[string]interface{})["text"] != " 帮我拆分步骤" {
+		t.Fatalf("trailing text mismatch: %v", items[1])
+	}
+
+	// 3. Legacy text-only payload {"text": "/compact"} also upgrades
+	sent = nil
+	rec = doSend(p, `{"cascadeId":"c-plain-3","text":"/compact"}`, nil)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status %d: %s", rec.Code, rec.Body.String())
+	}
+	items, _ = sent["items"].([]interface{})
+	if len(items) != 1 {
+		t.Fatalf("expected 1 upgraded item for legacy text /compact, got %v", sent["items"])
+	}
+	info = items[0].(map[string]interface{})["item"].(map[string]interface{})["slashCommand"].(map[string]interface{})["info"].(map[string]interface{})
+	if info["name"] != "compact" {
+		t.Fatalf("unexpected legacy compact info: %v", info)
+	}
+
+	// 4. Mid-sentence mention, file path, unknown slash, skill, and hidden system command stay plain text
+	for _, tc := range []struct {
+		id   string
+		text string
+	}{
+		{"c-keep-1", "为什么 /compact 没生效"},
+		{"c-keep-2", "/Users/hal9000/Projects/test.go"},
+		{"c-keep-3", "/plan/readme.md"},
+		{"c-keep-4", "/unknown-cmd hello"},
+		{"c-keep-5", "/bird-twitter 搜一下"},
+		{"c-keep-6", "/schedule 明天提醒我"},
+	} {
+		sent = nil
+		body, _ := json.Marshal(map[string]interface{}{
+			"cascadeId": tc.id,
+			"items":     []interface{}{map[string]interface{}{"text": tc.text}},
+		})
+		rec = doSend(p, string(body), nil)
+		if rec.Code != http.StatusOK {
+			t.Fatalf("%s status %d: %s", tc.id, rec.Code, rec.Body.String())
+		}
+		items, _ = sent["items"].([]interface{})
+		if len(items) != 1 || items[0].(map[string]interface{})["text"] != tc.text {
+			t.Errorf("%s must stay plain text %q, got %v", tc.id, tc.text, items)
+		}
+	}
+
+	// 5. File paths starting with "/" must NOT even trigger GetSlashCommands
+	var pathCalls int32
+	var pathSent map[string]interface{}
+	p2 := newSlashTestProxy(t, &pathCalls, &pathSent)
+	rec = doSend(p2, `{"cascadeId":"c-path","items":[{"text":"/Users/hal9000/file.txt"}]}`, nil)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("path status %d", rec.Code)
+	}
+	if atomic.LoadInt32(&pathCalls) != 0 {
+		t.Errorf("file path must not trigger GetSlashCommands, calls = %d", pathCalls)
 	}
 }

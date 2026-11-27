@@ -117,7 +117,7 @@ internal data class RichTextRenderData(
  * Parses and renders inline markdown formatting:
  * - Bold: `**text**` or `__text__`
  * - Italic: `*text*` or `_text_`
- * - Inline code: `` `code` `` in Desktop Amber (#E5C07B)
+ * - Inline code: `` `code` `` in Desktop Amber (#E5C07B dark / #B45309 light)
  * - Links: `[text](url)` with inline file icon SVG, compact monospace font, and script filtering
  * - LaTeX Arrows: `\to` -> `→`, etc.
  */
@@ -323,7 +323,7 @@ internal fun buildRichTextRenderData(
     }
 
     val inlineContentMap = mutableMapOf<String, InlineTextContent>()
-    val codeColor = Color(0xFFE5C07B) // Desktop Amber
+    val codeColor = if (colors.isDark) Color(0xFFE5C07B) else Color(0xFFB45309) // Dark Amber / Light Caramel Amber (WCAG AA)
     var iconIndex = 0
 
     val annotatedString = buildAnnotatedString {
@@ -750,7 +750,7 @@ internal fun buildCompactMarkdownPreview(
     processed = unwrapBacktickBold(processed)
     processed = normalizeBoldSpaces(processed)
 
-    val codeColor = Color(0xFFE5C07B) // Desktop Amber
+    val codeColor = if (colors.isDark) Color(0xFFE5C07B) else Color(0xFFB45309) // Dark Amber / Light Caramel Amber (WCAG AA)
 
     return buildAnnotatedString {
         fun appendPlain(plain: String, isBold: Boolean, isItalic: Boolean, isStrike: Boolean) {

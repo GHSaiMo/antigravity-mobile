@@ -112,7 +112,8 @@ internal fun ChatViewModel.addImagesFromUris(context: Context, uris: List<Uri>) 
             }
         }
         if (newAttachments.isNotEmpty()) {
-            val updatedImages = _uiState.value.selectedImages + newAttachments
+            val updatedImages = (_uiState.value.selectedImages + newAttachments)
+                .take(ChatViewModel.MAX_DRAFT_IMAGES)
             _uiState.value = _uiState.value.copy(
                 selectedImages = updatedImages
             )
@@ -195,7 +196,8 @@ internal fun ChatViewModel.sendMessage(
     forceImmediate: Boolean = false,
     files: List<AttachmentFile> = emptyList(),
     slashCommands: List<String> = emptyList(),
-    slashOptions: List<SlashCommandOption> = emptyList()
+    slashOptions: List<SlashCommandOption> = emptyList(),
+    consumeDraftContextItems: Boolean = true
 ) {
     val cascadeId = _uiState.value.cascadeId
     // The gateway appends the attachment block to the text; mirror it locally so optimistic
@@ -205,10 +207,10 @@ internal fun ChatViewModel.sendMessage(
     // language_server 把斜杠命令的显示文本生成为 "/name1 /name2 内容"，本地气泡与队列条目保持一致
     val displayText = SlashCommandFilter.displayText(cleanSlashes, bodyText)
     val attachmentIds = files.mapNotNull { it.attachmentId }
-    val ctxItems = _uiState.value.selectedContextItems
-    if (ctxItems.isNotEmpty() || _uiState.value.suggestedResponses.isNotEmpty()) {
+    val ctxItems = if (consumeDraftContextItems) _uiState.value.selectedContextItems else emptyList()
+    if ((consumeDraftContextItems && ctxItems.isNotEmpty()) || _uiState.value.suggestedResponses.isNotEmpty()) {
         _uiState.value = _uiState.value.copy(
-            selectedContextItems = emptyList(),
+            selectedContextItems = if (consumeDraftContextItems) emptyList() else _uiState.value.selectedContextItems,
             suggestedResponses = emptyList(),
             suggestedResponseSource = "",
             dismissedPredictedSuggestion = null

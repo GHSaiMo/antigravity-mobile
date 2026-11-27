@@ -150,7 +150,16 @@ func (p *Proxy) handleSendUserCascadeMessage(w http.ResponseWriter, r *http.Requ
 			return
 		}
 
-		// Slash commands: swap the client's {name} for the authoritative info (modelFacingText etc.).
+		// If items is missing or empty, synthesize from "text" before slash-command expansion
+		// so legacy text-only payloads like {"text":"/compact"} also get upgraded cleanly.
+		if items, ok := rawMap["items"].([]interface{}); !ok || len(items) == 0 {
+			if txt, ok := rawMap["text"].(string); ok && strings.TrimSpace(txt) != "" {
+				rawMap["items"] = []interface{}{map[string]interface{}{"text": txt}}
+			}
+		}
+
+		// Slash commands: swap the client's {name} for the authoritative info (modelFacingText etc.),
+		// and upgrade leading plain-text system commands (e.g. "/compact", "/plan ...").
 		slashApplied, slashErr := p.expandSlashCommands(r.Context(), rawMap)
 		if slashErr != nil {
 			slog.Warn("[Proxy] SendUserCascadeMessage slash command rejected", "err", slashErr)
@@ -186,14 +195,6 @@ func (p *Proxy) handleSendUserCascadeMessage(w http.ResponseWriter, r *http.Requ
 						contentLen += len(name) + 1
 					}
 				}
-			}
-		}
-		// If items is missing or empty, synthesize from "text" parameter
-		if items, ok := rawMap["items"].([]interface{}); !ok || len(items) == 0 {
-			if txt, ok := rawMap["text"].(string); ok && strings.TrimSpace(txt) != "" {
-				rawMap["items"] = []interface{}{map[string]interface{}{"text": txt}}
-				contentHasher.Write([]byte(txt))
-				contentLen += len(txt)
 			}
 		}
 		if comments, ok := rawMap["artifactComments"].([]interface{}); ok {

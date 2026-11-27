@@ -570,7 +570,7 @@ public struct ChatView: View {
         content
             .sheet(isPresented: $showAttachmentSheet) {
                 AttachmentPickerSheet(
-                    remainingImageSlots: max(0, 5 - viewModel.selectedImageData.count),
+                    remainingImageSlots: max(0, ChatViewModel.maxDraftImages - viewModel.selectedImageData.count),
                     onPhotosPicked: { assets in handlePickedAssets(assets) },
                     onOpenAudioRecorder: {
                         DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { handleAudioRecordAction() }
@@ -742,7 +742,7 @@ public struct ChatView: View {
                         hasPendingInteraction: hasPending,
                         canCompact: !viewModel.cascadeId.hasPrefix("local_draft_") && !viewModel.isSubagentSession,
                         onCompact: {
-                            Task { _ = await viewModel.sendMessage(text: "/compact") }
+                            Task { _ = await viewModel.sendCompactCommand() }
                         },
                         onStartNewSession: {
                             NotificationCenter.default.post(

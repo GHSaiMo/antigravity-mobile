@@ -388,7 +388,21 @@ class ChatViewModel(
     }
 
     fun sendCompactCommand() {
-        sendMessage("/compact")
+        val compactOption = _uiState.value.slashCommands.firstOrNull {
+            it.name.equals("compact", ignoreCase = true)
+        } ?: SlashCommandOption(
+            name = "compact",
+            title = "compact",
+            description = "",
+            icon = "collapse_all",
+            kind = "system"
+        )
+        sendMessage(
+            text = "",
+            slashCommands = listOf(compactOption.name),
+            slashOptions = listOf(compactOption),
+            consumeDraftContextItems = false
+        )
     }
 
     fun sendCurrentMessage() {
@@ -550,5 +564,9 @@ class ChatViewModel(
         wsJob?.cancel()
         fetchJob?.cancel()
         wsClient.disconnect()
+    }
+
+    companion object {
+        const val MAX_DRAFT_IMAGES = 10
     }
 }

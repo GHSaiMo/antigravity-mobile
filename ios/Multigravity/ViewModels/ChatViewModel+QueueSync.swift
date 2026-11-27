@@ -349,8 +349,8 @@ extension ChatViewModel {
             if !images.isEmpty {
                 var mergedImages = self.selectedImageData
                 mergedImages.append(contentsOf: images)
-                if mergedImages.count > 5 {
-                    mergedImages = Array(mergedImages.prefix(5))
+                if mergedImages.count > Self.maxDraftImages {
+                    mergedImages = Array(mergedImages.prefix(Self.maxDraftImages))
                 }
                 self.selectedImageData = mergedImages
             }
@@ -385,8 +385,8 @@ extension ChatViewModel {
             if !images.isEmpty {
                 var savedImages = self.cacheManager.getDraftImages(for: targetDraftKey)
                 savedImages.append(contentsOf: images)
-                if savedImages.count > 5 {
-                    savedImages = Array(savedImages.prefix(5))
+                if savedImages.count > Self.maxDraftImages {
+                    savedImages = Array(savedImages.prefix(Self.maxDraftImages))
                 }
                 self.cacheManager.saveDraftImages(key: targetDraftKey, images: savedImages)
             }
@@ -398,6 +398,29 @@ extension ChatViewModel {
                 NotificationCenter.default.post(name: .conversationDraftChanged, object: targetDraftKey)
             }
         }
+    }
+
+    @discardableResult
+    @MainActor
+    public func sendCompactCommand() async -> Bool {
+        let compactOption = slashCommands.first(where: { $0.name.lowercased() == "compact" })
+            ?? SlashCommandOption(
+                name: "compact",
+                title: "compact",
+                description: "",
+                icon: "collapse_all",
+                kind: "system",
+                definitionPath: nil
+            )
+        return await sendMessage(
+            text: "",
+            images: [],
+            files: [],
+            slashCommands: [compactOption.name],
+            slashOptions: [compactOption],
+            contextItems: [],
+            clearsDraft: false
+        )
     }
 
     @discardableResult
