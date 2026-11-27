@@ -100,15 +100,25 @@ function renderRoute() {
     const wsUri = summary?.workspaceUris?.[0] || summary?.workspaces?.[0]?.workspaceFolderAbsoluteUri || "";
     const wsName = summary?.workspaceName || wsUri.split("/").filter(Boolean).pop() || "";
 
-    if (titleText) titleText.textContent = title;
+    if (titleText) {
+      const hasRealTitle = Boolean(summary && (summary.annotations?.title || summary.summary));
+      if (hasRealTitle) {
+        titleText.setAttribute("data-i18n-skip", "1");
+      } else {
+        titleText.removeAttribute("data-i18n-skip");
+      }
+      titleText.textContent = title;
+    }
     if (wsText) {
       if (wsName) {
+        wsText.title = wsUri || wsName;
         if (summary?.isScheduledTask && wsName !== "Chat") {
           wsText.innerHTML = `📁 ${escapeHtml(wsName)}${renderScheduledAlarmIconHtml()}`;
         } else {
           wsText.textContent = `📁 ${wsName}`;
         }
       } else {
+        wsText.title = "";
         wsText.textContent = "";
       }
     }
@@ -894,7 +904,7 @@ function renderConversationCardHtml(item, { isAttachedBranchChild = false, isLas
   const hasDraft = !hasError && !hasAction && !isRunning && DraftManager.has(item.id);
   const isUnread = !hasError && !isRunning && !hasAction && !hasDraft && isConversationUnread(item);
   const unreadDotHtml = isUnread
-    ? `<div class="status-unread-dot" title="未读新消息" data-testid="status-unread-dot"><div class="dot-halo"></div><div class="dot-core"></div></div>`
+    ? `<div class="status-unread-dot" title="${escapeHtml(typeof t === "function" ? t("未读新消息") : "未读新消息")}" data-testid="status-unread-dot"><div class="dot-halo"></div><div class="dot-core"></div></div>`
     : "";
   const badgeHtml = hasError
     ? `<span class="badge badge-error">error</span>`
@@ -1033,7 +1043,7 @@ function renderBranchDrawerHtml(parentId, branches, isExpanded, aggStatus) {
   } else if (aggStatus === "draft") {
     aggStatusHtml = `<span class="badge badge-draft conv-branch-toggle-badge">DRAFT</span>`;
   } else if (aggStatus === "unread") {
-    aggStatusHtml = `<div class="status-unread-dot conv-branch-toggle-dot" title="未读新消息"><div class="dot-halo"></div><div class="dot-core"></div></div>`;
+    aggStatusHtml = `<div class="status-unread-dot conv-branch-toggle-dot" title="${escapeHtml(typeof t === "function" ? t("未读新消息") : "未读新消息")}"><div class="dot-halo"></div><div class="dot-core"></div></div>`;
   }
 
   const childrenHtml = branches
@@ -1134,14 +1144,14 @@ function renderConversationList(summaries, { forceReorder = false } = {}) {
       </div>`
     : (showStarredOnly
       ? `<div class="conv-archived-banner" style="display:flex;align-items:center;justify-content:space-between;padding:8px 12px;margin:0 0 8px;border-radius:12px;background:rgba(245,158,11,0.12);font-size:12.5px;">
-          <span style="font-weight:600;color:#f59e0b;">★ 已星标 (${starredCount})</span>
+          <span style="font-weight:600;color:#f59e0b;">${escapeHtml(typeof t === "function" ? t(`★ 已星标 (${starredCount})`) : `★ 已星标 (${starredCount})`)}</span>
           <button type="button" class="conv-exit-starred-btn" style="border:none;background:none;color:var(--accent,#6366f1);font-weight:600;cursor:pointer;font-size:12.5px;">返回全部</button>
         </div>`
       : "");
 
   const starredFooterHtml = !showArchivedOnly && !showStarredOnly && !query && starredCount > 0
     ? `<button type="button" class="conv-open-starred-btn" style="display:flex;align-items:center;justify-content:center;gap:6px;width:100%;padding:8px 12px;margin-top:6px;border:none;background:transparent;color:#f59e0b;font-size:12.5px;font-weight:500;cursor:pointer;">
-        ★ 已星标 (${starredCount}) ›
+        ${escapeHtml(typeof t === "function" ? t(`★ 已星标 (${starredCount}) ›`) : `★ 已星标 (${starredCount}) ›`)}
       </button>`
     : "";
 

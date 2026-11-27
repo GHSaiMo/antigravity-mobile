@@ -1766,7 +1766,9 @@ enum AutomationCronHelper {
                     } else if dow.contains(",") {
                         let days = dow.split(separator: ",").compactMap { Int($0) }.filter { (0...7).contains($0) }.map { shortWeekdayName($0 == 7 ? 0 : $0) }
                         if !days.isEmpty {
-                            base = "\(days.joined(separator: "、")) \(hm)"
+                            let uiLang = (Bundle.main.preferredLocalizations.first ?? "en").lowercased()
+                            let sep = (uiLang.hasPrefix("zh") || uiLang.hasPrefix("ja")) ? "、" : ", "
+                            base = "\(days.joined(separator: sep)) \(hm)"
                         }
                     }
                 } else if dow == "*", let dayNum = Int(dom), (1...31).contains(dayNum) {

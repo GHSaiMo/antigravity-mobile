@@ -56,7 +56,8 @@ data class DeviceTitleTargetLanguage(
             val appPref = L10n.getLanguagePreference()
             when (appPref) {
                 "en" -> return DeviceTitleTargetLanguage(Kind.ENGLISH, "en", "English")
-                "zh-CN" -> return DeviceTitleTargetLanguage(Kind.SIMPLIFIED_CHINESE, "zh-Hans", "Simplified Chinese")
+                "zh", "zh-CN" -> return DeviceTitleTargetLanguage(Kind.SIMPLIFIED_CHINESE, "zh-Hans", "Simplified Chinese")
+                "zh-Hant", "zh-TW", "zh-HK" -> return DeviceTitleTargetLanguage(Kind.TRADITIONAL_CHINESE, "zh-Hant", "Traditional Chinese")
                 "ja" -> return DeviceTitleTargetLanguage(Kind.JAPANESE, "ja", "Japanese")
             }
 

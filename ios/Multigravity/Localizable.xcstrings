@@ -1086,7 +1086,7 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "%lld 件のサイド"
+            "value": "%lld 件のサイド質問"
           }
         },
         "zh-Hans": {
@@ -1340,6 +1340,28 @@
           "stringUnit": {
             "state": "translated",
             "value": "%lld 未读"
+          }
+        }
+      }
+    },
+    "%lld 条命中": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld matches"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld 件一致"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld 条命中"
           }
         }
       }
@@ -2638,7 +2660,7 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "1 件のサイド"
+            "value": "1 件のサイド質問"
           }
         },
         "zh-Hans": {
@@ -3286,6 +3308,28 @@
           "stringUnit": {
             "state": "translated",
             "value": "全部"
+          }
+        }
+      }
+    },
+    "Antigravity 桌面端": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Antigravity Desktop"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Antigravity デスクトップ"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Antigravity 桌面端"
           }
         }
       }
@@ -4308,6 +4352,28 @@
         }
       }
     },
+    "MCP OAuth 授权已完成": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "MCP OAuth authorization completed"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "MCP OAuth 認証が完了しました"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "MCP OAuth 授权已完成"
+          }
+        }
+      }
+    },
     "MCP 工具与技能看板": {
       "localizations": {
         "en": {
@@ -4770,6 +4836,50 @@
         }
       }
     },
+    "OAuth 授权 / 重连": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "OAuth Authorize / Reconnect"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "OAuth 認証 / 再連携"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "OAuth 授权 / 重连"
+          }
+        }
+      }
+    },
+    "OAuth 重新授权": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Re-authorize OAuth"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "OAuth 再認証"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "OAuth 重新授权"
+          }
+        }
+      }
+    },
     "Other": {
       "localizations": {
         "en": {
@@ -4858,6 +4968,50 @@
         }
       }
     },
+    "PR 标题（留空自动生成）": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "PR title (auto-generated if empty)"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "PR タイトル（空欄で自動生成）"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "PR 标题（留空自动生成）"
+          }
+        }
+      }
+    },
+    "PR 说明（可选）": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "PR description (optional)"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "PR 説明（任意）"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "PR 说明（可选）"
+          }
+        }
+      }
+    },
     "PRO": {
       "localizations": {
         "en": {
@@ -4898,6 +5052,28 @@
           "stringUnit": {
             "state": "translated",
             "value": "继续执行"
+          }
+        }
+      }
+    },
+    "Pull Request 信息": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pull Request Details"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pull Request 情報"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pull Request 信息"
           }
         }
       }
@@ -5096,6 +5272,72 @@
           "stringUnit": {
             "state": "translated",
             "value": "SKILL.md 规则指令"
+          }
+        }
+      }
+    },
+    "SSH 认证提示": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "SSH Authentication"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "SSH 認証プロンプト"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "SSH 认证提示"
+          }
+        }
+      }
+    },
+    "SSH 远端主机": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Remote SSH Hosts"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "SSH リモートホスト"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "SSH 远端主机"
+          }
+        }
+      }
+    },
+    "SSH 连接失败": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "SSH connection failed"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "SSH 接続に失敗しました"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "SSH 连接失败"
           }
         }
       }
@@ -7273,6 +7515,28 @@
         }
       }
     },
+    "上下文占用分布": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Context Breakdown"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "コンテキスト使用内訳"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "上下文占用分布"
+          }
+        }
+      }
+    },
     "上下文已用 %lld%%，临近自动压缩阈值；继续长任务前建议先一键压缩，减少后续重复输入消耗。": {
       "extractionState": "manual",
       "localizations": {
@@ -7368,7 +7632,7 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Last run: %@"
+            "value": "Last: %@"
           }
         },
         "ja": {
@@ -7403,6 +7667,28 @@
           "stringUnit": {
             "state": "translated",
             "value": "上次运行"
+          }
+        }
+      }
+    },
+    "上滑": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Scroll Up"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "上へ"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "上滑"
           }
         }
       }
@@ -7473,7 +7759,7 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Next run: %@"
+            "value": "Next: %@"
           }
         },
         "ja": {
@@ -7508,6 +7794,28 @@
           "stringUnit": {
             "state": "translated",
             "value": "下次运行"
+          }
+        }
+      }
+    },
+    "下滑": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Scroll Down"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "下へ"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "下滑"
           }
         }
       }
@@ -7772,6 +8080,28 @@
           "stringUnit": {
             "state": "translated",
             "value": "严格审批"
+          }
+        }
+      }
+    },
+    "主机地址（IP 或域名）": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Host address (IP or domain)"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ホストアドレス（IP またはドメイン）"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "主机地址（IP 或域名）"
           }
         }
       }
@@ -8402,6 +8732,28 @@
           "stringUnit": {
             "state": "translated",
             "value": "任务"
+          }
+        }
+      }
+    },
+    "任务不存在": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Job not found"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ジョブが見つかりません"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "任务不存在"
           }
         }
       }
@@ -10060,6 +10412,28 @@
         }
       }
     },
+    "兜底：粘贴本机回调链接转发": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fallback: Forward Loopback URL"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "代替手段：ループバック URL を転送"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "兜底：粘贴本机回调链接转发"
+          }
+        }
+      }
+    },
     "全局": {
       "localizations": {
         "en": {
@@ -10210,6 +10584,28 @@
           "stringUnit": {
             "state": "translated",
             "value": "全屏查看图表"
+          }
+        }
+      }
+    },
+    "全自动 (无沙箱)": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Full Auto (No Sandbox)"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "完全自動（サンドボックスなし）"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "全自动 (无沙箱)"
           }
         }
       }
@@ -11093,6 +11489,28 @@
         }
       }
     },
+    "冷却中": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cooldown"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "クールダウン中"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "冷却中"
+          }
+        }
+      }
+    },
     "分享": {
       "localizations": {
         "en": {
@@ -11423,6 +11841,28 @@
         }
       }
     },
+    "切号失败": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Switch Failed"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "切替失敗"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "切号失败"
+          }
+        }
+      }
+    },
     "切换": {
       "localizations": {
         "en": {
@@ -11661,6 +12101,28 @@
           "stringUnit": {
             "state": "translated",
             "value": "创建"
+          }
+        }
+      }
+    },
+    "创建 / 更新 Worktree PR": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Create / Update Worktree PR"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Worktree PR を作成 / 更新"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "创建 / 更新 Worktree PR"
           }
         }
       }
@@ -12303,6 +12765,28 @@
         }
       }
     },
+    "加载中...": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Loading..."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "読み込み中..."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "加载中..."
+          }
+        }
+      }
+    },
     "加载中…": {
       "localizations": {
         "en": {
@@ -12523,6 +13007,28 @@
         }
       }
     },
+    "区分大小写": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Case Sensitive"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "大文字/小文字"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "区分大小写"
+          }
+        }
+      }
+    },
     "升级并重启 mgy 网关": {
       "localizations": {
         "en": {
@@ -12673,6 +13179,138 @@
           "stringUnit": {
             "state": "translated",
             "value": "占用 < 70% 时隐藏顶栏胶囊，≥ 70% 自动恢复预警"
+          }
+        }
+      }
+    },
+    "占用最高步骤 (Top %lld)": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Top Consumers (Top %lld)"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "消費上位ステップ (Top %lld)"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "占用最高步骤 (Top %lld)"
+          }
+        }
+      }
+    },
+    "卸载": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Uninstall"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "アンインストール"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "卸载"
+          }
+        }
+      }
+    },
+    "卸载插件": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Uninstall Plugin"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "プラグインをアンインストール"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "卸载插件"
+          }
+        }
+      }
+    },
+    "历史版本 (%lld)": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Version History (%lld)"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "バージョン履歴 (%lld)"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "历史版本 (%lld)"
+          }
+        }
+      }
+    },
+    "压缩后自动回灌上下文": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Auto-Rehydrate After Compact"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "圧縮後にコンテキストを自動再注入"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "压缩后自动回灌上下文"
+          }
+        }
+      }
+    },
+    "压缩回灌": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Rehydrate"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "再注入"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "压缩回灌"
           }
         }
       }
@@ -13117,6 +13755,28 @@
         }
       }
     },
+    "取消星标": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Unstar"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "スター解除"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "取消星标"
+          }
+        }
+      }
+    },
     "取消置顶": {
       "localizations": {
         "en": {
@@ -13515,6 +14175,28 @@
         }
       }
     },
+    "同步更新 Worktree PR": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sync Worktree PR"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Worktree PR を同期更新"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "同步更新 Worktree PR"
+          }
+        }
+      }
+    },
     "后台任务正在执行": {
       "localizations": {
         "en": {
@@ -13802,6 +14484,28 @@
         }
       }
     },
+    "启动 SSH 连接失败": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Failed to start SSH connection"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "SSH 接続の開始に失敗しました"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "启动 SSH 连接失败"
+          }
+        }
+      }
+    },
     "启动中": {
       "localizations": {
         "en": {
@@ -14066,6 +14770,28 @@
         }
       }
     },
+    "回车": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Return"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Enter"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "回车"
+          }
+        }
+      }
+    },
     "图标与主题色": {
       "localizations": {
         "en": {
@@ -14320,6 +15046,50 @@
         }
       }
     },
+    "在官方市场中搜索「%@」": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Search \"%@\" in marketplace"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "マーケットで「%@」を検索"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在官方市场中搜索「%@」"
+          }
+        }
+      }
+    },
+    "在手机浏览器中打开授权页": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Open Authorization Page on Phone"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "スマホのブラウザで認証ページを開く"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在手机浏览器中打开授权页"
+          }
+        }
+      }
+    },
     "在文档中查找...": {
       "localizations": {
         "en": {
@@ -14514,6 +15284,28 @@
           "stringUnit": {
             "state": "translated",
             "value": "在电脑上启动网关服务"
+          }
+        }
+      }
+    },
+    "在电脑浏览器中接管登录（推荐）": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sign In via Host Browser (Recommended)"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "PC ブラウザを引き継いでログイン（推奨）"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在电脑浏览器中接管登录（推荐）"
           }
         }
       }
@@ -14976,6 +15768,28 @@
           "stringUnit": {
             "state": "translated",
             "value": "复制完整记录"
+          }
+        }
+      }
+    },
+    "复制授权链接": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Copy Authorization Link"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "認証リンクをコピー"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "复制授权链接"
           }
         }
       }
@@ -15834,6 +16648,28 @@
         }
       }
     },
+    "实时接管浏览器": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Take Over Browser"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ブラウザを引き継ぐ"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "实时接管浏览器"
+          }
+        }
+      }
+    },
     "实时活动": {
       "localizations": {
         "en": {
@@ -16187,6 +17023,28 @@
         }
       }
     },
+    "对话正文": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Conversation"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "会話本文"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "对话正文"
+          }
+        }
+      }
+    },
     "导出 MD": {
       "localizations": {
         "en": {
@@ -16271,6 +17129,28 @@
           "stringUnit": {
             "state": "translated",
             "value": "将从 Step #%lld 处分叉，不携带后续消息。"
+          }
+        }
+      }
+    },
+    "将从电脑端移除插件「%@」。": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Remove plugin \"%@\" from your host computer."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ホスト PC からプラグイン「%@」を削除します。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "将从电脑端移除插件「%@」。"
           }
         }
       }
@@ -16899,6 +17779,28 @@
         }
       }
     },
+    "工作区改动与搜索": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Workspace Changes & Search"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ワークスペース変更と検索"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "工作区改动与搜索"
+          }
+        }
+      }
+    },
     "工作区没有可提交的改动": {
       "localizations": {
         "en": {
@@ -17097,6 +17999,28 @@
         }
       }
     },
+    "工具返回": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tool Output"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ツール出力"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "工具返回"
+          }
+        }
+      }
+    },
     "左滑会话卡片": {
       "localizations": {
         "en": {
@@ -17159,6 +18083,28 @@
           "stringUnit": {
             "state": "translated",
             "value": "已上传"
+          }
+        }
+      }
+    },
+    "已交还浏览器控制权": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Released browser control"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ブラウザ操作権を返却しました"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已交还浏览器控制权"
           }
         }
       }
@@ -17449,6 +18395,28 @@
         }
       }
     },
+    "已切号": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Switched"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "切替済み"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已切号"
+          }
+        }
+      }
+    },
     "已切换 · %@": {
       "localizations": {
         "en": {
@@ -17493,6 +18461,50 @@
         }
       }
     },
+    "已切换默认账号": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Default account updated"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "既定アカウントを切り替えました"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已切换默认账号"
+          }
+        }
+      }
+    },
+    "已创建 / 更新 PR": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Created / Updated PR"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "作成・更新済み PR"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已创建 / 更新 PR"
+          }
+        }
+      }
+    },
     "已刷新聊天记录": {
       "localizations": {
         "en": {
@@ -17533,6 +18545,50 @@
           "stringUnit": {
             "state": "translated",
             "value": "已加入站点白名单"
+          }
+        }
+      }
+    },
+    "已卸载插件 %@": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Uninstalled plugin %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "プラグイン %@ をアンインストールしました"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已卸载插件 %@"
+          }
+        }
+      }
+    },
+    "已压缩": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Compacted"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "圧縮済み"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已压缩"
           }
         }
       }
@@ -17753,6 +18809,28 @@
           "stringUnit": {
             "state": "translated",
             "value": "已复制命令"
+          }
+        }
+      }
+    },
+    "已复制授权链接": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Authorization link copied"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "認証リンクをコピーしました"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已复制授权链接"
           }
         }
       }
@@ -18324,6 +19402,28 @@
         }
       }
     },
+    "已接管控制权，轻触画面即可点击": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "In control — tap screen to click"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "操作権を取得しました。画面をタップしてクリックできます"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已接管控制权，轻触画面即可点击"
+          }
+        }
+      }
+    },
     "已提交": {
       "localizations": {
         "en": {
@@ -18364,6 +19464,50 @@
           "stringUnit": {
             "state": "translated",
             "value": "已断开"
+          }
+        }
+      }
+    },
+    "已断开 %@ OAuth": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Disconnected %@ OAuth"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ の OAuth 連携を解除しました"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已断开 %@ OAuth"
+          }
+        }
+      }
+    },
+    "已星标": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Starred"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "スター付き"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已星标"
           }
         }
       }
@@ -18754,6 +19898,50 @@
         }
       }
     },
+    "已触发 MCP 授权": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "MCP authorization started"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "MCP 認証を開始しました"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已触发 MCP 授权"
+          }
+        }
+      }
+    },
+    "已触发授权流程": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Authorization started"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "認証フローを開始しました"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已触发授权流程"
+          }
+        }
+      }
+    },
     "已触发立即运行": {
       "localizations": {
         "en": {
@@ -18772,6 +19960,28 @@
           "stringUnit": {
             "state": "translated",
             "value": "已触发立即运行"
+          }
+        }
+      }
+    },
+    "已转发回调至电脑端": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Callback forwarded to host"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "コールバックを PC へ転送しました"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已转发回调至电脑端"
           }
         }
       }
@@ -18820,6 +20030,28 @@
         }
       }
     },
+    "已退出 %@": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Signed out of %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ からサインアウトしました"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已退出 %@"
+          }
+        }
+      }
+    },
     "已通知桌面端应用更新并重启": {
       "localizations": {
         "en": {
@@ -18860,6 +20092,28 @@
           "stringUnit": {
             "state": "translated",
             "value": "已通知跳过当前浏览器拦截步骤"
+          }
+        }
+      }
+    },
+    "已通过本机 PreInvocation Hook 注册。对话发生压缩后，自动回灌用户目标、近期摘要与活跃工作区文件，并自动脱敏凭据。": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Registered via local PreInvocation Hook. After compaction, automatically restores your goal, recent summary, and active workspace files with credentials redacted."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ローカルの PreInvocation Hook に登録済みです。圧縮後、目標・直近の要約・作業中ファイルを認証情報をマスクした上で自動再注入します。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已通过本机 PreInvocation Hook 注册。对话发生压缩后，自动回灌用户目标、近期摘要与活跃工作区文件，并自动脱敏凭据。"
           }
         }
       }
@@ -19419,6 +20673,28 @@
         }
       }
     },
+    "开启全自动 (无沙箱)？": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Enable Full Auto (No Sandbox)?"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "完全自動（サンドボックスなし）を有効にしますか？"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "开启全自动 (无沙箱)？"
+          }
+        }
+      }
+    },
     "开启全自动放行？": {
       "localizations": {
         "en": {
@@ -19437,6 +20713,28 @@
           "stringUnit": {
             "state": "translated",
             "value": "开启全自动放行？"
+          }
+        }
+      }
+    },
+    "开启后 Agent 将关闭终端沙箱并自动执行命令与工作区外写入（同步作用于桌面端全部会话）。日常离席推荐改用「智能自动 (沙箱)」。": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Agent will disable the terminal sandbox and auto-run commands and writes outside the workspace across all desktop sessions. For unattended use, \"Smart Auto (Sandbox)\" is recommended."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "有効にするとターミナルのサンドボックスが無効になり、コマンド実行やワークスペース外への書き込みがデスクトップの全セッションで自動実行されます。通常は「スマート自動（サンドボックス）」を推奨します。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "开启后 Agent 将关闭终端沙箱并自动执行命令与工作区外写入（同步作用于桌面端全部会话）。日常离席推荐改用「智能自动 (沙箱)」。"
           }
         }
       }
@@ -19481,6 +20779,28 @@
           "stringUnit": {
             "state": "translated",
             "value": "开启后可折叠对话中的工具执行过程与底部任务辅助栏，让长对话阅读更聚焦。"
+          }
+        }
+      }
+    },
+    "开启后由网关向本机 ~/.gemini/config/hooks.json 注册轻量级 PreInvocation Hook，零额外依赖、仅在压缩后触发。": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Registers a lightweight PreInvocation Hook in ~/.gemini/config/hooks.json with zero extra dependencies, triggered only after compaction."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "有効にするとゲートウェイが ~/.gemini/config/hooks.json に軽量な PreInvocation Hook を登録します（追加依存なし・圧縮後のみ起動）。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "开启后由网关向本机 ~/.gemini/config/hooks.json 注册轻量级 PreInvocation Hook，零额外依赖、仅在压缩后触发。"
           }
         }
       }
@@ -20955,6 +22275,28 @@
         }
       }
     },
+    "或提交授权码 (Authorization Code)": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Or Submit Authorization Code"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "または認証コード (Authorization Code) を送信"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "或提交授权码 (Authorization Code)"
+          }
+        }
+      }
+    },
     "所有网关端点连接均失败: %@": {
       "localizations": {
         "en": {
@@ -22300,6 +23642,50 @@
         }
       }
     },
+    "按路径或文件名搜索...": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Search by file name or path..."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ファイル名またはパスで検索..."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "按路径或文件名搜索..."
+          }
+        }
+      }
+    },
+    "授权对象": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Authorization Target"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "認証対象"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "授权对象"
+          }
+        }
+      }
+    },
     "授权访问相册以选择最近照片": {
       "localizations": {
         "en": {
@@ -22389,6 +23775,28 @@
         }
       }
     },
+    "接管": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Control"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "操作"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "接管"
+          }
+        }
+      }
+    },
     "推理引擎": {
       "extractionState": "manual",
       "localizations": {
@@ -22424,6 +23832,28 @@
           "stringUnit": {
             "state": "translated",
             "value": "推荐 Multigravity —— Google Antigravity 原生移动客户端，支持实时审批、任务进度与额度监控"
+          }
+        }
+      }
+    },
+    "推荐授权方式": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Recommended Method"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "推奨認証方法"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "推荐授权方式"
           }
         }
       }
@@ -22639,6 +24069,50 @@
         }
       }
     },
+    "提交 PR": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Submit PR"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "PR を送信"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "提交 PR"
+          }
+        }
+      }
+    },
+    "提交中...": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Submitting..."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "送信中..."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "提交中..."
+          }
+        }
+      }
+    },
     "提交信息": {
       "localizations": {
         "en": {
@@ -22723,6 +24197,28 @@
           "stringUnit": {
             "state": "translated",
             "value": "提交并推送"
+          }
+        }
+      }
+    },
+    "提交授权码": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Submit Code"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "認証コードを送信"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "提交授权码"
           }
         }
       }
@@ -22966,6 +24462,50 @@
         }
       }
     },
+    "插件市场推荐": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Featured Plugins"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "おすすめプラグイン"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "插件市场推荐"
+          }
+        }
+      }
+    },
+    "插件市场搜索结果": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Marketplace Results"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "マーケット検索結果"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "插件市场搜索结果"
+          }
+        }
+      }
+    },
     "插入主对话": {
       "localizations": {
         "en": {
@@ -22984,6 +24524,28 @@
           "stringUnit": {
             "state": "translated",
             "value": "插入主对话"
+          }
+        }
+      }
+    },
+    "搜索": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Search"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "検索"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "搜索"
           }
         }
       }
@@ -23116,6 +24678,28 @@
           "stringUnit": {
             "state": "translated",
             "value": "搜索定时任务或表达式"
+          }
+        }
+      }
+    },
+    "搜索市场": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Search"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "検索"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "搜索市场"
           }
         }
       }
@@ -23270,6 +24854,28 @@
           "stringUnit": {
             "state": "translated",
             "value": "搜索聊天记录"
+          }
+        }
+      }
+    },
+    "搜索项目代码关键词...": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Search code in workspace..."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ワークスペース内のコードを検索..."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "搜索项目代码关键词..."
           }
         }
       }
@@ -24376,6 +25982,50 @@
         }
       }
     },
+    "断开": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Disconnect"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "切断"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "断开"
+          }
+        }
+      }
+    },
+    "断开 OAuth": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Disconnect OAuth"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "OAuth 連携を解除"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "断开 OAuth"
+          }
+        }
+      }
+    },
     "新会话还没有任何改动": {
       "localizations": {
         "en": {
@@ -24879,6 +26529,28 @@
           "stringUnit": {
             "state": "translated",
             "value": "旁路快问 · 回主会话"
+          }
+        }
+      }
+    },
+    "无充足备用号": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No Backup"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "予備アカウント不足"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "无充足备用号"
           }
         }
       }
@@ -25521,6 +27193,28 @@
         }
       }
     },
+    "星标": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Star"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "スター"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "星标"
+          }
+        }
+      }
+    },
     "昨天": {
       "localizations": {
         "en": {
@@ -25565,6 +27259,28 @@
         }
       }
     },
+    "显示名称（如 gpu-box）": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Display name (e.g. gpu-box)"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "表示名（例: gpu-box）"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "显示名称（如 gpu-box）"
+          }
+        }
+      }
+    },
     "智能体: ": {
       "localizations": {
         "en": {
@@ -25605,6 +27321,28 @@
           "stringUnit": {
             "state": "translated",
             "value": "智能体类型"
+          }
+        }
+      }
+    },
+    "智能自动 (沙箱)": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Smart Auto (Sandbox)"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "スマート自動（サンドボックス）"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "智能自动 (沙箱)"
           }
         }
       }
@@ -25776,6 +27514,28 @@
           "stringUnit": {
             "state": "translated",
             "value": "暂无协作留言"
+          }
+        }
+      }
+    },
+    "暂无可用浏览器标签页": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No browser tabs available"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "利用可能なブラウザタブがありません"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "暂无可用浏览器标签页"
           }
         }
       }
@@ -26264,6 +28024,28 @@
         }
       }
     },
+    "最近切号：%@ → %@": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Last switch: %@ → %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "直近の切替：%@ → %@"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "最近切号：%@ → %@"
+          }
+        }
+      }
+    },
     "最近心跳 %@ · 电脑端 %@": {
       "localizations": {
         "en": {
@@ -26330,6 +28112,28 @@
         }
       }
     },
+    "有新版": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Update"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "新着"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "有新版"
+          }
+        }
+      }
+    },
     "服务器错误 (%lld): %@": {
       "localizations": {
         "en": {
@@ -26348,6 +28152,28 @@
           "stringUnit": {
             "state": "translated",
             "value": "服务器错误 (%lld): %@"
+          }
+        }
+      }
+    },
+    "未发现 ~/.ssh/config 或已保存的远端主机，点击右上角「添加」即可配置。": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No hosts found in ~/.ssh/config or saved settings. Tap \"Add\" to configure one."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "~/.ssh/config または保存済みのリモートホストがありません。右上の「追加」から設定できます。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "未发现 ~/.ssh/config 或已保存的远端主机，点击右上角「添加」即可配置。"
           }
         }
       }
@@ -26462,6 +28288,28 @@
         }
       }
     },
+    "未找到匹配代码": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No matching code found"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "一致するコードが見つかりません"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "未找到匹配代码"
+          }
+        }
+      }
+    },
     "未找到匹配会话": {
       "localizations": {
         "en": {
@@ -26480,6 +28328,28 @@
           "stringUnit": {
             "state": "translated",
             "value": "未找到匹配会话"
+          }
+        }
+      }
+    },
+    "未找到匹配文件": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No matching files found"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "一致するファイルが見つかりません"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "未找到匹配文件"
           }
         }
       }
@@ -26858,6 +28728,28 @@
         }
       }
     },
+    "未连接到网关": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Not connected to gateway"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ゲートウェイに未接続です"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "未连接到网关"
+          }
+        }
+      }
+    },
     "未连接到网关服务器": {
       "localizations": {
         "en": {
@@ -27158,6 +29050,50 @@
         }
       }
     },
+    "本周期估算约剩": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Est. Remaining"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "今期の推定残量"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "本周期估算约剩"
+          }
+        }
+      }
+    },
+    "本周期观测已耗": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Observed Used"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "今期の観測消費"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "本周期观测已耗"
+          }
+        }
+      }
+    },
     "本地 AI Agent 移动伴侣\n随时随地监控任务状态、下发指令": {
       "localizations": {
         "en": {
@@ -27264,6 +29200,50 @@
           "stringUnit": {
             "state": "translated",
             "value": "本地缓存的会话消息、方案及离线文档将被清理，下次访问时将从网关重新拉取。"
+          }
+        }
+      }
+    },
+    "本月 %@ · %@ %@": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This month %@ · %@ %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "今月 %@ · %@ %@"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "本月 %@ · %@ %@"
+          }
+        }
+      }
+    },
+    "本机回环回调": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Local Loopback"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ローカルループバック"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "本机回环回调"
           }
         }
       }
@@ -27661,6 +29641,28 @@
           "stringUnit": {
             "state": "translated",
             "value": "查看公告板"
+          }
+        }
+      }
+    },
+    "查看历史版本": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "View Version History"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "バージョン履歴を表示"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "查看历史版本"
           }
         }
       }
@@ -28454,6 +30456,28 @@
         }
       }
     },
+    "正则": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Regex"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "正規表現"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "正则"
+          }
+        }
+      }
+    },
     "正在下载 mgy 新版本...": {
       "localizations": {
         "en": {
@@ -28982,6 +31006,28 @@
         }
       }
     },
+    "正在查询官方插件市场...": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Querying official plugin marketplace..."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "公式プラグインマーケットを検索中..."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "正在查询官方插件市场..."
+          }
+        }
+      }
+    },
     "正在校验文件完整性...": {
       "localizations": {
         "en": {
@@ -29066,6 +31112,28 @@
           "stringUnit": {
             "state": "translated",
             "value": "正在检测已连接服务与后台任务..."
+          }
+        }
+      }
+    },
+    "正在检索工作区...": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Searching workspace..."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ワークスペースを検索中..."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "正在检索工作区..."
           }
         }
       }
@@ -29356,6 +31424,28 @@
         }
       }
     },
+    "正在读取文件...": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Loading file..."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ファイルを読み込み中..."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "正在读取文件..."
+          }
+        }
+      }
+    },
     "正在读取日志尾部...": {
       "localizations": {
         "en": {
@@ -29440,6 +31530,50 @@
           "stringUnit": {
             "state": "translated",
             "value": "正在连接 GitHub 并克隆仓库…"
+          }
+        }
+      }
+    },
+    "正在连接...": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Connecting..."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "接続中..."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "正在连接..."
+          }
+        }
+      }
+    },
+    "正在连接宿主机浏览器画面...": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Connecting to host browser stream..."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ホストのブラウザ画面に接続中..."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "正在连接宿主机浏览器画面..."
           }
         }
       }
@@ -29550,6 +31684,50 @@
           "stringUnit": {
             "state": "translated",
             "value": "正在重启网关并自动重连..."
+          }
+        }
+      }
+    },
+    "正在预览历史版本 v%lld": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Previewing history v%lld"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "過去バージョン v%lld をプレビュー中"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "正在预览历史版本 v%lld"
+          }
+        }
+      }
+    },
+    "此授权回调指向电脑端 127.0.0.1，推荐直接在电脑内置浏览器中接管登录；也可先在手机浏览器完成登录，再将最后跳转失败的 http://127.0.0.1 链接粘贴到下方转发回电脑端。": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This callback points to 127.0.0.1 on your computer. Take over the host browser to sign in directly, or sign in on your phone and paste the final http://127.0.0.1 URL below to forward it."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このコールバックは PC 上の 127.0.0.1 宛てです。PC ブラウザを引き継いでログインするか、スマホでログイン後に遷移先となった http://127.0.0.1 の URL を下に貼り付けて転送してください。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此授权回调指向电脑端 127.0.0.1，推荐直接在电脑内置浏览器中接管登录；也可先在手机浏览器完成登录，再将最后跳转失败的 http://127.0.0.1 链接粘贴到下方转发回电脑端。"
           }
         }
       }
@@ -30227,6 +32405,28 @@
         }
       }
     },
+    "浏览器实时接管": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Live Browser View"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ブラウザ操作引き継ぎ"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "浏览器实时接管"
+          }
+        }
+      }
+    },
     "浏览器实时画面与拦截控制": {
       "localizations": {
         "en": {
@@ -30337,6 +32537,28 @@
         }
       }
     },
+    "深度思考": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Thinking"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "思考プロセス"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "深度思考"
+          }
+        }
+      }
+    },
     "深色": {
       "localizations": {
         "en": {
@@ -30399,6 +32621,28 @@
           "stringUnit": {
             "state": "translated",
             "value": "添加 (%lld)"
+          }
+        }
+      }
+    },
+    "添加 SSH 主机": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Add SSH Host"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "SSH ホストを追加"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "添加 SSH 主机"
           }
         }
       }
@@ -30487,6 +32731,28 @@
           "stringUnit": {
             "state": "translated",
             "value": "添加当前目录为工作区"
+          }
+        }
+      }
+    },
+    "添加新账号": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Add Account"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "アカウントを追加"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "添加新账号"
           }
         }
       }
@@ -30800,6 +33066,28 @@
         }
       }
     },
+    "点击下方按钮在系统浏览器完成授权后返回刷新状态即可。": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tap below to authorize in your browser, then return and refresh."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "下のボタンからブラウザで認証を完了し、戻って状態を更新してください。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "点击下方按钮在系统浏览器完成授权后返回刷新状态即可。"
+          }
+        }
+      }
+    },
     "点击任意步骤即可平滑瞬达对应提问与上下文": {
       "localizations": {
         "en": {
@@ -30949,6 +33237,28 @@
         }
       }
     },
+    "点击搜索浏览或按文件名定位": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tap Search to browse or filter by filename"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "検索をタップして一覧表示またはファイル名で絞り込み"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "点击搜索浏览或按文件名定位"
+          }
+        }
+      }
+    },
     "点击放大查看图片": {
       "localizations": {
         "en": {
@@ -30989,6 +33299,28 @@
           "stringUnit": {
             "state": "translated",
             "value": "点击模板直接填入输入框"
+          }
+        }
+      }
+    },
+    "点击浏览官方精选插件": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Browse featured official plugins"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "公式おすすめプラグインを見る"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "点击浏览官方精选插件"
           }
         }
       }
@@ -31340,6 +33672,28 @@
         }
       }
     },
+    "用户名（可选）": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Username (optional)"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ユーザー名（任意）"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "用户名（可选）"
+          }
+        }
+      }
+    },
     "用户技能": {
       "localizations": {
         "en": {
@@ -31560,6 +33914,50 @@
         }
       }
     },
+    "登录": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sign In"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "サインイン"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "登录"
+          }
+        }
+      }
+    },
+    "监控中": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Watching"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "監視中"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "监控中"
+          }
+        }
+      }
+    },
     "监控模型": {
       "localizations": {
         "en": {
@@ -31578,6 +33976,28 @@
           "stringUnit": {
             "state": "translated",
             "value": "监控模型"
+          }
+        }
+      }
+    },
+    "监控池窗": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Watched Pool"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "監視対象枠"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "监控池窗"
           }
         }
       }
@@ -31771,6 +34191,28 @@
           "stringUnit": {
             "state": "translated",
             "value": "直接添加"
+          }
+        }
+      }
+    },
+    "直达底部": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Jump to bottom"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "最下部へ移動"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "直达底部"
           }
         }
       }
@@ -32433,6 +34875,28 @@
           "stringUnit": {
             "state": "translated",
             "value": "确认升级并重启"
+          }
+        }
+      }
+    },
+    "确认卸载插件？": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Uninstall Plugin?"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "プラグインをアンインストールしますか？"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "确认卸载插件？"
           }
         }
       }
@@ -33119,6 +35583,28 @@
         }
       }
     },
+    "端口（默认 22）": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Port (default 22)"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ポート（既定 22）"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "端口（默认 22）"
+          }
+        }
+      }
+    },
     "第 %lld 章节 (%@)": {
       "localizations": {
         "en": {
@@ -33361,6 +35847,28 @@
         }
       }
     },
+    "等待生成结束": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Waiting Idle"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "完了待機中"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "等待生成结束"
+          }
+        }
+      }
+    },
     "等待用户审批操作": {
       "localizations": {
         "en": {
@@ -33467,6 +35975,28 @@
           "stringUnit": {
             "state": "translated",
             "value": "等待调度"
+          }
+        }
+      }
+    },
+    "等本轮生成空闲再切": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wait Until Turn Finishes"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このターンの完了を待つ"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "等本轮生成空闲再切"
           }
         }
       }
@@ -33691,6 +36221,28 @@
         }
       }
     },
+    "粘贴 http://127.0.0.1:... 完整回调链接": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Paste full http://127.0.0.1:... callback URL"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "http://127.0.0.1:... のコールバック URL を貼り付け"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "粘贴 http://127.0.0.1:... 完整回调链接"
+          }
+        }
+      }
+    },
     "粘贴或手动配对": {
       "localizations": {
         "en": {
@@ -33709,6 +36261,28 @@
           "stringUnit": {
             "state": "translated",
             "value": "粘贴或手动配对"
+          }
+        }
+      }
+    },
+    "粘贴授权码...": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Paste authorization code..."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "認証コードを貼り付け..."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "粘贴授权码..."
           }
         }
       }
@@ -33841,6 +36415,28 @@
           "stringUnit": {
             "state": "translated",
             "value": "系统"
+          }
+        }
+      }
+    },
+    "系统与附件": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "System & Files"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "システム・添付"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "系统与附件"
           }
         }
       }
@@ -34618,6 +37214,28 @@
         }
       }
     },
+    "网关身份不匹配": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gateway identity mismatch"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ゲートウェイの識別情報が一致しません"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "网关身份不匹配"
+          }
+        }
+      }
+    },
     "网关重启重连超时，请下拉刷新检查状态": {
       "localizations": {
         "en": {
@@ -34680,6 +37298,28 @@
           "stringUnit": {
             "state": "translated",
             "value": "网络连接失败: %@"
+          }
+        }
+      }
+    },
+    "置顶": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pin"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ピン留め"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "置顶"
           }
         }
       }
@@ -34912,6 +37552,28 @@
           "stringUnit": {
             "state": "translated",
             "value": "自动批准操作权限"
+          }
+        }
+      }
+    },
+    "自动最紧": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Auto Tightest"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "自動（残量最少）"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "自动最紧"
           }
         }
       }
@@ -35773,6 +38435,28 @@
         }
       }
     },
+    "视图": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "View"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "表示"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "视图"
+          }
+        }
+      }
+    },
     "视图模式": {
       "localizations": {
         "en": {
@@ -36015,6 +38699,28 @@
         }
       }
     },
+    "触发阈值": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Trigger Threshold"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "切替しきい値"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "触发阈值"
+          }
+        }
+      }
+    },
     "计划运行 (%lld)": {
       "localizations": {
         "en": {
@@ -36099,6 +38805,28 @@
           "stringUnit": {
             "state": "translated",
             "value": "让 Agent 提交"
+          }
+        }
+      }
+    },
+    "设为默认": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Set Default"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "既定に設定"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "设为默认"
           }
         }
       }
@@ -36693,6 +39421,28 @@
           "stringUnit": {
             "state": "translated",
             "value": "请先完成配对，再分享文件到 Multigravity"
+          }
+        }
+      }
+    },
+    "请先点击右上角「接管」获取控制权": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tap \"Control\" at top right first to interact"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "先に右上の「操作」をタップして制御権を取得してください"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "请先点击右上角「接管」获取控制权"
           }
         }
       }
@@ -37336,6 +40086,28 @@
         }
       }
     },
+    "账号授权": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Account Authorization"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "アカウント認証"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "账号授权"
+          }
+        }
+      }
+    },
     "账户与配额": {
       "localizations": {
         "en": {
@@ -37556,6 +40328,28 @@
         }
       }
     },
+    "转发至电脑端完成授权": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Forward Callback to Host"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "PC へ転送して認証を完了"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "转发至电脑端完成授权"
+          }
+        }
+      }
+    },
     "转后台": {
       "localizations": {
         "en": {
@@ -37771,6 +40565,28 @@
         }
       }
     },
+    "输入": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Send"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "送信"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "输入"
+          }
+        }
+      }
+    },
     "输入中文备注（留空恢复默认）": {
       "localizations": {
         "en": {
@@ -37815,6 +40631,72 @@
         }
       }
     },
+    "输入关键词检索工作区代码": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Enter keywords to search workspace code"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "キーワードを入力してコードを検索"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "输入关键词检索工作区代码"
+          }
+        }
+      }
+    },
+    "输入响应（如 yes）": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Enter response (e.g. yes)"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "応答を入力（例: yes）"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "输入响应（如 yes）"
+          }
+        }
+      }
+    },
+    "输入密码或密钥口令": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Enter password or key passphrase"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "パスワードまたはパスフレーズを入力"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "输入密码或密钥口令"
+          }
+        }
+      }
+    },
     "输入对全体成员或协调者的反馈...": {
       "localizations": {
         "en": {
@@ -37855,6 +40737,28 @@
           "stringUnit": {
             "state": "translated",
             "value": "输入提示词或 /workflow、/plan 等命令模板..."
+          }
+        }
+      }
+    },
+    "输入文本 / 密码 / 验证码并发送...": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Type text, password, or code to send..."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "テキスト・パスワード・認証コードを入力して送信..."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "输入文本 / 密码 / 验证码并发送..."
           }
         }
       }
@@ -38520,6 +41424,28 @@
         }
       }
     },
+    "返回最新": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Latest"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "最新に戻る"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "返回最新"
+          }
+        }
+      }
+    },
     "还原": {
       "extractionState": "manual",
       "localizations": {
@@ -38721,6 +41647,28 @@
         }
       }
     },
+    "连接": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Connect"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "接続"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "连接"
+          }
+        }
+      }
+    },
     "连接不稳或电脑端未就绪": {
       "localizations": {
         "en": {
@@ -38894,6 +41842,28 @@
           "stringUnit": {
             "state": "translated",
             "value": "退出演示模式"
+          }
+        }
+      }
+    },
+    "退出登录": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sign Out"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "サインアウト"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "退出登录"
           }
         }
       }
@@ -39553,6 +42523,28 @@
         }
       }
     },
+    "释放": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Release"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "解放"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "释放"
+          }
+        }
+      }
+    },
     "重启任务": {
       "localizations": {
         "en": {
@@ -39839,6 +42831,50 @@
         }
       }
     },
+    "重试连接": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Retry"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "再接続"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "重试连接"
+          }
+        }
+      }
+    },
+    "重连": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Reconnect"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "再連携"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "重连"
+          }
+        }
+      }
+    },
     "重连中": {
       "localizations": {
         "en": {
@@ -39952,6 +42988,28 @@
         }
       }
     },
+    "长会话防失忆": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Long-Session Memory"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ロングセッション記憶保護"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "长会话防失忆"
+          }
+        }
+      }
+    },
     "长图生成失败，请稍后重试": {
       "localizations": {
         "en": {
@@ -39970,6 +43028,28 @@
           "stringUnit": {
             "state": "translated",
             "value": "长图生成失败，请稍后重试"
+          }
+        }
+      }
+    },
+    "长对话触发 /compact 后自动恢复工作脉络与关键文件": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Restore task context and key files after /compact"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "/compact 実行後に作業文脈と主要ファイルを自動復元"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "长对话触发 /compact 后自动恢复工作脉络与关键文件"
           }
         }
       }
@@ -40168,6 +43248,50 @@
           "stringUnit": {
             "state": "translated",
             "value": "间隔小时"
+          }
+        }
+      }
+    },
+    "阈值确认中": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Confirming"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "確認中"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "阈值确认中"
+          }
+        }
+      }
+    },
+    "阈值自动切号": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Threshold Auto-Switch"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "しきい値自動切替"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "阈值自动切号"
           }
         }
       }
@@ -40734,6 +43858,50 @@
         }
       }
     },
+    "顶栏：手动固定": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Top Bar: Pinned"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "上部バー：固定"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "顶栏：手动固定"
+          }
+        }
+      }
+    },
+    "顶栏：自动最紧": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Top Bar: Auto"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "上部バー：自動"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "顶栏：自动最紧"
+          }
+        }
+      }
+    },
     "项目": {
       "localizations": {
         "en": {
@@ -40801,6 +43969,28 @@
         }
       }
     },
+    "预览此版本": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Preview Version"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "この版をプレビュー"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "预览此版本"
+          }
+        }
+      }
+    },
     "额度与配额提醒": {
       "extractionState": "manual",
       "localizations": {
@@ -40820,6 +44010,28 @@
           "stringUnit": {
             "state": "translated",
             "value": "额度与配额提醒"
+          }
+        }
+      }
+    },
+    "额度低于阈值自动切号": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Auto-Switch Below Threshold"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "しきい値未満で自動切替"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "额度低于阈值自动切号"
           }
         }
       }
@@ -41198,6 +44410,50 @@
           "stringUnit": {
             "state": "translated",
             "value": "默认模型"
+          }
+        }
+      }
+    },
+    "默认沙箱": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Default Sandbox"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "標準サンドボックス"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "默认沙箱"
+          }
+        }
+      }
+    },
+    "默认等当前生成空闲后再切换，避免打断运行中的任务": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Waits for active generations to finish by default so running tasks aren't interrupted"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "既定では現在の生成完了後に切り替え、実行中のタスクを中断しません"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "默认等当前生成空闲后再切换，避免打断运行中的任务"
           }
         }
       }

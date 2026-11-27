@@ -777,7 +777,14 @@ private struct ChatSuggestedReplyChipsHost: View {
     private var visibleSuggestions: [String] {
         guard !viewModel.suggestedResponses.isEmpty,
               viewModel.inputText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+              viewModel.selectedFiles.isEmpty,
+              viewModel.selectedImageData.isEmpty,
+              viewModel.selectedSlashCommands.isEmpty,
+              viewModel.selectedContextItems.isEmpty,
               !viewModel.isActivelyRunning,
+              viewModel.pendingInteraction == nil,
+              !viewModel.canProceed,
+              !viewModel.isLatestMessageError,
               !viewModel.showMentionPicker else {
             return []
         }

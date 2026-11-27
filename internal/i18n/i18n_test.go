@@ -155,3 +155,59 @@ func TestEnglishFirstFallbackPolicy(t *testing.T) {
 		t.Fatalf("T3For(ko) = %q, want English", got)
 	}
 }
+
+func TestGetNativeLocale_PreservesNonZhJaEnWhileUIFallsBackToEn(t *testing.T) {
+	t.Cleanup(func() { SetLang(LangEn) })
+	t.Setenv("MGY_LANG", "")
+	t.Setenv("MULTIGRAVITY_LANG", "")
+	t.Setenv("LC_ALL", "")
+	t.Setenv("LC_MESSAGES", "")
+	t.Setenv("LANGUAGE", "")
+
+	Init("fr-FR")
+	if gotUI, gotNative := GetLang(), GetNativeLocale(); gotUI != LangEn || gotNative != "fr-FR" {
+		t.Fatalf("Init(fr-FR): ui=%q native=%q, want en / fr-FR", gotUI, gotNative)
+	}
+
+	t.Setenv("MGY_LANG", "ko_KR.UTF-8")
+	Init("")
+	if gotUI, gotNative := GetLang(), GetNativeLocale(); gotUI != LangEn || gotNative != "ko-KR" {
+		t.Fatalf("MGY_LANG=ko_KR.UTF-8: ui=%q native=%q, want en / ko-KR", gotUI, gotNative)
+	}
+
+	t.Setenv("MGY_LANG", "")
+	t.Setenv("LANG", "zh_TW.UTF-8")
+	Init("")
+	if gotUI, gotNative := GetLang(), GetNativeLocale(); gotUI != LangZh || gotNative != "zh-TW" {
+		t.Fatalf("LANG=zh_TW.UTF-8: ui=%q native=%q, want zh / zh-TW", gotUI, gotNative)
+	}
+
+	t.Setenv("LANG", "ja_JP.UTF-8")
+	Init("")
+	if gotUI, gotNative := GetLang(), GetNativeLocale(); gotUI != LangJa || gotNative != "ja-JP" {
+		t.Fatalf("LANG=ja_JP.UTF-8: ui=%q native=%q, want ja / ja-JP", gotUI, gotNative)
+	}
+
+	t.Setenv("LANG", "de_DE.UTF-8")
+	Init("")
+	if gotUI, gotNative := GetLang(), GetNativeLocale(); gotUI != LangEn || gotNative != "de-DE" {
+		t.Fatalf("LANG=de_DE.UTF-8: ui=%q native=%q, want en / de-DE", gotUI, gotNative)
+	}
+
+	for _, tc := range []struct {
+		in   string
+		want string
+	}{
+		{"fr_fr.UTF-8", "fr-FR"},
+		{"zh_hans_cn", "zh-Hans-CN"},
+		{"zh_HANT_tw.UTF-8", "zh-Hant-TW"},
+		{"C.UTF-8", ""},
+		{"POSIX", ""},
+		{"auto", ""},
+		{"system", ""},
+	} {
+		if got := CleanLocaleTag(tc.in); got != tc.want {
+			t.Errorf("CleanLocaleTag(%q) = %q, want %q", tc.in, got, tc.want)
+		}
+	}
+}

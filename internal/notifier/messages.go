@@ -378,6 +378,9 @@ func msgRedactedQuotaCopyFor(lang, level string) (string, string) {
 	case "anomaly":
 		return i18n.T3For(resolved, "⚠️ 配额消耗异常", "⚠️ Quota Usage Alert", "⚠️ クォータ異常警告"),
 			i18n.T3For(resolved, "检测到配额消耗异常，请打开客户端查看。", "Unusual quota usage detected. Open app for details.", "クォータの異常消費を検知しました。アプリで確認してください。")
+	case "info", "auto_switch":
+		return i18n.T3For(resolved, "🔄 账号配额状态更新", "🔄 Account Quota Update", "🔄 アカウント・クォータ更新"),
+			i18n.T3For(resolved, "账号状态已更新，请打开客户端查看详情。", "Account status updated. Open app for details.", "アカウント状態が更新されました。アプリで確認してください。")
 	default:
 		return i18n.T3For(resolved, "⚠️ 配额偏低提醒", "⚠️ Low Quota Alert", "⚠️ クォータ低下警告"),
 			i18n.T3For(resolved, "当前配额偏低，请打开客户端查看。", "Quota is running low. Open app for details.", "クォータ残量が少なくなっています。アプリで確認してください。")

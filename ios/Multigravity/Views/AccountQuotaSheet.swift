@@ -253,7 +253,7 @@ public struct AccountQuotaSheet: View {
                                             HStack(spacing: 3) {
                                                 Image(systemName: isAutoTightest ? "sparkles" : "scope")
                                                     .font(.system(size: 9.5, weight: .semibold))
-                                                Text(isAutoTightest ? "顶栏：自动最紧" : "顶栏：自动最紧")
+                                                Text(isAutoTightest ? String(localized: "顶栏：自动最紧") : String(localized: "顶栏：手动固定"))
                                                     .font(.system(size: 10.5, weight: .semibold))
                                             }
                                             .foregroundColor(isAutoTightest ? .blue : .secondary)

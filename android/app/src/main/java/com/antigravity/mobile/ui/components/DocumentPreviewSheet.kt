@@ -1657,7 +1657,7 @@ private fun OfficeDocumentFallback(
         val bytes = file.length()
         if (bytes < 1024) "$bytes B"
         else if (bytes < 1024 * 1024) "${bytes / 1024} KB"
-        else "%.1f MB".format(bytes.toFloat() / (1024 * 1024))
+        else String.format(java.util.Locale.US, "%.1f MB", bytes.toFloat() / (1024 * 1024))
     }
 
     Column(

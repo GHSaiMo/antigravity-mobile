@@ -27,6 +27,7 @@ import kotlinx.serialization.json.booleanOrNull
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.longOrNull
+import java.net.URLEncoder
 import java.util.concurrent.TimeUnit
 import kotlin.random.Random
 
@@ -168,10 +169,14 @@ class ConversationEventsClient(
             lastRev = 0L
         }
         lastHost = hostPart
-        val revSuffix = if (lastRev > 0L) "?sinceRev=$lastRev" else ""
-        val url = "$scheme://$hostPart/gateway/events$revSuffix"
+        val langTag = DeviceTitleTargetLanguage.current().bcp47Tag
+        val encodedLang = URLEncoder.encode(langTag, "UTF-8")
+        val query = if (lastRev > 0L) "?sinceRev=$lastRev&lang=$encodedLang" else "?lang=$encodedLang"
+        val url = "$scheme://$hostPart/gateway/events$query"
 
-        val builder = Request.Builder().url(url)
+        val builder = Request.Builder()
+            .url(url)
+            .header("Accept-Language", langTag)
         prefs.deviceToken?.takeIf { it.isNotBlank() }?.let { token ->
             builder.header("Authorization", "Bearer $token")
             builder.header("x-device-token", token)

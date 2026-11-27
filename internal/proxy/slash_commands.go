@@ -11,6 +11,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"antigravity-mobile/internal/i18n"
 )
 
 // 斜杠命令。
@@ -129,7 +131,7 @@ func buildSlashCommandTables(raw []upstreamSlashCommand) ([]SlashCommandOption, 
 		options = append(options, SlashCommandOption{
 			Name:        "workflow",
 			Title:       "Workflow",
-			Description: "编排 Python 多智能体工作流，并行执行多阶段任务",
+			Description: "Orchestrate a Python multi-agent workflow for parallel staged tasks",
 			Icon:        "point.3.connected.trianglepath.dotted",
 			Kind:        "system",
 		})
@@ -138,8 +140,8 @@ func buildSlashCommandTables(raw []upstreamSlashCommand) ([]SlashCommandOption, 
 	if !hasBtw {
 		options = append(options, SlashCommandOption{
 			Name:        "btw",
-			Title:       "旁路快问",
-			Description: "基于当前上下文分支快问，不打断主对话",
+			Title:       "Side Question",
+			Description: "Ask a quick side question from current context without interrupting the main chat",
 			Icon:        "chat_add_on",
 			Kind:        "system",
 		})
@@ -226,12 +228,45 @@ func (p *Proxy) slashCommandsSnapshot(ctx context.Context, force bool) ([]SlashC
 	return p.slashCache.options, p.slashCache.infoByName, nil
 }
 
+func localizeSlashCommandsForLang(options []SlashCommandOption, lang string) []SlashCommandOption {
+	if len(options) == 0 {
+		return []SlashCommandOption{}
+	}
+	l := i18n.ResolveLang(lang)
+	out := make([]SlashCommandOption, len(options))
+	copy(out, options)
+	for i := range out {
+		switch out[i].Name {
+		case "workflow":
+			if out[i].Kind == "system" && out[i].DefinitionPath == "" {
+				out[i].Title = i18n.T3For(l, "Workflow", "Workflow", "Workflow")
+				out[i].Description = i18n.T3For(l,
+					"编排 Python 多智能体工作流，并行执行多阶段任务",
+					"Orchestrate a Python multi-agent workflow for parallel staged tasks",
+					"Python マルチエージェントワークフローで複数タスクを並列実行",
+				)
+			}
+		case "btw":
+			if out[i].Kind == "system" && out[i].DefinitionPath == "" {
+				out[i].Title = i18n.T3For(l, "旁路快问", "Side Question", "サイド質問")
+				out[i].Description = i18n.T3For(l,
+					"基于当前上下文分支快问，不打断主对话",
+					"Ask a quick side question from current context without interrupting the main chat",
+					"現在のコンテキストからメイン会話を止めずに分岐質問",
+				)
+			}
+		}
+	}
+	return out
+}
+
 // HandleSlashCommands handles GET/POST /gateway/slash-commands.
 func (p *Proxy) HandleSlashCommands(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet && r.Method != http.MethodPost {
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
+	uiLang := resolveRequestUILang(r)
 	options, _, err := p.slashCommandsSnapshot(r.Context(), r.URL.Query().Get("refresh") == "1")
 	if err != nil {
 		status := http.StatusBadGateway
@@ -241,10 +276,8 @@ func (p *Proxy) HandleSlashCommands(w http.ResponseWriter, r *http.Request) {
 		writeJSONError(w, err.Error(), status)
 		return
 	}
-	if options == nil {
-		options = []SlashCommandOption{}
-	}
-	data, _ := json.Marshal(SlashCommandsResponse{Commands: options})
+	localized := localizeSlashCommandsForLang(options, uiLang)
+	data, _ := json.Marshal(SlashCommandsResponse{Commands: localized})
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
 	w.Write(data)
@@ -281,7 +314,7 @@ func (p *Proxy) expandSlashCommands(ctx context.Context, rawMap map[string]inter
 
 	_, infoByName, err := p.slashCommandsSnapshot(ctx, false)
 	if err != nil {
-		return false, fmt.Errorf("斜杠命令列表不可用: %w", err)
+		return false, fmt.Errorf("%s: %w", i18n.T3("斜杠命令列表不可用", "slash commands unavailable", "スラッシュコマンド一覧を利用できません"), err)
 	}
 	refreshed := false
 	for _, it := range items {

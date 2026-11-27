@@ -158,7 +158,7 @@ internal object AutomationCronHelper {
                 val m = min.toIntOrNull()
                 val h = hour.toIntOrNull()
                 if (m != null && h != null && m in 0..59 && h in 0..23 && mon == "*") {
-                    val hm = "%02d:%02d".format(h, m)
+                    val hm = String.format(Locale.US, "%02d:%02d", h, m)
                     if (dom == "*") {
                         when {
                             dow == "*" -> base = "每天 %s".loc(hm)
@@ -174,7 +174,8 @@ internal object AutomationCronHelper {
                                     .filter { it in 0..7 }
                                     .map { shortWeekday(if (it == 7) 0 else it) }
                                 if (days.isNotEmpty()) {
-                                    base = "${days.joinToString("、")} $hm"
+                                    val sep = if (L10n.isEnglish) ", " else "、"
+                                    base = "${days.joinToString(sep)} $hm"
                                 }
                             }
                         }

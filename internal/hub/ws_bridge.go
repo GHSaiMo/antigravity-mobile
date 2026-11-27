@@ -86,6 +86,9 @@ func (h *Hub) bridgeWSToNode(w http.ResponseWriter, r *http.Request, node NodeCo
 	if proto := r.Header.Get("Sec-WebSocket-Protocol"); proto != "" {
 		dialHeader.Set("Sec-WebSocket-Protocol", proto)
 	}
+	if al := strings.TrimSpace(r.Header.Get("Accept-Language")); al != "" {
+		dialHeader.Set("Accept-Language", al)
+	}
 
 	dialer := websocket.Dialer{
 		Proxy:             nil, // Direct LAN dial

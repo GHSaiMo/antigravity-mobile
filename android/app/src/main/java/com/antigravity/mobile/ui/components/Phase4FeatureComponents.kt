@@ -1494,7 +1494,7 @@ fun WorkspaceSearchTab(
         scope.launch {
             api?.fetchFileContent(uri, cascadeId)
                 ?.onSuccess { previewContent = it.content }
-                ?.onFailure { previewContent = "读取文件失败: ${it.message.orEmpty()}" }
+                ?.onFailure { previewContent = "读取文件失败: %s".loc(it.message.orEmpty()) }
             previewLoading = false
         }
     }
@@ -1908,7 +1908,7 @@ fun RemoteSshSection(
                                 )?.onSuccess { resp ->
                                     activeJob = resp.job
                                 }?.onFailure { err ->
-                                    statusNotice = "连接失败: ${err.message.orEmpty()}"
+                                    statusNotice = "连接失败: %s".loc(err.message.orEmpty())
                                 }
                             }
                         }

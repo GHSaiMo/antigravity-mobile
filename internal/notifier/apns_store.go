@@ -38,6 +38,7 @@ type PushDeviceRecord struct {
 	SoundComplete         string            `json:"sound_complete,omitempty"`
 	SoundAction           string            `json:"sound_action,omitempty"`
 	Lang                  string            `json:"lang,omitempty"`
+	RawLocale             string            `json:"raw_locale,omitempty"`
 	ShowGatewayLabel      bool              `json:"show_gateway_label,omitempty"`
 	GatewayLabel          string            `json:"gateway_label,omitempty"`
 	UpdatedAt             time.Time         `json:"updated_at"`
@@ -51,6 +52,7 @@ type APNsAlertTarget struct {
 	SoundComplete    string
 	SoundAction      string
 	Lang             string
+	RawLocale        string
 	ShowGatewayLabel bool
 	GatewayLabel     string
 }
@@ -60,6 +62,7 @@ type FCMAlertTarget struct {
 	DeviceID         string
 	Token            string
 	Lang             string
+	RawLocale        string
 	ShowGatewayLabel bool
 	GatewayLabel     string
 }
@@ -71,6 +74,7 @@ type APNsLiveActivityTarget struct {
 	Token            string
 	Env              string
 	Lang             string
+	RawLocale        string
 	ShowGatewayLabel bool
 	GatewayLabel     string
 	IsStart          bool
@@ -367,8 +371,10 @@ func (s *PushDeviceStore) UpdateSoundPreferences(deviceID, soundComplete, soundA
 	return s.saveLocked()
 }
 
-// UpdateLanguage records the preferred notification language ("zh", "en", or "ja") for a paired iOS device.
-// Any explicit non-empty locale other than Chinese or Japanese is stored as "en" so it never falls back to Chinese.
+// UpdateLanguage records the preferred notification language ("zh", "en", or "ja") and raw BCP-47 locale
+// (e.g. "fr-FR", "ko-KR", "zh-Hant") for a paired mobile device.
+// Any explicit non-empty locale other than Chinese or Japanese is stored as "en" in Lang for UI chrome
+// while preserving RawLocale for AI Assist Live Activity translation.
 func (s *PushDeviceStore) UpdateLanguage(deviceID, lang string) error {
 	deviceID = strings.TrimSpace(deviceID)
 	rawLang := strings.TrimSpace(lang)
@@ -379,16 +385,21 @@ func (s *PushDeviceStore) UpdateLanguage(deviceID, lang string) error {
 	if norm == "" {
 		norm = i18n.LangEn
 	}
+	rawLocale := i18n.CleanLocaleTag(rawLang)
+	if rawLocale == "" {
+		rawLocale = norm
+	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	rec, ok := s.devices[deviceID]
 	if !ok {
 		return nil
 	}
-	if rec.Lang == norm {
+	if rec.Lang == norm && rec.RawLocale == rawLocale {
 		return nil
 	}
 	rec.Lang = norm
+	rec.RawLocale = rawLocale
 	rec.UpdatedAt = time.Now()
 	return s.saveLocked()
 }
@@ -457,6 +468,11 @@ func (s *PushDeviceStore) UpsertFCMToken(deviceID, token, lang string, notifEnab
 			norm = i18n.LangEn
 		}
 		rec.Lang = norm
+		if rawLocale := i18n.CleanLocaleTag(rawLang); rawLocale != "" {
+			rec.RawLocale = rawLocale
+		} else {
+			rec.RawLocale = norm
+		}
 	}
 	rec.UpdatedAt = time.Now()
 	return s.saveLocked()
@@ -489,6 +505,7 @@ func (s *PushDeviceStore) ListFCMTargets() []FCMAlertTarget {
 				DeviceID:         rec.DeviceID,
 				Token:            rec.FCMDeviceToken,
 				Lang:             i18n.NormalizeLang(rec.Lang),
+				RawLocale:        rec.RawLocale,
 				ShowGatewayLabel: rec.ShowGatewayLabel,
 				GatewayLabel:     rec.GatewayLabel,
 			})
@@ -660,6 +677,7 @@ func (s *PushDeviceStore) ListAlertTargets() []APNsAlertTarget {
 				SoundComplete:    rec.SoundComplete,
 				SoundAction:      rec.SoundAction,
 				Lang:             i18n.NormalizeLang(rec.Lang),
+				RawLocale:        rec.RawLocale,
 				ShowGatewayLabel: rec.ShowGatewayLabel,
 				GatewayLabel:     rec.GatewayLabel,
 			})
@@ -694,6 +712,7 @@ func (s *PushDeviceStore) ListLiveActivityTargetsAt(cascadeID string, includeSta
 				Token:            tok,
 				Env:              env,
 				Lang:             lang,
+				RawLocale:        rec.RawLocale,
 				ShowGatewayLabel: rec.ShowGatewayLabel,
 				GatewayLabel:     rec.GatewayLabel,
 				IsStart:          false,
@@ -708,6 +727,7 @@ func (s *PushDeviceStore) ListLiveActivityTargetsAt(cascadeID string, includeSta
 				Token:            rec.PushToStartToken,
 				Env:              env,
 				Lang:             lang,
+				RawLocale:        rec.RawLocale,
 				ShowGatewayLabel: rec.ShowGatewayLabel,
 				GatewayLabel:     rec.GatewayLabel,
 				IsStart:          true,

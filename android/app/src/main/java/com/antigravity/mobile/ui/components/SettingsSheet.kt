@@ -45,6 +45,7 @@ import androidx.compose.ui.graphics.RectangleShape
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.text.SpanStyle
@@ -1156,7 +1157,10 @@ private fun MainSettingsContent(
                     )
                 }
                 HorizontalDivider(color = colors.separator.copy(alpha = 0.4f), thickness = 0.5.dp)
-                val devLangForSummary = com.antigravity.mobile.data.service.DeviceTitleTargetLanguage.current()
+                val summaryLocaleKey = LocalConfiguration.current.locales.toLanguageTags()
+                val devLangForSummary = remember(L10n.getLanguagePreference(), summaryLocaleKey) {
+                    com.antigravity.mobile.data.service.DeviceTitleTargetLanguage.current()
+                }
                 val aiSummary = run {
                     val showTrans = devLangForSummary.shouldShowSmartTranslation
                     val titleOn = showTrans && aiAssistStatus.prefs.titleTranslateEnabled
@@ -1984,15 +1988,15 @@ private fun AppUpdateDialog(
                         val statusText = if (state.selectingChannel && state.downloadedBytes <= 0L) {
                             "正在选择最快通道…".loc
                         } else {
-                            val dlMb = String.format("%.1f MB", state.downloadedBytes / (1024.0 * 1024.0))
+                            val dlMb = String.format(java.util.Locale.US, "%.1f MB", state.downloadedBytes / (1024.0 * 1024.0))
                             val totalMb = if (state.totalBytes > 0L) {
-                                " / " + String.format("%.1f MB", state.totalBytes / (1024.0 * 1024.0))
+                                " / " + String.format(java.util.Locale.US, "%.1f MB", state.totalBytes / (1024.0 * 1024.0))
                             } else {
                                 ""
                             }
                             val speedSuffix = when {
                                 state.speedBytesPerSec >= 1024L * 1024L ->
-                                    " · " + String.format("%.1f MB/s", state.speedBytesPerSec / (1024.0 * 1024.0))
+                                    " · " + String.format(java.util.Locale.US, "%.1f MB/s", state.speedBytesPerSec / (1024.0 * 1024.0))
                                 state.speedBytesPerSec >= 1024L ->
                                     " · ${state.speedBytesPerSec / 1024L} KB/s"
                                 else -> ""
@@ -2897,57 +2901,58 @@ private fun AIAssistSubpageContent(
     val colors = AntigravityTheme.colors
     val haptic = rememberHaptic()
     val scope = rememberCoroutineScope()
-    val devLang = remember(L10n.getLanguagePreference()) {
+    val localeKey = LocalConfiguration.current.locales.toLanguageTags()
+    val devLang = remember(L10n.getLanguagePreference(), localeKey) {
         com.antigravity.mobile.data.service.DeviceTitleTargetLanguage.current()
     }
     val prefs = status.prefs
     val showSmartTranslation = devLang.shouldShowSmartTranslation
 
     val translationSectionHeader = when (devLang.kind) {
-        com.antigravity.mobile.data.service.DeviceTitleTargetLanguage.Kind.SIMPLIFIED_CHINESE,
-        com.antigravity.mobile.data.service.DeviceTitleTargetLanguage.Kind.TRADITIONAL_CHINESE -> "智能翻译"
+        com.antigravity.mobile.data.service.DeviceTitleTargetLanguage.Kind.SIMPLIFIED_CHINESE -> "智能翻译"
+        com.antigravity.mobile.data.service.DeviceTitleTargetLanguage.Kind.TRADITIONAL_CHINESE -> "智慧翻譯"
         com.antigravity.mobile.data.service.DeviceTitleTargetLanguage.Kind.JAPANESE -> "スマート翻訳"
         else -> "Smart Translation"
     }
     val titleToggleLabel = when (devLang.kind) {
-        com.antigravity.mobile.data.service.DeviceTitleTargetLanguage.Kind.SIMPLIFIED_CHINESE,
-        com.antigravity.mobile.data.service.DeviceTitleTargetLanguage.Kind.TRADITIONAL_CHINESE -> "会话标题翻译"
+        com.antigravity.mobile.data.service.DeviceTitleTargetLanguage.Kind.SIMPLIFIED_CHINESE -> "会话标题翻译"
+        com.antigravity.mobile.data.service.DeviceTitleTargetLanguage.Kind.TRADITIONAL_CHINESE -> "對話標題翻譯"
         com.antigravity.mobile.data.service.DeviceTitleTargetLanguage.Kind.JAPANESE -> "会話タイトルの翻訳"
         else -> "Conversation Title Translation"
     }
     val titleToggleSubtitle = when (devLang.kind) {
         com.antigravity.mobile.data.service.DeviceTitleTargetLanguage.Kind.SIMPLIFIED_CHINESE -> "新会话生成英文标题后自动翻译为简体中文并覆盖"
-        com.antigravity.mobile.data.service.DeviceTitleTargetLanguage.Kind.TRADITIONAL_CHINESE -> "新会话生成英文标题后自动翻译为繁体中文并覆盖"
+        com.antigravity.mobile.data.service.DeviceTitleTargetLanguage.Kind.TRADITIONAL_CHINESE -> "新對話產生英文標題後自動翻譯為繁體中文並覆蓋"
         com.antigravity.mobile.data.service.DeviceTitleTargetLanguage.Kind.JAPANESE -> "新しい会話の英語タイトルを日本語に自動翻訳して上書き"
         else -> "Auto-translate new English titles into ${devLang.englishDisplayName}"
     }
     val stepPlanToggleLabel = when (devLang.kind) {
-        com.antigravity.mobile.data.service.DeviceTitleTargetLanguage.Kind.SIMPLIFIED_CHINESE,
-        com.antigravity.mobile.data.service.DeviceTitleTargetLanguage.Kind.TRADITIONAL_CHINESE -> "步骤清单实时翻译"
+        com.antigravity.mobile.data.service.DeviceTitleTargetLanguage.Kind.SIMPLIFIED_CHINESE -> "步骤清单实时翻译"
+        com.antigravity.mobile.data.service.DeviceTitleTargetLanguage.Kind.TRADITIONAL_CHINESE -> "步驟清單即時翻譯"
         com.antigravity.mobile.data.service.DeviceTitleTargetLanguage.Kind.JAPANESE -> "ステップ一覧を自動翻訳"
         else -> "Translate Step Checklist"
     }
     val stepPlanToggleSubtitle = when (devLang.kind) {
         com.antigravity.mobile.data.service.DeviceTitleTargetLanguage.Kind.SIMPLIFIED_CHINESE -> "将英文待办步骤翻译为简体中文"
-        com.antigravity.mobile.data.service.DeviceTitleTargetLanguage.Kind.TRADITIONAL_CHINESE -> "将英文待办步骤翻译为繁体中文"
+        com.antigravity.mobile.data.service.DeviceTitleTargetLanguage.Kind.TRADITIONAL_CHINESE -> "將英文待辦步驟翻譯為繁體中文"
         com.antigravity.mobile.data.service.DeviceTitleTargetLanguage.Kind.JAPANESE -> "英語のタスクリストを日本語に自動翻訳"
         else -> "Translate English checklist steps into ${devLang.englishDisplayName}"
     }
     val focusToggleLabel = when (devLang.kind) {
-        com.antigravity.mobile.data.service.DeviceTitleTargetLanguage.Kind.SIMPLIFIED_CHINESE,
-        com.antigravity.mobile.data.service.DeviceTitleTargetLanguage.Kind.TRADITIONAL_CHINESE -> "实时状态行翻译"
+        com.antigravity.mobile.data.service.DeviceTitleTargetLanguage.Kind.SIMPLIFIED_CHINESE -> "实时状态行翻译"
+        com.antigravity.mobile.data.service.DeviceTitleTargetLanguage.Kind.TRADITIONAL_CHINESE -> "即時狀態列翻譯"
         com.antigravity.mobile.data.service.DeviceTitleTargetLanguage.Kind.JAPANESE -> "リアルタイム状況を自動翻訳"
         else -> "Translate Live Status Line"
     }
     val focusToggleSubtitle = when (devLang.kind) {
         com.antigravity.mobile.data.service.DeviceTitleTargetLanguage.Kind.SIMPLIFIED_CHINESE -> "将执行中的英文状态摘要翻译为简体中文"
-        com.antigravity.mobile.data.service.DeviceTitleTargetLanguage.Kind.TRADITIONAL_CHINESE -> "将执行中的英文状态摘要翻译为繁体中文"
+        com.antigravity.mobile.data.service.DeviceTitleTargetLanguage.Kind.TRADITIONAL_CHINESE -> "將執行中的英文狀態摘要翻譯為繁體中文"
         com.antigravity.mobile.data.service.DeviceTitleTargetLanguage.Kind.JAPANESE -> "実行中の英語ステータスを日本語に自動翻訳"
         else -> "Translate live working status into ${devLang.englishDisplayName}"
     }
     val translationSectionFooter = when (devLang.kind) {
-        com.antigravity.mobile.data.service.DeviceTitleTargetLanguage.Kind.SIMPLIFIED_CHINESE,
-        com.antigravity.mobile.data.service.DeviceTitleTargetLanguage.Kind.TRADITIONAL_CHINESE -> "标题翻译仅覆盖开启后的新会话，不改动已有会话；步骤与状态仅在客户端展示译文，不修改桌面端原始记录。"
+        com.antigravity.mobile.data.service.DeviceTitleTargetLanguage.Kind.SIMPLIFIED_CHINESE -> "标题翻译仅覆盖开启后的新会话，不改动已有会话；步骤与状态仅在客户端展示译文，不修改桌面端原始记录。"
+        com.antigravity.mobile.data.service.DeviceTitleTargetLanguage.Kind.TRADITIONAL_CHINESE -> "標題翻譯僅覆蓋開啟後的新對話，不改動既有對話；步驟與狀態僅在用戶端顯示譯文，不修改電腦端原始記錄。"
         com.antigravity.mobile.data.service.DeviceTitleTargetLanguage.Kind.JAPANESE -> "タイトル翻訳はオン後の新しい会話のみ上書き同期されます（既存会話は変更しません）。ステップ・状況は表示のみ翻訳され、元の記録は保持されます。"
         else -> "Title translation overwrites new conversations going forward without modifying existing ones. Step and status translations are display-only."
     }

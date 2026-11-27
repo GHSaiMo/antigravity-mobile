@@ -18,6 +18,7 @@ import (
 	"sync"
 	"time"
 
+	"antigravity-mobile/internal/i18n"
 	"antigravity-mobile/internal/notifier"
 	"antigravity-mobile/internal/proxy"
 
@@ -685,9 +686,13 @@ func (h *Hub) WrapHandler(local http.Handler) http.Handler {
 			return
 		}
 
-		// 9. Phase 2: Permission preset broadcast
+		// 9. Phase 2: Permission preset & AI Assist prefs broadcast
 		if path == "/gateway/permissions" {
 			h.handleHubPermissions(w, r, local)
+			return
+		}
+		if path == "/gateway/ai-assist/prefs" {
+			h.handleHubAIAssistPrefs(w, r, local)
 			return
 		}
 
@@ -1122,10 +1127,11 @@ func (h *Hub) handleInternalNodeEvent(w http.ResponseWriter, r *http.Request) {
 					locCopy[k] = [2]string{lt, lb}
 				}
 				localizeFn = func(lang string) (string, string) {
-					if pair, ok := locCopy[lang]; ok {
+					resolved := i18n.ResolveLang(lang)
+					if pair, ok := locCopy[resolved]; ok {
 						return pair[0], pair[1]
 					}
-					if pair, ok := locCopy["en"]; ok {
+					if pair, ok := locCopy[i18n.LangEn]; ok {
 						return pair[0], pair[1]
 					}
 					return title, body

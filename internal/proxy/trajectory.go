@@ -181,7 +181,7 @@ func (p *Proxy) handleCascadeMessages(w http.ResponseWriter, r *http.Request) {
 		details.BranchOrigin = &originCopy
 	}
 	if details.BranchOrigin == nil || !details.BranchOrigin.IsSideQuestion {
-		details.SideQuestions = p.buildSideQuestionCards(r.Context(), cascadeID, details.AllMessages, port, token)
+		details.SideQuestions = p.buildSideQuestionCardsForLang(r.Context(), cascadeID, details.AllMessages, port, token, resolveRequestUILang(r))
 	}
 	if details.Title == "" || details.Title == "未命名会话" {
 		if t := p.lookupCascadeTitle(cascadeID, port, token); t != "" {
@@ -194,13 +194,14 @@ func (p *Proxy) handleCascadeMessages(w http.ResponseWriter, r *http.Request) {
 		details.QueuedMessages = []QueuedMessageItem{}
 	}
 	details.QueuedMessages = p.FilterQueuedMessagesAgainstTrajectory(cascadeID, details.QueuedMessages, rawResp.Trajectory.Steps, details.AllMessages)
-	details.ContextMeter = applyTrajectoryContextEnrichment(
+	details.ContextMeter = applyTrajectoryContextEnrichmentForLang(
 		withLastActivityAt(
 			p.fetchUpstreamGeneratorMetadata(cascadeID, port, token),
 			extractLastActivityAt(rawResp.Trajectory.Steps),
 		),
 		rawResp.Trajectory.Steps,
 		details.AllMessages,
+		resolveRequestUILang(r),
 	)
 	liveTranslations := p.ApplyLiveTextTranslations(cascadeID, &details, extractRequestLangHint(r), true)
 

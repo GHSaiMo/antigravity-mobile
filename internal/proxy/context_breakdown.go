@@ -11,6 +11,8 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+
+	"antigravity-mobile/internal/i18n"
 )
 
 const (
@@ -154,15 +156,15 @@ func estimateCheckpointSummaryTokens(s TrajectoryStep) int64 {
 	return total
 }
 
-func estimateSingleStepContribution(stepIdx int, s TrajectoryStep) (category string, kind string, label string, tokens int64) {
+func estimateSingleStepContribution(stepIdx int, s TrajectoryStep, lang string) (category string, kind string, label string, tokens int64) {
 	if s.UserInput != nil {
 		text, _ := s.UserInput.ExtractTextAndSlashCommands()
 		tok := estimateTextTokens(text)
 		mediaTok := int64(len(s.UserInput.Images)+len(s.UserInput.Media)) * 1024
 		if mediaTok > tok {
-			return "system_attachments", "attachment", summarizeConsumerLabel("附件输入", text), tok + mediaTok
+			return "system_attachments", "attachment", summarizeConsumerLabel(i18n.T3For(lang, "附件输入", "Attachment", "添付ファイル"), text), tok + mediaTok
 		}
-		return "conversation", "user", summarizeConsumerLabel("用户消息", text), tok + mediaTok
+		return "conversation", "user", summarizeConsumerLabel(i18n.T3For(lang, "用户消息", "User Message", "ユーザーメッセージ"), text), tok + mediaTok
 	}
 
 	if s.PlannerResponse != nil {
@@ -173,9 +175,9 @@ func estimateSingleStepContribution(stepIdx int, s TrajectoryStep) (category str
 		thinkTok := estimateTextTokens(thinkText)
 		respTok := estimateTextTokens(s.PlannerResponse.Response)
 		if thinkTok > respTok {
-			return "thinking", "thinking", summarizeConsumerLabel("深度思考", thinkText), thinkTok
+			return "thinking", "thinking", summarizeConsumerLabel(i18n.T3For(lang, "深度思考", "Thinking", "思考プロセス"), thinkText), thinkTok
 		}
-		return "conversation", "agent", summarizeConsumerLabel("助手回复", s.PlannerResponse.Response), respTok
+		return "conversation", "agent", summarizeConsumerLabel(i18n.T3For(lang, "助手回复", "Assistant Reply", "アシスタント応答"), s.PlannerResponse.Response), respTok
 	}
 
 	if s.RunCommand != nil {
@@ -207,16 +209,16 @@ func estimateSingleStepContribution(stepIdx int, s TrajectoryStep) (category str
 		if cmd == "" {
 			cmd = strings.TrimSpace(s.Metadata.ToolSummary)
 		}
-		return "tools", "tool", summarizeConsumerLabel("终端命令", cmd), tok
+		return "tools", "tool", summarizeConsumerLabel(i18n.T3For(lang, "终端命令", "Terminal", "ターミナル"), cmd), tok
 	}
 
 	if s.CaptureBrowserScreenshot != nil {
-		return "system_attachments", "attachment", summarizeConsumerLabel("网页截图", s.CaptureBrowserScreenshot.PageTitle), 1200
+		return "system_attachments", "attachment", summarizeConsumerLabel(i18n.T3For(lang, "网页截图", "Web Screenshot", "スクリーンショット"), s.CaptureBrowserScreenshot.PageTitle), 1200
 	}
 
 	if s.SystemMessage != nil || s.Checkpoint != nil || s.Type == "CORTEX_STEP_TYPE_CHECKPOINT" {
 		tok := estimateCheckpointSummaryTokens(s)
-		return "system_attachments", "attachment", summarizeConsumerLabel("系统上下文", s.Content), tok
+		return "system_attachments", "attachment", summarizeConsumerLabel(i18n.T3For(lang, "系统上下文", "System Context", "システムコンテキスト"), s.Content), tok
 	}
 
 	// Generic tool calls (view_file, grep_search, code_action, mcp, etc.)
@@ -348,6 +350,11 @@ func resolveStepMessageID(stepIdx int, messages []CascadeMessageItem) string {
 //     model response (so the context ring drops right away after `/compact`).
 //  2. Lightweight 4-category context composition breakdown + Top-3 token-heavy steps.
 func applyTrajectoryContextEnrichment(base *ContextMeterItem, steps []TrajectoryStep, messages []CascadeMessageItem) *ContextMeterItem {
+	return applyTrajectoryContextEnrichmentForLang(base, steps, messages, i18n.GetLang())
+}
+
+func applyTrajectoryContextEnrichmentForLang(base *ContextMeterItem, steps []TrajectoryStep, messages []CascadeMessageItem, lang string) *ContextMeterItem {
+	resolvedLang := i18n.ResolveLang(lang)
 	if base == nil && len(steps) == 0 {
 		return nil
 	}
@@ -403,7 +410,7 @@ func applyTrajectoryContextEnrichment(base *ContextMeterItem, steps []Trajectory
 						StepIndex: i,
 						MessageID: resolveStepMessageID(i, messages),
 						Kind:      "thinking",
-						Label:     summarizeConsumerLabel("深度思考", thinkText),
+						Label:     summarizeConsumerLabel(i18n.T3For(resolvedLang, "深度思考", "Thinking", "思考プロセス"), thinkText),
 						Tokens:    thinkTok,
 					})
 				}
@@ -416,7 +423,7 @@ func applyTrajectoryContextEnrichment(base *ContextMeterItem, steps []Trajectory
 						StepIndex: i,
 						MessageID: resolveStepMessageID(i, messages),
 						Kind:      "agent",
-						Label:     summarizeConsumerLabel("助手回复", s.PlannerResponse.Response),
+						Label:     summarizeConsumerLabel(i18n.T3For(resolvedLang, "助手回复", "Assistant Reply", "アシスタント応答"), s.PlannerResponse.Response),
 						Tokens:    respTok,
 					})
 				}
@@ -424,7 +431,7 @@ func applyTrajectoryContextEnrichment(base *ContextMeterItem, steps []Trajectory
 			continue
 		}
 
-		cat, kind, label, tok := estimateSingleStepContribution(i, s)
+		cat, kind, label, tok := estimateSingleStepContribution(i, s, resolvedLang)
 		if tok <= 0 {
 			continue
 		}

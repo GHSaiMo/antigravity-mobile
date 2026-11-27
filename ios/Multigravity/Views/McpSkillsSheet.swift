@@ -1056,9 +1056,9 @@ public struct McpSkillsSheet: View {
 
         // Agent Marketplace Discovery & Search
         Section(header: HStack {
-            Text(searchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "插件市场推荐" : "插件市场搜索结果")
+            Text(searchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? String(localized: "插件市场推荐") : String(localized: "插件市场搜索结果"))
             Spacer()
-            Button(isLoadingMarketplace ? "加载中..." : "搜索市场") {
+            Button(isLoadingMarketplace ? String(localized: "加载中...") : String(localized: "搜索市场")) {
                 Task { await loadMarketplace(query: searchText) }
             }
             .font(.system(size: 11.5, weight: .medium))

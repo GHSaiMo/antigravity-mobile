@@ -201,7 +201,7 @@ fun MarkdownViewerSheet(
                             verticalAlignment = Alignment.CenterVertically
                         ) {
                             Text(
-                                text = "正在查看历史快照 v${(activeSnapshot?.index ?: 0) + 1}".loc,
+                                text = "正在查看历史快照 v%d".loc((activeSnapshot?.index ?: 0) + 1),
                                 fontSize = 12.sp,
                                 color = colors.accentOrange,
                                 fontWeight = FontWeight.Medium

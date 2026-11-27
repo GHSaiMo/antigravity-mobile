@@ -11,6 +11,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"antigravity-mobile/internal/i18n"
 )
 
 // BtwSideQuestionEntry stores metadata about a /btw side-question cascade linked to a parent chat.
@@ -645,6 +647,11 @@ func repairTruncatedInlineMarkdown(s string) string {
 }
 
 func formatBtwPrompt(question, quote string) string {
+	return formatBtwPromptForLang(question, quote, i18n.GetLang())
+}
+
+func formatBtwPromptForLang(question, quote, lang string) string {
+	l := i18n.ResolveLang(lang)
 	q := strings.TrimSpace(question)
 	qt := strings.TrimSpace(quote)
 	if qt == "" {
@@ -656,9 +663,9 @@ func formatBtwPrompt(question, quote string) string {
 	}
 	quoted := strings.Join(lines, "\n")
 	if q == "" {
-		return "请解释以下内容：\n" + quoted
+		return i18n.T3For(l, "请解释以下内容：\n", "Please explain the following:\n", "以下の内容を説明してください：\n") + quoted
 	}
-	return "关于以下内容：\n" + quoted + "\n\n" + q
+	return i18n.T3For(l, "关于以下内容：\n", "Regarding the following:\n", "以下の内容について：\n") + quoted + "\n\n" + q
 }
 
 func formatBtwInsertText(cascadeID, title, question, answer string) string {
@@ -723,7 +730,7 @@ func (p *Proxy) handleBtwStart(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	promptText := formatBtwPrompt(req.Question, req.Quote)
+	promptText := formatBtwPromptForLang(req.Question, req.Quote, resolveRequestUILang(r))
 	if strings.TrimSpace(promptText) == "" && len(req.Attachments) == 0 && len(req.Media) == 0 {
 		writeRPCError(w, http.StatusBadRequest, "question or quote is required")
 		return
@@ -1176,7 +1183,7 @@ func (p *Proxy) collectSideQuestionEntries(ctx context.Context, parentID string,
 					if hasSum && sideSum.Status != "" {
 						items[idx].Status = sideSum.Status
 					}
-					if title != "" && (items[idx].Title == "" || items[idx].Title == "Side question") {
+					if title != "" && isDefaultSideQuestionTitle(items[idx].Title) {
 						items[idx].Title = title
 					}
 					if items[idx].CreatedAt == "" && sideSum.CreatedTime != "" {
@@ -1186,7 +1193,7 @@ func (p *Proxy) collectSideQuestionEntries(ctx context.Context, parentID string,
 					e := BtwSideQuestionEntry{
 						CascadeID:       sid,
 						ParentCascadeID: parentID,
-						Title:           firstNonEmpty(title, sideSum.Summary, "旁路快问"),
+						Title:           firstNonEmpty(title, sideSum.Summary, "Side question"),
 						Question:        firstNonEmpty(title, sideSum.Summary),
 						Status:          sideSum.Status,
 						CreatedAt:       sideSum.CreatedTime,
@@ -1216,7 +1223,7 @@ func (p *Proxy) collectSideQuestionEntries(ctx context.Context, parentID string,
 					}
 					if q != "" {
 						items[i].Question = q
-						if items[i].Title == "" || items[i].Title == "旁路快问" || items[i].Title == "Side question" {
+						if isDefaultSideQuestionTitle(items[i].Title) {
 							items[i].Title = truncateRunes(q, 60)
 						}
 					}
@@ -1246,6 +1253,10 @@ func (p *Proxy) collectSideQuestionEntries(ctx context.Context, parentID string,
 
 // buildSideQuestionCards builds inline branch cards anchored to parent messages for HTTP & WebSocket payloads.
 func (p *Proxy) buildSideQuestionCards(ctx context.Context, parentID string, allMessages []CascadeMessageItem, port int, token string) []SideQuestionCardItem {
+	return p.buildSideQuestionCardsForLang(ctx, parentID, allMessages, port, token, i18n.GetLang())
+}
+
+func (p *Proxy) buildSideQuestionCardsForLang(ctx context.Context, parentID string, allMessages []CascadeMessageItem, port int, token string, lang string) []SideQuestionCardItem {
 	if parentID == "" {
 		return nil
 	}
@@ -1253,6 +1264,7 @@ func (p *Proxy) buildSideQuestionCards(ctx context.Context, parentID string, all
 	if len(entries) == 0 {
 		return nil
 	}
+	defaultTitle := defaultSideQuestionTitleForLang(lang)
 	out := make([]SideQuestionCardItem, 0, len(entries))
 	for _, e := range entries {
 		forkIdx := -1
@@ -1267,11 +1279,15 @@ func (p *Proxy) buildSideQuestionCards(ctx context.Context, parentID string, all
 		case "CASCADE_RUN_STATUS_ERROR":
 			status = "error"
 		}
+		title := e.Title
+		if isDefaultSideQuestionTitle(title) {
+			title = firstNonEmpty(e.Question, defaultTitle)
+		}
 		out = append(out, SideQuestionCardItem{
 			CascadeID:       e.CascadeID,
 			ParentCascadeID: parentID,
-			Title:           firstNonEmpty(e.Title, e.Question, "旁路快问"),
-			Question:        firstNonEmpty(e.Question, e.Title),
+			Title:           title,
+			Question:        firstNonEmpty(e.Question, title),
 			AnswerPreview:   e.AnswerPreview,
 			Status:          status,
 			ForkStepIndex:   forkIdx,
@@ -1284,6 +1300,15 @@ func (p *Proxy) buildSideQuestionCards(ctx context.Context, parentID string, all
 }
 
 // resolveSideQuestionAnchorMessageID finds the parent message bubble that a side question branched from.
+
+func isDefaultSideQuestionTitle(title string) bool {
+	t := strings.TrimSpace(title)
+	return t == "" || t == "旁路快问" || t == "サイド質問" || strings.EqualFold(t, "Side question")
+}
+
+func defaultSideQuestionTitleForLang(lang string) string {
+	return i18n.T3For(i18n.ResolveLang(lang), "旁路快问", "Side question", "サイド質問")
+}
 func resolveSideQuestionAnchorMessageID(allMessages []CascadeMessageItem, forkStepIndex int) string {
 	if len(allMessages) == 0 {
 		return ""

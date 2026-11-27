@@ -1801,15 +1801,12 @@ class ApiClient(
         val platform: String? = null
     )
 
-    private fun currentPushLangCode(): String = when (com.antigravity.mobile.ui.util.L10n.currentLang) {
-        com.antigravity.mobile.ui.util.L10n.AppLang.ZH -> "zh"
-        com.antigravity.mobile.ui.util.L10n.AppLang.JA -> "ja"
-        com.antigravity.mobile.ui.util.L10n.AppLang.EN -> "en"
-    }
+    private fun currentPushLangCode(): String = DeviceTitleTargetLanguage.current().bcp47Tag
 
     private fun buildContextRequest(url: String, context: GatewayRequestContext): Request.Builder {
         val builder = Request.Builder()
             .url(url)
+            .header("Accept-Language", DeviceTitleTargetLanguage.current().bcp47Tag)
             .tag(E2eeContextTag::class.java, E2eeContextTag(context))
         context.deviceToken?.trim()?.takeIf { it.isNotEmpty() }?.let { tok ->
             builder.header("Authorization", "Bearer $tok")
@@ -2651,6 +2648,7 @@ class ApiClient(
             .url(url)
             .header("Content-Type", "application/json")
             .header("Connect-Protocol-Version", "1")
+            .header("Accept-Language", DeviceTitleTargetLanguage.current().bcp47Tag)
 
         prefs.deviceToken?.takeIf { it.isNotBlank() }?.let { token ->
             builder.header("Authorization", "Bearer $token")

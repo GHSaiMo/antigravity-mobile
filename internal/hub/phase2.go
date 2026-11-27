@@ -1209,3 +1209,89 @@ func (h *Hub) handleHubPermissions(w http.ResponseWriter, r *http.Request, local
 	}
 	writeJSONError(w, http.StatusBadGateway, "no online nodes accepted permission update")
 }
+
+func (h *Hub) handleHubAIAssistPrefs(w http.ResponseWriter, r *http.Request, local http.Handler) {
+	if r.Method == http.MethodGet {
+		if remote, useRemote := h.pickDefaultTarget(); useRemote {
+			h.forwardHTTPToNode(w, r, remote, "", nil, nil, nil)
+			return
+		}
+		local.ServeHTTP(w, r)
+		return
+	}
+	if r.Method != http.MethodPost && r.Method != http.MethodPatch && r.Method != http.MethodPut {
+		local.ServeHTTP(w, r)
+		return
+	}
+
+	bodyBytes, err := io.ReadAll(io.LimitReader(r.Body, 32*1024))
+	if err != nil {
+		writeJSONError(w, http.StatusBadRequest, "failed to read ai-assist prefs body")
+		return
+	}
+	r.Body = io.NopCloser(bytes.NewReader(bodyBytes))
+	r.ContentLength = int64(len(bodyBytes))
+
+	// Broadcast AI Assist preference changes to all enabled remote nodes concurrently,
+	// preserving Accept-Language so each node resolves auto-locale cleanly.
+	remoteNodes := h.store.ListNodes()
+	var firstRemoteBody []byte
+	var firstRemoteStatus int
+	var mu sync.Mutex
+	var wg sync.WaitGroup
+	for _, n := range remoteNodes {
+		if !n.Enabled {
+			continue
+		}
+		wg.Add(1)
+		go func(node NodeConfig) {
+			defer wg.Done()
+			ctx, cancel := context.WithTimeout(r.Context(), h.listTimeout)
+			defer cancel()
+			targetURL, uErr := buildNodeURL(node.BaseURL, "/gateway/ai-assist/prefs", r.URL.RawQuery)
+			if uErr != nil {
+				return
+			}
+			req, reqErr := http.NewRequestWithContext(ctx, r.Method, targetURL, bytes.NewReader(bodyBytes))
+			if reqErr != nil {
+				return
+			}
+			h.applyNodeHeaders(req.Header, r.Header, node)
+			req.Header.Set("Content-Type", "application/json")
+			resp, doErr := h.listClient.Do(req)
+			if doErr != nil {
+				slog.Warn("[Hub] Failed to sync AI Assist prefs to node", "node", node.ID, "err", doErr)
+				return
+			}
+			defer resp.Body.Close()
+			respBody, _ := io.ReadAll(io.LimitReader(resp.Body, 256*1024))
+			mu.Lock()
+			if firstRemoteStatus == 0 && resp.StatusCode >= 200 && resp.StatusCode < 300 {
+				firstRemoteStatus = resp.StatusCode
+				firstRemoteBody = respBody
+			}
+			mu.Unlock()
+		}(n)
+	}
+
+	if !h.opts.Headless {
+		rec := httptest.NewRecorder()
+		local.ServeHTTP(rec, cloneLocalRequest(r, bodyBytes))
+		wg.Wait()
+		copyResponseHeaders(w.Header(), rec.Header(), true)
+		w.Header().Set("Content-Length", strconv.Itoa(rec.Body.Len()))
+		w.WriteHeader(rec.Code)
+		_, _ = w.Write(rec.Body.Bytes())
+		return
+	}
+
+	wg.Wait()
+	if firstRemoteStatus > 0 {
+		w.Header().Set("Content-Type", "application/json; charset=utf-8")
+		w.Header().Set("Content-Length", strconv.Itoa(len(firstRemoteBody)))
+		w.WriteHeader(firstRemoteStatus)
+		_, _ = w.Write(firstRemoteBody)
+		return
+	}
+	writeJSONError(w, http.StatusBadGateway, "no online nodes accepted AI Assist preference update")
+}

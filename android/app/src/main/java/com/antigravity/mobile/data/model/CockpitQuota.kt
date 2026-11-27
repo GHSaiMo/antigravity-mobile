@@ -34,9 +34,14 @@ data class CockpitQuotaBucket(
     val resetCountdownDisplay: String?
         get() {
             val friendly = resetFriendly?.takeIf { it.isNotBlank() } ?: return null
-            if (friendly == "已就绪".loc || friendly == "未知".loc) return friendly
+            val localizedFriendly = friendly.loc
+            if (
+                friendly == "已就绪" || friendly == "未知" ||
+                friendly.equals("ready", ignoreCase = true) || friendly.equals("unknown", ignoreCase = true) ||
+                localizedFriendly == "已就绪".loc || localizedFriendly == "未知".loc
+            ) return localizedFriendly
             val clock = formattedResetClockTime
-            return if (clock != null) "$friendly $clock" else friendly
+            return if (clock != null) "$localizedFriendly $clock" else localizedFriendly
         }
 
     fun calculateWeeklyPace(totalWindowHours: Double = 168.0): WeeklyPaceInfo? {

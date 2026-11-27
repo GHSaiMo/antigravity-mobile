@@ -385,7 +385,7 @@ fun QuickActionChips(
                 )
             }
 
-            if (showLongPressTip) {
+            if (showLongPressTip && suggestedResponses.isEmpty()) {
                 val gapPx = with(density) { 8.dp.roundToPx() }
                 val edgePaddingPx = with(density) { 12.dp.roundToPx() }
                 val tooltipPositionProvider = remember(gapPx, edgePaddingPx) {

@@ -513,7 +513,11 @@ final class DemoGateway: @unchecked Sendable {
             "status": "done",
             "phase": "done",
             "progress": 100,
-            "message": "克隆完成，已加入 Antigravity 项目列表",
+            "message": Self.t(
+                "克隆完成，已加入 Antigravity 项目列表",
+                "Clone complete and added to Antigravity projects",
+                "クローンが完了し、Antigravity プロジェクト一覧に追加しました"
+            ),
             "targetPath": target,
             "path": target,
             "folderUri": "file://\(target)",

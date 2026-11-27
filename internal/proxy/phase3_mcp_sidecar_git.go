@@ -16,6 +16,7 @@ import (
 	"sync"
 	"time"
 
+	"antigravity-mobile/internal/i18n"
 	"antigravity-mobile/internal/procutil"
 )
 
@@ -477,6 +478,7 @@ func (p *Proxy) HandleAutomationCreateDelete(w http.ResponseWriter, r *http.Requ
 	configDir := filepath.Join(home, ".gemini", "config")
 	sidecarsDir := filepath.Join(configDir, "sidecars")
 
+	uiLang := resolveRequestUILang(r)
 	switch r.URL.Path {
 	case "/gateway/automations/create":
 		var req struct {
@@ -491,12 +493,16 @@ func (p *Proxy) HandleAutomationCreateDelete(w http.ResponseWriter, r *http.Requ
 			Enabled     *bool  `json:"enabled"`
 		}
 		if err := json.NewDecoder(io.LimitReader(r.Body, 256*1024)).Decode(&req); err != nil {
-			writeRPCError(w, http.StatusBadRequest, "无效的请求体")
+			writeRPCError(w, http.StatusBadRequest, i18n.T3For(uiLang, "无效的请求体", "Invalid request body", "リクエストボディが無効です"))
 			return
 		}
 		cronExpr := firstNonEmpty(req.Cron, req.Schedule)
 		if strings.TrimSpace(cronExpr) == "" || strings.TrimSpace(req.Prompt) == "" {
-			writeRPCError(w, http.StatusBadRequest, "请填写 Cron 表达式和执行提示词")
+			writeRPCError(w, http.StatusBadRequest, i18n.T3For(uiLang,
+				"请填写 Cron 表达式和执行提示词",
+				"Cron expression and prompt are required",
+				"Cron 式と実行プロンプトを入力してください",
+			))
 			return
 		}
 		sid := sanitizeFileSlug(firstNonEmpty(req.ID, req.Name))
@@ -584,16 +590,16 @@ func (p *Proxy) HandleAutomationCreateDelete(w http.ResponseWriter, r *http.Requ
 			Name      string `json:"name"`
 		}
 		if err := json.NewDecoder(io.LimitReader(r.Body, 64*1024)).Decode(&req); err != nil {
-			writeRPCError(w, http.StatusBadRequest, "无效的请求体")
+			writeRPCError(w, http.StatusBadRequest, i18n.T3For(uiLang, "无效的请求体", "Invalid request body", "リクエストボディが無効です"))
 			return
 		}
 		reqID := strings.TrimSpace(firstNonEmpty(req.SidecarID, req.Name))
 		if reqID == "" {
-			writeRPCError(w, http.StatusBadRequest, "缺少 sidecarId")
+			writeRPCError(w, http.StatusBadRequest, i18n.T3For(uiLang, "缺少 sidecarId", "Missing sidecarId", "sidecarId が指定されていません"))
 			return
 		}
 		if !isSafeSidecarID(reqID) {
-			writeRPCError(w, http.StatusBadRequest, "非法的 sidecarId")
+			writeRPCError(w, http.StatusBadRequest, i18n.T3For(uiLang, "非法的 sidecarId", "Invalid sidecarId", "不正な sidecarId です"))
 			return
 		}
 

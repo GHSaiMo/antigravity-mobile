@@ -14,6 +14,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"antigravity-mobile/internal/i18n"
 )
 
 // AutomationSchedule represents a scheduled automation task (from schedule sidecar).
@@ -436,7 +438,7 @@ func (p *Proxy) HandleGetAutomations(w http.ResponseWriter, r *http.Request) {
 		}
 
 		// Read local historical events
-		events := readLocalSidecarEvents(sid, sc.Name, 20)
+		events := readLocalSidecarEventsForLang(sid, sc.Name, 20, resolveRequestUILang(r))
 		if len(events) > 0 {
 			// Latest event timestamp is LastRunAt
 			sc.LastRunAt = events[0].Timestamp
@@ -1111,6 +1113,11 @@ func readLocalSidecars() map[string]*AutomationSchedule {
 
 // readLocalSidecarEvents scans sidecar_data/<sidecarID>/events/ under the resolved Antigravity data dir.
 func readLocalSidecarEvents(sidecarID, displayName string, limit int) []AutomationEvent {
+	return readLocalSidecarEventsForLang(sidecarID, displayName, limit, i18n.GetLang())
+}
+
+func readLocalSidecarEventsForLang(sidecarID, displayName string, limit int, lang string) []AutomationEvent {
+	resolvedLang := i18n.ResolveLang(lang)
 	events := make([]AutomationEvent, 0)
 	eventsDir := resolveAntigravitySubPath("sidecar_data", sidecarID, "events")
 	if eventsDir == "" {
@@ -1176,7 +1183,7 @@ func readLocalSidecarEvents(sidecarID, displayName string, limit int) []Automati
 		}
 
 		status := "success"
-		msg := "自动化执行完成"
+		msg := i18n.T3For(resolvedLang, "自动化执行完成", "Automation completed", "オートメーション実行完了")
 		if raw.Error != "" {
 			status = "error"
 			msg = raw.Error

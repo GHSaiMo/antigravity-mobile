@@ -242,4 +242,119 @@ class L10nTest {
             L10n.setLanguagePreference("system")
         }
     }
+
+    @Test
+    fun testV128LocalizationAndSideQuestionParity() {
+        val prevLocale = Locale.getDefault()
+        try {
+            L10n.setLanguagePreference("en")
+            assertEquals("Offline", "未连接".loc)
+            assertEquals("Auto Tightest", "自动最紧".loc)
+            assertEquals("Context Breakdown", "上下文占用分布".loc)
+            assertEquals("Compacted", "已压缩".loc)
+            assertEquals("Viewing snapshot v3", "正在查看历史快照 v%d".loc(3))
+            assertEquals("Viewing snapshot v4", "正在查看历史快照 v4".loc)
+            assertEquals("Sign in to GitHub", "%s 登录".loc("GitHub"))
+            assertEquals(
+                "Note: 2 active session(s) are running on the host. Applying the update will restart Antigravity Desktop.",
+                "注意：电脑端当前有 %d 个活跃会话运行中，应用更新会重启 Antigravity 桌面客户端。".loc(2)
+            )
+            assertEquals(
+                "Describe what you want to automate for AI to set up, or configure a Cron schedule manually",
+                "描述你想自动化的事项让 AI 帮你设计，或手动配置 Cron 计划".loc
+            )
+            assertEquals("Ready", com.antigravity.mobile.data.model.CockpitQuotaBucket(resetFriendly = "已就绪", resetTime = "2026-11-28T00:00:00Z").resetCountdownDisplay)
+
+            L10n.setLanguagePreference("ja")
+            assertEquals("オフライン", "未连接".loc)
+            assertEquals("自動最小", "自动最紧".loc)
+            assertEquals("コンテキスト内訳", "上下文占用分布".loc)
+            assertEquals("圧縮済み", "已压缩".loc)
+            assertEquals("スナップショット v3 を表示中", "正在查看历史快照 v%d".loc(3))
+            assertEquals("1 件のサイド質問", "1 个旁路".loc)
+            assertEquals("3 件のサイド質問", "%d 个旁路".loc(3))
+            assertTrue("JA update banner should not leak Chinese", "注意：电脑端当前有 %d 个活跃会话运行中，应用更新会重启 Antigravity 桌面客户端。".loc(1).contains("アクティブ"))
+        } finally {
+            Locale.setDefault(prevLocale)
+            L10n.setLanguagePreference("system")
+        }
+    }
+
+    @Test
+    fun testDeviceTitleTargetLanguageAcrossLocales() {
+        val prevLocale = Locale.getDefault()
+        try {
+            L10n.setLanguagePreference("system")
+
+            Locale.setDefault(Locale.US)
+            val en = com.antigravity.mobile.data.service.DeviceTitleTargetLanguage.current()
+            assertEquals(com.antigravity.mobile.data.service.DeviceTitleTargetLanguage.Kind.ENGLISH, en.kind)
+            assertFalse("Smart Translation MUST be hidden/off for English", en.shouldShowSmartTranslation)
+            assertEquals("en", en.bcp47Tag)
+
+            Locale.setDefault(Locale.SIMPLIFIED_CHINESE)
+            val zhCn = com.antigravity.mobile.data.service.DeviceTitleTargetLanguage.current()
+            assertEquals(com.antigravity.mobile.data.service.DeviceTitleTargetLanguage.Kind.SIMPLIFIED_CHINESE, zhCn.kind)
+            assertTrue(zhCn.shouldShowSmartTranslation)
+            assertEquals("zh-Hans", zhCn.bcp47Tag)
+
+            Locale.setDefault(Locale.TAIWAN)
+            val zhTw = com.antigravity.mobile.data.service.DeviceTitleTargetLanguage.current()
+            assertEquals(com.antigravity.mobile.data.service.DeviceTitleTargetLanguage.Kind.TRADITIONAL_CHINESE, zhTw.kind)
+            assertTrue(zhTw.shouldShowSmartTranslation)
+            assertEquals("zh-Hant", zhTw.bcp47Tag)
+
+            Locale.setDefault(Locale.JAPAN)
+            val ja = com.antigravity.mobile.data.service.DeviceTitleTargetLanguage.current()
+            assertEquals(com.antigravity.mobile.data.service.DeviceTitleTargetLanguage.Kind.JAPANESE, ja.kind)
+            assertTrue(ja.shouldShowSmartTranslation)
+            assertEquals("ja", ja.bcp47Tag)
+
+            Locale.setDefault(Locale.FRANCE)
+            val fr = com.antigravity.mobile.data.service.DeviceTitleTargetLanguage.current()
+            assertEquals(com.antigravity.mobile.data.service.DeviceTitleTargetLanguage.Kind.OTHER_NON_ENGLISH, fr.kind)
+            assertTrue(fr.shouldShowSmartTranslation)
+            assertEquals("fr-FR", fr.bcp47Tag)
+            assertEquals("French", fr.englishDisplayName)
+            assertEquals(L10n.AppLang.EN, L10n.currentLang)
+
+            Locale.setDefault(Locale.KOREA)
+            val ko = com.antigravity.mobile.data.service.DeviceTitleTargetLanguage.current()
+            assertEquals(com.antigravity.mobile.data.service.DeviceTitleTargetLanguage.Kind.OTHER_NON_ENGLISH, ko.kind)
+            assertTrue(ko.shouldShowSmartTranslation)
+            assertEquals("ko-KR", ko.bcp47Tag)
+            assertEquals("Korean", ko.englishDisplayName)
+
+            // Explicit app preference "zh" must also resolve to Simplified Chinese even on en-US OS
+            Locale.setDefault(Locale.US)
+            L10n.setLanguagePreference("zh")
+            val forcedZh = com.antigravity.mobile.data.service.DeviceTitleTargetLanguage.current()
+            assertEquals(com.antigravity.mobile.data.service.DeviceTitleTargetLanguage.Kind.SIMPLIFIED_CHINESE, forcedZh.kind)
+            assertEquals("zh-Hans", forcedZh.bcp47Tag)
+        } finally {
+            Locale.setDefault(prevLocale)
+            L10n.setLanguagePreference("system")
+        }
+    }
+
+    @Test
+    fun testAutomationScheduleSummaryLocaleFormatting() {
+        val prevLocale = Locale.getDefault()
+        try {
+            L10n.setLanguagePreference("system")
+            Locale.setDefault(Locale.FRANCE)
+            assertEquals(
+                "Mon, Wed, Fri 09:05",
+                com.antigravity.mobile.ui.components.AutomationCronHelper.humanSummary("5 9 * * 1,3,5")
+            )
+            Locale.setDefault(Locale.SIMPLIFIED_CHINESE)
+            assertEquals(
+                "周一、周三、周五 09:05",
+                com.antigravity.mobile.ui.components.AutomationCronHelper.humanSummary("5 9 * * 1,3,5")
+            )
+        } finally {
+            Locale.setDefault(prevLocale)
+            L10n.setLanguagePreference("system")
+        }
+    }
 }

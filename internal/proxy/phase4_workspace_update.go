@@ -13,6 +13,8 @@ import (
 	"regexp"
 	"strings"
 	"time"
+
+	"antigravity-mobile/internal/i18n"
 )
 
 // Phase 4: Desktop self-update & changelog, workspace code/file search,
@@ -23,20 +25,25 @@ import (
 // ===========================================================================
 
 func readSafeChangelogFile(rawPath string) (string, error) {
+	return readSafeChangelogFileForLang(rawPath, i18n.GetLang())
+}
+
+func readSafeChangelogFileForLang(rawPath, lang string) (string, error) {
+	l := i18n.ResolveLang(lang)
 	clean := filepath.Clean(strings.TrimSpace(rawPath))
 	if clean == "" || !filepath.IsAbs(clean) || strings.ContainsRune(clean, 0) {
-		return "", fmt.Errorf("无效的更新日志路径")
+		return "", fmt.Errorf("%s", i18n.T3For(l, "无效的更新日志路径", "Invalid changelog path", "無効な更新履歴パスです"))
 	}
 	fi, err := os.Lstat(clean)
 	if err != nil {
 		return "", err
 	}
 	if fi.Mode()&os.ModeSymlink != 0 || !fi.Mode().IsRegular() {
-		return "", fmt.Errorf("更新日志路径不是常规文件")
+		return "", fmt.Errorf("%s", i18n.T3For(l, "更新日志路径不是常规文件", "Changelog path is not a regular file", "更新履歴のパスは通常ファイルではありません"))
 	}
 	ext := strings.ToLower(filepath.Ext(clean))
 	if ext != ".md" && ext != ".txt" && ext != ".markdown" && ext != "" {
-		return "", fmt.Errorf("不支持的更新日志文件格式")
+		return "", fmt.Errorf("%s", i18n.T3For(l, "不支持的更新日志文件格式", "Unsupported changelog file format", "未対応の更新履歴ファイル形式です"))
 	}
 	f, err := os.Open(clean)
 	if err != nil {
@@ -52,6 +59,7 @@ func readSafeChangelogFile(rawPath string) (string, error) {
 
 // HandleDesktopUpdate serves /gateway/desktop/{update,update/apply,changelog}.
 func (p *Proxy) HandleDesktopUpdate(w http.ResponseWriter, r *http.Request) {
+	uiLang := resolveRequestUILang(r)
 	switch r.URL.Path {
 	case "/gateway/desktop/update":
 		if r.Method != http.MethodGet {
@@ -75,7 +83,7 @@ func (p *Proxy) HandleDesktopUpdate(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		if status != http.StatusOK {
-			writeRPCError(w, status, extractConnectErrorMessage(body, "检查桌面端更新失败"))
+			writeRPCError(w, status, extractConnectErrorMessage(body, i18n.T3For(uiLang, "检查桌面端更新失败", "Failed to check desktop update", "デスクトップ版の更新確認に失敗しました")))
 			return
 		}
 		var up struct {
@@ -138,7 +146,7 @@ func (p *Proxy) HandleDesktopUpdate(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		if status != http.StatusOK {
-			writeRPCError(w, status, extractConnectErrorMessage(body, "获取更新日志失败"))
+			writeRPCError(w, status, extractConnectErrorMessage(body, i18n.T3For(uiLang, "获取更新日志失败", "Failed to load changelog", "更新履歴の取得に失敗しました")))
 			return
 		}
 		var up struct {
@@ -147,7 +155,7 @@ func (p *Proxy) HandleDesktopUpdate(w http.ResponseWriter, r *http.Request) {
 		_ = json.Unmarshal(body, &up)
 		markdown := ""
 		if pth := strings.TrimSpace(up.Path); pth != "" {
-			if txt, rerr := readSafeChangelogFile(pth); rerr == nil {
+			if txt, rerr := readSafeChangelogFileForLang(pth, uiLang); rerr == nil {
 				markdown = txt
 			}
 		}
@@ -167,11 +175,11 @@ func (p *Proxy) HandleDesktopUpdate(w http.ResponseWriter, r *http.Request) {
 			Confirm bool `json:"confirm"`
 		}
 		if err := json.NewDecoder(io.LimitReader(r.Body, 16*1024)).Decode(&req); err != nil {
-			writeRPCError(w, http.StatusBadRequest, "无效的请求体")
+			writeRPCError(w, http.StatusBadRequest, i18n.T3For(uiLang, "无效的请求体", "Invalid request body", "リクエストボディが無効です"))
 			return
 		}
 		if !req.Confirm {
-			writeRPCError(w, http.StatusBadRequest, "请确认后再执行桌面端更新重启")
+			writeRPCError(w, http.StatusBadRequest, i18n.T3For(uiLang, "请确认后再执行桌面端更新重启", "Please confirm before updating and restarting Desktop", "デスクトップ版の更新と再起動の前に確認してください"))
 			return
 		}
 		ctx, cancel := context.WithTimeout(r.Context(), 12*time.Second)
@@ -182,7 +190,7 @@ func (p *Proxy) HandleDesktopUpdate(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		if status != http.StatusOK {
-			writeRPCError(w, status, extractConnectErrorMessage(body, "触发桌面端更新失败"))
+			writeRPCError(w, status, extractConnectErrorMessage(body, i18n.T3For(uiLang, "触发桌面端更新失败", "Failed to trigger desktop update", "デスクトップ版の更新開始に失敗しました")))
 			return
 		}
 		var up struct {
@@ -193,7 +201,11 @@ func (p *Proxy) HandleDesktopUpdate(w http.ResponseWriter, r *http.Request) {
 		writeJSONStatus(w, http.StatusOK, map[string]interface{}{
 			"ok":           true,
 			"notifiedHost": up.NotifiedHost || up.Accepted,
-			"message":      "已通知桌面端应用更新并重启",
+			"message": i18n.T3For(uiLang,
+				"已通知桌面端应用更新并重启",
+				"Notified Desktop to apply the update and restart",
+				"デスクトップ版に更新の適用と再起動を通知しました",
+			),
 		})
 
 	default:
@@ -225,6 +237,11 @@ type FileSearchHit struct {
 }
 
 func (p *Proxy) resolveWorkspaceTarget(ctx context.Context, cascadeID, workspaceURI string) (wsURI string, localDir string, err error) {
+	return p.resolveWorkspaceTargetForLang(ctx, cascadeID, workspaceURI, i18n.GetLang())
+}
+
+func (p *Proxy) resolveWorkspaceTargetForLang(ctx context.Context, cascadeID, workspaceURI, lang string) (wsURI string, localDir string, err error) {
+	l := i18n.ResolveLang(lang)
 	if raw := strings.TrimSpace(workspaceURI); raw != "" {
 		if isRemoteURI(raw) {
 			return raw, "", nil
@@ -237,7 +254,7 @@ func (p *Proxy) resolveWorkspaceTarget(ctx context.Context, cascadeID, workspace
 	}
 	cid := strings.TrimSpace(cascadeID)
 	if cid == "" || !cascadeIDRe.MatchString(cid) {
-		return "", "", fmt.Errorf("缺少有效的工作区或会话 ID")
+		return "", "", fmt.Errorf("%s", i18n.T3For(l, "缺少有效的工作区或会话 ID", "Missing valid workspace or conversation ID", "有効なワークスペースまたは会話 ID が指定されていません"))
 	}
 	port, token := p.ActiveUpstream()
 	if port <= 0 {
@@ -262,7 +279,7 @@ func (p *Proxy) resolveWorkspaceTarget(ctx context.Context, cascadeID, workspace
 			}
 		}
 	}
-	return "", "", fmt.Errorf("该会话没有关联本地工作区")
+	return "", "", fmt.Errorf("%s", i18n.T3For(l, "该会话没有关联本地工作区", "This conversation has no associated local workspace", "この会話にはローカルワークスペースが関連付けられていません"))
 }
 
 func shouldSkipSearchDir(name string) bool {
@@ -436,6 +453,7 @@ func (p *Proxy) HandleWorkspaceSearch(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
+	uiLang := resolveRequestUILang(r)
 	ctx, cancel := context.WithTimeout(r.Context(), 12*time.Second)
 	defer cancel()
 
@@ -452,7 +470,7 @@ func (p *Proxy) HandleWorkspaceSearch(w http.ResponseWriter, r *http.Request) {
 			LinesContext    int    `json:"linesContext"`
 		}
 		if err := json.NewDecoder(io.LimitReader(r.Body, 64*1024)).Decode(&req); err != nil {
-			writeRPCError(w, http.StatusBadRequest, "无效的请求体")
+			writeRPCError(w, http.StatusBadRequest, i18n.T3For(uiLang, "无效的请求体", "Invalid request body", "リクエストボディが無効です"))
 			return
 		}
 		query := strings.TrimSpace(req.Query)
@@ -460,7 +478,7 @@ func (p *Proxy) HandleWorkspaceSearch(w http.ResponseWriter, r *http.Request) {
 			writeJSONStatus(w, http.StatusOK, map[string]interface{}{"ok": true, "results": []CodeSearchHit{}})
 			return
 		}
-		wsURI, localDir, err := p.resolveWorkspaceTarget(ctx, req.CascadeID, req.WorkspaceURI)
+		wsURI, localDir, err := p.resolveWorkspaceTargetForLang(ctx, req.CascadeID, req.WorkspaceURI, uiLang)
 		if err != nil {
 			writeRPCError(w, http.StatusBadRequest, err.Error())
 			return
@@ -558,10 +576,10 @@ func (p *Proxy) HandleWorkspaceSearch(w http.ResponseWriter, r *http.Request) {
 			IncludeDirectories bool   `json:"includeDirectories"`
 		}
 		if err := json.NewDecoder(io.LimitReader(r.Body, 64*1024)).Decode(&req); err != nil {
-			writeRPCError(w, http.StatusBadRequest, "无效的请求体")
+			writeRPCError(w, http.StatusBadRequest, i18n.T3For(uiLang, "无效的请求体", "Invalid request body", "リクエストボディが無効です"))
 			return
 		}
-		wsURI, localDir, err := p.resolveWorkspaceTarget(ctx, req.CascadeID, req.WorkspaceURI)
+		wsURI, localDir, err := p.resolveWorkspaceTargetForLang(ctx, req.CascadeID, req.WorkspaceURI, uiLang)
 		if err != nil {
 			writeRPCError(w, http.StatusBadRequest, err.Error())
 			return
@@ -698,6 +716,7 @@ func (p *Proxy) HandleArtifactSnapshots(w http.ResponseWriter, r *http.Request) 
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
+	uiLang := resolveRequestUILang(r)
 	var cascadeID, filterURI, filterName string
 	if r.Method == http.MethodPost && r.Body != nil {
 		var req struct {
@@ -717,7 +736,7 @@ func (p *Proxy) HandleArtifactSnapshots(w http.ResponseWriter, r *http.Request) 
 		filterName = strings.TrimSpace(q.Get("artifactName"))
 	}
 	if cascadeID == "" || !cascadeIDRe.MatchString(cascadeID) {
-		writeRPCError(w, http.StatusBadRequest, "缺少有效的 cascadeId")
+		writeRPCError(w, http.StatusBadRequest, i18n.T3For(uiLang, "缺少有效的 cascadeId", "Missing valid cascadeId", "有効な cascadeId が指定されていません"))
 		return
 	}
 
@@ -731,7 +750,7 @@ func (p *Proxy) HandleArtifactSnapshots(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 	if status != http.StatusOK {
-		writeRPCError(w, status, extractConnectErrorMessage(body, "获取文档历史版本失败"))
+		writeRPCError(w, status, extractConnectErrorMessage(body, i18n.T3For(uiLang, "获取文档历史版本失败", "Failed to load artifact history", "ドキュメント履歴の取得に失敗しました")))
 		return
 	}
 
@@ -748,7 +767,7 @@ func (p *Proxy) HandleArtifactSnapshots(w http.ResponseWriter, r *http.Request) 
 		} `json:"artifactSnapshots"`
 	}
 	if err := json.Unmarshal(body, &up); err != nil {
-		writeRPCError(w, http.StatusBadGateway, "解析文档快照失败")
+		writeRPCError(w, http.StatusBadGateway, i18n.T3For(uiLang, "解析文档快照失败", "Failed to parse artifact snapshots", "ドキュメントスナップショットの解析に失敗しました"))
 		return
 	}
 
@@ -807,6 +826,7 @@ func (p *Proxy) HandleWorktreePR(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
+	uiLang := resolveRequestUILang(r)
 	var req struct {
 		CascadeID     string `json:"cascadeId"`
 		Title         string `json:"title"`
@@ -814,12 +834,12 @@ func (p *Proxy) HandleWorktreePR(w http.ResponseWriter, r *http.Request) {
 		CommitMessage string `json:"commitMessage"`
 	}
 	if err := json.NewDecoder(io.LimitReader(r.Body, 128*1024)).Decode(&req); err != nil {
-		writeRPCError(w, http.StatusBadRequest, "无效的请求体")
+		writeRPCError(w, http.StatusBadRequest, i18n.T3For(uiLang, "无效的请求体", "Invalid request body", "リクエストボディが無効です"))
 		return
 	}
 	cid := strings.TrimSpace(req.CascadeID)
 	if cid == "" || !cascadeIDRe.MatchString(cid) {
-		writeRPCError(w, http.StatusBadRequest, "缺少有效的 cascadeId")
+		writeRPCError(w, http.StatusBadRequest, i18n.T3For(uiLang, "缺少有效的 cascadeId", "Missing valid cascadeId", "有効な cascadeId が指定されていません"))
 		return
 	}
 	port, token := p.ActiveUpstream()
@@ -853,7 +873,7 @@ func (p *Proxy) HandleWorktreePR(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if status != http.StatusOK {
-		writeRPCError(w, status, extractConnectErrorMessage(body, "创建或更新 Worktree PR 失败"))
+		writeRPCError(w, status, extractConnectErrorMessage(body, i18n.T3For(uiLang, "创建或更新 Worktree PR 失败", "Failed to create or update Worktree PR", "Worktree PR の作成・更新に失敗しました")))
 		return
 	}
 	var up struct {
@@ -877,12 +897,13 @@ func (p *Proxy) HandleStarCascade(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
+	uiLang := resolveRequestUILang(r)
 	var req struct {
 		CascadeID string `json:"cascadeId"`
 		Starred   *bool  `json:"starred"`
 	}
 	if err := json.NewDecoder(io.LimitReader(r.Body, 32*1024)).Decode(&req); err != nil {
-		writeRPCError(w, http.StatusBadRequest, "无效的请求体")
+		writeRPCError(w, http.StatusBadRequest, i18n.T3For(uiLang, "无效的请求体", "Invalid request body", "リクエストボディが無効です"))
 		return
 	}
 	cid := strings.TrimSpace(req.CascadeID)

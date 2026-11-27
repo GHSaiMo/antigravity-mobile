@@ -12,7 +12,6 @@ import (
 	"time"
 
 	"antigravity-mobile/internal/config"
-	"antigravity-mobile/internal/i18n"
 )
 
 // AIAssistPrefs holds gateway-persisted, cross-device AI Assist preferences.
@@ -153,6 +152,10 @@ func applyAIAssistPrefsPatch(dst *AIAssistPrefs, patch AIAssistPrefsPatch) {
 			lang = ""
 		}
 		if len(lang) <= 32 {
+			if patch.TitleTranslateLangName == nil && (lang != dst.TitleTranslateLang || lang == "") {
+				// Prevent stale English language name from leaking across language switches or reset to auto.
+				dst.TitleTranslateLangName = ""
+			}
 			dst.TitleTranslateLang = lang
 		}
 	}
@@ -215,11 +218,11 @@ func (p *Proxy) AIAssistPrefs() AIAssistPrefs {
 func (p *Proxy) buildAIAssistStatus(r *http.Request) AIAssistStatusResponse {
 	prefs := p.AIAssistPrefs()
 	model := p.ResolveAIAssistModel(r.Context())
-	resolvedLang, resolvedLangName := normalizeTitleTargetLang(prefs.TitleTranslateLang, prefs.TitleTranslateLangName)
-	if prefs.TitleTranslateLang == "" {
-		if gl := i18n.GetLang(); gl != "" {
-			resolvedLang, resolvedLangName = normalizeTitleTargetLang(gl, "")
-		}
+	var resolvedLang, resolvedLangName string
+	if strings.TrimSpace(prefs.TitleTranslateLang) != "" {
+		resolvedLang, resolvedLangName = normalizeTitleTargetLang(prefs.TitleTranslateLang, prefs.TitleTranslateLangName)
+	} else {
+		resolvedLang, resolvedLangName = normalizeTitleTargetLang(resolveRequestNativeLocale(r), "")
 	}
 	return AIAssistStatusResponse{
 		Prefs:                  prefs,
@@ -272,6 +275,9 @@ func (p *Proxy) HandleAIAssistPrefs(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 		// If live step-plan / focus translation switches or target language changed, immediately wake active streams.
+		if prev.TitleTranslateLang != updated.TitleTranslateLang {
+			p.clearTitleTranslateBackoff()
+		}
 		if prev.StepPlanTranslateEnabled != updated.StepPlanTranslateEnabled ||
 			prev.FocusTranslateEnabled != updated.FocusTranslateEnabled ||
 			prev.TitleTranslateLang != updated.TitleTranslateLang {

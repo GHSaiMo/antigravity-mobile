@@ -39,7 +39,7 @@ func ResolveDesktopLangPref(r *http.Request) string {
 	return "auto"
 }
 
-// ResolveDesktopLang resolves the effective Desktop Web Console language ("zh", "en", or "ja")
+// ResolveDesktopLang resolves the effective Desktop Web Console UI language ("zh", "en", or "ja")
 // using precedence: ?lang= > mgy_lang cookie > browser Accept-Language > gateway i18n.GetLang().
 func ResolveDesktopLang(r *http.Request) string {
 	if r == nil {
@@ -73,9 +73,51 @@ func ResolveDesktopLang(r *http.Request) string {
 	return i18n.GetLang()
 }
 
-// parseAcceptLanguage parses an HTTP Accept-Language header and maps the highest-priority
-// language tag into "zh", "ja", or "en" (any other non-wildcard tag maps to "en").
-func parseAcceptLanguage(header string) string {
+// resolveRequestUILang resolves the UI chrome language ("zh", "ja", or "en" fallback) for any HTTP/WS request.
+func resolveRequestUILang(r *http.Request) string {
+	return ResolveDesktopLang(r)
+}
+
+// extractRequestNativeLocaleHint extracts an explicit client-supplied BCP-47 locale tag from the request
+// with precedence: ?lang= (!= auto/system) > mgy_lang cookie (!= auto/system) > RFC q-weighted Accept-Language.
+// Returns "" if the request did not supply any locale hint (distinct from host fallback).
+func extractRequestNativeLocaleHint(r *http.Request) string {
+	if r == nil {
+		return ""
+	}
+	if q := strings.TrimSpace(r.URL.Query().Get("lang")); q != "" {
+		if !strings.EqualFold(q, "auto") && !strings.EqualFold(q, "system") {
+			if tag := i18n.CleanLocaleTag(q); tag != "" {
+				return tag
+			}
+		} else {
+			// Explicit ?lang=auto / ?lang=system bypasses cookie and reads Accept-Language directly.
+			return parseTopAcceptLanguageTag(r.Header.Get("Accept-Language"))
+		}
+	}
+	if c, err := r.Cookie(DesktopLangCookieName); err == nil && c != nil {
+		v := strings.TrimSpace(c.Value)
+		if v != "" && !strings.EqualFold(v, "auto") && !strings.EqualFold(v, "system") {
+			if tag := i18n.CleanLocaleTag(v); tag != "" {
+				return tag
+			}
+		}
+	}
+	return parseTopAcceptLanguageTag(r.Header.Get("Accept-Language"))
+}
+
+// resolveRequestNativeLocale resolves the full BCP-47 native locale (e.g. "fr-FR", "ko-KR", "zh-Hans", "ja", "en-US")
+// with precedence: ?lang= > mgy_lang cookie > RFC q-weighted Accept-Language > host i18n.GetNativeLocale().
+func resolveRequestNativeLocale(r *http.Request) string {
+	if hint := extractRequestNativeLocaleHint(r); hint != "" {
+		return hint
+	}
+	return i18n.GetNativeLocale()
+}
+
+// parseTopAcceptLanguageTag parses an HTTP Accept-Language header using RFC q-weights
+// and returns the highest-priority non-wildcard BCP-47 tag (preserving tags like "fr-FR", "ko-KR", "zh-Hant").
+func parseTopAcceptLanguageTag(header string) string {
 	header = strings.TrimSpace(header)
 	if header == "" {
 		return ""
@@ -92,8 +134,12 @@ func parseAcceptLanguage(header string) string {
 			continue
 		}
 		segs := strings.Split(part, ";")
-		tag := strings.ToLower(strings.TrimSpace(segs[0]))
-		if tag == "" || tag == "*" {
+		rawTag := strings.TrimSpace(segs[0])
+		if rawTag == "" || rawTag == "*" {
+			continue
+		}
+		tag := i18n.CleanLocaleTag(rawTag)
+		if tag == "" {
 			continue
 		}
 		q := 1.0
@@ -119,7 +165,16 @@ func parseAcceptLanguage(header string) string {
 		}
 		return cands[i].idx < cands[j].idx
 	})
-	top := cands[0].tag
+	return cands[0].tag
+}
+
+// parseAcceptLanguage parses an HTTP Accept-Language header and maps the highest-priority
+// language tag into "zh", "ja", or "en" (any other non-wildcard tag maps to "en").
+func parseAcceptLanguage(header string) string {
+	top := parseTopAcceptLanguageTag(header)
+	if top == "" {
+		return ""
+	}
 	if norm := i18n.NormalizeLang(top); norm != "" {
 		return norm
 	}

@@ -56,6 +56,7 @@ function updateProceedButton(canProceed) {
       proceedBtn.classList.add("hidden");
     }
   }
+  window.Phase3?.renderSuggestedResponses?.();
 }
 
 function updateContinueButton(canContinue) {
@@ -67,6 +68,7 @@ function updateContinueButton(canContinue) {
       continueBtn.classList.add("hidden");
     }
   }
+  window.Phase3?.renderSuggestedResponses?.();
 }
 
 function checkLatestMessageIsError(stepsOrItems, isRunning, preGrouped = false) {
@@ -112,6 +114,7 @@ function updatePendingInteraction(interaction, isRunning) {
     isInteractionDiffExpanded = false;
     container.innerHTML = "";
     container.classList.add("hidden");
+    window.Phase3?.renderSuggestedResponses?.();
     return;
   }
 
@@ -137,6 +140,7 @@ function updatePendingInteraction(interaction, isRunning) {
   }
 
   renderInteractionCard(isDifferent);
+  window.Phase3?.renderSuggestedResponses?.();
 }
 
 let singleMultiSelections = [];
@@ -1244,7 +1248,7 @@ function updateChatControls(isRunning, wsUri, hasAction = false) {
       wsText.title = wsUri;
     } else {
       wsText.textContent = "Chat";
-      wsText.title = "新对话 · 不关联任何工作区";
+      wsText.title = typeof t === "function" ? t("新对话 · 不关联任何工作区") : "新对话 · 不关联任何工作区";
     }
   }
 
@@ -3039,7 +3043,7 @@ function buildStepPlanCardHtml(plan, isActivePlan) {
           return `
             <li class="step-plan-item status-${escapeHtml(st)}">
               ${buildStepPlanStatusIconHtml(st, isActivePlan)}
-              <span class="step-plan-title">${escapeHtml(it.title || "")}</span>
+              <span class="step-plan-title" data-i18n-skip="1">${escapeHtml(it.title || "")}</span>
             </li>
           `;
         }).join("")}
@@ -3093,7 +3097,7 @@ function buildActiveFocusRowHtml(focusText, startedAt, thinkingHtml, stepItemsHt
   if (!hasDetails) {
     return `
       <div class="focus-tool-row static">
-        <span class="focus-tool-text">${escapeHtml(focusText)}</span>
+        <span class="focus-tool-text" data-i18n-skip="1">${escapeHtml(focusText)}</span>
         ${timerHtml}
       </div>
     `;
@@ -3101,7 +3105,7 @@ function buildActiveFocusRowHtml(focusText, startedAt, thinkingHtml, stepItemsHt
   return `
     <details class="focus-tool-row">
       <summary class="focus-tool-summary">
-        <span class="focus-tool-text">${escapeHtml(focusText)}</span>
+        <span class="focus-tool-text" data-i18n-skip="1">${escapeHtml(focusText)}</span>
         ${timerHtml}
         <svg class="focus-tool-chevron" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 6 15 12 9 18"></polyline></svg>
       </summary>
@@ -3297,7 +3301,7 @@ function generateItemHtml(item, isRunning, isLastItem, isActivePlan = false) {
     const timelineHtml = buildDesktopTimelineHtml(item);
 
     if (isActive) {
-      const liveFocus = (item.focusText || "").trim() || "Working";
+      const liveFocus = (item.focusText || "").trim() || (typeof t === "function" ? t("Working") : "Working");
       return buildActiveFocusRowHtml(liveFocus, item.startedAt, "", timelineHtml, true);
     }
 
@@ -4993,8 +4997,7 @@ function getContextCacheDiagnostics(meter, isRunning = false, hasPendingInteract
 }
 
 function formatCacheNoticeWeb(diag, meter) {
-  const rawLang = (document.documentElement.getAttribute("data-lang") || navigator.language || "zh").toLowerCase();
-  const lang = rawLang.startsWith("ja") ? "ja" : rawLang.startsWith("en") ? "en" : "zh";
+  const lang = window.I18n?.isZh?.() ? "zh" : (window.I18n?.isJa?.() ? "ja" : "en");
 
   if (diag.isMissStreak) {
     const streak = Math.max(Number(meter.cacheMissStreak) || 2, 2);
@@ -5052,8 +5055,7 @@ function formatCacheNoticeWeb(diag, meter) {
 }
 
 function formatSessionTotalsHeaderWeb(steps) {
-  const rawLang = (document.documentElement.getAttribute("data-lang") || navigator.language || "zh").toLowerCase();
-  const lang = rawLang.startsWith("ja") ? "ja" : rawLang.startsWith("en") ? "en" : "zh";
+  const lang = window.I18n?.isZh?.() ? "zh" : (window.I18n?.isJa?.() ? "ja" : "en");
   if (lang === "en") {
     return steps > 0 ? `Session Total · ${steps} steps` : "Session Total";
   }
@@ -5227,7 +5229,7 @@ function renderAuditSheetContent(meter) {
     const tops = bd && Array.isArray(bd.topConsumers) ? bd.topConsumers : [];
     if (cats.length > 0) {
       breakdownDetails.classList.remove("hidden");
-      const lang = window.I18n?.getLang?.() || "zh";
+      const lang = window.I18n?.isZh?.() ? "zh" : (window.I18n?.isJa?.() ? "ja" : "en");
       const catMeta = {
         tools: { color: "#ff9500", label: lang === "en" ? "Tools & Output" : (lang === "ja" ? "ツール出力" : "工具与命令") },
         conversation: { color: "#007aff", label: lang === "en" ? "Conversation" : (lang === "ja" ? "会話履歴" : "对话正文") },
@@ -5277,7 +5279,21 @@ function renderAuditSheetContent(meter) {
           const stepIdx = btn.getAttribute("data-step-index");
           closeAuditSheet();
           if (stepIdx !== null) {
-            const target = document.querySelector(`#chat-messages [data-step-index="${CSS.escape(stepIdx)}"]`);
+            const streamRoot = document.getElementById("messages-stream");
+            let target = streamRoot?.querySelector(`[data-step-index="${CSS.escape(stepIdx)}"]`) || null;
+            if (!target && streamRoot) {
+              const numIdx = Number(stepIdx);
+              if (Number.isFinite(numIdx)) {
+                const rows = Array.from(streamRoot.querySelectorAll("[data-step-index]"));
+                for (let i = rows.length - 1; i >= 0; i--) {
+                  const rowIdx = Number(rows[i].getAttribute("data-step-index"));
+                  if (Number.isFinite(rowIdx) && rowIdx <= numIdx) {
+                    target = rows[i];
+                    break;
+                  }
+                }
+              }
+            }
             if (target) {
               target.scrollIntoView({ behavior: "smooth", block: "center" });
             }

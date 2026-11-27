@@ -351,7 +351,7 @@
     },
 
     // --- 2. OAuth Hybrid Modal (Host Browser Takeover + Loopback Callback Forward + MCP Auth Code) ---
-    openOAuthHybrid({ title = "OAuth 登录", startResponse = {}, mcpServerName = "", onCompleted = null } = {}) {
+    openOAuthHybrid({ title = _t("OAuth 登录"), startResponse = {}, mcpServerName = "", onCompleted = null } = {}) {
       let overlay = document.getElementById("p4-oauth-overlay");
       if (!overlay) {
         overlay = document.createElement("div");
@@ -465,6 +465,13 @@
       }
       this._hostUpdatesReload = null;
       this._hostUpdatesBusyFn = null;
+      this._hostUpdatesRender = null;
+    },
+
+    rerenderHostUpdatesSubpage() {
+      if (typeof this._hostUpdatesRender === "function") {
+        this._hostUpdatesRender();
+      }
     },
 
     refreshHostUpdatesSubpage() {
@@ -576,7 +583,7 @@
             </div>
             <div class="p4-host-kv"><span>${_esc(_t("当前桌面端版本"))}</span><code>${_esc(dCur)}</code></div>
             ${dLatest ? `<div class="p4-host-kv"><span>${_esc(_t("最新可用版本"))}</span><code class="${d?.updateAvailable ? "p4-host-ver-new" : ""}">${_esc(dLatest)}</code></div>` : ""}
-            ${d?.updateAvailable && d.runningCount > 0 ? `<div class="p4-warn-box">${_esc(`注意：电脑端当前有 ${d.runningCount} 个活跃会话运行中，应用更新会重启桌面客户端。`)}</div>` : ""}
+            ${d?.updateAvailable && d.runningCount > 0 ? `<div class="p4-warn-box">${_esc(_t(`注意：电脑端当前有 ${d.runningCount} 个活跃会话运行中，应用更新会重启桌面客户端。`))}</div>` : ""}
             ${state.desktopNotice ? `<div class="p4-host-ok">${_esc(state.desktopNotice)}</div>` : ""}
             ${state.desktopErr ? `<div class="p4-host-err">${_esc(state.desktopErr)}</div>` : ""}
             ${d?.updateAvailable && !state.desktopNotice ? `<button type="button" class="p3-mini-btn primary p4-host-action-btn" id="p4-du-apply">${_esc(_t("立即更新桌面端"))}</button>` : ""}
@@ -591,7 +598,7 @@
               <div class="p4-host-kv"><span>${_esc(_t("当前网关版本"))}</span><code>${_esc(gCur)}</code></div>
               ${gLatest ? `<div class="p4-host-kv"><span>${_esc(_t("最新可用版本"))}</span><code class="${g?.updateAvailable ? "p4-host-ver-new" : ""}">${_esc(gLatest)}</code></div>` : (g?.checkError ? `<div class="p4-host-kv"><span>${_esc(_t("最新可用版本"))}</span><span class="p4-host-warn-text">${_esc(_t("检测失败"))}</span></div>` : "")}
               ${busy ? `<div class="p4-host-progress"><div class="ios-spinner" style="width:14px;height:14px;border-width:2px;"></div><span>${_esc(gwStageText())}</span></div>` : ""}
-              ${g?.updateAvailable && !busy && g.runningCount > 0 ? `<div class="p4-warn-box">${_esc(`当前有 ${g.runningCount} 个活跃会话运行中，重启网关会短暂断开重连，不会中断电脑端任务。`)}</div>` : ""}
+              ${g?.updateAvailable && !busy && g.runningCount > 0 ? `<div class="p4-warn-box">${_esc(_t(`当前有 ${g.runningCount} 个活跃会话运行中，重启网关会短暂断开重连，不会中断电脑端任务。`))}</div>` : ""}
               ${state.gatewayNotice ? `<div class="p4-host-ok">${_esc(state.gatewayNotice)}</div>` : ""}
               ${state.gatewayErr ? `<div class="p4-host-err">${_esc(state.gatewayErr)}</div>` : ""}
               ${g?.updateAvailable && !busy ? (g.canSelfUpdate
@@ -776,6 +783,7 @@
 
       this._hostUpdatesReload = loadAll;
       this._hostUpdatesBusyFn = () => state.loading || isGwBusy(state.gateway) || state.gwWaitingReconnect;
+      this._hostUpdatesRender = render;
 
       await loadAll(false);
     },
@@ -1002,7 +1010,7 @@
         });
         const d = await r.json().catch(() => ({}));
         if (!r.ok || d.ok === false) throw new Error(d.error || `HTTP ${r.status}`);
-        showToast?.(d.prUrl ? `PR 已同步: ${d.prUrl}` : _t("Worktree PR 已创建 / 更新"), 3200);
+        showToast?.(d.prUrl ? `${_t("PR 已同步:")} ${d.prUrl}` : _t("Worktree PR 已创建 / 更新"), 3200);
         if (d.prUrl && typeof isSafeURL === "function" && isSafeURL(d.prUrl)) {
           window.open(d.prUrl, "_blank", "noopener,noreferrer");
         }
@@ -1072,7 +1080,7 @@
           overlay.classList.add("hidden");
           const contentEl = document.getElementById("md-viewer-content");
           if (snap && contentEl && typeof renderMarkdown === "function") {
-            contentEl.innerHTML = `<div class="p4-warn-box" style="display:flex;justify-content:space-between;align-items:center;"><span>${_esc(`正在查看历史快照 v${idx + 1}`)}</span><button type="button" class="p3-mini-btn" id="p4-snap-latest">${_esc(_t("返回最新版"))}</button></div>` + renderMarkdown(snap.content || "");
+            contentEl.innerHTML = `<div class="p4-warn-box" style="display:flex;justify-content:space-between;align-items:center;"><span>${_esc(_t(`正在查看历史快照 v${idx + 1}`))}</span><button type="button" class="p3-mini-btn" id="p4-snap-latest">${_esc(_t("返回最新版"))}</button></div>` + renderMarkdown(snap.content || "");
             document.getElementById("p4-snap-latest")?.addEventListener("click", () => {
               if (typeof openMarkdownViewer === "function" && typeof currentViewerUri === "string") {
                 openMarkdownViewer(currentViewerUri);

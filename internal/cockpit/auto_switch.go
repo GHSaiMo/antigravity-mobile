@@ -414,16 +414,16 @@ func selectAutoSwitchCandidate(resp *CockpitQuotaResponse, cfg AutoSwitchConfig,
 func buildAutoSwitchAlert(lang, bucketKey, fromEmail, toEmail string, toRemPct float64, noticeID string) QuotaAlert {
 	bucketTitle := autoSwitchBucketDisplayTitle(bucketKey)
 	formatFor := func(l string) (string, string) {
-		switch l {
-		case "en":
-			return fmt.Sprintf("Switched Account · %s", bucketTitle),
-				fmt.Sprintf("Quota dropped below threshold on %s; switched cleanly to %s (%.0f%% remaining).", fromEmail, toEmail, toRemPct)
-		case "ja":
+		switch i18n.ResolveLang(l) {
+		case i18n.LangZh:
+			return fmt.Sprintf("已自动切换账号 · %s", bucketTitle),
+				fmt.Sprintf("%s 额度低于阈值，已在空闲时自动切至 %s（剩余 %.0f%%）。", fromEmail, toEmail, toRemPct)
+		case i18n.LangJa:
 			return fmt.Sprintf("アカウント自動切替 · %s", bucketTitle),
 				fmt.Sprintf("%s の枠が閾値以下になったため、%s（残り %.0f%%）へ自動切替しました。", fromEmail, toEmail, toRemPct)
 		default:
-			return fmt.Sprintf("已自动切换账号 · %s", bucketTitle),
-				fmt.Sprintf("%s 额度低于阈值，已在空闲时自动切至 %s（剩余 %.0f%%）。", fromEmail, toEmail, toRemPct)
+			return fmt.Sprintf("Switched Account · %s", bucketTitle),
+				fmt.Sprintf("Quota dropped below threshold on %s; switched cleanly to %s (%.0f%% remaining).", fromEmail, toEmail, toRemPct)
 		}
 	}
 	title, body := formatFor(lang)
@@ -433,7 +433,7 @@ func buildAutoSwitchAlert(lang, bucketKey, fromEmail, toEmail string, toRemPct f
 		Body:     body,
 		StateKey: "auto_switch:" + noticeID,
 		Localize: func(targetLang string) (string, string) {
-			return formatFor(i18n.ResolveLang(targetLang))
+			return formatFor(targetLang)
 		},
 	}
 }

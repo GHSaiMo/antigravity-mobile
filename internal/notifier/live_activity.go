@@ -69,13 +69,13 @@ type LiveActivityContentState struct {
 }
 
 type liveActivityTrack struct {
-	lastHash    string
-	lastStatus  string
-	lastPending bool
-	lastSentAt  time.Time
-	startedAt   map[string]time.Time // deviceID -> last push-to-start time for this cascade
-	retryAfter  map[string]time.Time // deviceID -> earliest retry timestamp after push failure
-	failCount   map[string]int       // deviceID -> consecutive failure count
+	lastHashByDevice map[string]string    // deviceID -> last pushed ContentState hash
+	lastStatus       string
+	lastPending      bool
+	lastSentAt       time.Time
+	startedAt        map[string]time.Time // deviceID -> last push-to-start time for this cascade
+	retryAfter       map[string]time.Time // deviceID -> earliest retry timestamp after push failure
+	failCount        map[string]int       // deviceID -> consecutive failure count
 }
 
 // LiveActivityDispatcher translates Antigravity trajectory states into throttled, budget-aware APNs Live Activity pushes.
@@ -283,11 +283,24 @@ func BuildContentState(details *proxy.TrajectoryDetails, now time.Time) LiveActi
 	return BuildContentStateForLang(details, now, i18n.GetLang())
 }
 
+func isLiveActivityUntitledTitle(title string) bool {
+	t := strings.TrimSpace(title)
+	return t == "" ||
+		t == MsgUntitledSession ||
+		t == "当前会话" ||
+		t == "無題のセッション" ||
+		t == "現在のセッション" ||
+		strings.EqualFold(t, "Untitled") ||
+		strings.EqualFold(t, "Untitled Session") ||
+		strings.EqualFold(t, "Current Session") ||
+		strings.EqualFold(t, "New Chat")
+}
+
 // BuildContentStateForLang builds a compact (< 1.5 KB) LiveActivityContentState localized for lang ("zh"/"en"/"ja").
 func BuildContentStateForLang(details *proxy.TrajectoryDetails, now time.Time, lang string) LiveActivityContentState {
 	resolvedLang := i18n.ResolveLang(lang)
 	title := strings.TrimSpace(SanitizePushText(details.Title))
-	if title == "" {
+	if isLiveActivityUntitledTitle(title) {
 		title = "Multigravity Agent"
 	}
 	title = truncateString(title, 40)
@@ -564,30 +577,15 @@ func (d *LiveActivityDispatcher) SyncFromDetails(ctx context.Context, details *p
 	preproc := d.detailsPreprocessor
 	d.mu.Unlock()
 
-	effectiveDetails := details
-	if !redact && preproc != nil {
-		fallbackLang := ""
-		for _, t := range targets {
-			if l := strings.TrimSpace(t.Lang); l != "" {
-				fallbackLang = l
-				break
-			}
-		}
-		work := *details
-		preproc(ctx, &work, fallbackLang)
-		effectiveDetails = &work
-	}
-
-	var state LiveActivityContentState
+	var baseState LiveActivityContentState
 	if redact {
-		state = BuildRedactedContentStateForLang(effectiveDetails, now, i18n.GetLang())
+		baseState = BuildRedactedContentStateForLang(details, now, i18n.GetLang())
 	} else {
-		state = BuildContentState(effectiveDetails, now)
+		baseState = BuildContentState(details, now)
 	}
-	stateHash := hashContentState(state)
 
 	d.mu.Lock()
-	allowed, victim, vm := d.admitLocked(cascadeID, state.HasPendingAction, state.ConversationTitle, state.StepCount, now)
+	allowed, victim, vm := d.admitLocked(cascadeID, baseState.HasPendingAction, baseState.ConversationTitle, baseState.StepCount, now)
 	if !allowed {
 		d.mu.Unlock()
 		return
@@ -606,19 +604,23 @@ func (d *LiveActivityDispatcher) SyncFromDetails(ctx context.Context, details *p
 	tr, exists := d.tracks[cascadeID]
 	if !exists {
 		tr = &liveActivityTrack{
-			startedAt:  make(map[string]time.Time),
-			retryAfter: make(map[string]time.Time),
-			failCount:  make(map[string]int),
+			lastHashByDevice: make(map[string]string),
+			startedAt:        make(map[string]time.Time),
+			retryAfter:       make(map[string]time.Time),
+			failCount:        make(map[string]int),
 		}
 		d.tracks[cascadeID] = tr
+	} else if tr.lastHashByDevice == nil {
+		tr.lastHashByDevice = make(map[string]string)
 	}
 
 	isCriticalTransition := !exists ||
-		tr.lastStatus != state.Status ||
-		tr.lastPending != state.HasPendingAction
+		tr.lastStatus != baseState.Status ||
+		tr.lastPending != baseState.HasPendingAction
 
-	// Filter which targets actually need a push right now
-	var toSend []APNsLiveActivityTarget
+	// Pre-filter targets by backoff, push-to-start TTL, and routine throttle before running per-device translation.
+	var candidates []APNsLiveActivityTarget
+	prevHashes := make(map[string]string, len(targets))
 	for _, t := range targets {
 		if until, ok := tr.retryAfter[t.DeviceID]; ok && now.Before(until) {
 			continue
@@ -628,28 +630,83 @@ func (d *LiveActivityDispatcher) SyncFromDetails(ctx context.Context, details *p
 			if lastStart, ok := tr.startedAt[t.DeviceID]; ok && now.Sub(lastStart) < liveActivityStartRunTTL {
 				continue
 			}
-			tr.startedAt[t.DeviceID] = now
-			toSend = append(toSend, t)
+			candidates = append(candidates, t)
 		} else {
-			if stateHash == tr.lastHash {
-				continue
-			}
 			if !isCriticalTransition && now.Sub(tr.lastSentAt) < liveActivityMinRoutineInterval {
 				continue
 			}
-			toSend = append(toSend, t)
+			prevHashes[t.DeviceID] = tr.lastHashByDevice[t.DeviceID]
+			candidates = append(candidates, t)
 		}
 	}
+	d.mu.Unlock()
 
-	if len(toSend) == 0 {
-		d.mu.Unlock()
+	if len(candidates) == 0 {
 		return
 	}
 
-	tr.lastHash = stateHash
-	tr.lastStatus = state.Status
-	tr.lastPending = state.HasPendingAction
-	tr.lastSentAt = now
+	// Prepare per-device localized & translated ContentState outside d.mu, caching preprocessing by native locale.
+	type preparedTarget struct {
+		target APNsLiveActivityTarget
+		state  LiveActivityContentState
+		hash   string
+	}
+	preprocCache := make(map[string]*proxy.TrajectoryDetails)
+	prepared := make([]preparedTarget, 0, len(candidates))
+	for _, target := range candidates {
+		eff := details
+		if !redact && preproc != nil {
+			devLocale := strings.TrimSpace(target.RawLocale)
+			if devLocale == "" {
+				devLocale = strings.TrimSpace(target.Lang)
+			}
+			cached, ok := preprocCache[devLocale]
+			if !ok {
+				work := *details
+				preproc(ctx, &work, devLocale)
+				cached = &work
+				preprocCache[devLocale] = cached
+			}
+			eff = cached
+		}
+
+		uiLang := i18n.ResolveLang(target.Lang)
+		var targetState LiveActivityContentState
+		if redact {
+			targetState = BuildRedactedContentStateForLang(eff, now, uiLang)
+		} else {
+			targetState = BuildContentStateForLang(eff, now, uiLang)
+		}
+		targetHash := hashContentState(targetState)
+		if !target.IsStart && targetHash == prevHashes[target.DeviceID] {
+			continue
+		}
+		prepared = append(prepared, preparedTarget{
+			target: target,
+			state:  targetState,
+			hash:   targetHash,
+		})
+	}
+
+	if len(prepared) == 0 {
+		return
+	}
+
+	d.mu.Lock()
+	if curTr := d.tracks[cascadeID]; curTr != nil {
+		if curTr.lastHashByDevice == nil {
+			curTr.lastHashByDevice = make(map[string]string)
+		}
+		for _, item := range prepared {
+			if item.target.IsStart {
+				curTr.startedAt[item.target.DeviceID] = now
+			}
+			curTr.lastHashByDevice[item.target.DeviceID] = item.hash
+		}
+		curTr.lastStatus = baseState.Status
+		curTr.lastPending = baseState.HasPendingAction
+		curTr.lastSentAt = now
+	}
 	d.mu.Unlock()
 
 	priority := 5
@@ -657,16 +714,9 @@ func (d *LiveActivityDispatcher) SyncFromDetails(ctx context.Context, details *p
 		priority = 10
 	}
 
-	defaultLang := i18n.GetLang()
-	for _, target := range toSend {
-		targetState := state
-		if resolved := i18n.ResolveLang(target.Lang); resolved != defaultLang {
-			if redact {
-				targetState = BuildRedactedContentStateForLang(effectiveDetails, now, resolved)
-			} else {
-				targetState = BuildContentStateForLang(effectiveDetails, now, resolved)
-			}
-		}
+	for _, item := range prepared {
+		target := item.target
+		targetState := item.state
 		req := APNsLiveActivityRequest{
 			Event:        "update",
 			Priority:     priority,
@@ -715,9 +765,8 @@ func (d *LiveActivityDispatcher) SyncFromDetails(ctx context.Context, details *p
 			if curTr := d.tracks[cascadeID]; curTr != nil {
 				if target.IsStart {
 					delete(curTr.startedAt, target.DeviceID)
-				} else {
-					curTr.lastHash = ""
 				}
+				delete(curTr.lastHashByDevice, target.DeviceID)
 				fc := curTr.failCount[target.DeviceID] + 1
 				curTr.failCount[target.DeviceID] = fc
 				shift := fc - 1
@@ -803,7 +852,7 @@ func (d *LiveActivityDispatcher) sendEnd(ctx context.Context, cascadeID, title, 
 		dismissDelay = 0
 	}
 	title = SanitizePushText(title)
-	if strings.TrimSpace(title) == "" {
+	if isLiveActivityUntitledTitle(title) {
 		title = "Multigravity Agent"
 	}
 	if stepCount < 1 {

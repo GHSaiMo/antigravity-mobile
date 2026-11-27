@@ -422,6 +422,7 @@ function renderSlashChip() {
   }
   const isRunning = typeof currentTrajectories !== "undefined" && currentTrajectories[activeCascadeId]?.status === "CASCADE_RUN_STATUS_RUNNING";
   if (typeof updateChatControls === "function") updateChatControls(isRunning, null, false);
+  window.Phase3?.renderSuggestedResponses?.();
 }
 
 function selectSlashCommand(name) {

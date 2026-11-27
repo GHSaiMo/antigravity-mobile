@@ -520,7 +520,7 @@ function renderQuotaSheet(data) {
   if (autoBtn) {
     const isAuto = selectedQuotaBucket === "auto";
     autoBtn.classList.toggle("active", isAuto);
-    const lang = window.I18n?.getLang?.() || "zh";
+    const lang = window.I18n?.isZh?.() ? "zh" : (window.I18n?.isJa?.() ? "ja" : "en");
     autoBtn.textContent = lang === "en" ? "Auto Tightest" : (lang === "ja" ? "自動最小" : "自动最紧");
   }
 
@@ -640,7 +640,7 @@ function renderAutoSwitchCard(container, state) {
   if (!container) return;
   const cfg = state?.config || { enabled: false, target_bucket: "gemini_5h", threshold_percent: 10, wait_until_idle: true };
   const st = state?.status || { state: "disabled", reason: "" };
-  const lang = window.I18n?.getLang?.() || "zh";
+  const lang = window.I18n?.isZh?.() ? "zh" : (window.I18n?.isJa?.() ? "ja" : "en");
   const wasOpen = Boolean(container.querySelector("details")?.open);
   const titleText = lang === "en" ? "Threshold Auto-Switch" : (lang === "ja" ? "しきい値自動切替" : "阈值自动切号");
   const statusMap = {

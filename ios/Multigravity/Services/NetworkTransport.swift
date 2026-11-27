@@ -855,6 +855,9 @@ public final class NetworkTransport: Sendable {
             }
         }
         let isConfiguredOrigin = Self.isConfiguredGatewayOrigin(req.url)
+        if isConfiguredOrigin && req.value(forHTTPHeaderField: "Accept-Language") == nil {
+            req.setValue(DeviceTitleTargetLanguage.current().bcp47Tag, forHTTPHeaderField: "Accept-Language")
+        }
         if let token = KeychainHelper.shared.read(key: .deviceToken), !token.isEmpty,
            let reqURL = req.url,
            reqURL.path != "/healthz",
@@ -925,6 +928,9 @@ public final class NetworkTransport: Sendable {
             guard Self.isLocalOrPrivateHost(host) else {
                 throw URLError(.appTransportSecurityRequiresSecureConnection)
             }
+        }
+        if req.value(forHTTPHeaderField: "Accept-Language") == nil {
+            req.setValue(DeviceTitleTargetLanguage.current().bcp47Tag, forHTTPHeaderField: "Accept-Language")
         }
         if let token = context.deviceToken, !token.isEmpty, originalURL.path != "/healthz" {
             if req.value(forHTTPHeaderField: "Authorization") == nil {
@@ -1016,6 +1022,9 @@ public final class NetworkTransport: Sendable {
             }
         }
         let isConfiguredOrigin = Self.isConfiguredGatewayOrigin(req.url)
+        if isConfiguredOrigin && req.value(forHTTPHeaderField: "Accept-Language") == nil {
+            req.setValue(DeviceTitleTargetLanguage.current().bcp47Tag, forHTTPHeaderField: "Accept-Language")
+        }
         if let token = KeychainHelper.shared.read(key: .deviceToken), !token.isEmpty,
            let reqURL = req.url,
            reqURL.path != "/healthz",

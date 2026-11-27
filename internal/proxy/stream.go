@@ -12,6 +12,8 @@ import (
 	"time"
 
 	"github.com/gorilla/websocket"
+
+	"antigravity-mobile/internal/i18n"
 )
 
 // streamRunningKeepaliveInterval bounds silent periods while RUNNING so proxies/tunnels stay alive across >5 min thinking.
@@ -309,6 +311,7 @@ func (p *Proxy) HandleCascadeStream(w http.ResponseWriter, r *http.Request) {
 	// Step-rendering clients (the web app) never read the messages window; messages=0 drops it so
 	// every frame (and the large init frame) is not sent twice in two shapes.
 	omitMessages := !isMessagesOnly && r.URL.Query().Get("messages") == "0"
+	streamUILang := resolveRequestUILang(r)
 	streamLangHint := extractRequestLangHint(r)
 	var deltaState streamDeltaState
 
@@ -341,7 +344,7 @@ func (p *Proxy) HandleCascadeStream(w http.ResponseWriter, r *http.Request) {
 	}
 	streamTitle := p.lookupCascadeTitle(cascadeID, curPort, curToken)
 	if streamTitle == "" {
-		streamTitle = "当前会话"
+		streamTitle = i18n.T3For(streamUILang, "当前会话", "Current Session", "現在のセッション")
 	}
 	p.SetActiveStream(cascadeID, streamTitle)
 	defer p.ClearActiveStream(cascadeID)
@@ -537,11 +540,11 @@ func (p *Proxy) HandleCascadeStream(w http.ResponseWriter, r *http.Request) {
 			details.BranchOrigin = &originCopy
 		}
 		if details.BranchOrigin == nil || !details.BranchOrigin.IsSideQuestion {
-			details.SideQuestions = p.buildSideQuestionCards(r.Context(), cascadeID, details.AllMessages, port, token)
+			details.SideQuestions = p.buildSideQuestionCardsForLang(r.Context(), cascadeID, details.AllMessages, port, token, streamUILang)
 		}
-		if details.Title != "" && details.Title != "未命名会话" {
+		if details.Title != "" && !isUntitledPlaceholderTitle(details.Title) {
 			cachedStreamTitle = details.Title
-		} else if cachedStreamTitle != "" && cachedStreamTitle != "未命名会话" && cachedStreamTitle != "当前会话" {
+		} else if cachedStreamTitle != "" && !isUntitledPlaceholderTitle(cachedStreamTitle) {
 			details.Title = cachedStreamTitle
 		} else if firstPush || time.Since(lastTitleLookupTime) >= 2*time.Second {
 			lastTitleLookupTime = time.Now()
@@ -562,20 +565,21 @@ func (p *Proxy) HandleCascadeStream(w http.ResponseWriter, r *http.Request) {
 		} else if fetchedLivePending && len(details.QueuedMessages) > 0 {
 			details.QueuedMessages = p.FilterQueuedMessagesAgainstTrajectory(cascadeID, details.QueuedMessages, rawResp.Trajectory.Steps, details.AllMessages)
 		}
-		details.ContextMeter = applyTrajectoryContextEnrichment(
+		details.ContextMeter = applyTrajectoryContextEnrichmentForLang(
 			withLastActivityAt(
 				p.fetchUpstreamGeneratorMetadata(cascadeID, port, token),
 				extractLastActivityAt(rawResp.Trajectory.Steps),
 			),
 			rawResp.Trajectory.Steps,
 			details.AllMessages,
+			streamUILang,
 		)
-		liveTranslations := p.ApplyLiveTextTranslations(cascadeID, &details, streamLangHint, true)
-		lastDetails = details
-
 		if sink := p.NotificationSink(); sink != nil {
+			// Deliver clean untranslated details so LiveActivityDispatcher translates per-device using each device's locale.
 			sink.OnTrajectoryUpdate(&details)
 		}
+		liveTranslations := p.ApplyLiveTextTranslations(cascadeID, &details, streamLangHint, true)
+		lastDetails = details
 		totalMsgs := len(details.AllMessages)
 		streamLimit := 15
 		streamStart := totalMsgs - streamLimit

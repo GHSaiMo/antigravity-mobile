@@ -180,11 +180,12 @@ public final class ConversationEventsClient {
         }
         lastRevHost = hostStr
 
+        let deviceLang = DeviceTitleTargetLanguage.current().bcp47Tag
+        var queryItems = [URLQueryItem(name: "lang", value: deviceLang)]
         if lastRev > 0 {
-            components.queryItems = [URLQueryItem(name: "sinceRev", value: "\(lastRev)")]
-        } else {
-            components.queryItems = nil
+            queryItems.append(URLQueryItem(name: "sinceRev", value: "\(lastRev)"))
         }
+        components.queryItems = queryItems
 
         let isSecure = components.scheme?.lowercased() == "https" || components.scheme?.lowercased() == "wss"
         components.scheme = isSecure ? "wss" : "ws"
@@ -196,6 +197,7 @@ public final class ConversationEventsClient {
             request.setValue(hostStr, forHTTPHeaderField: "Host")
         }
         request.setValue("Multigravity/1.2.5 (iPhone; iOS)", forHTTPHeaderField: "User-Agent")
+        request.setValue(deviceLang, forHTTPHeaderField: "Accept-Language")
         if let token = KeychainHelper.shared.read(key: .deviceToken) ?? AppSettings.shared.deviceToken, !token.isEmpty {
             request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
         }

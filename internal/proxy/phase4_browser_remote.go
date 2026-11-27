@@ -13,6 +13,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"antigravity-mobile/internal/i18n"
 )
 
 // Phase 4: Sibling ConnectRPC services exposed by Antigravity 2.33-2.35 language_server:
@@ -181,6 +183,7 @@ func normalizeBrowserInputEvent(raw map[string]interface{}) map[string]interface
 
 // HandleBrowserViewer handles /gateway/browser/{tabs,open,frame,takeover,control,release,renew,close}.
 func (p *Proxy) HandleBrowserViewer(w http.ResponseWriter, r *http.Request) {
+	uiLang := resolveRequestUILang(r)
 	switch r.URL.Path {
 	case "/gateway/browser/tabs":
 		rootID := strings.TrimSpace(r.URL.Query().Get("cascadeId"))
@@ -207,7 +210,7 @@ func (p *Proxy) HandleBrowserViewer(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		if status != http.StatusOK {
-			writeRPCError(w, status, extractConnectErrorMessage(body, "获取浏览器标签失败"))
+			writeRPCError(w, status, extractConnectErrorMessage(body, i18n.T3For(uiLang, "获取浏览器标签失败", "Failed to list browser tabs", "ブラウザタブの取得に失敗しました")))
 			return
 		}
 		var up map[string]interface{}
@@ -232,7 +235,7 @@ func (p *Proxy) HandleBrowserViewer(w http.ResponseWriter, r *http.Request) {
 			OfferSDP           string `json:"offerSdp"`
 		}
 		if err := json.NewDecoder(io.LimitReader(r.Body, 256*1024)).Decode(&req); err != nil {
-			writeRPCError(w, http.StatusBadRequest, "无效的请求体")
+			writeRPCError(w, http.StatusBadRequest, i18n.T3For(uiLang, "无效的请求体", "Invalid request body", "リクエストボディが無効です"))
 			return
 		}
 		payload := map[string]interface{}{}
@@ -253,7 +256,7 @@ func (p *Proxy) HandleBrowserViewer(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		if status != http.StatusOK {
-			writeRPCError(w, status, extractConnectErrorMessage(body, "打开浏览器视图失败"))
+			writeRPCError(w, status, extractConnectErrorMessage(body, i18n.T3For(uiLang, "打开浏览器视图失败", "Failed to open browser view", "ブラウザビューを開けませんでした")))
 			return
 		}
 		var up map[string]interface{}
@@ -318,7 +321,7 @@ func (p *Proxy) HandleBrowserViewer(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		if status != http.StatusOK {
-			writeRPCError(w, status, extractConnectErrorMessage(body, "读取浏览器画面失败"))
+			writeRPCError(w, status, extractConnectErrorMessage(body, i18n.T3For(uiLang, "读取浏览器画面失败", "Failed to read browser frame", "ブラウザフレームの取得に失敗しました")))
 			return
 		}
 		var up map[string]interface{}
@@ -340,7 +343,7 @@ func (p *Proxy) HandleBrowserViewer(w http.ResponseWriter, r *http.Request) {
 			TabID              string `json:"tabId"`
 		}
 		if err := json.NewDecoder(io.LimitReader(r.Body, 64*1024)).Decode(&req); err != nil {
-			writeRPCError(w, http.StatusBadRequest, "无效的请求体")
+			writeRPCError(w, http.StatusBadRequest, i18n.T3For(uiLang, "无效的请求体", "Invalid request body", "リクエストボディが無効です"))
 			return
 		}
 		payload := map[string]interface{}{}
@@ -361,7 +364,7 @@ func (p *Proxy) HandleBrowserViewer(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		if status != http.StatusOK {
-			writeRPCError(w, status, extractConnectErrorMessage(body, "接管浏览器控制权失败"))
+			writeRPCError(w, status, extractConnectErrorMessage(body, i18n.T3For(uiLang, "接管浏览器控制权失败", "Failed to take browser control", "ブラウザ操作権の取得に失敗しました")))
 			return
 		}
 		var up map[string]interface{}
@@ -388,7 +391,7 @@ func (p *Proxy) HandleBrowserViewer(w http.ResponseWriter, r *http.Request) {
 			InputEvents        []map[string]interface{} `json:"inputEvents"`
 		}
 		if err := json.NewDecoder(io.LimitReader(r.Body, 256*1024)).Decode(&req); err != nil {
-			writeRPCError(w, http.StatusBadRequest, "无效的请求体")
+			writeRPCError(w, http.StatusBadRequest, i18n.T3For(uiLang, "无效的请求体", "Invalid request body", "リクエストボディが無効です"))
 			return
 		}
 		rootID := firstNonEmpty(strings.TrimSpace(req.RootConversationID), strings.TrimSpace(req.CascadeID))
@@ -396,7 +399,7 @@ func (p *Proxy) HandleBrowserViewer(w http.ResponseWriter, r *http.Request) {
 		// Support batched input events (e.g. pointer_down + pointer_up for a tap) in one mobile round-trip.
 		if len(req.InputEvents) > 0 {
 			if len(req.InputEvents) > 32 {
-				writeRPCError(w, http.StatusBadRequest, "单次最多发送 32 个输入事件")
+				writeRPCError(w, http.StatusBadRequest, i18n.T3For(uiLang, "单次最多发送 32 个输入事件", "At most 32 input events per request", "1回のリクエストで送信できる入力イベントは最大32件です"))
 				return
 			}
 			var lastUp map[string]interface{}
@@ -425,7 +428,7 @@ func (p *Proxy) HandleBrowserViewer(w http.ResponseWriter, r *http.Request) {
 					return
 				}
 				if status != http.StatusOK {
-					writeRPCError(w, status, extractConnectErrorMessage(body, "浏览器控制操作失败"))
+					writeRPCError(w, status, extractConnectErrorMessage(body, i18n.T3For(uiLang, "浏览器控制操作失败", "Browser control action failed", "ブラウザ操作に失敗しました")))
 					return
 				}
 				_ = json.Unmarshal(body, &lastUp)
@@ -467,7 +470,7 @@ func (p *Proxy) HandleBrowserViewer(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		if status != http.StatusOK {
-			writeRPCError(w, status, extractConnectErrorMessage(body, "浏览器控制操作失败"))
+			writeRPCError(w, status, extractConnectErrorMessage(body, i18n.T3For(uiLang, "浏览器控制操作失败", "Browser control action failed", "ブラウザ操作に失敗しました")))
 			return
 		}
 		var up map[string]interface{}
@@ -511,7 +514,7 @@ func (p *Proxy) HandleBrowserViewer(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		if status != http.StatusOK {
-			writeRPCError(w, status, extractConnectErrorMessage(body, "释放控制权失败"))
+			writeRPCError(w, status, extractConnectErrorMessage(body, i18n.T3For(uiLang, "释放控制权失败", "Failed to release browser control", "ブラウザ操作権の解放に失敗しました")))
 			return
 		}
 		writeJSONStatus(w, http.StatusOK, map[string]interface{}{"ok": true})
@@ -526,7 +529,7 @@ func (p *Proxy) HandleBrowserViewer(w http.ResponseWriter, r *http.Request) {
 		}
 		_ = json.NewDecoder(io.LimitReader(r.Body, 32*1024)).Decode(&req)
 		if strings.TrimSpace(req.SessionID) == "" {
-			writeRPCError(w, http.StatusBadRequest, "缺少 sessionId")
+			writeRPCError(w, http.StatusBadRequest, i18n.T3For(uiLang, "缺少 sessionId", "Missing sessionId", "sessionId が指定されていません"))
 			return
 		}
 		ctx, cancel := context.WithTimeout(r.Context(), 8*time.Second)
@@ -539,7 +542,7 @@ func (p *Proxy) HandleBrowserViewer(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		if status != http.StatusOK {
-			writeRPCError(w, status, extractConnectErrorMessage(body, "续期浏览器会话失败"))
+			writeRPCError(w, status, extractConnectErrorMessage(body, i18n.T3For(uiLang, "续期浏览器会话失败", "Failed to renew browser view", "ブラウザセッションの更新に失敗しました")))
 			return
 		}
 		var up map[string]interface{}
@@ -598,14 +601,29 @@ type RemoteConnectJobSnapshot struct {
 type remoteConnectJob struct {
 	mu       sync.Mutex
 	snapshot RemoteConnectJobSnapshot
+	msgKind  string // "connecting" | "auth_submitted" | ""
+	errKind  string // "ssh_failed" | ""
 	cancel   context.CancelFunc
 	created  time.Time
 }
 
 func (j *remoteConnectJob) getSnapshot() RemoteConnectJobSnapshot {
+	return j.getSnapshotForLang(i18n.GetLang())
+}
+
+func (j *remoteConnectJob) getSnapshotForLang(lang string) RemoteConnectJobSnapshot {
 	j.mu.Lock()
 	defer j.mu.Unlock()
 	cp := j.snapshot
+	switch j.msgKind {
+	case "connecting":
+		cp.Message = i18n.T3For(lang, "正在建立 SSH 连接...", "Establishing SSH connection...", "SSH 接続を確立中...")
+	case "auth_submitted":
+		cp.Message = i18n.T3For(lang, "已提交认证，正在继续连接...", "Authentication submitted, continuing connection...", "認証を送信しました。接続を続行中...")
+	}
+	if j.errKind == "ssh_failed" {
+		cp.Error = i18n.T3For(lang, "SSH 连接失败", "SSH connection failed", "SSH 接続に失敗しました")
+	}
 	if j.snapshot.Prompt != nil {
 		p := *j.snapshot.Prompt
 		cp.Prompt = &p
@@ -772,9 +790,11 @@ func (p *Proxy) runRemoteConnectStream(ctx context.Context, job *remoteConnectJo
 			job.snapshot.RemoteID = strings.TrimSpace(rid)
 		}
 		if upd, ok := frame["update"].(string); ok && strings.TrimSpace(upd) != "" {
+			job.msgKind = ""
 			job.snapshot.Message = strings.TrimSpace(upd)
 		} else if updMap, ok := frame["update"].(map[string]interface{}); ok {
 			if msg, ok := updMap["message"].(string); ok && msg != "" {
+				job.msgKind = ""
 				job.snapshot.Message = msg
 			}
 		}
@@ -839,7 +859,13 @@ func (p *Proxy) runRemoteConnectStream(ctx context.Context, job *remoteConnectJo
 			if json.Unmarshal(body, &trailer) == nil && trailer.Error != nil {
 				job.mu.Lock()
 				job.snapshot.Status = "error"
-				job.snapshot.Error = firstNonEmpty(trailer.Error.Message, trailer.Error.Code, "SSH 连接失败")
+				if msg := firstNonEmpty(trailer.Error.Message, trailer.Error.Code); msg != "" {
+					job.errKind = ""
+					job.snapshot.Error = msg
+				} else {
+					job.errKind = "ssh_failed"
+					job.snapshot.Error = "SSH connection failed"
+				}
 				job.snapshot.Prompt = nil
 				job.snapshot.Done = true
 				job.snapshot.UpdatedAt = time.Now().UTC().Format(time.RFC3339)
@@ -853,6 +879,7 @@ func (p *Proxy) runRemoteConnectStream(ctx context.Context, job *remoteConnectJo
 
 // HandleRemotes serves /gateway/remotes* and /gateway/environments.
 func (p *Proxy) HandleRemotes(w http.ResponseWriter, r *http.Request) {
+	uiLang := resolveRequestUILang(r)
 	switch r.URL.Path {
 	case "/gateway/remotes":
 		if r.Method != http.MethodGet {
@@ -917,7 +944,7 @@ func (p *Proxy) HandleRemotes(w http.ResponseWriter, r *http.Request) {
 		p.cleanupStaleRemoteJobsLocked()
 		jobs := make([]RemoteConnectJobSnapshot, 0, len(p.remoteJobs))
 		for _, j := range p.remoteJobs {
-			jobs = append(jobs, j.getSnapshot())
+			jobs = append(jobs, j.getSnapshotForLang(uiLang))
 		}
 		p.remoteJobsMu.Unlock()
 
@@ -942,12 +969,12 @@ func (p *Proxy) HandleRemotes(w http.ResponseWriter, r *http.Request) {
 			RemoteMultiHop interface{} `json:"remoteMultiHop"`
 		}
 		if err := json.NewDecoder(io.LimitReader(r.Body, 128*1024)).Decode(&req); err != nil {
-			writeRPCError(w, http.StatusBadRequest, "无效的请求体")
+			writeRPCError(w, http.StatusBadRequest, i18n.T3For(uiLang, "无效的请求体", "Invalid request body", "リクエストボディが無効です"))
 			return
 		}
 		multiHop := buildRemoteMultiHopFromReq(req.RemoteMultiHop, req.Name, req.Host, req.User, req.Port)
 		if multiHop == nil {
-			writeRPCError(w, http.StatusBadRequest, "缺少远端主机配置")
+			writeRPCError(w, http.StatusBadRequest, i18n.T3For(uiLang, "缺少远端主机配置", "Missing remote host configuration", "リモートホスト設定が不足しています"))
 			return
 		}
 		jobID := newRandomJobID("ssh")
@@ -955,11 +982,12 @@ func (p *Proxy) HandleRemotes(w http.ResponseWriter, r *http.Request) {
 		job := &remoteConnectJob{
 			cancel:  cancel,
 			created: time.Now(),
+			msgKind: "connecting",
 			snapshot: RemoteConnectJobSnapshot{
 				JobID:     jobID,
 				Name:      firstNonEmpty(strings.TrimSpace(req.Name), strings.TrimSpace(req.Host)),
 				Status:    "connecting",
-				Message:   "正在建立 SSH 连接...",
+				Message:   i18n.T3For(uiLang, "正在建立 SSH 连接...", "Establishing SSH connection...", "SSH 接続を確立中..."),
 				UpdatedAt: time.Now().UTC().Format(time.RFC3339),
 			},
 		}
@@ -975,25 +1003,25 @@ func (p *Proxy) HandleRemotes(w http.ResponseWriter, r *http.Request) {
 
 		writeJSONStatus(w, http.StatusOK, map[string]interface{}{
 			"ok":  true,
-			"job": job.getSnapshot(),
+			"job": job.getSnapshotForLang(uiLang),
 		})
 
 	case "/gateway/remotes/connect/status":
 		jobID := strings.TrimSpace(r.URL.Query().Get("jobId"))
 		if jobID == "" {
-			writeRPCError(w, http.StatusBadRequest, "缺少 jobId")
+			writeRPCError(w, http.StatusBadRequest, i18n.T3For(uiLang, "缺少 jobId", "Missing jobId", "jobId が指定されていません"))
 			return
 		}
 		p.remoteJobsMu.Lock()
 		job := p.remoteJobs[jobID]
 		p.remoteJobsMu.Unlock()
 		if job == nil {
-			writeRPCError(w, http.StatusNotFound, "连接任务不存在或已过期")
+			writeRPCError(w, http.StatusNotFound, i18n.T3For(uiLang, "连接任务不存在或已过期", "Connection job not found or expired", "接続ジョブが存在しないか期限切れです"))
 			return
 		}
 		writeJSONStatus(w, http.StatusOK, map[string]interface{}{
 			"ok":  true,
-			"job": job.getSnapshot(),
+			"job": job.getSnapshotForLang(uiLang),
 		})
 
 	case "/gateway/remotes/prompt":
@@ -1007,19 +1035,19 @@ func (p *Proxy) HandleRemotes(w http.ResponseWriter, r *http.Request) {
 			Response string `json:"response"`
 		}
 		if err := json.NewDecoder(io.LimitReader(r.Body, 64*1024)).Decode(&req); err != nil {
-			writeRPCError(w, http.StatusBadRequest, "无效的请求体")
+			writeRPCError(w, http.StatusBadRequest, i18n.T3For(uiLang, "无效的请求体", "Invalid request body", "リクエストボディが無効です"))
 			return
 		}
 		remoteID := strings.TrimSpace(req.RemoteID)
 		if remoteID == "" && strings.TrimSpace(req.JobID) != "" {
 			p.remoteJobsMu.Lock()
 			if job := p.remoteJobs[strings.TrimSpace(req.JobID)]; job != nil {
-				remoteID = job.getSnapshot().RemoteID
+				remoteID = job.getSnapshotForLang(uiLang).RemoteID
 			}
 			p.remoteJobsMu.Unlock()
 		}
 		if remoteID == "" {
-			writeRPCError(w, http.StatusBadRequest, "缺少 remoteId")
+			writeRPCError(w, http.StatusBadRequest, i18n.T3For(uiLang, "缺少 remoteId", "Missing remoteId", "remoteId が指定されていません"))
 			return
 		}
 		ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
@@ -1033,7 +1061,7 @@ func (p *Proxy) HandleRemotes(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		if status != http.StatusOK {
-			writeRPCError(w, status, extractConnectErrorMessage(body, "提交认证响应失败"))
+			writeRPCError(w, status, extractConnectErrorMessage(body, i18n.T3For(uiLang, "提交认证响应失败", "Failed to submit authentication response", "認証応答の送信に失敗しました")))
 			return
 		}
 		if strings.TrimSpace(req.JobID) != "" {
@@ -1043,7 +1071,8 @@ func (p *Proxy) HandleRemotes(w http.ResponseWriter, r *http.Request) {
 				job.snapshot.Prompt = nil
 				if job.snapshot.Status == "prompt" {
 					job.snapshot.Status = "connecting"
-					job.snapshot.Message = "已提交认证，正在继续连接..."
+					job.msgKind = "auth_submitted"
+					job.snapshot.Message = i18n.T3For(uiLang, "已提交认证，正在继续连接...", "Authentication submitted, continuing connection...", "認証を送信しました。接続を続行中...")
 				}
 				job.snapshot.UpdatedAt = time.Now().UTC().Format(time.RFC3339)
 				job.mu.Unlock()
@@ -1061,11 +1090,11 @@ func (p *Proxy) HandleRemotes(w http.ResponseWriter, r *http.Request) {
 			RemoteID string `json:"remoteId"`
 		}
 		if err := json.NewDecoder(io.LimitReader(r.Body, 32*1024)).Decode(&req); err != nil {
-			writeRPCError(w, http.StatusBadRequest, "无效的请求体")
+			writeRPCError(w, http.StatusBadRequest, i18n.T3For(uiLang, "无效的请求体", "Invalid request body", "リクエストボディが無効です"))
 			return
 		}
 		if strings.TrimSpace(req.RemoteID) == "" {
-			writeRPCError(w, http.StatusBadRequest, "缺少 remoteId")
+			writeRPCError(w, http.StatusBadRequest, i18n.T3For(uiLang, "缺少 remoteId", "Missing remoteId", "remoteId が指定されていません"))
 			return
 		}
 		ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
@@ -1078,7 +1107,7 @@ func (p *Proxy) HandleRemotes(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		if status != http.StatusOK {
-			writeRPCError(w, status, extractConnectErrorMessage(body, "断开远端连接失败"))
+			writeRPCError(w, status, extractConnectErrorMessage(body, i18n.T3For(uiLang, "断开远端连接失败", "Failed to disconnect remote host", "リモート接続の切断に失敗しました")))
 			return
 		}
 		p.invalidateProjectsCache()
@@ -1099,12 +1128,12 @@ func (p *Proxy) HandleRemotes(w http.ResponseWriter, r *http.Request) {
 			RemoteMultiHop interface{} `json:"remoteMultiHop"`
 		}
 		if err := json.NewDecoder(io.LimitReader(r.Body, 128*1024)).Decode(&req); err != nil {
-			writeRPCError(w, http.StatusBadRequest, "无效的请求体")
+			writeRPCError(w, http.StatusBadRequest, i18n.T3For(uiLang, "无效的请求体", "Invalid request body", "リクエストボディが無効です"))
 			return
 		}
 		multiHop := buildRemoteMultiHopFromReq(req.RemoteMultiHop, req.Name, req.Host, req.User, req.Port)
 		if multiHop == nil {
-			writeRPCError(w, http.StatusBadRequest, "缺少主机名或地址")
+			writeRPCError(w, http.StatusBadRequest, i18n.T3For(uiLang, "缺少主机名或地址", "Missing host name or address", "ホスト名またはアドレスが指定されていません"))
 			return
 		}
 		desc := map[string]interface{}{
@@ -1125,7 +1154,7 @@ func (p *Proxy) HandleRemotes(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		if status != http.StatusOK {
-			writeRPCError(w, status, extractConnectErrorMessage(body, "保存远端主机失败"))
+			writeRPCError(w, status, extractConnectErrorMessage(body, i18n.T3For(uiLang, "保存远端主机失败", "Failed to save remote host", "リモートホストの保存に失敗しました")))
 			return
 		}
 		writeJSONStatus(w, http.StatusOK, map[string]interface{}{"ok": true})
@@ -1139,11 +1168,11 @@ func (p *Proxy) HandleRemotes(w http.ResponseWriter, r *http.Request) {
 			RemoteID string `json:"remoteId"`
 		}
 		if err := json.NewDecoder(io.LimitReader(r.Body, 32*1024)).Decode(&req); err != nil {
-			writeRPCError(w, http.StatusBadRequest, "无效的请求体")
+			writeRPCError(w, http.StatusBadRequest, i18n.T3For(uiLang, "无效的请求体", "Invalid request body", "リクエストボディが無効です"))
 			return
 		}
 		if strings.TrimSpace(req.RemoteID) == "" {
-			writeRPCError(w, http.StatusBadRequest, "缺少 remoteId")
+			writeRPCError(w, http.StatusBadRequest, i18n.T3For(uiLang, "缺少 remoteId", "Missing remoteId", "remoteId が指定されていません"))
 			return
 		}
 		ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
@@ -1156,7 +1185,7 @@ func (p *Proxy) HandleRemotes(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		if status != http.StatusOK {
-			writeRPCError(w, status, extractConnectErrorMessage(body, "删除远端主机失败"))
+			writeRPCError(w, status, extractConnectErrorMessage(body, i18n.T3For(uiLang, "删除远端主机失败", "Failed to delete remote host", "リモートホストの削除に失敗しました")))
 			return
 		}
 		writeJSONStatus(w, http.StatusOK, map[string]interface{}{"ok": true})
@@ -1170,7 +1199,7 @@ func (p *Proxy) HandleRemotes(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		if status != http.StatusOK {
-			writeRPCError(w, status, extractConnectErrorMessage(body, "获取环境列表失败"))
+			writeRPCError(w, status, extractConnectErrorMessage(body, i18n.T3For(uiLang, "获取环境列表失败", "Failed to list environments", "環境一覧の取得に失敗しました")))
 			return
 		}
 		var up map[string]interface{}

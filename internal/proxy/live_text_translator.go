@@ -201,47 +201,30 @@ func makeLiveTextCacheKey(kind, targetLang, original string) string {
 	return kind + "|" + strings.ToLower(strings.TrimSpace(targetLang)) + "|" + normalizeLiveTextKey(original)
 }
 
-// extractRequestLangHint extracts a raw BCP-47 language tag hint from ?lang= or Accept-Language.
+// extractRequestLangHint extracts an explicit client BCP-47 locale tag hint using precedence:
+// ?lang= (!= auto/system) > mgy_lang cookie (!= auto/system) > RFC q-weighted Accept-Language.
 func extractRequestLangHint(r *http.Request) string {
-	if r == nil {
-		return ""
-	}
-	if q := strings.TrimSpace(r.URL.Query().Get("lang")); q != "" && !strings.EqualFold(q, "auto") && !strings.EqualFold(q, "system") {
-		if len(q) <= 32 {
-			return q
-		}
-	}
-	return parseFirstAcceptLanguageTag(r.Header.Get("Accept-Language"))
-}
-
-func parseFirstAcceptLanguageTag(header string) string {
-	header = strings.TrimSpace(header)
-	if header == "" {
-		return ""
-	}
-	for _, part := range strings.Split(header, ",") {
-		tag := strings.TrimSpace(part)
-		if idx := strings.IndexByte(tag, ';'); idx >= 0 {
-			tag = strings.TrimSpace(tag[:idx])
-		}
-		if tag == "" || tag == "*" || len(tag) > 32 {
-			continue
-		}
-		return tag
-	}
-	return ""
+	return extractRequestNativeLocaleHint(r)
 }
 
 // resolveLiveTranslateTargetLang resolves the effective non-English target language for live
-// step-plan and focus translation. Returns ok=false when target language is English.
+// step-plan and focus translation. Returns ok=false when the caller/device is explicitly English
+// or when the resolved target language is English.
 func resolveLiveTranslateTargetLang(prefs AIAssistPrefs, fallbackLang string) (string, string, bool) {
+	// Explicit English client/device ALWAYS suppresses live translation even if another device
+	// enabled a non-English translation target on the gateway.
+	if fb := strings.TrimSpace(fallbackLang); fb != "" && isEnglishLangTag(fb) {
+		return "", "", false
+	}
 	rawCode := strings.TrimSpace(prefs.TitleTranslateLang)
 	rawName := strings.TrimSpace(prefs.TitleTranslateLangName)
 	if rawCode == "" {
 		rawCode = strings.TrimSpace(fallbackLang)
+		rawName = ""
 	}
 	if rawCode == "" {
-		rawCode = i18n.GetLang()
+		rawCode = i18n.GetNativeLocale()
+		rawName = ""
 	}
 	targetLang, targetLangName := normalizeTitleTargetLang(rawCode, rawName)
 	if isEnglishLangTag(targetLang) {
@@ -337,11 +320,19 @@ func liveTextNeedsTranslation(raw, targetLang string) bool {
 		return latinCount >= 3 || hangulCount > 0 || cyrillicCount > 0 || arabicCount > 0 || thaiCount > 0
 	case "ja":
 		if kanaCount >= 1 {
+			startsLatin := (firstLetter >= 'a' && firstLetter <= 'z') || (firstLetter >= 'A' && firstLetter <= 'Z')
+			if startsLatin && hasCommonEnglishGlueWord(t) && (kanaCount+hanCount)*3 < (kanaCount+hanCount+latinCount) {
+				return true
+			}
 			return false
 		}
 		return latinCount >= 3 || hanCount >= 2 || hangulCount > 0 || cyrillicCount > 0
 	case "ko":
 		if hangulCount >= 2 {
+			startsLatin := (firstLetter >= 'a' && firstLetter <= 'z') || (firstLetter >= 'A' && firstLetter <= 'Z')
+			if startsLatin && hasCommonEnglishGlueWord(t) && hangulCount*3 < (hangulCount+latinCount) {
+				return true
+			}
 			return false
 		}
 		return latinCount >= 3 || hanCount >= 2 || kanaCount > 0
@@ -417,7 +408,7 @@ func cleanLiveTranslatedOutput(raw string, maxRunes int) string {
 	if idx := strings.IndexByte(s, '\n'); idx >= 0 {
 		s = strings.TrimSpace(s[:idx])
 	}
-	s = strings.Trim(s, "\"'`「」『』")
+	s = strings.Trim(s, "\"'`「」『』«»“”")
 	s = strings.TrimRight(s, "。.")
 	s = strings.TrimSpace(s)
 	if s == "" || utf8.RuneCountInString(s) > maxRunes {

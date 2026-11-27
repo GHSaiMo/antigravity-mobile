@@ -642,8 +642,8 @@ public struct OAuthHybridSheet: View {
                 Section(
                     header: Text("推荐授权方式"),
                     footer: Text(isLoopbackCallback
-                        ? "此授权回调指向电脑端 127.0.0.1，推荐直接在电脑内置浏览器中接管登录；也可先在手机浏览器完成登录，再将最后跳转失败的 http://127.0.0.1 链接粘贴到下方转发回电脑端。"
-                        : "点击下方按钮在系统浏览器完成授权后返回刷新状态即可。")
+                        ? String(localized: "此授权回调指向电脑端 127.0.0.1，推荐直接在电脑内置浏览器中接管登录；也可先在手机浏览器完成登录，再将最后跳转失败的 http://127.0.0.1 链接粘贴到下方转发回电脑端。")
+                        : String(localized: "点击下方按钮在系统浏览器完成授权后返回刷新状态即可。"))
                 ) {
                     if isLoopbackCallback {
                         Button {
@@ -1549,7 +1549,7 @@ public struct WorkspaceSearchTabView: View {
                 HStack(spacing: 8) {
                     Image(systemName: "magnifyingglass")
                         .foregroundColor(.secondary)
-                    TextField(mode == .code ? "搜索项目代码关键词..." : "按路径或文件名搜索...", text: $query)
+                    TextField(mode == .code ? String(localized: "搜索项目代码关键词...") : String(localized: "按路径或文件名搜索..."), text: $query)
                         .font(.system(size: 14))
                         .textInputAutocapitalization(.never)
                         .autocorrectionDisabled()

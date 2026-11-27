@@ -12,6 +12,7 @@ import (
 	"sync"
 	"time"
 
+	"antigravity-mobile/internal/i18n"
 	"antigravity-mobile/internal/updater"
 )
 
@@ -39,11 +40,45 @@ type GatewaySelfUpdateStatus struct {
 type gatewaySelfUpdateState struct {
 	mu            sync.Mutex
 	state         string
+	stageKind     string // structured stage key ("checking" | "up_to_date" | "restarting" | "completed_manual" | "")
 	stageMessage  string
 	targetVersion string
 	latestTag     string
 	lastErr       string
 	updatedAt     time.Time
+}
+
+func formatSelfUpdateStageMessage(lang, stageKind, rawMessage, targetVer string) string {
+	switch stageKind {
+	case "checking":
+		return i18n.T3For(lang,
+			"正在检查 mgy 最新版本...",
+			"Checking for latest mgy version...",
+			"mgy の最新バージョンを確認中...",
+		)
+	case "up_to_date":
+		return i18n.T3For(lang,
+			"当前已是最新版本",
+			"Already up to date",
+			"すでに最新バージョンです",
+		)
+	case "restarting":
+		return i18n.Sprintf3For(lang,
+			"已安装 v%s，正在重启网关...",
+			"Installed v%s, restarting gateway...",
+			"v%s をインストールしました。ゲートウェイを再起動中...",
+			targetVer,
+		)
+	case "completed_manual":
+		return i18n.Sprintf3For(lang,
+			"已安装 v%s，请重启网关使新版本生效",
+			"Installed v%s; please restart the gateway to apply",
+			"v%s をインストールしました。ゲートウェイを再起動してください",
+			targetVer,
+		)
+	default:
+		return rawMessage
+	}
 }
 
 func isSelfUpdateActiveState(state string) bool {
@@ -78,11 +113,11 @@ func (p *Proxy) SetSelfRestartFunc(fn func(binaryPath string), mode string) {
 	p.selfRestartMode = strings.TrimSpace(mode)
 }
 
-func (p *Proxy) inspectSelfUpdateCapability(curVer string) updater.SelfUpdateCapability {
+func (p *Proxy) inspectSelfUpdateCapability(curVer, lang string) updater.SelfUpdateCapability {
 	if p.selfUpdateCapFn != nil {
 		return p.selfUpdateCapFn(curVer)
 	}
-	return updater.InspectSelfUpdateCapability("", curVer)
+	return updater.InspectSelfUpdateCapabilityForLang("", curVer, lang)
 }
 
 func (p *Proxy) checkLatestSelfTag(ctx context.Context, curVer string, force bool) (string, error) {
@@ -163,12 +198,13 @@ func (p *Proxy) HandleGatewaySelfUpdate(w http.ResponseWriter, r *http.Request) 
 }
 
 func (p *Proxy) handleGatewaySelfUpdateStatus(w http.ResponseWriter, r *http.Request) {
+	uiLang := resolveRequestUILang(r)
 	q := r.URL.Query()
 	forceRefresh := q.Get("refresh") == "1" || strings.EqualFold(q.Get("refresh"), "true") ||
 		q.Get("force") == "1" || strings.EqualFold(q.Get("force"), "true")
 
 	curVer := p.GatewayVersion()
-	capInfo := p.inspectSelfUpdateCapability(curVer)
+	capInfo := p.inspectSelfUpdateCapability(curVer, uiLang)
 	_, restartMode := p.selfRestartConfig()
 
 	p.selfUpdate.mu.Lock()
@@ -178,16 +214,19 @@ func (p *Proxy) handleGatewaySelfUpdateStatus(w http.ResponseWriter, r *http.Req
 	}
 	if forceRefresh && !isSelfUpdateActiveState(curState) {
 		p.selfUpdate.state = "idle"
+		p.selfUpdate.stageKind = ""
 		p.selfUpdate.stageMessage = ""
 		p.selfUpdate.lastErr = ""
 		curState = "idle"
 	}
 	active := isSelfUpdateActiveState(curState)
-	stageMsg := p.selfUpdate.stageMessage
+	stageKind := p.selfUpdate.stageKind
+	rawStageMsg := p.selfUpdate.stageMessage
 	targetVer := p.selfUpdate.targetVersion
 	jobLatestTag := p.selfUpdate.latestTag
 	jobErr := p.selfUpdate.lastErr
 	p.selfUpdate.mu.Unlock()
+	stageMsg := formatSelfUpdateStageMessage(uiLang, stageKind, rawStageMsg, targetVer)
 
 	var latestTag string
 	var checkErrMsg string
@@ -242,24 +281,29 @@ func (p *Proxy) handleGatewaySelfUpdateStatus(w http.ResponseWriter, r *http.Req
 }
 
 func (p *Proxy) handleGatewaySelfUpdateApply(w http.ResponseWriter, r *http.Request) {
+	uiLang := resolveRequestUILang(r)
 	var req struct {
 		Confirm bool `json:"confirm"`
 	}
 	if err := json.NewDecoder(io.LimitReader(r.Body, 16*1024)).Decode(&req); err != nil {
-		writeRPCError(w, http.StatusBadRequest, "无效的请求体")
+		writeRPCError(w, http.StatusBadRequest, i18n.T3For(uiLang, "无效的请求体", "Invalid request body", "リクエストボディが無効です"))
 		return
 	}
 	if !req.Confirm {
-		writeRPCError(w, http.StatusBadRequest, "请确认后再执行 mgy 网关更新")
+		writeRPCError(w, http.StatusBadRequest, i18n.T3For(uiLang, "请确认后再执行 mgy 网关更新", "Please confirm before updating the mgy gateway", "mgy ゲートウェイを更新する前に確認してください"))
 		return
 	}
 
 	curVer := p.GatewayVersion()
-	capInfo := p.inspectSelfUpdateCapability(curVer)
+	capInfo := p.inspectSelfUpdateCapability(curVer, uiLang)
 	if !capInfo.CanUpdate {
 		reason := capInfo.Reason
 		if reason == "" {
-			reason = "当前环境不支持远程自动更新，请在电脑端执行 mgy update"
+			reason = i18n.T3For(uiLang,
+				"当前环境不支持远程自动更新，请在电脑端执行 mgy update",
+				"Remote auto-update is not supported in this environment. Run `mgy update` on your computer.",
+				"この環境ではリモート自動更新に対応していません。PCで `mgy update` を実行してください。",
+			)
 		}
 		writeRPCError(w, http.StatusBadRequest, reason)
 		return
@@ -268,18 +312,23 @@ func (p *Proxy) handleGatewaySelfUpdateApply(w http.ResponseWriter, r *http.Requ
 	p.selfUpdate.mu.Lock()
 	if isSelfUpdateActiveState(p.selfUpdate.state) {
 		curState := p.selfUpdate.state
-		stageMsg := p.selfUpdate.stageMessage
+		stageMsg := formatSelfUpdateStageMessage(uiLang, p.selfUpdate.stageKind, p.selfUpdate.stageMessage, p.selfUpdate.targetVersion)
 		p.selfUpdate.mu.Unlock()
 		writeJSONStatus(w, http.StatusOK, map[string]interface{}{
 			"ok":       true,
 			"accepted": true,
 			"state":    curState,
-			"message":  firstNonEmpty(stageMsg, "mgy 网关更新正在进行中"),
+			"message": firstNonEmpty(stageMsg, i18n.T3For(uiLang,
+				"mgy 网关更新正在进行中",
+				"mgy gateway update is already in progress",
+				"mgy ゲートウェイの更新が進行中です",
+			)),
 		})
 		return
 	}
 	p.selfUpdate.state = "checking"
-	p.selfUpdate.stageMessage = "正在检查 mgy 最新版本..."
+	p.selfUpdate.stageKind = "checking"
+	p.selfUpdate.stageMessage = formatSelfUpdateStageMessage(uiLang, "checking", "", "")
 	p.selfUpdate.targetVersion = ""
 	p.selfUpdate.lastErr = ""
 	p.selfUpdate.updatedAt = time.Now()
@@ -298,6 +347,7 @@ func (p *Proxy) handleGatewaySelfUpdateApply(w http.ResponseWriter, r *http.Requ
 		setStage := func(stage, detail string) {
 			p.selfUpdate.mu.Lock()
 			p.selfUpdate.state = stage
+			p.selfUpdate.stageKind = ""
 			p.selfUpdate.stageMessage = detail
 			p.selfUpdate.updatedAt = time.Now()
 			p.selfUpdate.mu.Unlock()
@@ -306,6 +356,7 @@ func (p *Proxy) handleGatewaySelfUpdateApply(w http.ResponseWriter, r *http.Requ
 		res, err := p.runSelfUpdate(ctx, updater.Options{
 			CurrentVersion: curVer,
 			Out:            io.Discard,
+			Lang:           uiLang,
 			OnProgress: func(stage, detail string) {
 				setStage(stage, detail)
 			},
@@ -314,6 +365,7 @@ func (p *Proxy) handleGatewaySelfUpdateApply(w http.ResponseWriter, r *http.Requ
 			slog.Warn("[SelfUpdate] mgy 远程自动更新失败", "err", err)
 			p.selfUpdate.mu.Lock()
 			p.selfUpdate.state = "failed"
+			p.selfUpdate.stageKind = ""
 			p.selfUpdate.stageMessage = ""
 			p.selfUpdate.lastErr = err.Error()
 			p.selfUpdate.updatedAt = time.Now()
@@ -328,7 +380,8 @@ func (p *Proxy) handleGatewaySelfUpdateApply(w http.ResponseWriter, r *http.Requ
 			}
 			p.selfUpdate.mu.Lock()
 			p.selfUpdate.state = "completed"
-			p.selfUpdate.stageMessage = "当前已是最新版本"
+			p.selfUpdate.stageKind = "up_to_date"
+			p.selfUpdate.stageMessage = formatSelfUpdateStageMessage(uiLang, "up_to_date", "", "")
 			if latestTag != "" {
 				p.selfUpdate.latestTag = latestTag
 			}
@@ -351,9 +404,10 @@ func (p *Proxy) handleGatewaySelfUpdateApply(w http.ResponseWriter, r *http.Requ
 		if restartFn != nil {
 			p.selfUpdate.mu.Lock()
 			p.selfUpdate.state = "restarting"
+			p.selfUpdate.stageKind = "restarting"
 			p.selfUpdate.targetVersion = res.LatestVersion
 			p.selfUpdate.latestTag = res.Tag
-			p.selfUpdate.stageMessage = fmt.Sprintf("已安装 v%s，正在重启网关...", res.LatestVersion)
+			p.selfUpdate.stageMessage = formatSelfUpdateStageMessage(uiLang, "restarting", "", res.LatestVersion)
 			p.selfUpdate.lastErr = ""
 			p.selfUpdate.updatedAt = time.Now()
 			p.selfUpdate.mu.Unlock()
@@ -365,9 +419,10 @@ func (p *Proxy) handleGatewaySelfUpdateApply(w http.ResponseWriter, r *http.Requ
 
 		p.selfUpdate.mu.Lock()
 		p.selfUpdate.state = "completed"
+		p.selfUpdate.stageKind = "completed_manual"
 		p.selfUpdate.targetVersion = res.LatestVersion
 		p.selfUpdate.latestTag = res.Tag
-		p.selfUpdate.stageMessage = fmt.Sprintf("已安装 v%s，请重启网关使新版本生效", res.LatestVersion)
+		p.selfUpdate.stageMessage = formatSelfUpdateStageMessage(uiLang, "completed_manual", "", res.LatestVersion)
 		p.selfUpdate.lastErr = ""
 		p.selfUpdate.updatedAt = time.Now()
 		p.selfUpdate.mu.Unlock()
@@ -378,6 +433,10 @@ func (p *Proxy) handleGatewaySelfUpdateApply(w http.ResponseWriter, r *http.Requ
 		"accepted":    true,
 		"state":       "checking",
 		"restartMode": restartMode,
-		"message":     "已开始下载并更新 mgy 网关",
+		"message": i18n.T3For(uiLang,
+			"已开始下载并更新 mgy 网关",
+			"Started downloading and updating mgy gateway",
+			"mgy ゲートウェイのダウンロードと更新を開始しました",
+		),
 	})
 }

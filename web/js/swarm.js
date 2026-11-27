@@ -56,7 +56,7 @@ const SwarmManager = (() => {
           <div class="swarm-tabs-nav">
             <button class="swarm-tab-btn active" data-tab="overview">综述 (Overview)</button>
             <button class="swarm-tab-btn" data-tab="board">消息板 (Board)</button>
-            <button class="swarm-tab-btn" data-tab="members">成员 (<span id="swarm-tab-member-count">0</span>)</button>
+            <button class="swarm-tab-btn" data-tab="members"><span>成员</span> (<span id="swarm-tab-member-count">0</span>)</button>
             <button class="swarm-tab-btn" data-tab="graph">协作图 (Graph)</button>
           </div>
           <div class="swarm-modal-body" id="swarm-modal-content">

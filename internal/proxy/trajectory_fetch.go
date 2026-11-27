@@ -659,12 +659,11 @@ func (p *Proxy) FetchTrajectoryDetails(cascadeID string, maxAge time.Duration) (
 		return nil, err
 	}
 	details := p.ParseTrajectoryDetailsCached(rawResp)
-	if details.Title == "" || details.Title == "未命名会话" {
+	if isUntitledPlaceholderTitle(details.Title) {
 		if t := p.lookupCascadeTitle(cascadeID, port, token); t != "" {
 			details.Title = t
 		}
 	}
-	p.ApplyLiveTextTranslations(cascadeID, &details, "", true)
 	return &details, nil
 }
 

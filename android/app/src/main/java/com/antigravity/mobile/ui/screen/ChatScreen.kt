@@ -2434,7 +2434,14 @@ fun ChatScreen(
                             uiState.suggestedResponses.isNotEmpty() &&
                             inputText.isBlank() &&
                             !isActivelyRunningForSuggestions &&
-                            !uiState.showMentionPicker
+                            !uiState.showMentionPicker &&
+                            !uiState.canProceed &&
+                            !uiState.isLatestMessageError &&
+                            uiState.pendingInteraction == null &&
+                            uiState.selectedImages.isEmpty() &&
+                            uiState.selectedFiles.isEmpty() &&
+                            uiState.selectedSlashCommands.isEmpty() &&
+                            uiState.selectedContextItems.isEmpty()
                         ) {
                             uiState.suggestedResponses.filter { s ->
                                 s.isNotBlank() && s != uiState.dismissedPredictedSuggestion

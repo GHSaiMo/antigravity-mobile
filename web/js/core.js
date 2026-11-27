@@ -340,7 +340,8 @@ function updateModelSwitchUI() {
   const chipClass = kind === "claude" ? "chip-claude" : (kind === "orchestrator" ? "chip-orchestrator" : (kind === "other" ? "chip-other" : "chip-gemini"));
   btn.className = `chip-pill chip-model-switch ${chipClass}${isXHigh ? " chip-xhigh" : ""}`;
   text.textContent = label;
-  btn.title = `当前模型: ${name} · 短按快切首选/次选 · 长按/右键手选模型`;
+  const rawTitle = `当前模型: ${name} · 短按快切首选/次选 · 长按/右键手选模型`;
+  btn.title = typeof t === "function" ? t(rawTitle) : rawTitle;
 }
 
 async function applySelectedModel(nextModelId) {
@@ -404,6 +405,7 @@ function renderImagePreviews() {
     bar.innerHTML = "";
     bar.classList.add("hidden");
     updateChatControls(isCascadeRunning(activeCascadeId));
+    window.Phase3?.renderSuggestedResponses?.();
     return;
   }
 
@@ -432,6 +434,7 @@ function renderImagePreviews() {
   }).join("");
   bar.innerHTML = imagesHtml + filesHtml;
   updateChatControls(isCascadeRunning(activeCascadeId));
+  window.Phase3?.renderSuggestedResponses?.();
 }
 
 function removePendingImage(id) {

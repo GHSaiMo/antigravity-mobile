@@ -975,7 +975,7 @@ function renderNewProjectsList(projects) {
           <span class="project-card-title">指定 NAS 目录</span>
           <span class="project-card-badge green">自定义路径</span>
         </div>
-        <span class="project-card-subtitle monospaced">输入 NAS 绝对路径开启新工作区</span>
+        <span class="project-card-subtitle">输入 NAS 绝对路径开启新工作区</span>
       </div>
       <svg class="project-card-chevron" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
         <polyline points="9 18 15 12 9 6"></polyline>

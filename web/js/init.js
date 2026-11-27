@@ -351,6 +351,24 @@ function initApp() {
     if (typeof updateQuotaDisplaySummary === "function") {
       updateQuotaDisplaySummary();
     }
+    if (typeof currentCockpitQuotas !== "undefined" && currentCockpitQuotas) {
+      if (typeof renderQuotaStatusBar === "function") {
+        renderQuotaStatusBar(currentCockpitQuotas);
+      }
+      if (typeof renderQuotaSheet === "function") {
+        renderQuotaSheet(currentCockpitQuotas);
+      }
+    }
+    if (typeof currentContextMeter !== "undefined" && currentContextMeter && typeof renderAuditSheetContent === "function") {
+      const auditSheet = document.getElementById("sheet-audit");
+      if (auditSheet && !auditSheet.classList.contains("hidden")) {
+        renderAuditSheetContent(currentContextMeter);
+      }
+    }
+    if (window.Phase4) {
+      window.Phase4.refreshSettingsDesktopUpdateRow?.();
+      window.Phase4.rerenderHostUpdatesSubpage?.();
+    }
   });
 
   const applyCompactLiveEffects = () => {
@@ -408,8 +426,7 @@ function initApp() {
   };
 
   const syncAlertPrefsUI = (errorText = "") => {
-    const rawLang = (document.documentElement.getAttribute("data-lang") || navigator.language || "zh").toLowerCase();
-    const lang = rawLang.startsWith("ja") ? "ja" : rawLang.startsWith("en") ? "en" : "zh";
+    const lang = window.I18n?.isZh?.() ? "zh" : (window.I18n?.isJa?.() ? "ja" : "en");
     const isCacheMissLive = String(currentAlertPrefs.cache_miss_mode || "shadow").toLowerCase() === "live";
     const cacheMissRow = document.getElementById("settings-alert-cache-miss-row");
     if (cacheMissRow) {
@@ -492,10 +509,10 @@ function initApp() {
         });
         if (!resp || !resp.ok) {
           currentAlertPrefs = prev;
-          const rawLang = (document.documentElement.getAttribute("data-lang") || navigator.language || "zh").toLowerCase();
-          const errMsg = rawLang.startsWith("ja")
+          const lang = window.I18n?.isZh?.() ? "zh" : (window.I18n?.isJa?.() ? "ja" : "en");
+          const errMsg = lang === "ja"
             ? "同期に失敗しました。接続を確認してください。"
-            : rawLang.startsWith("en")
+            : lang === "en"
               ? "Sync failed. Check gateway connection."
               : "同步失败，请检查网关连接";
           syncAlertPrefsUI(errMsg);
@@ -582,7 +599,7 @@ function initApp() {
     const p = aiAssistState.prefs;
     const showSmartTranslation = !dev.isEnglish;
 
-    const uiLang = window.I18n?.getLang?.() || "zh";
+    const uiLang = window.I18n?.isZh?.() ? "zh" : (window.I18n?.isJa?.() ? "ja" : "en");
     const summaryEl = document.getElementById("settings-ai-assist-summary");
     if (summaryEl) {
       const titleOn = showSmartTranslation && Boolean(p.titleTranslateEnabled);

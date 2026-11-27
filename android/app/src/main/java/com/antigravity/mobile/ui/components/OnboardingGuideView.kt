@@ -57,8 +57,14 @@ fun OnboardingGuideView(
     val clipboardManager = LocalClipboardManager.current
     val coroutineScope = rememberCoroutineScope()
 
-    val unixInstallCommand = "curl -fsSL https://ghfast.top/https://raw.githubusercontent.com/GHSaiMo/antigravity-mobile/main/scripts/install.sh | bash"
-    val winInstallCommand = "irm https://ghfast.top/https://raw.githubusercontent.com/GHSaiMo/antigravity-mobile/main/scripts/install.ps1 | iex"
+    val useChinaMirror = java.util.Locale.getDefault().country.equals("CN", ignoreCase = true)
+    val scriptBaseUrl = if (useChinaMirror) {
+        "https://ghfast.top/https://raw.githubusercontent.com/GHSaiMo/antigravity-mobile/main/scripts"
+    } else {
+        "https://raw.githubusercontent.com/GHSaiMo/antigravity-mobile/main/scripts"
+    }
+    val unixInstallCommand = "curl -fsSL $scriptBaseUrl/install.sh | bash"
+    val winInstallCommand = "irm $scriptBaseUrl/install.ps1 | iex"
     val runCommand = "mgy"
 
     var isUnixCopied by remember { mutableStateOf(false) }

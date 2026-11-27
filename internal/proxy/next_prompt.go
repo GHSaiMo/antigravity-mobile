@@ -9,7 +9,6 @@ import (
 	"strings"
 	"sync"
 	"time"
-	"unicode"
 	"unicode/utf8"
 )
 
@@ -20,7 +19,7 @@ const (
 	nextPromptMaxUserRunes  = 600
 	nextPromptMaxAsstRunes  = 1200
 	nextPromptAsstTailRunes = 420
-	nextPromptMaxSugRunes   = 90
+	nextPromptMaxSugRunes   = 110
 )
 
 const (
@@ -43,8 +42,8 @@ type nextPromptEngine struct {
 }
 
 var (
-	reNextPromptAbstain = regexp.MustCompile(`(?i)^(?:no_suggestion|none|n/a|null|empty|skip|\(none\)|无建议|留空|なし)$`)
-	reNextPromptFiller  = regexp.MustCompile(`(?i)^(?:继续|继续吧|请继续|好的|好|行|收到|谢谢|感谢|明白|没问题|ok|okay|continue|go ahead|proceed|thanks|thank you|looks good|sounds good|yes|no|done|got it|はい|了解|ありがとう|続けて|続行)\s*[。.!！?？]*$`)
+	reNextPromptAbstain = regexp.MustCompile(`(?i)^(?:no_suggestion|none|n/a|null|empty|skip|\(none\)|无建议|留空|なし|없음|제안 없음|aucune suggestion|keine vorschläge|sin sugerencias)$`)
+	reNextPromptFiller  = regexp.MustCompile(`(?i)^(?:继续|继续吧|请继续|好的|好|行|收到|谢谢|感谢|明白|没问题|ok|okay|continue|go ahead|proceed|thanks|thank you|looks good|sounds good|yes|no|done|got it|はい|了解|ありがとう|続けて|続行|네|알겠어요|감사합니다|계속|계속해|진행해|merci|d'accord|continuer|continuez|oui|non|danke|weiter|verstanden|ja|nein|gracias|vale|continuar|sí|entendido)\s*[。.!！?？]*$`)
 	reNextPromptBullet  = regexp.MustCompile(`^[-*•\d.)]+\s+`)
 	reTaskMdLine        = regexp.MustCompile(`^\s*[-*]\s*\[( |x|X|/)\]\s+(.+?)\s*$`)
 	reBGNotifPrefix     = regexp.MustCompile(`(?i)^(?:\[(?:后台任务|cron|scheduled|background|system|notification|timer)\]|<system_message>|<task-notification>)`)
@@ -249,25 +248,71 @@ func truncateRunesTail(s string, maxRunes int) string {
 	return "…" + strings.TrimSpace(string(runes[len(runes)-maxRunes:]))
 }
 
+const (
+	tradChineseMarkers = "為這說個會裡點體開關題機無時還後與實當應經嗎麼產設對圖區統發處動畫顯示連線請確認測試"
+	simpChineseMarkers = "为这说个会里点体开关题机无时还后与实当应经吗么产设对图区统发处动画显示连线请确认测试"
+)
+
+// detectPromptLanguageLabel identifies non-Latin conversation languages from text.
+// Returns "" for Latin-script languages (English, French, German, Spanish, Portuguese, ...)
+// so the model mirrors the exact language of the user's messages instead of forcing English.
 func detectPromptLanguageLabel(text string) string {
-	var han, kana, latin int
-	for _, r := range text {
-		switch {
-		case (r >= 0x3040 && r <= 0x30ff):
-			kana++
-		case unicode.Is(unicode.Han, r):
-			han++
-		case (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z'):
-			latin++
-		}
-	}
-	if kana >= 2 {
+	c := countScripts(text)
+	if c.kana >= 2 {
 		return "Japanese"
 	}
-	if han >= 3 || (han > 0 && han*2 >= latin) {
+	if c.hangul >= 2 {
+		return "Korean"
+	}
+	if c.han >= 3 || (c.han > 0 && c.han*2 >= c.latin) {
+		var trad, simp int
+		for _, r := range text {
+			if strings.ContainsRune(tradChineseMarkers, r) {
+				trad++
+			} else if strings.ContainsRune(simpChineseMarkers, r) {
+				simp++
+			}
+		}
+		if trad > simp {
+			return "Traditional Chinese"
+		}
 		return "Simplified Chinese"
 	}
-	return "English"
+	if c.cyrillic >= 3 {
+		return "Cyrillic (matching the user's exact language)"
+	}
+	if c.arabic >= 3 {
+		return "Arabic"
+	}
+	if c.thai >= 3 {
+		return "Thai"
+	}
+	if c.hebrew >= 3 {
+		return "Hebrew"
+	}
+	return ""
+}
+
+// detectPromptLanguageFromTexts weights the latest user turn first, but falls back to earlier
+// recent user turns when the latest turn is a short code/CLI command (e.g. "git status", "/compact").
+func detectPromptLanguageFromTexts(lastUser string, userTexts []string, lastAssistant string) string {
+	if label := detectPromptLanguageLabel(lastUser); label != "" {
+		return label
+	}
+	trimmedLast := strings.TrimSpace(lastUser)
+	// When the last user turn is empty, a slash command, or very short ASCII/CLI text,
+	// inspect recent prior user messages before assuming Latin script.
+	if trimmedLast == "" || strings.HasPrefix(trimmedLast, "/") || utf8.RuneCountInString(trimmedLast) <= 28 {
+		for i := len(userTexts) - 1; i >= 0; i-- {
+			if label := detectPromptLanguageLabel(userTexts[i]); label != "" {
+				return label
+			}
+		}
+	}
+	if trimmedLast == "" {
+		return detectPromptLanguageLabel(lastAssistant)
+	}
+	return ""
 }
 
 func isBackgroundNotificationMessage(text string) bool {
@@ -367,19 +412,23 @@ func buildNextPromptInput(cascadeID string, details *TrajectoryDetails) (string,
 		}
 	}
 
-	langLabel := detectPromptLanguageLabel(lastUser)
-	if lastUser == "" {
-		langLabel = detectPromptLanguageLabel(lastAssistant.Text)
-	}
+	langLabel := detectPromptLanguageFromTexts(lastUser, userTexts, lastAssistant.Text)
 
-	maxHint := "max 55 characters"
-	if langLabel == "Simplified Chinese" || langLabel == "Japanese" {
+	maxHint := "max 65 characters"
+	switch langLabel {
+	case "Simplified Chinese", "Traditional Chinese", "Japanese":
 		maxHint = "max 26 characters"
+	case "Korean":
+		maxHint = "max 36 characters"
 	}
 
 	var sb strings.Builder
 	sb.WriteString("You predict the single most likely next short message the USER will type into a mobile chat box after a completed assistant turn.\n")
-	sb.WriteString(fmt.Sprintf("Output language MUST match the user's language (%s) in a concise, natural, direct tone.\n", langLabel))
+	if langLabel != "" {
+		sb.WriteString(fmt.Sprintf("Output language MUST match the user's language (%s) in a concise, natural, direct tone.\n", langLabel))
+	} else {
+		sb.WriteString("Output language MUST match the exact language of the user's messages above (e.g. English, French, German, Spanish, Portuguese — do NOT switch languages) in a concise, natural, direct tone.\n")
+	}
 	sb.WriteString("Strict selection priority:\n")
 	sb.WriteString("1. First priority: the smallest concrete next step the user explicitly asked for in recent goals or remaining pending task items that has NOT been done yet.\n")
 	sb.WriteString("2. Second priority: a concrete verification, test run, or follow-up check strictly grounded in current task evidence and not yet completed.\n")
@@ -548,7 +597,7 @@ func sanitizeNextPromptSuggestionWithReason(raw string, checklist nextPromptChec
 		s = strings.TrimSpace(s[:idx])
 	}
 	s = reNextPromptBullet.ReplaceAllString(s, "")
-	s = strings.Trim(s, "\"'`「」『』")
+	s = strings.Trim(s, "\"'`「」『』«»“”")
 	s = strings.TrimSpace(s)
 
 	if s == "" {

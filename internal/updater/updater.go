@@ -24,6 +24,7 @@ import (
 	"time"
 
 	"antigravity-mobile/internal/config"
+	"antigravity-mobile/internal/i18n"
 	"antigravity-mobile/internal/localtls"
 	"antigravity-mobile/internal/procutil"
 )
@@ -60,6 +61,7 @@ type Options struct {
 	Force          bool   // Reinstall even if already on the target/latest version.
 	TargetPath     string // Optional override for executable path (defaults to current binary).
 	Out            io.Writer
+	Lang           string                     // Optional UI language ("zh", "en", "ja"); empty falls back to gateway i18n.GetLang().
 	OnProgress     func(stage, detail string) // Optional stage callback ("checking", "downloading", "verifying", "replacing").
 
 	// Overridable fields for testing and platform simulation.
@@ -126,6 +128,11 @@ func (o *Options) withDefaults() Options {
 
 // AssetCandidates returns the ordered release asset filenames for the given OS/arch.
 func AssetCandidates(goos, goarch string) ([]string, error) {
+	return assetCandidatesForLang(goos, goarch, i18n.GetLang())
+}
+
+func assetCandidatesForLang(goos, goarch, lang string) ([]string, error) {
+	l := i18n.ResolveLang(lang)
 	switch goos {
 	case "darwin":
 		switch goarch {
@@ -143,17 +150,29 @@ func AssetCandidates(goos, goarch string) ([]string, error) {
 		case "arm64":
 			return []string{"multigravity-linux-arm64.tar.gz"}, nil
 		default:
-			return nil, fmt.Errorf("暂不支持 Linux %s 架构的预编译包", goarch)
+			return nil, fmt.Errorf(i18n.T3For(l,
+				"暂不支持 Linux %s 架构的预编译包",
+				"prebuilt binary for Linux %s is not supported yet",
+				"Linux %s 向けのビルド済みパッケージは未対応です",
+			), goarch)
 		}
 	case "windows":
 		switch goarch {
 		case "amd64", "arm64":
 			return []string{"multigravity-windows-amd64.zip"}, nil
 		default:
-			return nil, fmt.Errorf("暂不支持 Windows %s 架构的预编译包", goarch)
+			return nil, fmt.Errorf(i18n.T3For(l,
+				"暂不支持 Windows %s 架构的预编译包",
+				"prebuilt binary for Windows %s is not supported yet",
+				"Windows %s 向けのビルド済みパッケージは未対応です",
+			), goarch)
 		}
 	default:
-		return nil, fmt.Errorf("暂不支持 %s/%s 平台的自动更新", goos, goarch)
+		return nil, fmt.Errorf(i18n.T3For(l,
+			"暂不支持 %s/%s 平台的自动更新",
+			"auto-update is not supported on %s/%s",
+			"%s/%s プラットフォームの自動更新は未対応です",
+		), goos, goarch)
 	}
 }
 
@@ -233,7 +252,12 @@ func FetchLatestTag(ctx context.Context, opts Options) (string, error) {
 		errs = append(errs, fmt.Sprintf("github api: %v", err))
 	}
 
-	return "", fmt.Errorf("无法获取最新版本信息 (%s)", strings.Join(errs, "; "))
+	l := i18n.ResolveLang(o.Lang)
+	return "", fmt.Errorf(i18n.T3For(l,
+		"无法获取最新版本信息 (%s)",
+		"failed to fetch latest release info (%s)",
+		"最新バージョン情報を取得できませんでした (%s)",
+	), strings.Join(errs, "; "))
 }
 
 func extractTagFromURL(rawURL string) (string, error) {
@@ -393,7 +417,11 @@ func ResolveExecutablePath(override string) (string, error) {
 		var err error
 		exePath, err = os.Executable()
 		if err != nil {
-			return "", fmt.Errorf("无法定位当前可执行文件路径: %w", err)
+			return "", fmt.Errorf(i18n.T3(
+				"无法定位当前可执行文件路径: %w",
+				"failed to locate current executable path: %w",
+				"現在の実行ファイルパスを特定できませんでした: %w",
+			), err)
 		}
 	}
 	resolved, err := filepath.EvalSymlinks(exePath)
@@ -429,7 +457,13 @@ type SelfUpdateCapability struct {
 // InspectSelfUpdateCapability checks platform support, binary path, and directory writability
 // without performing any network request.
 func InspectSelfUpdateCapability(targetPathOverride, currentVersion string) SelfUpdateCapability {
-	if _, err := AssetCandidates(runtime.GOOS, runtime.GOARCH); err != nil {
+	return InspectSelfUpdateCapabilityForLang(targetPathOverride, currentVersion, i18n.GetLang())
+}
+
+// InspectSelfUpdateCapabilityForLang checks self-update capability and formats Reason for lang ("zh"/"en"/"ja").
+func InspectSelfUpdateCapabilityForLang(targetPathOverride, currentVersion, lang string) SelfUpdateCapability {
+	l := i18n.ResolveLang(lang)
+	if _, err := assetCandidatesForLang(runtime.GOOS, runtime.GOARCH, l); err != nil {
 		return SelfUpdateCapability{
 			CanUpdate: false,
 			Reason:    err.Error(),
@@ -452,20 +486,38 @@ func InspectSelfUpdateCapability(targetPathOverride, currentVersion string) Self
 	slashPath := filepath.ToSlash(targetPath)
 	if strings.Contains(slashPath, "/go-build") {
 		cap.CanUpdate = false
-		cap.Reason = "当前为临时编译运行实例（go run），请在电脑端手动更新"
+		cap.Reason = i18n.T3For(l,
+			"当前为临时编译运行实例（go run），请在电脑端手动更新",
+			"Running from a temporary build (go run). Please update manually on your computer.",
+			"一時ビルド（go run）で実行中のため、PC側で手動更新してください。",
+		)
 		return cap
 	}
 	if strings.EqualFold(strings.TrimSpace(currentVersion), "dev") {
 		cap.CanUpdate = false
-		cap.Reason = "当前为开发版构建，请在电脑端手动更新"
+		cap.Reason = i18n.T3For(l,
+			"当前为开发版构建，请在电脑端手动更新",
+			"Running a development build. Please update manually on your computer.",
+			"開発ビルドのため、PC側で手動更新してください。",
+		)
 		return cap
 	}
 	if err := checkDirWritable(targetDir); err != nil {
 		cap.CanUpdate = false
 		if runtime.GOOS != "windows" {
-			cap.Reason = fmt.Sprintf("目录 %s 无写入权限，请在电脑端执行 sudo mgy update", targetDir)
+			cap.Reason = i18n.Sprintf3For(l,
+				"目录 %s 无写入权限，请在电脑端执行 sudo mgy update",
+				"Directory %s is not writable. Run `sudo mgy update` on your computer.",
+				"ディレクトリ %s に書き込み権限がありません。PCで `sudo mgy update` を実行してください。",
+				targetDir,
+			)
 		} else {
-			cap.Reason = fmt.Sprintf("目录 %s 无写入权限，请以管理员身份执行 mgy update", targetDir)
+			cap.Reason = i18n.Sprintf3For(l,
+				"目录 %s 无写入权限，请以管理员身份执行 mgy update",
+				"Directory %s is not writable. Run `mgy update` as Administrator.",
+				"ディレクトリ %s に書き込み権限がありません。管理者権限で `mgy update` を実行してください。",
+				targetDir,
+			)
 		}
 		return cap
 	}
@@ -481,6 +533,7 @@ func (o Options) emitProgress(stage, detail string) {
 // Run checks for updates and optionally downloads and atomically replaces the mgy binary.
 func Run(ctx context.Context, opts Options) (*Result, error) {
 	o := opts.withDefaults()
+	l := i18n.ResolveLang(o.Lang)
 	curVer := NormalizeVersion(o.CurrentVersion)
 
 	var tag string
@@ -488,11 +541,23 @@ func Run(ctx context.Context, opts Options) (*Result, error) {
 	if strings.TrimSpace(o.TargetVersion) != "" {
 		tag, err = EnsureTag(o.TargetVersion)
 		if err != nil {
-			return nil, fmt.Errorf("版本号格式无效: %w", err)
+			return nil, fmt.Errorf(i18n.T3For(l,
+				"版本号格式无效: %w",
+				"invalid version format: %w",
+				"バージョン形式が無効です: %w",
+			), err)
 		}
 	} else {
-		o.emitProgress("checking", "正在检查 mgy 最新版本...")
-		fmt.Fprintf(o.Out, "🔍 正在检查 Multigravity 最新版本 (当前: v%s)...\n", curVer)
+		o.emitProgress("checking", i18n.T3For(l,
+			"正在检查 mgy 最新版本...",
+			"Checking for latest mgy version...",
+			"mgy の最新バージョンを確認中...",
+		))
+		fmt.Fprintf(o.Out, i18n.T3For(l,
+			"🔍 正在检查 Multigravity 最新版本 (当前: v%s)...\n",
+			"🔍 Checking for latest Multigravity version (current: v%s)...\n",
+			"🔍 Multigravity の最新バージョンを確認中 (現在: v%s)...\n",
+		), curVer)
 		tag, err = FetchLatestTag(ctx, o)
 		if err != nil {
 			return nil, err
@@ -529,35 +594,63 @@ func Run(ctx context.Context, opts Options) (*Result, error) {
 	// Fail fast before downloading if the install directory is not writable.
 	if err := checkDirWritable(targetDir); err != nil {
 		if o.GOOS != "windows" {
-			return nil, fmt.Errorf("目标目录 %s 无写入权限 (%v)，请检查权限或使用 sudo mgy update 重试", targetDir, err)
+			return nil, fmt.Errorf(i18n.T3For(l,
+				"目标目录 %s 无写入权限 (%v)，请检查权限或使用 sudo mgy update 重试",
+				"target directory %s is not writable (%v); check permissions or retry with sudo mgy update",
+				"対象ディレクトリ %s に書き込み権限がありません (%v)。権限を確認するか sudo mgy update を試してください",
+			), targetDir, err)
 		}
-		return nil, fmt.Errorf("目标目录 %s 无写入权限: %w", targetDir, err)
+		return nil, fmt.Errorf(i18n.T3For(l,
+			"目标目录 %s 无写入权限: %w",
+			"target directory %s is not writable: %w",
+			"対象ディレクトリ %s に書き込み権限がありません: %w",
+		), targetDir, err)
 	}
 
 	// Best-effort cleanup of leftover backup from a previous Windows self-update.
 	_ = os.Remove(targetPath + ".old")
 
-	assets, err := AssetCandidates(o.GOOS, o.GOARCH)
+	assets, err := assetCandidatesForLang(o.GOOS, o.GOARCH, l)
 	if err != nil {
 		return nil, err
 	}
 
 	if strings.TrimSpace(o.TargetVersion) != "" {
-		fmt.Fprintf(o.Out, "📦 准备安装目标版本: %s (当前: v%s)\n", tag, curVer)
+		fmt.Fprintf(o.Out, i18n.T3For(l,
+			"📦 准备安装目标版本: %s (当前: v%s)\n",
+			"📦 Preparing target version: %s (current: v%s)\n",
+			"📦 対象バージョンをインストール準備中: %s (現在: v%s)\n",
+		), tag, curVer)
 	} else if o.Force && res.UpToDate {
-		fmt.Fprintf(o.Out, "🔄 强制重新安装当前版本: %s\n", tag)
+		fmt.Fprintf(o.Out, i18n.T3For(l,
+			"🔄 强制重新安装当前版本: %s\n",
+			"🔄 Reinstalling current version: %s\n",
+			"🔄 現在のバージョンを強制再インストール: %s\n",
+		), tag)
 	} else {
-		fmt.Fprintf(o.Out, "🆕 发现新版本: %s (当前: v%s)\n", tag, curVer)
+		fmt.Fprintf(o.Out, i18n.T3For(l,
+			"🆕 发现新版本: %s (当前: v%s)\n",
+			"🆕 New version available: %s (current: v%s)\n",
+			"🆕 新しいバージョンが見つかりました: %s (現在: v%s)\n",
+		), tag, curVer)
 	}
 
 	checksums, hasChecksums, checksumErr := FetchChecksums(ctx, tag, o)
 	if checksumErr != nil || !hasChecksums || len(checksums) == 0 {
-		return nil, fmt.Errorf("安全校验失败: 无法从 GitHub 官方 HTTPS 源获取版本 %s 的 checksums.txt (%v)，已中止未校验更新", tag, checksumErr)
+		return nil, fmt.Errorf(i18n.T3For(l,
+			"安全校验失败: 无法从 GitHub 官方 HTTPS 源获取版本 %s 的 checksums.txt (%v)，已中止未校验更新",
+			"security verification failed: unable to fetch official checksums.txt for %s (%v); unverified update aborted",
+			"セキュリティ検証に失敗: GitHub 公式 HTTPS から %s の checksums.txt を取得できませんでした (%v)。更新を中止しました",
+		), tag, checksumErr)
 	}
 
 	tmpDir, err := os.MkdirTemp("", "mgy-update-*")
 	if err != nil {
-		return nil, fmt.Errorf("创建临时目录失败: %w", err)
+		return nil, fmt.Errorf(i18n.T3For(l,
+			"创建临时目录失败: %w",
+			"failed to create temp directory: %w",
+			"一時ディレクトリの作成に失敗しました: %w",
+		), err)
 	}
 	defer os.RemoveAll(tmpDir)
 
@@ -565,7 +658,11 @@ func Run(ctx context.Context, opts Options) (*Result, error) {
 	for _, asset := range assets {
 		expected, ok := checksums[asset]
 		if !ok || expected == "" {
-			lastErr = fmt.Errorf("官方 checksums.txt 中缺少资产 %s 的 SHA-256 记录", asset)
+			lastErr = fmt.Errorf(i18n.T3For(l,
+				"官方 checksums.txt 中缺少资产 %s 的 SHA-256 记录",
+				"official checksums.txt is missing SHA-256 entry for %s",
+				"公式 checksums.txt に %s の SHA-256 エントリがありません",
+			), asset)
 			continue
 		}
 
@@ -574,40 +671,77 @@ func Run(ctx context.Context, opts Options) (*Result, error) {
 
 		for _, rawURL := range urls {
 			if o.HTTPClientFactory == nil && !strings.HasPrefix(strings.ToLower(rawURL), "https://") {
-				lastErr = fmt.Errorf("拒绝非 HTTPS 下载源: %s", rawURL)
+				lastErr = fmt.Errorf(i18n.T3For(l,
+					"拒绝非 HTTPS 下载源: %s",
+					"refusing non-HTTPS download source: %s",
+					"非 HTTPS のダウンロード元を拒否しました: %s",
+				), rawURL)
 				continue
 			}
-			sourceDesc := "加速镜像站"
+			sourceDesc := i18n.T3For(l, "加速镜像站", "mirror", "ミラー")
 			if rawURL == ghURL {
-				sourceDesc = "GitHub 官方源"
+				sourceDesc = i18n.T3For(l, "GitHub 官方源", "GitHub", "GitHub 公式")
 			}
-			fmt.Fprintf(o.Out, "📥 尝试从%s下载 %s...\n", sourceDesc, asset)
-			o.emitProgress("downloading", fmt.Sprintf("正在从%s下载 %s...", sourceDesc, tag))
+			fmt.Fprintf(o.Out, i18n.T3For(l,
+				"📥 尝试从%s下载 %s...\n",
+				"📥 Downloading %s from %s...\n",
+				"📥 %s から %s をダウンロード中...\n",
+			), assetOrSourceFirst(l, sourceDesc, asset), assetOrSourceSecond(l, sourceDesc, asset))
+			o.emitProgress("downloading", i18n.Sprintf3For(l,
+				"正在从%s下载 %s...",
+				"Downloading %s from %s...",
+				"%s から %s をダウンロード中...",
+				assetOrSourceFirst(l, sourceDesc, tag), assetOrSourceSecond(l, sourceDesc, tag),
+			))
 
 			archivePath := filepath.Join(tmpDir, asset)
 			_ = os.Remove(archivePath)
 
 			gotHash, err := downloadFileWithSHA256(ctx, o, rawURL, archivePath)
 			if err != nil {
-				fmt.Fprintf(o.Out, "⚠️  下载失败 (%v)，自动切换备用源...\n", err)
+				fmt.Fprintf(o.Out, i18n.T3For(l,
+					"⚠️  下载失败 (%v)，自动切换备用源...\n",
+					"⚠️  Download failed (%v), trying next source...\n",
+					"⚠️  ダウンロード失敗 (%v)、次のソースへ切り替えます...\n",
+				), err)
 				lastErr = err
 				continue
 			}
 
-			o.emitProgress("verifying", "正在校验 SHA-256 与可执行文件...")
+			o.emitProgress("verifying", i18n.T3For(l,
+				"正在校验 SHA-256 与可执行文件...",
+				"Verifying SHA-256 and binary...",
+				"SHA-256 とバイナリを検証中...",
+			))
 			if !strings.EqualFold(gotHash, expected) {
 				_ = os.Remove(archivePath)
-				lastErr = fmt.Errorf("SHA-256 校验不匹配 (expected %s, got %s)", expected, gotHash)
-				fmt.Fprintf(o.Out, "⚠️  %v，丢弃该文件并切换备用源...\n", lastErr)
+				lastErr = fmt.Errorf(i18n.T3For(l,
+					"SHA-256 校验不匹配 (expected %s, got %s)",
+					"SHA-256 mismatch (expected %s, got %s)",
+					"SHA-256 不一致 (expected %s, got %s)",
+				), expected, gotHash)
+				fmt.Fprintf(o.Out, i18n.T3For(l,
+					"⚠️  %v，丢弃该文件并切换备用源...\n",
+					"⚠️  %v, discarding file and trying next source...\n",
+					"⚠️  %v、ファイルを破棄して次のソースを試します...\n",
+				), lastErr)
 				continue
 			}
 			checksumVerified := true
 			checksumSkipped := false
-			fmt.Fprintf(o.Out, "🔒 SHA-256 完整性校验通过 (%s...)\n", gotHash[:12])
+			fmt.Fprintf(o.Out, i18n.T3For(l,
+				"🔒 SHA-256 完整性校验通过 (%s...)\n",
+				"🔒 SHA-256 verified (%s...)\n",
+				"🔒 SHA-256 検証完了 (%s...)\n",
+			), gotHash[:12])
 
 			stagedFile, err := os.CreateTemp(targetDir, ".mgy-update-*.tmp")
 			if err != nil {
-				return nil, fmt.Errorf("创建暂存文件失败: %w", err)
+				return nil, fmt.Errorf(i18n.T3For(l,
+					"创建暂存文件失败: %w",
+					"failed to create staging file: %w",
+					"一時ファイルの作成に失敗しました: %w",
+				), err)
 			}
 			stagedPath := stagedFile.Name()
 			_ = stagedFile.Close()
@@ -621,7 +755,11 @@ func Run(ctx context.Context, opts Options) (*Result, error) {
 
 			if err := extractBinary(archivePath, stagedPath, o.GOOS); err != nil {
 				_ = os.Remove(stagedPath)
-				fmt.Fprintf(o.Out, "⚠️  归档解压失败 (%v)，切换备用源...\n", err)
+				fmt.Fprintf(o.Out, i18n.T3For(l,
+					"⚠️  归档解压失败 (%v)，切换备用源...\n",
+					"⚠️  Archive extraction failed (%v), trying next source...\n",
+					"⚠️  アーカイブ展開に失敗 (%v)、次のソースを試します...\n",
+				), err)
 				lastErr = err
 				continue
 			}
@@ -633,16 +771,28 @@ func Run(ctx context.Context, opts Options) (*Result, error) {
 			if !o.SkipVerifyExec {
 				if err := verifyBinaryExecutable(ctx, stagedPath); err != nil {
 					_ = os.Remove(stagedPath)
-					fmt.Fprintf(o.Out, "⚠️  新版本二进制自检失败 (%v)，切换备用源...\n", err)
+					fmt.Fprintf(o.Out, i18n.T3For(l,
+						"⚠️  新版本二进制自检失败 (%v)，切换备用源...\n",
+						"⚠️  Binary self-check failed (%v), trying next source...\n",
+						"⚠️  バイナリ自己診断に失敗 (%v)、次のソースを試します...\n",
+					), err)
 					lastErr = err
 					continue
 				}
 			}
 
-			o.emitProgress("replacing", "正在替换网关程序...")
+			o.emitProgress("replacing", i18n.T3For(l,
+				"正在替换网关程序...",
+				"Replacing gateway binary...",
+				"ゲートウェイバイナリを置換中...",
+			))
 			if err := replaceBinary(stagedPath, targetPath, o.GOOS); err != nil {
 				_ = os.Remove(stagedPath)
-				return nil, fmt.Errorf("替换可执行文件失败: %w", err)
+				return nil, fmt.Errorf(i18n.T3For(l,
+					"替换可执行文件失败: %w",
+					"failed to replace binary: %w",
+					"実行ファイルの置換に失敗しました: %w",
+				), err)
 			}
 
 			res.Updated = true
@@ -654,7 +804,25 @@ func Run(ctx context.Context, opts Options) (*Result, error) {
 		}
 	}
 
-	return nil, fmt.Errorf("所有下载源均失败 (%v)\n请检查网络连接或手动前往下载: %s/%s/releases/tag/%s", lastErr, o.GitHubBaseURL, o.Repo, tag)
+	return nil, fmt.Errorf(i18n.T3For(l,
+		"所有下载源均失败 (%v)\n请检查网络连接或手动前往下载: %s/%s/releases/tag/%s",
+		"all download sources failed (%v)\nCheck network connectivity or download manually: %s/%s/releases/tag/%s",
+		"すべてのダウンロード元が失敗しました (%v)\nネットワークを確認するか手動でダウンロードしてください: %s/%s/releases/tag/%s",
+	), lastErr, o.GitHubBaseURL, o.Repo, tag)
+}
+
+func assetOrSourceFirst(lang, sourceDesc, item string) string {
+	if i18n.ResolveLang(lang) == i18n.LangEn {
+		return item
+	}
+	return sourceDesc
+}
+
+func assetOrSourceSecond(lang, sourceDesc, item string) string {
+	if i18n.ResolveLang(lang) == i18n.LangEn {
+		return sourceDesc
+	}
+	return item
 }
 
 func buildDownloadURLs(ghURL string, mirrors []string) []string {
@@ -755,7 +923,11 @@ func extractBinaryFromTarGz(archivePath, destPath, goos string) error {
 		}
 		return writeStagedBinary(destPath, tr)
 	}
-	return fmt.Errorf("归档中未找到 mgy 可执行文件")
+	return fmt.Errorf("%s", i18n.T3(
+		"归档中未找到 mgy 可执行文件",
+		"mgy binary not found in archive",
+		"アーカイブ内に mgy バイナリが見つかりません",
+	))
 }
 
 func extractBinaryFromZip(archivePath, destPath, goos string) error {
@@ -780,7 +952,11 @@ func extractBinaryFromZip(archivePath, destPath, goos string) error {
 		_ = rc.Close()
 		return err
 	}
-	return fmt.Errorf("zip 归档中未找到 mgy.exe 可执行文件")
+	return fmt.Errorf("%s", i18n.T3(
+		"zip 归档中未找到 mgy.exe 可执行文件",
+		"mgy.exe binary not found in zip archive",
+		"zip アーカイブ内に mgy.exe が見つかりません",
+	))
 }
 
 func writeStagedBinary(destPath string, src io.Reader) error {
@@ -822,10 +998,18 @@ func verifyBinaryExecutable(ctx context.Context, binPath string) error {
 	defer cancel()
 	out, err := procutil.HideWindow(exec.CommandContext(vctx, binPath, "version")).CombinedOutput()
 	if err != nil {
-		return fmt.Errorf("执行新版本 `mgy version` 失败: %w (%s)", err, strings.TrimSpace(string(out)))
+		return fmt.Errorf(i18n.T3(
+			"执行新版本 `mgy version` 失败: %w (%s)",
+			"failed to execute new `mgy version`: %w (%s)",
+			"新しい `mgy version` の実行に失敗しました: %w (%s)",
+		), err, strings.TrimSpace(string(out)))
 	}
 	if !strings.Contains(string(out), "Multigravity (mgy)") {
-		return fmt.Errorf("新版本输出异常: %q", strings.TrimSpace(string(out)))
+		return fmt.Errorf(i18n.T3(
+			"新版本输出异常: %q",
+			"unexpected output from new binary: %q",
+			"新しいバイナリの出力が不正です: %q",
+		), strings.TrimSpace(string(out)))
 	}
 	return nil
 }
@@ -847,7 +1031,11 @@ func replaceBinary(stagedPath, targetPath, goos string) error {
 	if _, err := os.Stat(targetPath); err == nil {
 		hadExisting = true
 		if err := os.Rename(targetPath, oldPath); err != nil {
-			return fmt.Errorf("无法备份旧版可执行文件: %w", err)
+			return fmt.Errorf(i18n.T3(
+				"无法备份旧版可执行文件: %w",
+				"failed to back up previous binary: %w",
+				"旧バイナリのバックアップに失敗しました: %w",
+			), err)
 		}
 	}
 

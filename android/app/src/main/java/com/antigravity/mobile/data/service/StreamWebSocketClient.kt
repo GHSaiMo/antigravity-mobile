@@ -120,6 +120,7 @@ class StreamWebSocketClient(
         val token = prefs.deviceToken?.takeIf { it.isNotBlank() }
         val requestBuilder = Request.Builder()
             .url(wsUrl)
+            .header("Accept-Language", DeviceTitleTargetLanguage.current().bcp47Tag)
 
         if (token != null) {
             requestBuilder.header("Authorization", "Bearer $token")

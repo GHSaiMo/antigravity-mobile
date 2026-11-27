@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"antigravity-mobile/internal/i18n"
 	"antigravity-mobile/internal/inspector"
 )
 
@@ -746,5 +747,186 @@ func TestLiveTextTranslator_RejectsEchoAndRetriesFallbackModel(t *testing.T) {
 	}
 	if details.ActivePlan.Items[0].Title != "排查标题翻译日志" {
 		t.Fatalf("expected fallback step-plan translation, got %q", details.ActivePlan.Items[0].Title)
+	}
+}
+
+func TestAIAssist_FourLocaleContractAndEnglishSuppression(t *testing.T) {
+	t.Setenv("MULTIGRAVITY_DATA_DIR", t.TempDir())
+	t.Setenv("HOME", t.TempDir())
+	prevNative := i18n.GetNativeLocale()
+	t.Cleanup(func() { i18n.SetNativeLocale(prevNative) })
+	i18n.SetNativeLocale("zh-CN")
+
+	// 1. Precedence of resolveRequestUILang & resolveRequestNativeLocale
+	reqWeightedFr := httptest.NewRequest(http.MethodGet, "/gateway/ai-assist/prefs", nil)
+	reqWeightedFr.Header.Set("Accept-Language", "en-US;q=0.7, fr-FR;q=0.9, zh-CN;q=0.5")
+	if got := resolveRequestUILang(reqWeightedFr); got != i18n.LangEn {
+		t.Fatalf("fr-FR UI lang = %q, want en", got)
+	}
+	if got := resolveRequestNativeLocale(reqWeightedFr); got != "fr-FR" {
+		t.Fatalf("fr-FR native locale = %q, want fr-FR", got)
+	}
+
+	reqCookieEn := httptest.NewRequest(http.MethodGet, "/gateway/ai-assist/prefs", nil)
+	reqCookieEn.Header.Set("Accept-Language", "zh-CN,zh;q=0.9")
+	reqCookieEn.AddCookie(&http.Cookie{Name: DesktopLangCookieName, Value: "en"})
+	if got := resolveRequestNativeLocale(reqCookieEn); got != "en" {
+		t.Fatalf("cookie en native locale = %q, want en", got)
+	}
+
+	reqQueryKo := httptest.NewRequest(http.MethodGet, "/gateway/ai-assist/prefs?lang=ko-KR", nil)
+	reqQueryKo.AddCookie(&http.Cookie{Name: DesktopLangCookieName, Value: "zh"})
+	if gotUI, gotNat := resolveRequestUILang(reqQueryKo), resolveRequestNativeLocale(reqQueryKo); gotUI != i18n.LangEn || gotNat != "ko-KR" {
+		t.Fatalf("?lang=ko-KR: ui=%q native=%q, want en / ko-KR", gotUI, gotNat)
+	}
+
+	reqQueryAuto := httptest.NewRequest(http.MethodGet, "/gateway/ai-assist/prefs?lang=auto", nil)
+	reqQueryAuto.AddCookie(&http.Cookie{Name: DesktopLangCookieName, Value: "zh"})
+	reqQueryAuto.Header.Set("Accept-Language", "de-DE,de;q=0.9,en;q=0.8")
+	if gotUI, gotNat := resolveRequestUILang(reqQueryAuto), resolveRequestNativeLocale(reqQueryAuto); gotUI != i18n.LangEn || gotNat != "de-DE" {
+		t.Fatalf("?lang=auto + de-DE: ui=%q native=%q, want en / de-DE", gotUI, gotNat)
+	}
+
+	// 2. GET /gateway/ai-assist/prefs resolves client native locale when TitleTranslateLang == "" (default OFF everywhere)
+	p := NewProxy(inspector.NewInspector(time.Second))
+	for _, tc := range []struct {
+		al       string
+		wantLang string
+		wantName string
+	}{
+		{"zh-CN,zh;q=0.9", "zh-Hans", "Simplified Chinese"},
+		{"ja-JP,ja;q=0.9", "ja", "Japanese"},
+		{"en-US,en;q=0.9", "en", "English"},
+		{"fr-FR,fr;q=0.9,en;q=0.8", "fr-FR", "French"},
+		{"ko-KR,ko;q=0.9", "ko-KR", "Korean"},
+	} {
+		req := httptest.NewRequest(http.MethodGet, "/gateway/ai-assist/prefs", nil)
+		req.Header.Set("Accept-Language", tc.al)
+		rec := httptest.NewRecorder()
+		p.HandleAIAssistPrefs(rec, req)
+		var st AIAssistStatusResponse
+		if err := json.Unmarshal(rec.Body.Bytes(), &st); err != nil {
+			t.Fatalf("unmarshal status for %q: %v", tc.al, err)
+		}
+		if st.ResolvedLang != tc.wantLang || st.ResolvedLangName != tc.wantName {
+			t.Errorf("GET prefs (%s): resolved=%q/%q, want %q/%q", tc.al, st.ResolvedLang, st.ResolvedLangName, tc.wantLang, tc.wantName)
+		}
+		if st.Prefs.TitleTranslateEnabled || st.Prefs.StepPlanTranslateEnabled || st.Prefs.FocusTranslateEnabled {
+			t.Errorf("GET prefs (%s): expected Smart Translation default OFF, got %+v", tc.al, st.Prefs)
+		}
+	}
+
+	// 3. Stale TitleTranslateLangName is cleared when switching TitleTranslateLang without name
+	recPt := httptest.NewRecorder()
+	p.HandleAIAssistPrefs(recPt, httptest.NewRequest(http.MethodPost, "/gateway/ai-assist/prefs",
+		strings.NewReader(`{"titleTranslateLang":"pt-BR","titleTranslateLangName":"Portuguese"}`)))
+	recJa := httptest.NewRecorder()
+	p.HandleAIAssistPrefs(recJa, httptest.NewRequest(http.MethodPost, "/gateway/ai-assist/prefs",
+		strings.NewReader(`{"titleTranslateLang":"ja"}`)))
+	var jaStatus AIAssistStatusResponse
+	_ = json.Unmarshal(recJa.Body.Bytes(), &jaStatus)
+	if jaStatus.Prefs.TitleTranslateLangName != "" || jaStatus.ResolvedLang != "ja" || jaStatus.ResolvedLangName != "Japanese" {
+		t.Fatalf("stale langName leaked after switch to ja: %+v", jaStatus)
+	}
+	if code, name := normalizeTitleTargetLang("zh-Hant", "Simplified Chinese"); code != "zh-Hant" || name != "Traditional Chinese" {
+		t.Fatalf("normalizeTitleTargetLang canonical override failed: %q / %q", code, name)
+	}
+
+	// 4. Explicit English client/device MUST suppress live translation even when gateway target is zh-Hans
+	zhLang := "zh-Hans"
+	on := true
+	_, _ = p.aiAssistPrefs.Update(AIAssistPrefsPatch{
+		TitleTranslateLang:       &zhLang,
+		StepPlanTranslateEnabled: &on,
+		FocusTranslateEnabled:    &on,
+	})
+	modelCalls := 0
+	p.lsModelResponseHook = func(ctx context.Context, prompt, modelEnum string) (string, error) {
+		modelCalls++
+		return "不应该被调用", nil
+	}
+	enDetails := TrajectoryDetails{
+		CascadeID:   "cid-en-suppress",
+		Status:      "CASCADE_RUN_STATUS_RUNNING",
+		ActiveFocus: "Running unit tests",
+		ActivePlan: &StepPlanItem{
+			Items: []StepPlanItemEntry{{Key: "run tests", Title: "Run unit tests", Status: "in_progress"}},
+		},
+	}
+	if applied := p.ApplyLiveTextTranslations("cid-en-suppress", &enDetails, "en-US", true); len(applied) != 0 {
+		t.Fatalf("explicit English client must suppress live translation, got %v", applied)
+	}
+	p.EnsureLiveTextTranslatedForLiveActivity(context.Background(), &enDetails, "en")
+	if enDetails.ActiveFocus != "Running unit tests" || modelCalls != 0 {
+		t.Fatalf("explicit English Live Activity must not translate: focus=%q calls=%d", enDetails.ActiveFocus, modelCalls)
+	}
+
+	// 5. JA/KO mixed-language & Latin-target validator + 120-rune French title & guillemets
+	if !liveTextNeedsTranslation("Deploy to テスト and restart mgy", "ja") {
+		t.Fatal("expected mixed English+Kana phrase to need translation for ja")
+	}
+	if !liveTextNeedsTranslation("Deploy to 서울 and restart mgy", "ko") {
+		t.Fatal("expected mixed English+Hangul phrase to need translation for ko")
+	}
+	if isTranslationAcceptable("Deploy to テスト and restart mgy", "Deploy to テスト and restart mgy", "ja") {
+		t.Fatal("expected verbatim mixed English+Kana echo rejected for ja")
+	}
+	if !isTranslationAcceptable("Deploy to テスト and restart mgy", "テストへデプロイして mgy を再起動", "ja") {
+		t.Fatal("expected valid Japanese translation accepted")
+	}
+	if isTranslationAcceptable("中东地缘局势分析", "中东地缘局势分析", "ja") {
+		t.Fatal("expected verbatim Chinese echo rejected for ja")
+	}
+	if !isTranslationAcceptable("中东地缘局势分析", "中東地政学情勢分析", "ja") {
+		t.Fatal("expected Kanji-only Chinese->Japanese translation accepted")
+	}
+	if isTranslationAcceptable("Deploy to 서울 and restart mgy", "Deploy to 서울 and restart mgy", "ko") {
+		t.Fatal("expected verbatim mixed English+Hangul echo rejected for ko")
+	}
+	if isTranslationAcceptable("Fix iOS Dynamic Island Push", "Fix iOS Dynamic Island Push", "fr-FR") {
+		t.Fatal("expected verbatim English echo rejected for fr-FR")
+	}
+	if isTranslationAcceptable("修复安卓构建", "修复安卓构建", "fr-FR") {
+		t.Fatal("expected untranslated CJK echo rejected for fr-FR")
+	}
+	if !isTranslationAcceptable("Fix iOS Dynamic Island Push", "Corriger les notifications Dynamic Island sur iOS", "fr-FR") {
+		t.Fatal("expected French translation accepted for fr-FR")
+	}
+	frenchLong := "«Optimisation de la gestion multilingue des notifications en direct et de la traduction intelligente mobile»"
+	cleanedFr := cleanTranslatedTitleOutput(frenchLong)
+	if cleanedFr != strings.Trim(frenchLong, "«»") {
+		t.Fatalf("expected 104-rune French title accepted with guillemets trimmed, got %q", cleanedFr)
+	}
+	if cleanTranslatedTitleOutput("無題のセッション") != "" || cleanTranslatedTitleOutput("Current Session") != "" {
+		t.Fatal("expected localized untitled placeholders rejected by cleanTranslatedTitleOutput")
+	}
+
+	// 6. Next-Prompt multi-locale language detection & filler filters
+	if got := detectPromptLanguageLabel("請幫我確認這個功能是否正常運作"); got != "Traditional Chinese" {
+		t.Fatalf("Traditional Chinese detection = %q, want Traditional Chinese", got)
+	}
+	if got := detectPromptLanguageLabel("안드로이드 빌드 오류를 수정해 주세요"); got != "Korean" {
+		t.Fatalf("Korean detection = %q, want Korean", got)
+	}
+	if got := detectPromptLanguageLabel("Corrige le bug de traduction sur iOS"); got != "" {
+		t.Fatalf("French detection should return empty (preserve user language), got %q", got)
+	}
+	if got := detectPromptLanguageFromTexts("git status", []string{"ユニットテストを実行して確認してください", "git status"}, ""); got != "Japanese" {
+		t.Fatalf("short CLI turn in Japanese chat = %q, want Japanese", got)
+	}
+	frDetails := &TrajectoryDetails{
+		AllMessages: []CascadeMessageItem{
+			{Role: "user", Text: "Peux-tu ajouter des tests unitaires pour le module i18n ?"},
+			{Role: "agent", Text: "J'ai corrigé le module i18n, il reste à lancer les tests."},
+		},
+	}
+	frPrompt, _ := buildNextPromptInput("cid-fr-np", frDetails)
+	if strings.Contains(frPrompt, "user's language (English)") {
+		t.Fatalf("French next-prompt must NOT force English, got:\n%s", frPrompt)
+	}
+	for _, filler := range []string{"merci", "danke", "gracias", "감사합니다", "aucune suggestion", "없음"} {
+		if got := sanitizeNextPromptSuggestion(filler, nextPromptChecklist{}); got != "" {
+			t.Errorf("expected %q filtered by sanitizeNextPromptSuggestion, got %q", filler, got)
+		}
 	}
 }

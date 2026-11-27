@@ -21,7 +21,7 @@ const (
 	titleTranslateFailBackoff   = 10 * time.Minute
 	titleTranslateSingleTimeout = 15 * time.Second
 	titleTranslateBatchTimeout  = 25 * time.Second
-	maxTranslatedTitleRunes     = 80
+	maxTranslatedTitleRunes     = 120
 )
 
 var titleTranslateDebounce = 2 * time.Second
@@ -110,6 +110,16 @@ func (p *Proxy) onTitleTranslateDisabled() {
 	}
 }
 
+func (p *Proxy) clearTitleTranslateBackoff() {
+	if p == nil {
+		return
+	}
+	ts := &p.titleTranslator
+	ts.mu.Lock()
+	defer ts.mu.Unlock()
+	ts.failBackoff = make(map[string]time.Time)
+}
+
 // MarkConversationTitleUserEdited records that the user manually renamed cascadeID so
 // auto-translation will never overwrite their custom title.
 func (p *Proxy) MarkConversationTitleUserEdited(cascadeID, _ string) {
@@ -169,25 +179,17 @@ func normalizeTitleTargetLang(rawCode, rawName string) (string, string) {
 	code := strings.ReplaceAll(strings.TrimSpace(rawCode), "_", "-")
 	name := strings.TrimSpace(rawName)
 	if code == "" || strings.EqualFold(code, "auto") || strings.EqualFold(code, "system") {
-		code = i18n.GetLang()
+		code = i18n.GetNativeLocale()
+		name = ""
 	}
 	lower := strings.ToLower(code)
 	switch {
 	case strings.HasPrefix(lower, "zh-hant") || strings.HasPrefix(lower, "zh-tw") || strings.HasPrefix(lower, "zh-hk") || strings.HasPrefix(lower, "zh-mo"):
-		if name == "" {
-			name = "Traditional Chinese"
-		}
-		return "zh-Hant", name
+		return "zh-Hant", "Traditional Chinese"
 	case lower == "zh" || strings.HasPrefix(lower, "zh-hans") || strings.HasPrefix(lower, "zh-cn") || strings.HasPrefix(lower, "zh-sg"):
-		if name == "" {
-			name = "Simplified Chinese"
-		}
-		return "zh-Hans", name
+		return "zh-Hans", "Simplified Chinese"
 	case lower == "ja" || strings.HasPrefix(lower, "ja-"):
-		if name == "" {
-			name = "Japanese"
-		}
-		return "ja", name
+		return "ja", "Japanese"
 	case lower == "en" || strings.HasPrefix(lower, "en-"):
 		return "en", "English"
 	}
@@ -230,9 +232,25 @@ func parseSummaryTimestamp(raw interface{}) (time.Time, bool) {
 	return time.Time{}, false
 }
 
+func isUntitledPlaceholderTitle(title string) bool {
+	t := strings.TrimSpace(title)
+	if t == "" ||
+		t == "未命名会话" ||
+		t == "当前会话" ||
+		t == "無題のセッション" ||
+		t == "現在のセッション" ||
+		strings.EqualFold(t, "Untitled") ||
+		strings.EqualFold(t, "Untitled Session") ||
+		strings.EqualFold(t, "Current Session") ||
+		strings.EqualFold(t, "New Chat") {
+		return true
+	}
+	return false
+}
+
 func isPlaceholderOrRawPromptTitle(title string) bool {
 	t := strings.TrimSpace(title)
-	if t == "" || t == "未命名会话" || t == "当前会话" || strings.EqualFold(t, "Untitled") || strings.EqualFold(t, "New Chat") {
+	if isUntitledPlaceholderTitle(t) {
 		return true
 	}
 	// Raw unsummarized prompt fragments often start with slash commands/paths or contain filesystem paths.
@@ -298,6 +316,37 @@ func isTruncatedEcho(source, translated string) bool {
 	return false
 }
 
+func looksLikeEnglishPhrase(s string) bool {
+	lower := " " + strings.ToLower(strings.TrimSpace(s)) + " "
+	for _, w := range []string{
+		" the ", " and ", " with ", " from ", " into ", " for ", " your ",
+		" this ", " that ", " without ", " before ", " after ", " during ",
+		" when ", " where ", " while ", " across ", " between ", " should ", " must ",
+	} {
+		if strings.Contains(lower, w) {
+			return true
+		}
+	}
+	trimmed := strings.TrimSpace(lower)
+	for _, prefix := range []string{
+		"updating ", "checking ", "inspecting ", "running ", "fixing ", "adding ",
+		"building ", "testing ", "deploying ", "installing ", "refactoring ",
+		"debugging ", "searching ", "reading ", "writing ", "creating ", "deleting ",
+		"removing ", "verifying ", "analyzing ", "investigating ", "implementing ",
+		"optimizing ", "reviewing ", "migrating ", "preparing ", "configuring ",
+		"fetching ", "loading ", "syncing ", "waiting ",
+		"fix ", "update ", "add ", "check ", "run ", "build ", "verify ", "inspect ",
+		"debug ", "refactor ", "deploy ", "install ", "implement ", "optimize ",
+		"remove ", "delete ", "create ", "review ", "migrate ", "draft ", "analyze ",
+		"investigate ", "prepare ", "configure ",
+	} {
+		if strings.HasPrefix(trimmed, prefix) {
+			return true
+		}
+	}
+	return false
+}
+
 // isTranslationAcceptable verifies that a model translation actually produced text in targetLang
 // rather than echoing or truncating the untranslated source text.
 func isTranslationAcceptable(source, translated, targetLang string) bool {
@@ -339,15 +388,31 @@ func isTranslationAcceptable(source, translated, targetLang string) bool {
 		}
 		return true
 	case "ja":
+		if trC.kana == 0 && trC.han < 2 {
+			return false
+		}
+		if strings.EqualFold(src, tr) && ((srcC.han > 0 && srcC.kana == 0) || (srcC.latin >= 3 && (srcC.kana == 0 || hasCommonEnglishGlueWord(src)))) {
+			return false
+		}
+		if (srcC.kana > 0 || srcC.han > 0) && trC.kana <= srcC.kana && trC.han <= srcC.han && trC.latin >= srcC.latin && srcC.latin >= 4 && hasCommonEnglishGlueWord(src) {
+			return false
+		}
 		if trC.kana >= 1 {
 			return true
 		}
-		if srcC.han == 0 && trC.han >= 2 {
-			return true
-		}
-		return false
+		// Allow Kanji-only Japanese translations (e.g. "API設計" or Chinese->Japanese kanji conversion) while rejecting echoes.
+		return trC.han >= 2 && (srcC.han == 0 || !strings.EqualFold(src, tr))
 	case "ko":
-		return trC.hangul >= 1
+		if trC.hangul == 0 {
+			return false
+		}
+		if strings.EqualFold(src, tr) && srcC.latin >= 3 && hasCommonEnglishGlueWord(src) {
+			return false
+		}
+		if srcC.hangul > 0 && trC.hangul <= srcC.hangul && trC.latin >= srcC.latin && srcC.latin >= 4 && hasCommonEnglishGlueWord(src) {
+			return false
+		}
+		return true
 	case "ru", "uk", "bg", "sr":
 		return trC.cyrillic >= 1
 	case "ar", "fa":
@@ -357,7 +422,17 @@ func isTranslationAcceptable(source, translated, targetLang string) bool {
 	case "he", "iw":
 		return trC.hebrew >= 1
 	default:
-		// Latin-script target languages (pt, es, fr, de, ...): already-localized input may return unchanged.
+		// Latin-script non-English targets (fr, de, es, pt, it, nl, vi, id, pl, tr, ...):
+		// Reject untranslated non-Latin echoes and obvious verbatim English echoes,
+		// while preserving already-localized Latin titles (e.g. "Configurar Docker" for pt-BR).
+		nonLatinSrc := srcC.han + srcC.kana + srcC.hangul + srcC.cyrillic + srcC.arabic + srcC.thai + srcC.hebrew
+		nonLatinTr := trC.han + trC.kana + trC.hangul + trC.cyrillic + trC.arabic + trC.thai + trC.hebrew
+		if nonLatinSrc > 0 && trC.latin == 0 && nonLatinTr > 0 {
+			return false
+		}
+		if strings.EqualFold(src, tr) && looksLikeEnglishPhrase(src) {
+			return false
+		}
 		return true
 	}
 }
@@ -395,11 +470,17 @@ func titleNeedsTranslation(title, targetLang string) bool {
 		return latinCount >= 3 || hangulCount > 0 || cyrillicCount > 0 || arabicCount > 0 || thaiCount > 0
 	case "ja":
 		if kanaCount >= 1 {
+			if latinCount >= 4 && hasCommonEnglishGlueWord(t) && (kanaCount+hanCount)*3 < (kanaCount+hanCount+latinCount) {
+				return true
+			}
 			return false
 		}
 		return latinCount >= 3 || hanCount >= 2 || hangulCount > 0 || cyrillicCount > 0
 	case "ko":
 		if hangulCount >= 2 {
+			if latinCount >= 4 && hasCommonEnglishGlueWord(t) && hangulCount*3 < (hangulCount+latinCount) {
+				return true
+			}
 			return false
 		}
 		return latinCount >= 3 || hanCount >= 2 || kanaCount > 0
@@ -677,10 +758,10 @@ func cleanTranslatedTitleOutput(raw string) string {
 			break
 		}
 	}
-	s = strings.Trim(s, "\"'`「」『』")
+	s = strings.Trim(s, "\"'`「」『』«»“”")
 	s = strings.TrimRight(s, "。.")
 	s = strings.TrimSpace(s)
-	if s == "" || s == "未命名会话" || utf8.RuneCountInString(s) > maxTranslatedTitleRunes {
+	if isUntitledPlaceholderTitle(s) || utf8.RuneCountInString(s) > maxTranslatedTitleRunes {
 		return ""
 	}
 	return s
@@ -873,7 +954,7 @@ func (p *Proxy) applyTranslatedTitle(ctx context.Context, cand titleCandidate, t
 
 func (p *Proxy) writeUpstreamConversationTitle(ctx context.Context, cascadeID, title string) error {
 	title = strings.TrimSpace(title)
-	if cascadeID == "" || title == "" || title == "未命名会话" {
+	if cascadeID == "" || isUntitledPlaceholderTitle(title) {
 		return fmt.Errorf("invalid cascadeId or title")
 	}
 	if p.titleWriteHook != nil {

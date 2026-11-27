@@ -9,8 +9,10 @@ struct AIAssistSettingsView: View {
 
     private var translationSectionHeader: String {
         switch devLang.kind {
-        case .simplifiedChinese, .traditionalChinese:
+        case .simplifiedChinese:
             return "智能翻译"
+        case .traditionalChinese:
+            return "智慧翻譯"
         case .japanese:
             return "スマート翻訳"
         default:
@@ -20,8 +22,10 @@ struct AIAssistSettingsView: View {
 
     private var titleToggleLabel: String {
         switch devLang.kind {
-        case .simplifiedChinese, .traditionalChinese:
+        case .simplifiedChinese:
             return "会话标题翻译"
+        case .traditionalChinese:
+            return "對話標題翻譯"
         case .japanese:
             return "会話タイトルの翻訳"
         default:
@@ -34,7 +38,7 @@ struct AIAssistSettingsView: View {
         case .simplifiedChinese:
             return "新会话生成英文标题后自动翻译为简体中文并覆盖"
         case .traditionalChinese:
-            return "新会话生成英文标题后自动翻译为繁体中文并覆盖"
+            return "新對話產生英文標題後自動翻譯為繁體中文並覆蓋"
         case .japanese:
             return "新しい会話の英語タイトルを日本語に自動翻訳して上書き"
         default:
@@ -44,8 +48,10 @@ struct AIAssistSettingsView: View {
 
     private var stepPlanToggleLabel: String {
         switch devLang.kind {
-        case .simplifiedChinese, .traditionalChinese:
+        case .simplifiedChinese:
             return "步骤清单实时翻译"
+        case .traditionalChinese:
+            return "步驟清單即時翻譯"
         case .japanese:
             return "ステップ一覧を自動翻訳"
         default:
@@ -58,7 +64,7 @@ struct AIAssistSettingsView: View {
         case .simplifiedChinese:
             return "将英文待办步骤翻译为简体中文（含灵动岛）"
         case .traditionalChinese:
-            return "将英文待办步骤翻译为繁体中文（含灵动岛）"
+            return "將英文待辦步驟翻譯為繁體中文（含動態島）"
         case .japanese:
             return "英語のタスクリストを日本語に翻訳（Dynamic Island 含む）"
         default:
@@ -68,8 +74,10 @@ struct AIAssistSettingsView: View {
 
     private var focusToggleLabel: String {
         switch devLang.kind {
-        case .simplifiedChinese, .traditionalChinese:
+        case .simplifiedChinese:
             return "实时状态行翻译"
+        case .traditionalChinese:
+            return "即時狀態行翻譯"
         case .japanese:
             return "リアルタイム状況を自動翻訳"
         default:
@@ -82,7 +90,7 @@ struct AIAssistSettingsView: View {
         case .simplifiedChinese:
             return "将执行中的英文状态摘要翻译为简体中文（含灵动岛）"
         case .traditionalChinese:
-            return "将执行中的英文状态摘要翻译为繁体中文（含灵动岛）"
+            return "將執行中的英文狀態摘要翻譯為繁體中文（含動態島）"
         case .japanese:
             return "実行中の英語ステータスを日本語に翻訳（Dynamic Island 含む）"
         default:
@@ -92,8 +100,10 @@ struct AIAssistSettingsView: View {
 
     private var translationSectionFooter: String {
         switch devLang.kind {
-        case .simplifiedChinese, .traditionalChinese:
+        case .simplifiedChinese:
             return "标题翻译仅覆盖开启后的新会话，不改动已有会话；步骤与状态仅在客户端与灵动岛展示译文，不修改桌面端原始记录。"
+        case .traditionalChinese:
+            return "標題翻譯僅覆蓋開啟後的新對話，不改動已有對話；步驟與狀態僅在用戶端與動態島顯示譯文，不修改桌面端原始記錄。"
         case .japanese:
             return "タイトル翻訳はオン後の新しい会話のみ上書き同期されます（既存会話は変更しません）。ステップ・状況は表示のみ翻訳され、元の記録は保持されます。"
         default:

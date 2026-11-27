@@ -621,12 +621,7 @@ public final class PushNotificationManager: NSObject {
     // MARK: - Networking Helpers
 
     private static var currentLanguageCode: String {
-        let raw = (Bundle.main.preferredLocalizations.first ?? Locale.preferredLanguages.first ?? "en")
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-            .lowercased()
-        if raw.hasPrefix("zh") { return "zh" }
-        if raw.hasPrefix("ja") { return "ja" }
-        return "en"
+        DeviceTitleTargetLanguage.current().bcp47Tag
     }
 
     private func uploadToken(

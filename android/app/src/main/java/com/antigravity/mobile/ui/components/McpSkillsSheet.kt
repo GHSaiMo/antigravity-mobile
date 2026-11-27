@@ -814,7 +814,7 @@ fun McpSkillsSheet(
                                                             apiClient.startPluginAuthSignIn(prov.effectivePlugin, prov.effectiveProvider)
                                                                 .onSuccess { resp ->
                                                                     if (resp.ok || !resp.authUrl.isNullOrBlank()) {
-                                                                        oauthDialogTitle = "${prov.name.ifBlank { prov.effectiveProvider }} 登录"
+                                                                        oauthDialogTitle = "%s 登录".loc(prov.name.ifBlank { prov.effectiveProvider })
                                                                         oauthDialogMcpServer = null
                                                                         oauthDialogResponse = resp
                                                                     } else {
@@ -1965,7 +1965,7 @@ fun McpSkillsSheet(
                                 Toast.makeText(context, "插件已卸载".loc, Toast.LENGTH_SHORT).show()
                                 loadData()
                             }.onFailure {
-                                Toast.makeText(context, "卸载失败: ${it.message.orEmpty()}", Toast.LENGTH_SHORT).show()
+                                Toast.makeText(context, "卸载失败: %s".loc(it.message.orEmpty()), Toast.LENGTH_SHORT).show()
                             }
                         }
                     },

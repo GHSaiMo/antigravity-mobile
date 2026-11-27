@@ -131,7 +131,7 @@ public struct GitCommitSheet: View {
                         Button("关闭") { showWorktreePRSheet = false }
                     }
                     ToolbarItem(placement: .topBarTrailing) {
-                        Button(isCreatingPR ? "提交中..." : "提交 PR") {
+                        Button(isCreatingPR ? String(localized: "提交中...") : String(localized: "提交 PR")) {
                             submitWorktreePR()
                         }
                         .fontWeight(.semibold)

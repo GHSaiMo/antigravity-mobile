@@ -99,7 +99,8 @@
       if (dot) dot.classList.toggle("hidden", !st.isUnlocked && mode === "strict");
       const toolsBtn = document.getElementById("btn-chat-tools");
       if (toolsBtn) {
-        toolsBtn.title = `工具与任务 (${st.label || "严格审批"}，长按/右键快切权限)`;
+        const rawTitle = `工具与任务 (${st.label || "严格审批"}，长按/右键快切权限)`;
+        toolsBtn.title = typeof t === "function" ? t(rawTitle) : rawTitle;
       }
       const sel = document.getElementById("settings-permission-preset");
       if (sel) sel.value = mode;
@@ -575,12 +576,12 @@
               const d = await r.json().catch(() => ({}));
               if (d.ok || d.authUrl) {
                 window.Phase4?.openOAuthHybrid?.({
-                  title: `${pv.name || provider} 登录`,
+                  title: typeof t === "function" ? t(`${pv.name || provider} 登录`) : `${pv.name || provider} 登录`,
                   startResponse: d,
                   onCompleted: () => this.renderToolsTab(false),
                 });
               } else {
-                showToast?.(d.error || "发起登录失败", 2600);
+                showToast?.(d.error || (typeof t === "function" ? t("发起登录失败") : "发起登录失败"), 2600);
               }
             });
           });
@@ -595,7 +596,7 @@
                 headers: { "Content-Type": "application/json" },
                 body: JSON.stringify({ plugin, provider }),
               });
-              showToast?.("已退出登录");
+              showToast?.(typeof t === "function" ? t("已退出登录") : "已退出登录");
               this.renderToolsTab(false);
             });
           });
@@ -617,17 +618,18 @@
           body.querySelectorAll("[data-plugin-del]").forEach((btn) => {
             btn.addEventListener("click", async () => {
               const pluginId = btn.getAttribute("data-plugin-del");
-              if (!pluginId || !confirm(`确定卸载插件「${pluginId}」？`)) return;
+              const confirmMsg = typeof t === "function" ? t(`确定卸载插件「${pluginId}」？`) : `确定卸载插件「${pluginId}」？`;
+              if (!pluginId || !confirm(confirmMsg)) return;
               const r = await fetch("/gateway/plugins/delete", {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
                 body: JSON.stringify({ pluginId }),
               });
               if (r.ok) {
-                showToast?.("插件已卸载");
+                showToast?.(typeof t === "function" ? t("插件已卸载") : "插件已卸载");
                 this.renderToolsTab(false);
               } else {
-                showToast?.("卸载失败");
+                showToast?.(typeof t === "function" ? t("卸载失败") : "卸载失败");
               }
             });
           });
@@ -697,9 +699,11 @@
             const hasErr = /^error$/i.test(sc.status || "") || !!sc.lastError;
             const summary = this._humanizeAutoCron(sc.cronExpression || "");
             const preview = (sc.description || sc.prompt || "").replace(/\s+/g, " ").trim().slice(0, 100);
+            const nextLbl = typeof t === "function" ? t("下次") : "下次";
+            const lastLbl = typeof t === "function" ? t("上次") : "上次";
             const runLine = [
-              running && sc.nextRunAt ? `下次 ${sc.nextRunAt}` : "",
-              sc.lastRunAt ? `上次 ${sc.lastRunAt}` : "",
+              running && sc.nextRunAt ? `${nextLbl} ${sc.nextRunAt}` : "",
+              sc.lastRunAt ? `${lastLbl} ${sc.lastRunAt}` : "",
             ].filter(Boolean).join(" · ");
             return `
               <div class="p3-row p3-auto-card" data-auto-open="${escapeHtml(sc.id)}">
@@ -763,7 +767,7 @@
             </div>
             ${list.length === 0 ? `
               <div class="p3-empty" style="padding:24px 12px;">
-                <div style="font-size:14px;font-weight:600;margin-bottom:6px;color:var(--color-text-primary, #fff);">暂无定时自动化任务</div>
+                <div style="font-size:14px;font-weight:600;margin-bottom:6px;color:var(--ios-label);">暂无定时自动化任务</div>
                 <div style="font-size:12px;opacity:.78;">描述你想自动化的事项让 AI 帮你设计，或手动配置 Cron 计划</div>
               </div>
             ` : `
@@ -1799,6 +1803,7 @@
       if (this.contextItems.length === 0) {
         bar.classList.add("hidden");
         bar.innerHTML = "";
+        this.renderSuggestedResponses();
         return;
       }
       bar.classList.remove("hidden");
@@ -1813,6 +1818,7 @@
           this.renderContextChips();
         });
       });
+      this.renderSuggestedResponses();
     },
 
     consumeContextItems() {
@@ -1866,9 +1872,27 @@
       this.syncSuggestedChipMaxWidth();
       const inputEl = document.getElementById("chat-input");
       const hasDraft = Boolean(inputEl && inputEl.value.trim().length > 0);
+      const hasStagedDraft = Boolean(
+        (typeof pendingImages !== "undefined" && Array.isArray(pendingImages) && pendingImages.length > 0) ||
+        (typeof pendingAttachments !== "undefined" && Array.isArray(pendingAttachments) && pendingAttachments.length > 0) ||
+        (typeof getSelectedSlashCommands === "function" && getSelectedSlashCommands().length > 0) ||
+        (Array.isArray(this.contextItems) && this.contextItems.length > 0)
+      );
+      const interactionEl = document.getElementById("interaction-card-container");
+      const hasPendingInteraction = Boolean(
+        (typeof currentPendingInteraction !== "undefined" && currentPendingInteraction) ||
+        (interactionEl && !interactionEl.classList.contains("hidden") && interactionEl.childElementCount > 0)
+      );
+      const proceedEl = document.getElementById("btn-proceed");
+      const continueEl = document.getElementById("btn-continue");
+      const hasPrimaryAction = Boolean(
+        (typeof currentCanProceed !== "undefined" && currentCanProceed) ||
+        (proceedEl && !proceedEl.classList.contains("hidden")) ||
+        (continueEl && !continueEl.classList.contains("hidden"))
+      );
       const isRunning = typeof isCascadeRunning === "function" && isCascadeRunning(activeCascadeId);
       const isPredicted = this.suggestedResponseSource === "predicted";
-      const visible = (!hasDraft && !isRunning)
+      const visible = (!hasDraft && !hasStagedDraft && !hasPendingInteraction && !hasPrimaryAction && !isRunning)
         ? this.suggestedResponses.filter((text) => text && text.trim().length > 0 && text !== this.dismissedPredictedSuggestion)
         : [];
       if (visible.length === 0) {
@@ -1880,11 +1904,12 @@
       const sparkleSvg = isPredicted
         ? `<svg class="p3-suggest-sparkle" width="12" height="12" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 2l2.2 6.8L21 11l-6.8 2.2L12 20l-2.2-6.8L3 11l6.8-2.2L12 2z"/></svg>`
         : "";
+      const dismissAria = typeof t === "function" ? t("关闭建议") : "关闭建议";
       bar.innerHTML = visible.map((text, idx) => `
         <div class="suggest-chip${isPredicted ? " is-predicted" : ""}">
           <div class="suggest-chip-progress-wrap" aria-hidden="true"><div class="suggest-chip-progress-fill"></div></div>
-          <button type="button" class="suggest-chip-main" data-suggest-idx="${idx}" title="${escapeHtml(text)}">${sparkleSvg}<span>${escapeHtml(text)}</span></button>
-          <button type="button" class="suggest-chip-clear" data-suggest-dismiss="${idx}" aria-label="关闭建议">&times;</button>
+          <button type="button" class="suggest-chip-main" data-i18n-skip="1" data-suggest-idx="${idx}" title="${escapeHtml(text)}">${sparkleSvg}<span>${escapeHtml(text)}</span></button>
+          <button type="button" class="suggest-chip-clear" data-suggest-dismiss="${idx}" aria-label="${escapeHtml(dismissAria)}">&times;</button>
         </div>`).join("");
 
       const HOLD_GRACE_MS = 180;
@@ -2582,16 +2607,35 @@
       const d = this._parseAutoCron(expr, "");
       const pad = (n) => String(n).padStart(2, "0");
       const timeStr = `${pad(d.hour)}:${pad(d.minute)}`;
-      const dayNames = ["周日", "周一", "周二", "周三", "周四", "周五", "周六"];
+      const isChinese = window.I18n?.isZh?.();
+      const isJapanese = window.I18n?.isJa?.();
+      const dayNames = isChinese
+        ? ["周日", "周一", "周二", "周三", "周四", "周五", "周六"]
+        : (isJapanese
+          ? ["日曜", "月曜", "火曜", "水曜", "木曜", "金曜", "土曜"]
+          : ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"]);
       let label = expr;
-      if (d.preset === "hourly") label = "每小时";
-      else if (d.preset === "daily") label = `每天 ${timeStr}`;
-      else if (d.preset === "weekdays") label = `工作日 ${timeStr}`;
-      else if (d.preset === "weekly") label = `每${dayNames[d.weekday % 7]} ${timeStr}`;
-      else if (d.customKind === "every_hours") label = `每 ${d.everyHours} 小时`;
-      else if (d.customKind === "multi_days") label = `每${d.weekdays.map((x) => dayNames[x % 7]).join("、")} ${timeStr}`;
-      else if (d.customKind === "monthly") label = `每月 ${d.dayOfMonth} 日 ${timeStr}`;
-      else label = d.rawCron || expr;
+      if (d.preset === "hourly") {
+        label = isChinese ? "每小时" : (isJapanese ? "毎時" : "Hourly");
+      } else if (d.preset === "daily") {
+        label = isChinese ? `每天 ${timeStr}` : (isJapanese ? `毎日 ${timeStr}` : `Daily ${timeStr}`);
+      } else if (d.preset === "weekdays") {
+        label = isChinese ? `工作日 ${timeStr}` : (isJapanese ? `平日 ${timeStr}` : `Weekdays ${timeStr}`);
+      } else if (d.preset === "weekly") {
+        label = isChinese
+          ? `每${dayNames[d.weekday % 7]} ${timeStr}`
+          : (isJapanese ? `毎週${dayNames[d.weekday % 7]} ${timeStr}` : `Every ${dayNames[d.weekday % 7]} ${timeStr}`);
+      } else if (d.customKind === "every_hours") {
+        label = isChinese ? `每 ${d.everyHours} 小时` : (isJapanese ? `${d.everyHours} 時間ごと` : `Every ${d.everyHours}h`);
+      } else if (d.customKind === "multi_days") {
+        const sep = isChinese ? "、" : (isJapanese ? "・" : ", ");
+        const days = d.weekdays.map((x) => dayNames[x % 7]).join(sep);
+        label = isChinese ? `每${days} ${timeStr}` : (isJapanese ? `毎週${days} ${timeStr}` : `${days} ${timeStr}`);
+      } else if (d.customKind === "monthly") {
+        label = isChinese ? `每月 ${d.dayOfMonth} 日 ${timeStr}` : (isJapanese ? `毎月 ${d.dayOfMonth} 日 ${timeStr}` : `Monthly day ${d.dayOfMonth} ${timeStr}`);
+      } else {
+        label = d.rawCron || expr;
+      }
       const hasExplicitTz = /^(?:CRON_TZ|TZ)=([^\s]+)\s+/.exec(expr);
       return hasExplicitTz ? `${label} (${hasExplicitTz[1]})` : label;
     },
@@ -2606,7 +2650,15 @@
         ["weekly", "每周"],
         ["custom", "自定义"],
       ];
-      const dayLabels = ["日", "一", "二", "三", "四", "五", "六"];
+      const isChinese = window.I18n?.isZh?.();
+      const isJapanese = window.I18n?.isJa?.();
+      const dayLabels = isChinese
+        ? ["日", "一", "二", "三", "四", "五", "六"]
+        : (isJapanese
+          ? ["日", "月", "火", "水", "木", "金", "土"]
+          : ["Su", "Mo", "Tu", "We", "Th", "Fr", "Sa"]);
+      const rawCronPh = typeof t === "function" ? t("如 0 9 * * 1-5") : "如 0 9 * * 1-5";
+      const tzPh = typeof t === "function" ? t("如 Asia/Shanghai") : "如 Asia/Shanghai";
       const needTime = draft.preset === "daily" || draft.preset === "weekdays" || draft.preset === "weekly" || (draft.preset === "custom" && (draft.customKind === "multi_days" || draft.customKind === "monthly"));
       const builtCron = this._buildAutoCron(draft);
       return `
@@ -2643,7 +2695,7 @@
               </div>
             ` : ""}
             ${draft.customKind === "raw" ? `
-              <input type="text" class="p3-input monospaced" style="margin-top:6px;" data-sched-raw value="${escapeHtml(draft.rawCron || "")}" placeholder="如 0 9 * * 1-5" />
+              <input type="text" class="p3-input monospaced" style="margin-top:6px;" data-sched-raw value="${escapeHtml(draft.rawCron || "")}" placeholder="${escapeHtml(rawCronPh)}" />
             ` : ""}
           ` : ""}
           <div class="p3-auto-inline-grid" style="margin-top:8px;">
@@ -2655,7 +2707,7 @@
             ` : ""}
             <div style="flex:1;">
               <span class="p3-auto-field-label">时区（IANA，可选）</span>
-              <input type="text" class="p3-input monospaced" data-sched-tz value="${escapeHtml(draft.timeZone || "")}" placeholder="如 Asia/Shanghai" />
+              <input type="text" class="p3-input monospaced" data-sched-tz value="${escapeHtml(draft.timeZone || "")}" placeholder="${escapeHtml(tzPh)}" />
             </div>
           </div>
           <div class="p3-auto-cron-preview monospaced" data-sched-preview>
@@ -2889,7 +2941,7 @@
       const isLongPrompt = promptRaw.length > 480;
       const promptRenderedHtml = promptRaw
         ? (typeof renderMarkdown === "function" ? renderMarkdown(promptRaw) : `<div style="white-space:pre-wrap;">${escapeHtml(promptRaw)}</div>`)
-        : `<div style="opacity:.6;">暂无执行指令</div>`;
+        : `<div style="opacity:.6;">${escapeHtml(typeof t === "function" ? t("暂无执行指令") : "暂无执行指令")}</div>`;
 
       const modelOptionsHtml = [
         `<option value="">默认模型</option>`,
@@ -2934,8 +2986,8 @@
               </div>
               <div style="font-size:11.5px;opacity:.75;margin-top:4px;">
                 <span class="p3-badge ${running ? "ok" : ""}">${running ? "计划运行" : "已暂停"}</span>
-                ${running && sc.nextRunAt ? ` · 下次 ${escapeHtml(sc.nextRunAt)}` : ""}
-                ${sc.lastRunAt ? ` · 上次 ${escapeHtml(sc.lastRunAt)}` : ""}
+                ${running && sc.nextRunAt ? ` · ${escapeHtml(typeof t === "function" ? t("下次") : "下次")} ${escapeHtml(sc.nextRunAt)}` : ""}
+                ${sc.lastRunAt ? ` · ${escapeHtml(typeof t === "function" ? t("上次") : "上次")} ${escapeHtml(sc.lastRunAt)}` : ""}
               </div>
             </div>
             <div style="display:flex;gap:8px;align-items:center;flex-shrink:0;">
@@ -2987,7 +3039,7 @@
             <button type="button" class="p3-mini-btn primary" id="btn-auto-prompt-edit">✎ 编辑指令</button>
           </div>
           <div id="p3-auto-prompt-view">
-            <div id="p3-auto-prompt-md" class="p3-auto-prompt-md ${isLongPrompt ? "collapsed" : ""}">${promptRenderedHtml}</div>
+            <div id="p3-auto-prompt-md" class="p3-auto-prompt-md ${isLongPrompt ? "collapsed" : ""}" data-i18n-skip="1">${promptRenderedHtml}</div>
             ${isLongPrompt ? `<button type="button" class="p3-mini-btn" id="btn-auto-prompt-expand" style="margin-top:6px;">展开完整指令</button>` : ""}
             ${dataSources.length > 0 ? `
               <div class="p3-auto-sources">

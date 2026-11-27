@@ -22,6 +22,28 @@ func DetectSystemLanguage() string {
 	return detectSystemLanguagePosix(runtime.GOOS == "darwin", macOSLocaleReader)
 }
 
+// DetectSystemNativeLocale detects the real system BCP-47 locale (e.g. "fr-FR", "ko-KR", "zh-TW", "ja-JP")
+// without collapsing unsupported UI languages to "en".
+func DetectSystemNativeLocale() string {
+	return detectSystemNativeLocalePosix(runtime.GOOS == "darwin", macOSLocaleReader)
+}
+
+func detectSystemNativeLocalePosix(isDarwin bool, macReader func() string) string {
+	if native, sawPosixFallback := detectEnvNativeLocale(); native != "" {
+		return native
+	} else {
+		if isDarwin && macReader != nil {
+			if macLocale := cleanNativeLocaleTag(macReader()); macLocale != "" {
+				return macLocale
+			}
+		}
+		if sawPosixFallback {
+			return LangEn
+		}
+	}
+	return LangEn
+}
+
 func detectSystemLanguagePosix(isDarwin bool, macReader func() string) string {
 	if lang, sawPosixFallback := detectEnvLocale(); lang != "" {
 		return lang

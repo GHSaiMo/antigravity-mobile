@@ -261,8 +261,31 @@ func TestRun_TarGzUpdateWithChecksumAndSymlink(t *testing.T) {
 		t.Fatalf("real binary not updated: got %q", string(gotBytes))
 	}
 	// Verify mirror tamper warning appeared and fallback succeeded.
-	if !strings.Contains(out.String(), "SHA-256 校验不匹配") {
+	if !strings.Contains(out.String(), "SHA-256 mismatch") && !strings.Contains(out.String(), "SHA-256 校验不匹配") {
 		t.Errorf("expected checksum mismatch fallback notice, got:\n%s", out.String())
+	}
+}
+
+func TestInspectSelfUpdateCapabilityForLang_FourLocales(t *testing.T) {
+	fakeBin := filepath.Join(t.TempDir(), "mgy")
+	for _, tc := range []struct {
+		lang       string
+		wantDev    string
+		wantGoRun  string
+	}{
+		{"zh", "开发版", "临时编译"},
+		{"ja", "開発ビルド", "一時ビルド"},
+		{"en", "development build", "temporary build"},
+		{"fr-FR", "development build", "temporary build"},
+	} {
+		capDev := InspectSelfUpdateCapabilityForLang(fakeBin, "dev", tc.lang)
+		if capDev.CanUpdate || !strings.Contains(capDev.Reason, tc.wantDev) {
+			t.Errorf("InspectSelfUpdateCapabilityForLang(fakeBin, dev, %q) = %+v, want %q", tc.lang, capDev, tc.wantDev)
+		}
+		capRun := InspectSelfUpdateCapabilityForLang("/tmp/go-build123/mgy", "1.2.8", tc.lang)
+		if capRun.CanUpdate || !strings.Contains(capRun.Reason, tc.wantGoRun) {
+			t.Errorf("InspectSelfUpdateCapabilityForLang(go-build, %q) = %+v, want %q", tc.lang, capRun, tc.wantGoRun)
+		}
 	}
 }
 

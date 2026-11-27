@@ -919,3 +919,92 @@ func writeMaybeGzip(w http.ResponseWriter, r *http.Request, v any) {
 	}
 	_, _ = w.Write(data)
 }
+
+func TestHub_AIAssistPrefsBroadcastAndWSAcceptLanguage(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+
+	var mu sync.Mutex
+	var gotPrefsBody, gotPrefsAL, gotWSAL string
+	upgrader := websocket.Upgrader{CheckOrigin: func(*http.Request) bool { return true }}
+	remoteNode := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/gateway/status":
+			writeJSON(w, http.StatusOK, proxy.GatewayStatus{Status: "connected", GatewayName: "Remote1"})
+		case "/gateway/ai-assist/prefs":
+			b, _ := io.ReadAll(r.Body)
+			mu.Lock()
+			gotPrefsBody = string(b)
+			gotPrefsAL = r.Header.Get("Accept-Language")
+			mu.Unlock()
+			writeJSON(w, http.StatusOK, map[string]any{"ok": true, "resolvedLang": "fr-FR"})
+		case "/gateway/stream":
+			mu.Lock()
+			gotWSAL = r.Header.Get("Accept-Language")
+			mu.Unlock()
+			conn, err := upgrader.Upgrade(w, r, nil)
+			if err != nil {
+				return
+			}
+			defer conn.Close()
+			_ = conn.WriteMessage(websocket.TextMessage, []byte(`{"type":"noop"}`))
+			time.Sleep(50 * time.Millisecond)
+		default:
+			w.WriteHeader(http.StatusNotFound)
+		}
+	}))
+	defer remoteNode.Close()
+
+	h, err := NewHub(Options{
+		HubID:            "hub-locale-test",
+		HubName:          "HubLocale",
+		DataDir:          t.TempDir(),
+		StaticNodes:      []string{"n1=" + remoteNode.URL},
+		DisableDiscovery: true,
+		Inspector:        &stubInspector{healthy: true, port: 59001},
+	})
+	if err != nil {
+		t.Fatalf("NewHub: %v", err)
+	}
+	defer h.Stop()
+	h.ProbeAllNodes(context.Background())
+	h.indexCascade("cid-ws-fr", "n1")
+
+	localMux := http.NewServeMux()
+	localMux.HandleFunc("/gateway/ai-assist/prefs", func(w http.ResponseWriter, r *http.Request) {
+		writeJSON(w, http.StatusOK, map[string]any{"ok": true, "local": true})
+	})
+	handler := h.WrapHandler(localMux)
+
+	// 1. POST /gateway/ai-assist/prefs broadcasts to enabled remote nodes preserving Accept-Language
+	req := httptest.NewRequest(http.MethodPost, "/gateway/ai-assist/prefs", strings.NewReader(`{"titleTranslateEnabled":true}`))
+	req.Header.Set("Accept-Language", "fr-FR,fr;q=0.9")
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("POST /gateway/ai-assist/prefs status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	mu.Lock()
+	pb, pal := gotPrefsBody, gotPrefsAL
+	mu.Unlock()
+	if !strings.Contains(pb, `"titleTranslateEnabled":true`) || pal != "fr-FR,fr;q=0.9" {
+		t.Fatalf("remote node did not receive AI Assist broadcast with Accept-Language: body=%q al=%q", pb, pal)
+	}
+
+	// 2. WebSocket bridge forwards Accept-Language to remote node
+	hubSrv := httptest.NewServer(handler)
+	defer hubSrv.Close()
+	wsURL := "ws" + strings.TrimPrefix(hubSrv.URL, "http") + "/gateway/stream?cascadeId=cid-ws-fr"
+	hdr := http.Header{"Accept-Language": []string{"fr-FR,fr;q=0.9"}}
+	conn, _, err := websocket.DefaultDialer.Dial(wsURL, hdr)
+	if err != nil {
+		t.Fatalf("dial hub ws: %v", err)
+	}
+	_, _, _ = conn.ReadMessage()
+	_ = conn.Close()
+	mu.Lock()
+	wsal := gotWSAL
+	mu.Unlock()
+	if wsal != "fr-FR,fr;q=0.9" {
+		t.Fatalf("WS bridge did not forward Accept-Language: got %q", wsal)
+	}
+}
