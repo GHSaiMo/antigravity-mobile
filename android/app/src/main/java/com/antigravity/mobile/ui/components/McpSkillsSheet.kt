@@ -2390,7 +2390,7 @@ private fun GlobalBackgroundTaskCard(
         else -> "后台命令".loc
     }
     val badgeColor = when {
-        task.isDaemon -> Color(0xFFAF52DE)
+        task.isDaemon -> colors.accentBlue
         task.toolName == "schedule" -> colors.accentOrange
         else -> colors.accentIndigo
     }

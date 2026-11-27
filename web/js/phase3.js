@@ -1841,13 +1841,31 @@
 
     bindSuggestedResponsesVisibility() {
       const inputEl = document.getElementById("chat-input");
-      if (!inputEl) return;
-      inputEl.addEventListener("input", () => this.renderSuggestedResponses());
+      if (inputEl) {
+        inputEl.addEventListener("input", () => this.renderSuggestedResponses());
+      }
+      window.addEventListener("resize", () => this.syncSuggestedChipMaxWidth());
+    },
+
+    syncSuggestedChipMaxWidth() {
+      const bar = document.getElementById("suggested-responses-bar");
+      const qaBar = document.getElementById("quick-actions-bar");
+      const addBtn = document.getElementById("btn-add-image");
+      const modelBtn = document.getElementById("btn-model-switch");
+      if (!bar || !qaBar || !addBtn || !modelBtn) return;
+      const barW = qaBar.clientWidth || 0;
+      if (barW <= 0) return;
+      const addW = addBtn.offsetWidth || 34;
+      const modelW = modelBtn.offsetWidth || 100;
+      // 8px gap after +, 4px chip margin-right for dismiss badge, 8px gap before model chip
+      const maxW = Math.max(150, Math.floor(barW - addW - modelW - 20));
+      bar.style.setProperty("--suggest-max-w", `${maxW}px`);
     },
 
     renderSuggestedResponses() {
       const bar = document.getElementById("suggested-responses-bar");
       if (!bar) return;
+      this.syncSuggestedChipMaxWidth();
       const inputEl = document.getElementById("chat-input");
       const hasDraft = Boolean(inputEl && inputEl.value.trim().length > 0);
       const isRunning = typeof isCascadeRunning === "function" && isCascadeRunning(activeCascadeId);

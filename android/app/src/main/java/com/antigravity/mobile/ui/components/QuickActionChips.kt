@@ -45,9 +45,11 @@ import kotlin.math.sin
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.boundsInRoot
 import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.IntRect
 import androidx.compose.ui.unit.IntSize
@@ -75,6 +77,10 @@ fun QuickActionChips(
     modelSlidePickerState: ModelSlidePickerState? = null,
     onAddImage: () -> Unit,
     onAddImageLongClick: (() -> Unit)? = null,
+    suggestedResponses: List<String> = emptyList(),
+    isPredictedSuggestion: Boolean = false,
+    onSelectSuggestion: (String) -> Unit = {},
+    onDismissSuggestion: (String) -> Unit = {},
     selectedSlashCommands: List<SlashCommandOption> = emptyList(),
     onRemoveSlashCommand: (SlashCommandOption) -> Unit = {},
     onCommitAndPush: () -> Unit,
@@ -110,7 +116,15 @@ fun QuickActionChips(
     var chipBoundsInRoot by remember { mutableStateOf(Rect.Zero) }
     var workflowChipBoundsInRoot by remember { mutableStateOf(Rect.Zero) }
     var commitChipBoundsInRoot by remember { mutableStateOf(Rect.Zero) }
+    var rowViewportWidthDp by remember { mutableStateOf(0.dp) }
+    var modelChipWidthDp by remember { mutableStateOf(104.dp) }
     val latestWorkflowTemplates by rememberUpdatedState(workflowTemplates)
+    val maxSuggestionBubbleWidth = if (rowViewportWidthDp > 0.dp) {
+        // 34dp (+) + 8dp*2 间距 + 4dp 右上角小叉预留 + 模型胶囊宽度；保证首行铺满 [+] 与模型之间
+        (rowViewportWidthDp - 34.dp - 16.dp - 4.dp - modelChipWidthDp).coerceAtLeast(146.dp)
+    } else {
+        216.dp
+    }
 
     val context = androidx.compose.ui.platform.LocalContext.current
     val tipsPrefs = remember { context.getSharedPreferences("antigravity_tips", android.content.Context.MODE_PRIVATE) }
@@ -136,10 +150,16 @@ fun QuickActionChips(
     Row(
         modifier = modifier
             .fillMaxWidth()
+            .onSizeChanged { size ->
+                val measured = with(density) { size.width.toDp() }
+                if (measured > 0.dp && kotlin.math.abs((measured - rowViewportWidthDp).value) > 0.5f) {
+                    rowViewportWidthDp = measured
+                }
+            }
             .horizontalScroll(rememberScrollState())
             .padding(top = 8.dp, bottom = 2.dp),
         horizontalArrangement = Arrangement.spacedBy(8.dp),
-        verticalAlignment = Alignment.CenterVertically
+        verticalAlignment = Alignment.Top
     ) {
         // 1. Add Image ➕ (long press for @ Mention)
         Box(
@@ -166,6 +186,23 @@ fun QuickActionChips(
                 contentDescription = "Add Media",
                 tint = colors.accentIndigo,
                 modifier = Modifier.size(16.dp)
+            )
+        }
+
+        // 1b. 建议回复气泡（留在 + 与模型按钮之间；先占满中间宽度，超长原地向下折成 2～3 行完整展示）
+        suggestedResponses.forEach { suggestion ->
+            SuggestedReplyChip(
+                text = suggestion,
+                isPredicted = isPredictedSuggestion,
+                maxBubbleWidth = maxSuggestionBubbleWidth,
+                onSelect = {
+                    haptic.light()
+                    onSelectSuggestion(suggestion)
+                },
+                onDismiss = {
+                    haptic.light()
+                    onDismissSuggestion(suggestion)
+                }
             )
         }
 
@@ -221,6 +258,10 @@ fun QuickActionChips(
                         val rect = coords.boundsInRoot()
                         chipBoundsInRoot = rect
                         modelSlidePickerState?.anchorRect = rect
+                        val measured = with(density) { coords.size.width.toDp() }
+                        if (measured > 0.dp && kotlin.math.abs((measured - modelChipWidthDp).value) > 0.5f) {
+                            modelChipWidthDp = measured
+                        }
                     }
                     .then(
                         if (isXHighActive) {
@@ -616,48 +657,12 @@ fun QuickActionChips(
     }
 }
 
-/**
- * 建议回复气泡区：独占整行并排在快捷按钮栏上方。
- * 单条气泡按内容展开，先占满第一行，超长后自动折成两行/三行完整展示，不做截断。
- */
-@Composable
-fun SuggestedReplyChipsBar(
-    suggestedResponses: List<String>,
-    isPredictedSuggestion: Boolean,
-    onSelectSuggestion: (String) -> Unit,
-    onDismissSuggestion: (String) -> Unit,
-    modifier: Modifier = Modifier
-) {
-    if (suggestedResponses.isEmpty()) return
-    val haptic = com.antigravity.mobile.ui.util.rememberHaptic()
-    Column(
-        modifier = modifier
-            .fillMaxWidth()
-            .padding(start = 16.dp, end = 16.dp, top = 8.dp),
-        verticalArrangement = Arrangement.spacedBy(8.dp)
-    ) {
-        suggestedResponses.forEach { suggestion ->
-            SuggestedReplyChip(
-                text = suggestion,
-                isPredicted = isPredictedSuggestion,
-                onSelect = {
-                    haptic.light()
-                    onSelectSuggestion(suggestion)
-                },
-                onDismiss = {
-                    haptic.light()
-                    onDismissSuggestion(suggestion)
-                }
-            )
-        }
-    }
-}
-
-/** 建议回复气泡按钮：独占整行、圆角 10、右上角带小叉；单行 32dp 起，超长自动多行完整显示。 */
+/** 建议回复气泡按钮：留在 `+` 与模型按钮之间，圆角 10、右上角带小叉；单行 32dp 起，先占满中间宽度，超长原地向下折成多行完整显示。 */
 @Composable
 private fun SuggestedReplyChip(
     text: String,
     isPredicted: Boolean,
+    maxBubbleWidth: Dp,
     onSelect: () -> Unit,
     onDismiss: () -> Unit,
     modifier: Modifier = Modifier
@@ -670,6 +675,7 @@ private fun SuggestedReplyChip(
         Row(
             modifier = Modifier
                 .defaultMinSize(minHeight = 32.dp)
+                .widthIn(max = maxBubbleWidth)
                 .clip(shape)
                 .background(colors.accentIndigo.copy(alpha = 0.12f))
                 .border(1.dp, colors.accentIndigo.copy(alpha = 0.35f), shape)

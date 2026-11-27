@@ -1758,7 +1758,7 @@ public struct McpSkillsSheet: View {
             // 1. Header: Type Badge + Title + Elapsed + Stop Button
             HStack(alignment: .center, spacing: 6) {
                 let badgeTitle = task.isDaemon ? String(localized: "常驻守护") : (task.toolName == "schedule" ? String(localized: "定时任务") : String(localized: "后台命令"))
-                let badgeColor: Color = task.isDaemon ? .purple : (task.toolName == "schedule" ? .orange : .indigo)
+                let badgeColor: Color = task.isDaemon ? .blue : (task.toolName == "schedule" ? .orange : .indigo)
 
                 Text(badgeTitle)
                     .font(.system(size: 10.5, weight: .semibold))

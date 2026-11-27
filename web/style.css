@@ -1705,7 +1705,7 @@ code.inline-code, .markdown-body code:not(.code-block-pre code) {
 /* Quick Action Chips */
 .quick-actions-chips {
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   gap: 8px;
   overflow-x: auto;
   padding-bottom: 2px;
@@ -8963,14 +8963,10 @@ body.font-comfortable pre, body.font-comfortable code {
 .p3-auto-st-badge.ok { background: rgba(48, 209, 88, 0.16); color: #30d158; }
 
 .suggest-chips {
-  display: flex;
-  flex-direction: column;
+  display: inline-flex;
   align-items: flex-start;
   gap: 8px;
-  width: 100%;
-  padding: 5px 4px 0 0;
-  margin-bottom: -4px;
-  box-sizing: border-box;
+  flex-shrink: 0;
 }
 .suggest-chips.hidden {
   display: none;
@@ -8980,13 +8976,14 @@ body.font-comfortable pre, body.font-comfortable code {
   display: inline-flex;
   align-items: flex-start;
   min-height: 32px;
-  max-width: 100%;
-  margin: 0;
+  max-width: var(--suggest-max-w, max(150px, calc(100vw - 196px)));
+  margin: 0 4px 0 0;
   box-sizing: border-box;
   border-radius: 10px;
   background: color-mix(in srgb, var(--ios-indigo) 12%, transparent);
   border: 1px solid color-mix(in srgb, var(--ios-indigo) 35%, transparent);
   color: var(--ios-indigo);
+  flex-shrink: 0;
 }
 .suggest-chip-main {
   display: inline-flex;
