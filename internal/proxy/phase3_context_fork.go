@@ -573,13 +573,15 @@ func (p *Proxy) HandleCascadeFork(w http.ResponseWriter, r *http.Request) {
 		target = "FORK_TARGET_NEW_WORKTREE"
 	}
 
-	payload := map[string]interface{}{
-		"sourceCascadeId":     req.CascadeID,
-		"forkAtStepIndex":     req.StepIndex,
-		"targetForkWorkspace": target,
-	}
 	ctx, cancel := context.WithTimeout(r.Context(), 15*time.Second)
 	defer cancel()
+	port, token := p.ActiveUpstream()
+	sourceCascadeID, localStepIdx := p.ResolveGlobalStepToSegment(ctx, req.CascadeID, req.StepIndex, port, token)
+	payload := map[string]interface{}{
+		"sourceCascadeId":     sourceCascadeID,
+		"forkAtStepIndex":     localStepIdx,
+		"targetForkWorkspace": target,
+	}
 	body, status, err := p.callUpstreamRPC(ctx, "ForkConversation", payload)
 	if err != nil {
 		writeRPCError(w, status, err.Error())
@@ -601,6 +603,9 @@ func (p *Proxy) HandleCascadeFork(w http.ResponseWriter, r *http.Request) {
 	}
 	if cid == "" {
 		cid, _ = resp["cascade_id"].(string)
+	}
+	if cid != "" {
+		RecordCascadeCreatedAtCurrentEpoch(cid)
 	}
 	p.notifyStreamTouch(cid)
 	writeJSONStatus(w, http.StatusOK, map[string]interface{}{
@@ -692,6 +697,9 @@ func (p *Proxy) HandleWorktree(w http.ResponseWriter, r *http.Request) {
 				}
 				if json.Unmarshal(cBody, &started) == nil {
 					cascadeID = started.CascadeID
+					if cascadeID != "" {
+						RecordCascadeCreatedAtCurrentEpoch(cascadeID)
+					}
 				}
 			}
 		}

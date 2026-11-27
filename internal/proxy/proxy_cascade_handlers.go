@@ -1300,6 +1300,10 @@ func (p *Proxy) HandleCascadeInteraction(w http.ResponseWriter, r *http.Request)
 
 	// Invalidate cache immediately so next poll and stream capture the new active state
 	ClearTrajectoryCache(req.CascadeID)
+	p.notifyStreamTouch(req.CascadeID)
+	if rootID := ResolveVisibleRootCascadeID(req.CascadeID); rootID != "" && rootID != req.CascadeID {
+		p.notifyStreamTouch(rootID)
+	}
 
 	w.Header().Set("Content-Type", "application/json")
 	w.Write([]byte(`{"success":true}`))

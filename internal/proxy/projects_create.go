@@ -282,6 +282,7 @@ func (p *Proxy) HandleCreateCascade(w http.ResponseWriter, r *http.Request) {
 	}
 
 	cascadeID := startResult.CascadeID
+	RecordCascadeCreatedAtCurrentEpoch(cascadeID)
 	if clientMsgID != "" {
 		p.setCascadeDedup(clientMsgID, cascadeID)
 	}

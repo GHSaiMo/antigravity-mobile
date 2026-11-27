@@ -914,6 +914,61 @@ func (p *Proxy) FetchRawCascadeSummariesWithMaxAge(maxAge time.Duration) (map[st
 
 	filterDeletedZombieSummaries(summaries)
 
+	runningSubagents := make(map[string]bool)
+	// Pre-pass: fold stitched continuation child cascades into their visible root before subagent
+	// lineage resolution so watcher/APNs/Dynamic Island see accurate running state, stepCount,
+	// lastModifiedTime, and promoted root entries even when rootID is absent from upstream.
+	var stitchedChildIDs []string
+	for id := range summaries {
+		if IsStitchedChildCascade(id) {
+			stitchedChildIDs = append(stitchedChildIDs, id)
+		}
+	}
+	for _, id := range stitchedChildIDs {
+		s := summaries[id]
+		rootID := ResolveVisibleRootCascadeID(id)
+		if rootID != "" && rootID != id && !IsDeletedCascade(rootID) && s != nil {
+			if status, _ := s["status"].(string); status == "CASCADE_RUN_STATUS_RUNNING" {
+				runningSubagents[rootID] = true
+			}
+			if rootSum, exists := summaries[rootID]; exists && rootSum != nil {
+				if sc, ok := s["stepCount"].(float64); ok && sc > 0 {
+					rootSC, _ := rootSum["stepCount"].(float64)
+					rootSum["stepCount"] = rootSC + sc
+				}
+				if childMod, ok := s["lastModifiedTime"].(string); ok && childMod != "" {
+					if childT, err := parseTime(childMod); err == nil && !childT.IsZero() {
+						rootMod, _ := rootSum["lastModifiedTime"].(string)
+						rootT, rErr := parseTime(rootMod)
+						if rErr != nil || rootT.IsZero() || childT.After(rootT) {
+							rootSum["lastModifiedTime"] = childMod
+						}
+					}
+				}
+			} else {
+				promoted := make(map[string]interface{}, len(s))
+				for k, v := range s {
+					promoted[k] = v
+				}
+				if rootTitle := readAnnotationTitle(rootID); rootTitle != "" {
+					promoted["summary"] = rootTitle
+					if ann, ok := promoted["annotations"].(map[string]interface{}); ok && ann != nil {
+						annCopy := make(map[string]interface{}, len(ann))
+						for k, v := range ann {
+							annCopy[k] = v
+						}
+						annCopy["title"] = rootTitle
+						promoted["annotations"] = annCopy
+					} else {
+						promoted["annotations"] = map[string]interface{}{"title": rootTitle}
+					}
+				}
+				summaries[rootID] = promoted
+			}
+		}
+		delete(summaries, id)
+	}
+
 	subagentIDs := make(map[string]bool)
 	subagentParents := make(map[string]string)
 	subagentRoots := make(map[string]string)
@@ -939,31 +994,26 @@ func (p *Proxy) FetchRawCascadeSummariesWithMaxAge(maxAge time.Duration) (map[st
 				break
 			}
 			if !subagentIDs[next] {
-				if _, exists := summaries[next]; exists && !IsDeletedCascade(next) {
-					return next
+				vis := ResolveVisibleRootCascadeID(next)
+				if _, exists := summaries[vis]; exists && !IsDeletedCascade(vis) {
+					return vis
 				}
 				break
 			}
 			cur = next
 		}
 		if root := subagentRoots[id]; root != "" && !subagentIDs[root] {
-			if _, exists := summaries[root]; exists && !IsDeletedCascade(root) {
-				return root
+			vis := ResolveVisibleRootCascadeID(root)
+			if _, exists := summaries[vis]; exists && !IsDeletedCascade(vis) {
+				return vis
 			}
 		}
 		return ""
 	}
 
-	runningSubagents := make(map[string]bool)
 	// Filter out internal subagent sessions while tracking parents of actively running subagents
 	for id, s := range summaries {
-		if IsDeletedCascade(id) || IsStitchedChildCascade(id) {
-			if IsStitchedChildCascade(id) {
-				rootID := ResolveVisibleRootCascadeID(id)
-				if status, _ := s["status"].(string); status == "CASCADE_RUN_STATUS_RUNNING" && rootID != "" {
-					runningSubagents[rootID] = true
-				}
-			}
+		if IsDeletedCascade(id) {
 			delete(summaries, id)
 			continue
 		}

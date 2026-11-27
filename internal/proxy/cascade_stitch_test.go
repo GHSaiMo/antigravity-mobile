@@ -1132,3 +1132,291 @@ func TestCascadeStitch_InteractionRevertDeleteQueuedAndListPromotion(t *testing.
 		t.Fatalf("expected rootID %s to be synthesized/promoted when absent from upstream", rootID)
 	}
 }
+
+func TestCascadeStitch_WatcherSubagentsForkBackgroundAndCreateEpoch(t *testing.T) {
+	tmpDir := t.TempDir()
+	t.Setenv("MGY_STITCH_STATE_PATH", filepath.Join(tmpDir, "stitches.json"))
+	t.Setenv("MGY_SWITCH_COMPACT_HANDOVER", "true")
+	ResetCascadeStitchStoreForTest()
+	t.Cleanup(ResetCascadeStitchStoreForTest)
+
+	const (
+		rootID    = "aaaa1111-1111-1111-1111-111111111111"
+		childID   = "bbbb2222-2222-2222-2222-222222222222"
+		subID     = "cccc3333-3333-3333-3333-333333333333"
+		forkedID  = "dddd4444-4444-4444-4444-444444444444"
+		createdID = "eeee5555-5555-5555-5555-555555555555"
+		sideID    = "ffff6666-6666-6666-6666-666666666666"
+	)
+
+	var (
+		mu              sync.Mutex
+		gotForkSource   string
+		gotForkStep     int
+		gotBgCID        string
+		gotBgSteps      []int
+		gotBtwBaseCID   string
+		gotBtwBaseStep  int
+		startCount      int
+		upstreamMode    string // "both" or "child_only"
+	)
+	upstreamMode = "both"
+
+	srv := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch {
+		case strings.HasSuffix(r.URL.Path, "/GetCascadeTrajectory"):
+			var req struct {
+				CascadeID string `json:"cascadeId"`
+			}
+			_ = json.NewDecoder(r.Body).Decode(&req)
+			switch req.CascadeID {
+			case rootID:
+				_ = json.NewEncoder(w).Encode(map[string]interface{}{
+					"status": "CASCADE_RUN_STATUS_IDLE",
+					"trajectory": map[string]interface{}{
+						"trajectoryId": "traj-root",
+						"cascadeId":    rootID,
+						"steps": []map[string]interface{}{
+							{"type": "CORTEX_STEP_TYPE_USER_INPUT", "status": "CORTEX_STEP_STATUS_DONE", "userInput": map[string]interface{}{"userResponse": "u0"}},
+							{"type": "CORTEX_STEP_TYPE_PLANNER_RESPONSE", "status": "CORTEX_STEP_STATUS_DONE", "plannerResponse": map[string]interface{}{"response": "a0"}},
+						},
+					},
+				})
+			case childID:
+				_ = json.NewEncoder(w).Encode(map[string]interface{}{
+					"status": "CASCADE_RUN_STATUS_IDLE",
+					"trajectory": map[string]interface{}{
+						"trajectoryId": "traj-child",
+						"cascadeId":    childID,
+						"steps": []map[string]interface{}{
+							{"type": "CORTEX_STEP_TYPE_USER_INPUT", "status": "CORTEX_STEP_STATUS_DONE", "userInput": map[string]interface{}{"userResponse": "u1"}},
+							{"type": "CORTEX_STEP_TYPE_PLANNER_RESPONSE", "status": "CORTEX_STEP_STATUS_DONE", "plannerResponse": map[string]interface{}{"response": "a1"}},
+							{"type": "CORTEX_STEP_TYPE_USER_INPUT", "status": "CORTEX_STEP_STATUS_DONE", "userInput": map[string]interface{}{"userResponse": "u2"}},
+						},
+					},
+				})
+			default:
+				_ = json.NewEncoder(w).Encode(map[string]interface{}{
+					"status":     "CASCADE_RUN_STATUS_IDLE",
+					"trajectory": map[string]interface{}{"cascadeId": req.CascadeID, "steps": []interface{}{}},
+				})
+			}
+
+		case strings.HasSuffix(r.URL.Path, "/GetAllCascadeTrajectories"):
+			mu.Lock()
+			mode := upstreamMode
+			mu.Unlock()
+			summaries := map[string]interface{}{
+				childID: map[string]interface{}{
+					"summary":          "Child Title",
+					"status":           "CASCADE_RUN_STATUS_IDLE",
+					"stepCount":        7,
+					"lastModifiedTime": "2026-11-27T11:00:00Z",
+				},
+				subID: map[string]interface{}{
+					"summary":          "Running Subagent On Stitched Child",
+					"status":           "CASCADE_RUN_STATUS_RUNNING",
+					"stepCount":        3,
+					"lastModifiedTime": "2026-11-27T11:05:00Z",
+					"trajectoryMetadata": map[string]interface{}{
+						"parentConversationId": childID,
+					},
+				},
+			}
+			if mode == "both" {
+				summaries[rootID] = map[string]interface{}{
+					"summary":          "Root Title",
+					"status":           "CASCADE_RUN_STATUS_IDLE",
+					"stepCount":        5,
+					"lastModifiedTime": "2026-11-27T10:00:00Z",
+				}
+			}
+			_ = json.NewEncoder(w).Encode(map[string]interface{}{"trajectorySummaries": summaries})
+
+		case strings.HasSuffix(r.URL.Path, "/ForkConversation"):
+			var req struct {
+				SourceCascadeID string `json:"sourceCascadeId"`
+				ForkAtStepIndex int    `json:"forkAtStepIndex"`
+			}
+			_ = json.NewDecoder(r.Body).Decode(&req)
+			mu.Lock()
+			gotForkSource = req.SourceCascadeID
+			gotForkStep = req.ForkAtStepIndex
+			mu.Unlock()
+			_ = json.NewEncoder(w).Encode(map[string]interface{}{"newCascadeId": forkedID})
+
+		case strings.HasSuffix(r.URL.Path, "/SendStepsToBackground"):
+			var req struct {
+				CascadeID   string `json:"cascadeId"`
+				StepIndices []int  `json:"stepIndices"`
+			}
+			_ = json.NewDecoder(r.Body).Decode(&req)
+			mu.Lock()
+			gotBgCID = req.CascadeID
+			gotBgSteps = append([]int(nil), req.StepIndices...)
+			mu.Unlock()
+			w.Write([]byte(`{}`))
+
+		case strings.HasSuffix(r.URL.Path, "/StartCascade"):
+			var req map[string]interface{}
+			_ = json.NewDecoder(r.Body).Decode(&req)
+			mu.Lock()
+			startCount++
+			if base, ok := req["baseTrajectoryIdentifier"].(map[string]interface{}); ok {
+				if ff, ok := base["forkFrom"].(map[string]interface{}); ok {
+					gotBtwBaseCID, _ = ff["cascadeId"].(string)
+					if si, ok := ff["stepIndex"].(float64); ok {
+						gotBtwBaseStep = int(si)
+					}
+				}
+				mu.Unlock()
+				_ = json.NewEncoder(w).Encode(map[string]interface{}{"cascadeId": sideID})
+				return
+			}
+			mu.Unlock()
+			_ = json.NewEncoder(w).Encode(map[string]interface{}{"cascadeId": createdID})
+
+		default:
+			w.Write([]byte(`{}`))
+		}
+	}))
+	defer srv.Close()
+
+	port := extractTestPort(t, srv.URL)
+	p := NewProxy(&inspector.Inspector{})
+	p.SetTestUpstream(port, "tok")
+	p.NotifyAccountSwitched("acc-b")
+	defaultStitchStore.appendSegment(rootID, rootID, childID, "acc-b")
+	ClearTrajectoryCache(rootID)
+	ClearTrajectoryCache(childID)
+
+	// 1. FetchRawCascadeSummariesWithMaxAge (both present): stepCount summed, newer modTime propagated,
+	//    and subagent spawned under childID propagates runningSubagents[rootID]=true.
+	sums, running, err := p.FetchRawCascadeSummariesWithMaxAge(0)
+	if err != nil {
+		t.Fatalf("FetchRawCascadeSummariesWithMaxAge failed: %v", err)
+	}
+	if _, hasChild := sums[childID]; hasChild {
+		t.Fatalf("expected stitched child %s to be hidden from watcher summaries", childID)
+	}
+	if _, hasSub := sums[subID]; hasSub {
+		t.Fatalf("expected subagent %s to be hidden from watcher summaries", subID)
+	}
+	rootSum := sums[rootID]
+	if rootSum == nil {
+		t.Fatalf("expected rootID %s in watcher summaries", rootID)
+	}
+	if sc, _ := rootSum["stepCount"].(float64); sc != 12 {
+		t.Fatalf("expected summed stepCount=12, got %v", sc)
+	}
+	if mod, _ := rootSum["lastModifiedTime"].(string); mod != "2026-11-27T11:00:00Z" {
+		t.Fatalf("expected child newer lastModifiedTime propagated, got %q", mod)
+	}
+	if !running[rootID] {
+		t.Fatalf("expected running subagent under stitched child to mark runningSubagents[rootID]=true")
+	}
+
+	// 2. FetchRawCascadeSummariesWithMaxAge (child_only): rootID promoted and subagent still maps to rootID.
+	mu.Lock()
+	upstreamMode = "child_only"
+	mu.Unlock()
+	sums2, running2, err := p.FetchRawCascadeSummariesWithMaxAge(0)
+	if err != nil {
+		t.Fatalf("FetchRawCascadeSummariesWithMaxAge child_only failed: %v", err)
+	}
+	if sums2[rootID] == nil {
+		t.Fatalf("expected rootID %s to be promoted in watcher summaries when absent upstream", rootID)
+	}
+	if !running2[rootID] {
+		t.Fatalf("expected running subagent under child to propagate to promoted rootID")
+	}
+
+	// 2b. GetAllCascadeTrajectories in child_only mode: promoted rootID must also receive running status
+	//     from the subagent spawned under stitched childID.
+	listRec := httptest.NewRecorder()
+	p.ServeHTTP(listRec, httptest.NewRequest(http.MethodPost, "/api/exa.language_server_pb.LanguageServerService/GetAllCascadeTrajectories", strings.NewReader(`{}`)))
+	if listRec.Code != http.StatusOK {
+		t.Fatalf("GetAllCascadeTrajectories failed: %d %s", listRec.Code, listRec.Body.String())
+	}
+	var listResp struct {
+		TrajectorySummaries map[string]map[string]interface{} `json:"trajectorySummaries"`
+	}
+	if err := json.Unmarshal(listRec.Body.Bytes(), &listResp); err != nil {
+		t.Fatalf("unmarshal listResp: %v", err)
+	}
+	if listResp.TrajectorySummaries[rootID] == nil {
+		t.Fatalf("expected promoted rootID %s in GetAllCascadeTrajectories", rootID)
+	}
+	if st, _ := listResp.TrajectorySummaries[rootID]["status"].(string); st != "CASCADE_RUN_STATUS_RUNNING" {
+		t.Fatalf("expected promoted rootID status=CASCADE_RUN_STATUS_RUNNING via child subagent, got %q", st)
+	}
+
+	// 3. HandleCascadeFork on global step 4 (child local step 1) + epoch recorded on forkedID.
+	forkBody, _ := json.Marshal(map[string]interface{}{
+		"cascadeId": rootID,
+		"stepIndex": 4,
+	})
+	recFork := httptest.NewRecorder()
+	p.ServeHTTP(recFork, httptest.NewRequest(http.MethodPost, "/gateway/cascade/fork", bytes.NewReader(forkBody)))
+	if recFork.Code != http.StatusOK {
+		t.Fatalf("HandleCascadeFork failed: %d %s", recFork.Code, recFork.Body.String())
+	}
+	mu.Lock()
+	if gotForkSource != childID || gotForkStep != 1 {
+		t.Fatalf("HandleCascadeFork mismatch: source=%s step=%d (want %s, 1)", gotForkSource, gotForkStep, childID)
+	}
+	mu.Unlock()
+	if needs, _, _ := defaultStitchStore.needsHandoverRollover(forkedID); needs {
+		t.Fatalf("expected newly forked cascade %s to be recorded at current epoch", forkedID)
+	}
+
+	// 4. HandleSendStepsToBackground on global step [4] -> childID, [1].
+	bgBody, _ := json.Marshal(map[string]interface{}{
+		"cascadeId":   rootID,
+		"stepIndices": []int{4},
+	})
+	recBg := httptest.NewRecorder()
+	p.ServeHTTP(recBg, httptest.NewRequest(http.MethodPost, "/gateway/cascade/task/background", bytes.NewReader(bgBody)))
+	if recBg.Code != http.StatusOK {
+		t.Fatalf("HandleSendStepsToBackground failed: %d %s", recBg.Code, recBg.Body.String())
+	}
+	mu.Lock()
+	if gotBgCID != childID || len(gotBgSteps) != 1 || gotBgSteps[0] != 1 {
+		t.Fatalf("HandleSendStepsToBackground mismatch: cid=%s steps=%v (want %s, [1])", gotBgCID, gotBgSteps, childID)
+	}
+	mu.Unlock()
+
+	// 5. HandleCreateCascade records current epoch (no spurious rollover on next send).
+	createBody, _ := json.Marshal(map[string]interface{}{
+		"pureChat": true,
+	})
+	recCreate := httptest.NewRecorder()
+	p.ServeHTTP(recCreate, httptest.NewRequest(http.MethodPost, "/gateway/cascade/new", bytes.NewReader(createBody)))
+	if recCreate.Code != http.StatusOK {
+		t.Fatalf("HandleCreateCascade failed: %d %s", recCreate.Code, recCreate.Body.String())
+	}
+	if needs, _, _ := defaultStitchStore.needsHandoverRollover(createdID); needs {
+		t.Fatalf("expected newly created cascade %s to be recorded at current epoch", createdID)
+	}
+
+	// 6. HandleBtw (/gateway/btw/start) translates stitched parent + global step 4 -> childID local 1 & records sideID epoch.
+	btwBody, _ := json.Marshal(map[string]interface{}{
+		"parentCascadeId": rootID,
+		"question":        "Quick check?",
+		"stepIndex":       4,
+	})
+	recBtw := httptest.NewRecorder()
+	p.ServeHTTP(recBtw, httptest.NewRequest(http.MethodPost, "/gateway/btw/start", bytes.NewReader(btwBody)))
+	if recBtw.Code != http.StatusOK {
+		t.Fatalf("HandleBtw start failed: %d %s", recBtw.Code, recBtw.Body.String())
+	}
+	mu.Lock()
+	if gotBtwBaseCID != childID || gotBtwBaseStep != 1 {
+		t.Fatalf("HandleBtw baseTrajectory mismatch: cid=%s step=%d (want %s, 1)", gotBtwBaseCID, gotBtwBaseStep, childID)
+	}
+	mu.Unlock()
+	if needs, _, _ := defaultStitchStore.needsHandoverRollover(sideID); needs {
+		t.Fatalf("expected newly created btw side cascade %s to be recorded at current epoch", sideID)
+	}
+}

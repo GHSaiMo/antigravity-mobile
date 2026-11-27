@@ -263,22 +263,52 @@ func (p *Proxy) HandleSendStepsToBackground(w http.ResponseWriter, r *http.Reque
 	}
 	ctx, cancel := context.WithTimeout(r.Context(), 8*time.Second)
 	defer cancel()
-	body, status, err := p.callUpstreamRPC(ctx, "SendStepsToBackground", map[string]interface{}{
-		"cascadeId":   req.CascadeID,
-		"stepIndices": req.StepIndices,
-	})
-	if err != nil {
-		writeRPCError(w, status, err.Error())
-		return
+
+	// Translate stitched global step indices to their owning underlying segment(s).
+	type segSteps struct {
+		cascadeID string
+		indices   []int
 	}
-	if status != http.StatusOK {
-		msg := strings.TrimSpace(string(body))
-		writeJSONStatus(w, http.StatusOK, map[string]interface{}{
-			"ok":          false,
-			"unsupported": strings.Contains(strings.ToLower(msg), "deprecated") || strings.Contains(strings.ToLower(msg), "unimplemented"),
-			"message":     msg,
+	var targets []segSteps
+	if len(GetStitchChainSegments(req.CascadeID)) > 1 {
+		port, token := p.ActiveUpstream()
+		if len(req.StepIndices) > 0 {
+			bySeg := make(map[string]int)
+			for _, gIdx := range req.StepIndices {
+				segID, localIdx := p.ResolveGlobalStepToSegment(ctx, req.CascadeID, gIdx, port, token)
+				pos, ok := bySeg[segID]
+				if !ok {
+					pos = len(targets)
+					bySeg[segID] = pos
+					targets = append(targets, segSteps{cascadeID: segID})
+				}
+				targets[pos].indices = append(targets[pos].indices, localIdx)
+			}
+		} else {
+			targets = append(targets, segSteps{cascadeID: ResolveActiveCascadeID(req.CascadeID)})
+		}
+	} else {
+		targets = append(targets, segSteps{cascadeID: req.CascadeID, indices: req.StepIndices})
+	}
+
+	for _, t := range targets {
+		body, status, err := p.callUpstreamRPC(ctx, "SendStepsToBackground", map[string]interface{}{
+			"cascadeId":   t.cascadeID,
+			"stepIndices": t.indices,
 		})
-		return
+		if err != nil {
+			writeRPCError(w, status, err.Error())
+			return
+		}
+		if status != http.StatusOK {
+			msg := strings.TrimSpace(string(body))
+			writeJSONStatus(w, http.StatusOK, map[string]interface{}{
+				"ok":          false,
+				"unsupported": strings.Contains(strings.ToLower(msg), "deprecated") || strings.Contains(strings.ToLower(msg), "unimplemented"),
+				"message":     msg,
+			})
+			return
+		}
 	}
 	writeJSONStatus(w, http.StatusOK, map[string]interface{}{"ok": true})
 }

@@ -652,14 +652,11 @@ func (p *Proxy) handleGetAllCascadeTrajectories(w http.ResponseWriter, r *http.R
 	// on "unlinkat brain/<id>: directory not empty" after already removing conversations/<id>.db).
 	filterDeletedZombieSummaries(summaries)
 
-	// Snapshot raw upstream statuses, modification times, and subagent lineage before filtering
-	// so multi-level subagent chains and swarm members propagate accurately up to their visible
-	// root conversation, while Step 1 cache freshness checks still compare against raw values.
+	// Snapshot raw upstream statuses and modification times first.
 	rawStatuses := make(map[string]string, len(summaries))
 	rawModTimes := make(map[string]time.Time, len(summaries))
-	subagentIDs := make(map[string]bool)
-	subagentParents := make(map[string]string)
-	subagentRoots := make(map[string]string)
+	runningSubagentParents := make(map[string]bool)
+	subagentLatestModTime := make(map[string]time.Time)
 	for id, s := range summaries {
 		if s == nil {
 			continue
@@ -671,6 +668,77 @@ func (p *Proxy) handleGetAllCascadeTrajectories(w http.ResponseWriter, r *http.R
 			if t, err := parseTime(modStr); err == nil {
 				rawModTimes[id] = t
 			}
+		}
+	}
+
+	// Pre-pass: fold internal stitched continuation child cascades into their visible root
+	// BEFORE building subagent lineage or running the main enrichment loop. This guarantees
+	// deterministic enrichment (title, workspace, archived/starred) even when rootID was absent
+	// from upstream and synthesized/promoted from an active child, and lets subagents spawned
+	// under a stitched child resolve cleanly to rootID.
+	var stitchedChildIDs []string
+	for id := range summaries {
+		if IsStitchedChildCascade(id) {
+			stitchedChildIDs = append(stitchedChildIDs, id)
+		}
+	}
+	for _, id := range stitchedChildIDs {
+		s := summaries[id]
+		rootID := ResolveVisibleRootCascadeID(id)
+		if rootID != "" && rootID != id && !IsDeletedCascade(rootID) && s != nil {
+			status, _ := s["status"].(string)
+			if status == "CASCADE_RUN_STATUS_RUNNING" {
+				runningSubagentParents[rootID] = true
+			}
+			if modT, ok := rawModTimes[id]; ok && !modT.IsZero() {
+				if prev, exists := subagentLatestModTime[rootID]; !exists || modT.After(prev) {
+					subagentLatestModTime[rootID] = modT
+				}
+			}
+			if rootSum, exists := summaries[rootID]; exists && rootSum != nil {
+				if sc, ok := s["stepCount"].(float64); ok && sc > 0 {
+					rootSC, _ := rootSum["stepCount"].(float64)
+					rootSum["stepCount"] = rootSC + sc
+				}
+			} else {
+				// Root was not returned by upstream (e.g. sealed historical segment skipped from
+				// eager LoadTrajectory on the new account). Synthesize a root summary entry from
+				// the active child so the stitched conversation never vanishes from the sidebar.
+				promoted := make(map[string]interface{}, len(s))
+				for k, v := range s {
+					promoted[k] = v
+				}
+				if rootTitle := readAnnotationTitle(rootID); rootTitle != "" {
+					promoted["summary"] = rootTitle
+					if ann, ok := promoted["annotations"].(map[string]interface{}); ok && ann != nil {
+						annCopy := make(map[string]interface{}, len(ann))
+						for k, v := range ann {
+							annCopy[k] = v
+						}
+						annCopy["title"] = rootTitle
+						promoted["annotations"] = annCopy
+					} else {
+						promoted["annotations"] = map[string]interface{}{"title": rootTitle}
+					}
+				}
+				summaries[rootID] = promoted
+				if st, ok := rawStatuses[id]; ok && rawStatuses[rootID] == "" {
+					rawStatuses[rootID] = st
+				}
+				if modT, ok := rawModTimes[id]; ok && !modT.IsZero() {
+					rawModTimes[rootID] = modT
+				}
+			}
+		}
+		delete(summaries, id)
+	}
+
+	subagentIDs := make(map[string]bool)
+	subagentParents := make(map[string]string)
+	subagentRoots := make(map[string]string)
+	for id, s := range summaries {
+		if s == nil {
+			continue
 		}
 		if isSubagentTrajectoryMap(s, id) {
 			subagentIDs[id] = true
@@ -690,23 +758,23 @@ func (p *Proxy) handleGetAllCascadeTrajectories(w http.ResponseWriter, r *http.R
 				break
 			}
 			if !subagentIDs[next] {
-				if _, exists := summaries[next]; exists && !IsDeletedCascade(next) {
-					return next
+				vis := ResolveVisibleRootCascadeID(next)
+				if _, exists := summaries[vis]; exists && !IsDeletedCascade(vis) {
+					return vis
 				}
 				break
 			}
 			cur = next
 		}
 		if root := subagentRoots[id]; root != "" && !subagentIDs[root] {
-			if _, exists := summaries[root]; exists && !IsDeletedCascade(root) {
-				return root
+			vis := ResolveVisibleRootCascadeID(root)
+			if _, exists := summaries[vis]; exists && !IsDeletedCascade(vis) {
+				return vis
 			}
 		}
 		return ""
 	}
 
-	runningSubagentParents := make(map[string]bool)
-	subagentLatestModTime := make(map[string]time.Time)
 	sidecarProjectIDs := fetchSidecarProjectIDs()
 	resolveWorkspace := p.BuildWorkspaceDisplayNameResolver()
 	var (
@@ -775,56 +843,6 @@ func (p *Proxy) handleGetAllCascadeTrajectories(w http.ResponseWriter, r *http.R
 	for id, s := range summaries {
 		// Filter out recently deleted sessions (tombstone protection against upstream sync delays)
 		if IsDeletedCascade(id) {
-			delete(summaries, id)
-			continue
-		}
-
-		// Filter out internal stitched continuation child cascades while propagating their
-		// running status, step count, and latest modification timestamp up to their visible root conversation.
-		if IsStitchedChildCascade(id) {
-			rootID := ResolveVisibleRootCascadeID(id)
-			if rootID != "" && rootID != id && !IsDeletedCascade(rootID) {
-				status, _ := s["status"].(string)
-				if status == "CASCADE_RUN_STATUS_RUNNING" {
-					runningSubagentParents[rootID] = true
-				}
-				if modT, ok := rawModTimes[id]; ok && !modT.IsZero() {
-					if prev, exists := subagentLatestModTime[rootID]; !exists || modT.After(prev) {
-						subagentLatestModTime[rootID] = modT
-					}
-				}
-				if rootSum, exists := summaries[rootID]; exists && rootSum != nil {
-					if sc, ok := s["stepCount"].(float64); ok && sc > 0 {
-						rootSC, _ := rootSum["stepCount"].(float64)
-						rootSum["stepCount"] = rootSC + sc
-					}
-				} else {
-					// Root was not returned by upstream (e.g. sealed historical segment skipped from
-					// eager LoadTrajectory on the new account). Synthesize a root summary entry from
-					// the active child so the stitched conversation never vanishes from the sidebar.
-					promoted := make(map[string]interface{}, len(s))
-					for k, v := range s {
-						promoted[k] = v
-					}
-					if rootTitle := readAnnotationTitle(rootID); rootTitle != "" {
-						promoted["summary"] = rootTitle
-						if ann, ok := promoted["annotations"].(map[string]interface{}); ok && ann != nil {
-							annCopy := make(map[string]interface{}, len(ann))
-							for k, v := range ann {
-								annCopy[k] = v
-							}
-							annCopy["title"] = rootTitle
-							promoted["annotations"] = annCopy
-						} else {
-							promoted["annotations"] = map[string]interface{}{"title": rootTitle}
-						}
-					}
-					summaries[rootID] = promoted
-					if modT, ok := rawModTimes[id]; ok && !modT.IsZero() {
-						rawModTimes[rootID] = modT
-					}
-				}
-			}
 			delete(summaries, id)
 			continue
 		}

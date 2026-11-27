@@ -737,28 +737,46 @@ func (p *Proxy) handleBtwStart(w http.ResponseWriter, r *http.Request) {
 	}
 	var requestedForkStep *int
 	if parentID != "" {
+		upstreamParentID := ResolveActiveCascadeID(parentID)
 		if req.StepIndex != nil && *req.StepIndex >= 0 {
+			forkTargetID := upstreamParentID
 			si := *req.StepIndex
+			if len(GetStitchChainSegments(parentID)) > 1 {
+				forkTargetID, si = p.ResolveGlobalStepToSegment(r.Context(), parentID, si, port, token)
+			}
 			useForkFrom := true
 			if port > 0 {
-				if parentRaw, pErr := p.fetchUpstreamTrajectoryWithMaxAgeContext(r.Context(), parentID, port, token, 2*time.Second); pErr == nil && parentRaw != nil && len(parentRaw.Trajectory.Steps) > 0 {
+				var parentRaw *upstreamTrajectoryResp
+				var pErr error
+				if len(GetStitchChainSegments(parentID)) > 1 {
+					parentRaw, pErr = p.fetchSingleSegmentTrajectory(r.Context(), forkTargetID, port, token, 2*time.Second)
+				} else {
+					parentRaw, pErr = p.fetchUpstreamTrajectoryWithMaxAgeContext(r.Context(), forkTargetID, port, token, 2*time.Second)
+				}
+				if pErr == nil && parentRaw != nil && len(parentRaw.Trajectory.Steps) > 0 {
 					si, useForkFrom = resolveSideQuestionForkStepIndex(parentRaw.Trajectory.Steps, si)
 				}
 			}
-			requestedForkStep = &si
+			if len(GetStitchChainSegments(parentID)) > 1 {
+				// Preserve the client-visible (global) stepIndex for local side-question anchor mapping
+				globalStep := *req.StepIndex
+				requestedForkStep = &globalStep
+			} else {
+				requestedForkStep = &si
+			}
 			if useForkFrom {
 				startPayload["baseTrajectoryIdentifier"] = map[string]interface{}{
 					"forkFrom": map[string]interface{}{
-						"cascadeId":     parentID,
+						"cascadeId":     forkTargetID,
 						"stepIndex":     si,
 						"referenceType": "CORTEX_TRAJECTORY_REFERENCE_TYPE_FORK",
 					},
 				}
 			} else {
-				startPayload["baseTrajectoryIdentifier"] = map[string]interface{}{"cascadeId": parentID}
+				startPayload["baseTrajectoryIdentifier"] = map[string]interface{}{"cascadeId": forkTargetID}
 			}
 		} else {
-			startPayload["baseTrajectoryIdentifier"] = map[string]interface{}{"cascadeId": parentID}
+			startPayload["baseTrajectoryIdentifier"] = map[string]interface{}{"cascadeId": upstreamParentID}
 		}
 	}
 
@@ -779,6 +797,7 @@ func (p *Proxy) handleBtwStart(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	sideID := strings.TrimSpace(startRes.CascadeID)
+	RecordCascadeCreatedAtCurrentEpoch(sideID)
 
 	// Best-effort resolve forkStepIndex before sending when stepIndex was not explicitly specified.
 	if requestedForkStep == nil && parentID != "" && port > 0 {
