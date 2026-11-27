@@ -9,3 +9,11 @@ func initConsoleOS() {
 func consoleSupportsANSI() bool {
 	return true
 }
+
+func consoleUsesDistinctSpaceBG() bool {
+	return false
+}
+
+func consoleHasLegacyCJKFont() bool {
+	return false
+}

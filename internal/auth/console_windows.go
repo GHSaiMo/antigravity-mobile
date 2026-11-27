@@ -3,15 +3,70 @@
 package auth
 
 import (
+	"os"
+	"strings"
 	"sync/atomic"
 	"syscall"
 	"unsafe"
 )
 
-var consoleVTPUnsupported atomic.Bool
+var (
+	consoleVTPUnsupported atomic.Bool
+	consoleLegacyCJKFont  atomic.Bool
+)
 
 func consoleSupportsANSI() bool {
 	return !consoleVTPUnsupported.Load()
+}
+
+func consoleUsesDistinctSpaceBG() bool {
+	return consoleSupportsANSI()
+}
+
+func consoleHasLegacyCJKFont() bool {
+	return consoleLegacyCJKFont.Load()
+}
+
+type consoleCoord struct {
+	X int16
+	Y int16
+}
+
+// consoleFontInfoEx mirrors Win32 CONSOLE_FONT_INFOEX (84 bytes on 32/64-bit Windows).
+type consoleFontInfoEx struct {
+	cbSize     uint32
+	nFont      uint32
+	dwFontSize consoleCoord
+	fontFamily uint32
+	fontWeight uint32
+	faceName   [32]uint16
+}
+
+func isModernWindowsTerminalEnv() bool {
+	for _, key := range []string{"WT_SESSION", "TERM_PROGRAM", "ConEmuPID", "ANSICON"} {
+		if strings.TrimSpace(os.Getenv(key)) != "" {
+			return true
+		}
+	}
+	return false
+}
+
+func detectLegacyCJKConhostFont(kernel32 *syscall.LazyDLL, stdOutHandle uintptr) bool {
+	if isModernWindowsTerminalEnv() {
+		return false
+	}
+	getCurrentConsoleFontEx := kernel32.NewProc("GetCurrentConsoleFontEx")
+	if err := getCurrentConsoleFontEx.Find(); err != nil {
+		return false
+	}
+	var info consoleFontInfoEx
+	info.cbSize = uint32(unsafe.Sizeof(info))
+	r, _, _ := getCurrentConsoleFontEx.Call(stdOutHandle, 0, uintptr(unsafe.Pointer(&info)))
+	if r == 0 {
+		return false
+	}
+	face := syscall.UTF16ToString(info.faceName[:])
+	return isLegacyCJKConsoleFontName(face)
 }
 
 func initConsoleOS() {
@@ -44,6 +99,7 @@ func initConsoleOS() {
 				ok, _, _ := setConsoleMode.Call(h, uintptr(mode|enableVTP))
 				if handleID == stdOutputHandle {
 					consoleVTPUnsupported.Store(ok == 0)
+					consoleLegacyCJKFont.Store(detectLegacyCJKConhostFont(kernel32, h))
 				}
 			}
 		}

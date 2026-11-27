@@ -261,6 +261,30 @@ func qrSupportsANSI() bool {
 	return consoleSupportsANSI()
 }
 
+// isLegacyCJKConsoleFontName reports whether a Windows conhost.exe font face name
+// is a legacy CJK or raster font (such as NSimSun / 新宋体) whose U+2584 ('▄') glyph
+// is double-width or leaves a 1px descender hairline.
+func isLegacyCJKConsoleFontName(face string) bool {
+	trimmed := strings.TrimSpace(face)
+	if trimmed == "" {
+		// Legacy Raster Fonts report an empty face name in CONSOLE_FONT_INFOEX.
+		return true
+	}
+	lower := strings.ToLower(trimmed)
+	for _, needle := range []string{
+		"nsimsun", "simsun", "新宋体", "宋体",
+		"ms gothic", "ｍｓ ゴシック",
+		"mingliu", "細明體", "细明体",
+		"gulimche", "굴림체",
+		"terminal",
+	} {
+		if strings.Contains(lower, needle) {
+			return true
+		}
+	}
+	return false
+}
+
 // renderTerminalQRCode renders qr as compact half-height terminal output using only
 // ASCII space (' ') and LOWER HALF BLOCK ('▄', U+2584) with explicit ANSI black/bright-white
 // foreground and background colors.
@@ -271,6 +295,15 @@ func qrSupportsANSI() bool {
 // hollow missing-glyph boxes ('▯') and making the QR code unscannable. Using '▄' (present
 // in GBK / NSimSun) with inverted ANSI colors eliminates '▀' completely while also ensuring
 // high-contrast black-on-white rendering on both dark and light terminal themes.
+//
+// Crucially, under UTF-8 (CP65001) on Windows conhost.exe with NSimSun, '▄' advances 1 cell
+// logically while its GBK glyph paints 2 cells wide. If a trailing space cell (' ') shares
+// the same TextAttribute (or background color) as the preceding '▄', GdiEngine merges them
+// into one ExtTextOutW run and the wide '▄' bleeds 1 full module right, erasing the right
+// edge of all three finder patterns and leaking black dots into the quiet zone. Giving WW/BB
+// space cells strictly distinct foreground (and on Windows, 1/255-distinct TrueColor
+// background) forces a new ExtTextOutW(ETO_OPAQUE) run so the adjacent cell cleanly clips
+// any horizontal glyph overflow.
 func renderTerminalQRCode(qr *qrcode.QRCode) string {
 	if qr == nil {
 		return ""
@@ -281,17 +314,48 @@ func renderTerminalQRCode(qr *qrcode.QRCode) string {
 	return renderANSIHalfBlockQR(qr.Bitmap())
 }
 
+type qrANSIPalette struct {
+	ww string // white top + white bottom (' ')
+	bb string // black top + black bottom (' ')
+	bw string // black top + white bottom ('▄')
+	wb string // white top + black bottom ('▄')
+}
+
+var (
+	// Standard 16-color palette (POSIX / macOS Terminal.app / Linux TTY safe):
+	// explicit fg on space states prevents inheriting the preceding '▄' cell's fg.
+	qrPalette16 = qrANSIPalette{
+		ww: "\x1b[107;97m",
+		bb: "\x1b[40;30m",
+		bw: "\x1b[40;97m",
+		wb: "\x1b[107;30m",
+	}
+
+	// Windows TrueColor distinct-background palette (Win10 1703+ / Win11 conhost.exe & WT):
+	// space states use a 1/255-distinct background RGB (#FEFEFE vs #FFFFFF, #010101 vs #000000)
+	// AND distinct foreground RGB, guaranteeing conhost GdiEngine splits ExtTextOutW runs
+	// even under background-only blank-space coalescing while rendering uniform pure B/W.
+	qrPaletteDistinctSpaceBG = qrANSIPalette{
+		ww: "\x1b[48;2;254;254;254;38;2;255;255;255m",
+		bb: "\x1b[48;2;1;1;1;38;2;0;0;0m",
+		bw: "\x1b[48;2;0;0;0;38;2;255;255;255m",
+		wb: "\x1b[48;2;255;255;255;38;2;0;0;0m",
+	}
+)
+
 func renderANSIHalfBlockQR(bits [][]bool) string {
+	return renderANSIHalfBlockQRWithPalette(bits, consoleUsesDistinctSpaceBG())
+}
+
+func renderANSIHalfBlockQRWithPalette(bits [][]bool, distinctSpaceBG bool) string {
 	if len(bits) == 0 {
 		return ""
 	}
-	const (
-		sgrReset = "\x1b[0m"
-		sgrWW    = "\x1b[107m"    // white top + white bottom (bright white bg + space)
-		sgrBB    = "\x1b[40m"     // black top + black bottom (black bg + space)
-		sgrBW    = "\x1b[40;97m"  // black top + white bottom (black bg + bright white '▄')
-		sgrWB    = "\x1b[107;30m" // white top + black bottom (bright white bg + black '▄')
-	)
+	const sgrReset = "\x1b[0m"
+	pal := qrPalette16
+	if distinctSpaceBG {
+		pal = qrPaletteDistinctSpaceBG
+	}
 
 	var b strings.Builder
 	for y := 0; y < len(bits); y += 2 {
@@ -312,13 +376,13 @@ func renderANSIHalfBlockQR(bits [][]bool) string {
 			var sgr, ch string
 			switch {
 			case !topBlack && !botBlack:
-				sgr, ch = sgrWW, " "
+				sgr, ch = pal.ww, " "
 			case topBlack && botBlack:
-				sgr, ch = sgrBB, " "
+				sgr, ch = pal.bb, " "
 			case topBlack && !botBlack:
-				sgr, ch = sgrBW, "▄"
+				sgr, ch = pal.bw, "▄"
 			default: // !topBlack && botBlack
-				sgr, ch = sgrWB, "▄"
+				sgr, ch = pal.wb, "▄"
 			}
 
 			if sgr != lastSGR {
@@ -363,6 +427,12 @@ func FormatPairingQRCode(primaryHost string, port int, code string, ssl bool, ex
 		"  请使用 Multigravity 手机客户端扫描上方二维码\n",
 		"  Scan the QR code above using Multigravity mobile app\n",
 	))
+	if consoleHasLegacyCJKFont() {
+		b.WriteString(i18n.T(
+			"  💡 若旧版控制台扫码困难，可执行 `mgy pair -c` 复制链接到手机，或改用 Windows Terminal\n",
+			"  💡 Tip: if scanning fails in legacy console, run `mgy pair -c` to copy the link or use Windows Terminal\n",
+		))
+	}
 
 	if ssl || (strings.Contains(primaryHost, ".") && strings.ContainsAny(primaryHost, "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ")) {
 		if isRelayDomainLabel(primaryHost) {
@@ -445,6 +515,12 @@ func formatRawPairingQRCode(code string, uri string) string {
 			"  请使用 Multigravity 手机客户端扫描上方二维码\n",
 			"  Scan the QR code above using Multigravity mobile app\n",
 		))
+		if consoleHasLegacyCJKFont() {
+			b.WriteString(i18n.T(
+				"  💡 若旧版控制台扫码困难，可执行 `mgy pair -c` 复制链接到手机，或改用 Windows Terminal\n",
+				"  💡 Tip: if scanning fails in legacy console, run `mgy pair -c` to copy the link or use Windows Terminal\n",
+			))
+		}
 
 		if u, err := url.Parse(uri); err == nil {
 			q := u.Query()
