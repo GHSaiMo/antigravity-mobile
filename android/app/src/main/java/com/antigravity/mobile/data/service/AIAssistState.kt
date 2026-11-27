@@ -15,7 +15,6 @@ data class AIAssistPrefsPayload(
     val stepPlanTranslateEnabled: Boolean = false,
     val focusTranslateEnabled: Boolean = false,
     val nextPromptEnabled: Boolean = false,
-    val nextPromptTapAction: String = "fill",
     val postCompactRehydrateEnabled: Boolean = false
 )
 
@@ -92,11 +91,7 @@ object AIAssistCache {
     private val _statusFlow = MutableStateFlow(AIAssistStatusPayload())
     val statusFlow: StateFlow<AIAssistStatusPayload> = _statusFlow.asStateFlow()
 
-    @Volatile
-    private var lastFetchedAtMs: Long = 0L
-
     fun update(status: AIAssistStatusPayload) {
-        lastFetchedAtMs = System.currentTimeMillis()
         _statusFlow.value = status
     }
 
@@ -107,11 +102,5 @@ object AIAssistCache {
     suspend fun refresh(apiClient: ApiClient?): Result<AIAssistStatusPayload> {
         val client = apiClient ?: return Result.failure(IllegalStateException("ApiClient unavailable"))
         return client.fetchAIAssistStatus().onSuccess { update(it) }
-    }
-
-    suspend fun ensureFetched(apiClient: ApiClient?) {
-        val now = System.currentTimeMillis()
-        if (now - lastFetchedAtMs < 300_000L && lastFetchedAtMs > 0L) return
-        refresh(apiClient)
     }
 }

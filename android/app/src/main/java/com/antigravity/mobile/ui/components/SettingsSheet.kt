@@ -3123,40 +3123,6 @@ private fun AIAssistSubpageContent(
                         )
                     }
                 )
-
-                if (prefs.nextPromptEnabled) {
-                    HorizontalDivider(color = colors.separator.copy(alpha = 0.35f), thickness = 0.5.dp, modifier = Modifier.padding(start = 16.dp))
-                    val fillLabel = when (L10n.currentLang) {
-                        L10n.AppLang.EN -> "Fill Input Box"
-                        L10n.AppLang.JA -> "入力欄に挿入"
-                        L10n.AppLang.ZH -> "填入输入框"
-                    }
-                    val sendLabel = when (L10n.currentLang) {
-                        L10n.AppLang.EN -> "Send Immediately"
-                        L10n.AppLang.JA -> "そのまま送信"
-                        L10n.AppLang.ZH -> "直接发送"
-                    }
-                    SettingsMenuPickerRow(
-                        label = when (L10n.currentLang) {
-                            L10n.AppLang.EN -> "On Suggestion Tap"
-                            L10n.AppLang.JA -> "提案タップ時の動作"
-                            L10n.AppLang.ZH -> "点击建议胶囊"
-                        },
-                        selectedLabel = if (prefs.nextPromptTapAction == "send") sendLabel else fillLabel,
-                        selectedId = prefs.nextPromptTapAction,
-                        options = listOf(
-                            PickerMenuOption("fill", fillLabel),
-                            PickerMenuOption("send", sendLabel)
-                        ),
-                        onSelect = { chosen ->
-                            applyPatch(
-                                prefs.copy(nextPromptTapAction = chosen),
-                                buildJsonObject { put("nextPromptTapAction", chosen) }
-                            )
-                        },
-                        enabled = isPaired
-                    )
-                }
             }
         }
 

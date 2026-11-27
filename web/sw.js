@@ -1,8 +1,8 @@
-const CACHE_NAME = "antigravity-mobile-v86";
+const CACHE_NAME = "antigravity-mobile-v87";
 const ASSETS = [
   "/",
   "/index.html",
-  "/style.css?v=72",
+  "/style.css?v=73",
   "/js/i18n.js?v=14",
   "/js/e2ee.js?v=1",
   "/js/core.js?v=44",
@@ -22,10 +22,10 @@ const ASSETS = [
   "/js/subagents.js?v=6",
   "/js/swarm.js?v=6",
   "/js/egg.js?v=1",
-  "/js/phase3.js?v=10",
+  "/js/phase3.js?v=11",
   "/js/v233.js?v=10",
   "/js/phase4.js?v=2",
-  "/js/init.js?v=50",
+  "/js/init.js?v=51",
   "/manifest.json",
   "/manifest-en.json",
   "/manifest-ja.json",

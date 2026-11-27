@@ -8976,7 +8976,7 @@ body.font-comfortable pre, body.font-comfortable code {
   display: inline-flex;
   align-items: flex-start;
   min-height: 32px;
-  max-width: var(--suggest-max-w, max(150px, calc(100vw - 196px)));
+  max-width: var(--suggest-max-w, max(180px, calc(100vw - 80px)));
   margin: 0 4px 0 0;
   box-sizing: border-box;
   border-radius: 10px;
@@ -8984,8 +8984,32 @@ body.font-comfortable pre, body.font-comfortable code {
   border: 1px solid color-mix(in srgb, var(--ios-indigo) 35%, transparent);
   color: var(--ios-indigo);
   flex-shrink: 0;
+  transition: transform 0.14s ease, border-color 0.14s ease;
+}
+.suggest-chip.is-holding {
+  transform: scale(0.98);
+  border-color: color-mix(in srgb, var(--ios-indigo) 78%, transparent);
+}
+.suggest-chip-progress-wrap {
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  overflow: hidden;
+  pointer-events: none;
+  z-index: 0;
+}
+.suggest-chip-progress-fill {
+  width: 100%;
+  height: 100%;
+  background: color-mix(in srgb, var(--ios-indigo) 22%, transparent);
+  box-shadow: inset 0 -2.5px 0 var(--ios-indigo);
+  transform-origin: left center;
+  transform: scaleX(0);
+  will-change: transform;
 }
 .suggest-chip-main {
+  position: relative;
+  z-index: 1;
   display: inline-flex;
   align-items: flex-start;
   gap: 5px;
@@ -9001,6 +9025,9 @@ body.font-comfortable pre, body.font-comfortable code {
   line-height: 1.4;
   text-align: left;
   cursor: pointer;
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-touch-callout: none;
 }
 .suggest-chip-main span {
   white-space: pre-wrap;
@@ -9017,6 +9044,7 @@ body.font-comfortable pre, body.font-comfortable code {
   position: absolute;
   top: -5px;
   right: -5px;
+  z-index: 2;
   display: inline-flex;
   align-items: center;
   justify-content: center;

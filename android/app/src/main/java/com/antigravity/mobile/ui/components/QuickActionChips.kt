@@ -1,6 +1,7 @@
 package com.antigravity.mobile.ui.components
 
 import android.animation.ValueAnimator
+import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.animateFloat
@@ -13,6 +14,8 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.gestures.detectDragGesturesAfterLongPress
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
@@ -31,6 +34,7 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.geometry.CornerRadius
@@ -38,10 +42,14 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.compositeOver
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.graphicsLayer
 import kotlin.math.PI
 import kotlin.math.cos
 import kotlin.math.sin
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.boundsInRoot
 import androidx.compose.ui.layout.onGloballyPositioned
@@ -80,6 +88,7 @@ fun QuickActionChips(
     suggestedResponses: List<String> = emptyList(),
     isPredictedSuggestion: Boolean = false,
     onSelectSuggestion: (String) -> Unit = {},
+    onSendSuggestion: (String) -> Unit = {},
     onDismissSuggestion: (String) -> Unit = {},
     selectedSlashCommands: List<SlashCommandOption> = emptyList(),
     onRemoveSlashCommand: (SlashCommandOption) -> Unit = {},
@@ -117,13 +126,12 @@ fun QuickActionChips(
     var workflowChipBoundsInRoot by remember { mutableStateOf(Rect.Zero) }
     var commitChipBoundsInRoot by remember { mutableStateOf(Rect.Zero) }
     var rowViewportWidthDp by remember { mutableStateOf(0.dp) }
-    var modelChipWidthDp by remember { mutableStateOf(104.dp) }
     val latestWorkflowTemplates by rememberUpdatedState(workflowTemplates)
     val maxSuggestionBubbleWidth = if (rowViewportWidthDp > 0.dp) {
-        // 34dp (+) + 8dp*2 间距 + 4dp 右上角小叉预留 + 模型胶囊宽度；保证首行铺满 [+] 与模型之间
-        (rowViewportWidthDp - 34.dp - 16.dp - 4.dp - modelChipWidthDp).coerceAtLeast(146.dp)
+        // 34dp (+) + 8dp 间距 + 6dp 右上角小叉留白；优先单行向右延伸挤出模型胶囊，占满可视宽度后再折行
+        (rowViewportWidthDp - 34.dp - 8.dp - 6.dp).coerceAtLeast(180.dp)
     } else {
-        216.dp
+        300.dp
     }
 
     val context = androidx.compose.ui.platform.LocalContext.current
@@ -189,15 +197,17 @@ fun QuickActionChips(
             )
         }
 
-        // 1b. 建议回复气泡（留在 + 与模型按钮之间；先占满中间宽度，超长原地向下折成 2～3 行完整展示）
+        // 1b. 建议回复气泡（短按填入输入框，长按 1 秒带进度条防呆直发；优先单行向右延伸挤出模型胶囊，占满可视宽度后再折行）
         suggestedResponses.forEach { suggestion ->
             SuggestedReplyChip(
                 text = suggestion,
                 isPredicted = isPredictedSuggestion,
                 maxBubbleWidth = maxSuggestionBubbleWidth,
-                onSelect = {
-                    haptic.light()
+                onTapFill = {
                     onSelectSuggestion(suggestion)
+                },
+                onHoldSend = {
+                    onSendSuggestion(suggestion)
                 },
                 onDismiss = {
                     haptic.light()
@@ -258,10 +268,6 @@ fun QuickActionChips(
                         val rect = coords.boundsInRoot()
                         chipBoundsInRoot = rect
                         modelSlidePickerState?.anchorRect = rect
-                        val measured = with(density) { coords.size.width.toDp() }
-                        if (measured > 0.dp && kotlin.math.abs((measured - modelChipWidthDp).value) > 0.5f) {
-                            modelChipWidthDp = measured
-                        }
                     }
                     .then(
                         if (isXHighActive) {
@@ -278,11 +284,18 @@ fun QuickActionChips(
                     .clip(chipShape)
                     .then(
                         if (isXHighActive) {
+                            // Pre-composite the translucent tint onto the opaque surface color so
+                            // Android's RenderNode elevation shadow (Modifier.shadow) cannot bleed
+                            // through the interior and expose its opaque-occluder cutout rectangle.
                             Modifier.background(
                                 Brush.linearGradient(
                                     colors = listOf(
-                                        xhighCosmicStart.copy(alpha = if (colors.isDark) 0.34f else 0.14f),
-                                        xhighGlowColor.copy(alpha = if (colors.isDark) 0.22f else 0.12f)
+                                        xhighCosmicStart
+                                            .copy(alpha = if (colors.isDark) 0.34f else 0.14f)
+                                            .compositeOver(colors.surface),
+                                        xhighGlowColor
+                                            .copy(alpha = if (colors.isDark) 0.22f else 0.12f)
+                                            .compositeOver(colors.surface)
                                     )
                                 )
                             )
@@ -296,6 +309,7 @@ fun QuickActionChips(
                                 drawContent()
                                 val strokePx = 1.35.dp.toPx()
                                 val radiusPx = 10.dp.toPx()
+                                val innerRadius = (radiusPx - strokePx / 2f).coerceAtLeast(0f)
                                 val rad = xhighRimAngle * (PI / 180.0)
                                 val dx = (cos(rad) * size.width * 0.65).toFloat()
                                 val dy = (sin(rad) * size.height * 1.4).toFloat()
@@ -311,7 +325,7 @@ fun QuickActionChips(
                                         size.width - strokePx,
                                         size.height - strokePx
                                     ),
-                                    cornerRadius = CornerRadius(radiusPx, radiusPx),
+                                    cornerRadius = CornerRadius(innerRadius, innerRadius),
                                     style = Stroke(width = strokePx)
                                 )
                             }
@@ -657,18 +671,26 @@ fun QuickActionChips(
     }
 }
 
-/** 建议回复气泡按钮：留在 `+` 与模型按钮之间，圆角 10、右上角带小叉；单行 32dp 起，先占满中间宽度，超长原地向下折成多行完整显示。 */
+/** 建议回复气泡按钮：优先沿首行向右延伸（可挤出模型胶囊），占满可视宽度后再折成多行完整展示，右上角带小叉；短按填入输入框，长按 1 秒带实时进度条防呆直发。 */
 @Composable
 private fun SuggestedReplyChip(
     text: String,
     isPredicted: Boolean,
     maxBubbleWidth: Dp,
-    onSelect: () -> Unit,
+    onTapFill: () -> Unit,
+    onHoldSend: () -> Unit,
     onDismiss: () -> Unit,
     modifier: Modifier = Modifier
 ) {
     val colors = AntigravityTheme.colors
+    val haptic = com.antigravity.mobile.ui.util.rememberHaptic()
     val shape = RoundedCornerShape(10.dp)
+    val holdProgress = remember { Animatable(0f) }
+    var isHoldEngaged by remember { mutableStateOf(false) }
+    val latestOnTapFill by rememberUpdatedState(onTapFill)
+    val latestOnHoldSend by rememberUpdatedState(onHoldSend)
+    val scope = rememberCoroutineScope()
+
     Box(
         modifier = modifier.padding(end = 4.dp)
     ) {
@@ -676,10 +698,89 @@ private fun SuggestedReplyChip(
             modifier = Modifier
                 .defaultMinSize(minHeight = 32.dp)
                 .widthIn(max = maxBubbleWidth)
+                .graphicsLayer {
+                    val s = if (isHoldEngaged) 0.98f else 1f
+                    scaleX = s
+                    scaleY = s
+                }
                 .clip(shape)
                 .background(colors.accentIndigo.copy(alpha = 0.12f))
-                .border(1.dp, colors.accentIndigo.copy(alpha = 0.35f), shape)
-                .clickable(onClick = onSelect)
+                .drawBehind {
+                    val p = holdProgress.value
+                    if (p > 0.001f) {
+                        val w = size.width * p
+                        drawRect(
+                            color = colors.accentIndigo.copy(alpha = 0.22f),
+                            topLeft = Offset.Zero,
+                            size = androidx.compose.ui.geometry.Size(w, size.height)
+                        )
+                        val barH = 2.5.dp.toPx()
+                        drawRect(
+                            color = colors.accentIndigo,
+                            topLeft = Offset(0f, size.height - barH),
+                            size = androidx.compose.ui.geometry.Size(w, barH)
+                        )
+                    }
+                }
+                .border(
+                    width = if (isHoldEngaged) 1.25.dp else 1.dp,
+                    color = colors.accentIndigo.copy(alpha = if (isHoldEngaged) 0.78f else 0.35f),
+                    shape = shape
+                )
+                .pointerInput(text) {
+                    awaitEachGesture {
+                        val down = awaitFirstDown(requireUnconsumed = false)
+                        val touchSlop = viewConfiguration.touchSlop
+                        var cancelled = false
+                        var completed = false
+                        var engaged = false
+
+                        val holdJob = scope.launch {
+                            delay(160L)
+                            engaged = true
+                            isHoldEngaged = true
+                            haptic.light()
+                            holdProgress.snapTo(0f)
+                            holdProgress.animateTo(
+                                targetValue = 1f,
+                                animationSpec = tween(durationMillis = 840, easing = LinearEasing)
+                            )
+                            completed = true
+                            isHoldEngaged = false
+                            haptic.medium()
+                            latestOnHoldSend()
+                            holdProgress.snapTo(0f)
+                        }
+
+                        while (true) {
+                            val event = awaitPointerEvent()
+                            val change = event.changes.firstOrNull { it.id == down.id }
+                            if (change == null || !change.pressed) {
+                                break
+                            }
+                            if (change.isConsumed || (change.position - down.position).getDistance() > touchSlop) {
+                                cancelled = true
+                                break
+                            }
+                            if (completed) {
+                                change.consume()
+                                break
+                            }
+                        }
+
+                        holdJob.cancel()
+                        if (!completed) {
+                            isHoldEngaged = false
+                            scope.launch {
+                                holdProgress.animateTo(0f, animationSpec = tween(durationMillis = 160))
+                            }
+                            if (!cancelled && !engaged) {
+                                haptic.light()
+                                latestOnTapFill()
+                            }
+                        }
+                    }
+                }
                 .padding(start = 11.dp, end = 14.dp, top = 7.dp, bottom = 7.dp),
             verticalAlignment = Alignment.Top,
             horizontalArrangement = Arrangement.spacedBy(5.dp)

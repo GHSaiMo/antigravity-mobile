@@ -8,7 +8,6 @@ public struct AIAssistPrefsPayload: Codable, Equatable, Sendable {
     public var stepPlanTranslateEnabled: Bool
     public var focusTranslateEnabled: Bool
     public var nextPromptEnabled: Bool
-    public var nextPromptTapAction: String
     public var postCompactRehydrateEnabled: Bool
 
     public static let defaultValue = AIAssistPrefsPayload(
@@ -18,7 +17,6 @@ public struct AIAssistPrefsPayload: Codable, Equatable, Sendable {
         stepPlanTranslateEnabled: false,
         focusTranslateEnabled: false,
         nextPromptEnabled: false,
-        nextPromptTapAction: "fill",
         postCompactRehydrateEnabled: false
     )
 
@@ -29,7 +27,6 @@ public struct AIAssistPrefsPayload: Codable, Equatable, Sendable {
         stepPlanTranslateEnabled: Bool = false,
         focusTranslateEnabled: Bool = false,
         nextPromptEnabled: Bool = false,
-        nextPromptTapAction: String = "fill",
         postCompactRehydrateEnabled: Bool = false
     ) {
         self.titleTranslateEnabled = titleTranslateEnabled
@@ -38,14 +35,13 @@ public struct AIAssistPrefsPayload: Codable, Equatable, Sendable {
         self.stepPlanTranslateEnabled = stepPlanTranslateEnabled
         self.focusTranslateEnabled = focusTranslateEnabled
         self.nextPromptEnabled = nextPromptEnabled
-        self.nextPromptTapAction = nextPromptTapAction
         self.postCompactRehydrateEnabled = postCompactRehydrateEnabled
     }
 
     enum CodingKeys: String, CodingKey {
         case titleTranslateEnabled, titleTranslateLang, titleTranslateLangName
         case stepPlanTranslateEnabled, focusTranslateEnabled
-        case nextPromptEnabled, nextPromptTapAction, postCompactRehydrateEnabled
+        case nextPromptEnabled, postCompactRehydrateEnabled
     }
 
     public init(from decoder: Decoder) throws {
@@ -56,7 +52,6 @@ public struct AIAssistPrefsPayload: Codable, Equatable, Sendable {
         self.stepPlanTranslateEnabled = try c.decodeIfPresent(Bool.self, forKey: .stepPlanTranslateEnabled) ?? false
         self.focusTranslateEnabled = try c.decodeIfPresent(Bool.self, forKey: .focusTranslateEnabled) ?? false
         self.nextPromptEnabled = try c.decodeIfPresent(Bool.self, forKey: .nextPromptEnabled) ?? false
-        self.nextPromptTapAction = try c.decodeIfPresent(String.self, forKey: .nextPromptTapAction) ?? "fill"
         self.postCompactRehydrateEnabled = try c.decodeIfPresent(Bool.self, forKey: .postCompactRehydrateEnabled) ?? false
     }
 }
@@ -133,16 +128,7 @@ public final class AIAssistManager {
     public private(set) var isLoading: Bool = false
     public private(set) var syncError: String? = nil
 
-    private var lastFetchedAt: Date? = nil
-
     private init() {}
-
-    public func ensureFetched() async {
-        if let last = lastFetchedAt, Date().timeIntervalSince(last) < 300 {
-            return
-        }
-        await fetchStatus()
-    }
 
     public var deviceLanguage: DeviceTitleTargetLanguage {
         DeviceTitleTargetLanguage.current()
@@ -195,7 +181,6 @@ public final class AIAssistManager {
     }
 
     private func applyStatus(_ status: AIAssistStatusPayload) {
-        self.lastFetchedAt = Date()
         self.prefs = status.prefs
         if let name = status.modelName, !name.isEmpty {
             self.modelName = name
@@ -271,14 +256,6 @@ public final class AIAssistManager {
         var next = prefs
         next.nextPromptEnabled = enabled
         await patchPrefs(optimistic: next, previous: prev, body: ["nextPromptEnabled": enabled])
-    }
-
-    public func setNextPromptTapAction(_ action: String) async {
-        let normalized = (action == "send") ? "send" : "fill"
-        let prev = prefs
-        var next = prefs
-        next.nextPromptTapAction = normalized
-        await patchPrefs(optimistic: next, previous: prev, body: ["nextPromptTapAction": normalized])
     }
 
     public func setPostCompactRehydrateEnabled(_ enabled: Bool) async {

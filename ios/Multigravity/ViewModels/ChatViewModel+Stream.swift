@@ -105,9 +105,6 @@ extension ChatViewModel {
         if self.suggestedResponseSource != incomingSource {
             self.suggestedResponseSource = incomingSource
         }
-        if incomingSource == "predicted" {
-            Task { await AIAssistManager.shared.ensureFetched() }
-        }
         if self.activeFocus != payload.activeFocus {
             self.activeFocus = payload.activeFocus
         }

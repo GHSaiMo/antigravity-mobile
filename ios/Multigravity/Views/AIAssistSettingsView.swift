@@ -179,20 +179,6 @@ struct AIAssistSettingsView: View {
                     }
                 }
                 .disabled(settings.isDemoMode || !manager.isAvailable)
-
-                if manager.prefs.nextPromptEnabled {
-                    Picker("点击建议胶囊", selection: Binding(
-                        get: { manager.prefs.nextPromptTapAction },
-                        set: { newVal in
-                            UIImpactFeedbackGenerator(style: .light).impactOccurred()
-                            Task { await manager.setNextPromptTapAction(newVal) }
-                        }
-                    )) {
-                        Text("填入输入框").tag("fill")
-                        Text("直接发送").tag("send")
-                    }
-                    .disabled(settings.isDemoMode)
-                }
             }
 
             // MARK: - 3. 压缩后上下文回灌 (Post-Compact Rehydration)

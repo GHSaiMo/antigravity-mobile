@@ -22855,6 +22855,28 @@
         }
       }
     },
+    "提示词建议胶囊": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Prompt Suggestion Pill"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "プロンプト提案カプセル"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "提示词建议胶囊"
+          }
+        }
+      }
+    },
     "提醒内容": {
       "extractionState": "manual",
       "localizations": {
@@ -31841,6 +31863,28 @@
         }
       }
     },
+    "短按建议胶囊可将其填入输入框方便修改；长按 1 秒待进度条走满后直接发送，提前松手即可取消防误触。": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tap a suggestion pill to fill the input box for editing; hold for 1 second until the progress bar completes to send directly, or release early to cancel."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "提案カプセルを短押しすると入力欄に挿入されます。1 秒間長押ししてプログレスバーが満タンになるとそのまま送信され、途中で離すとキャンセルされます。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "短按建议胶囊可将其填入输入框方便修改；长按 1 秒待进度条走满后直接发送，提前松手即可取消防误触。"
+          }
+        }
+      }
+    },
     "短按开始实时语音对话，按住说话可进行流式听写": {
       "localizations": {
         "en": {
@@ -37574,6 +37618,28 @@
           "stringUnit": {
             "state": "translated",
             "value": "轻按输入框底部的模型胶囊，在已设定的首选与次选模型（如 Gemini / Claude）之间一键极速轮换。"
+          }
+        }
+      }
+    },
+    "轻点填入输入框，长按 1 秒直接发送": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tap to fill input box, hold 1 second to send directly"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "タップで入力欄に挿入、1秒長押しでそのまま送信"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "轻点填入输入框，长按 1 秒直接发送"
           }
         }
       }

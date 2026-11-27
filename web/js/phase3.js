@@ -1833,9 +1833,6 @@
       }
       this.suggestedResponses = incoming;
       this.suggestedResponseSource = incomingSource;
-      if (incomingSource === "predicted" && window.AIAssist?.ensureLoaded) {
-        window.AIAssist.ensureLoaded();
-      }
       this.renderSuggestedResponses();
     },
 
@@ -1851,14 +1848,15 @@
       const bar = document.getElementById("suggested-responses-bar");
       const qaBar = document.getElementById("quick-actions-bar");
       const addBtn = document.getElementById("btn-add-image");
-      const modelBtn = document.getElementById("btn-model-switch");
-      if (!bar || !qaBar || !addBtn || !modelBtn) return;
+      if (!bar || !qaBar || !addBtn) return;
       const barW = qaBar.clientWidth || 0;
       if (barW <= 0) return;
+      const cs = window.getComputedStyle(qaBar);
+      const padL = parseFloat(cs.paddingLeft) || 0;
+      const padR = parseFloat(cs.paddingRight) || 0;
       const addW = addBtn.offsetWidth || 34;
-      const modelW = modelBtn.offsetWidth || 100;
-      // 8px gap after +, 4px chip margin-right for dismiss badge, 8px gap before model chip
-      const maxW = Math.max(150, Math.floor(barW - addW - modelW - 20));
+      // 8px gap after +, 6px right clearance for dismiss badge; extends past model pill before wrapping
+      const maxW = Math.max(180, Math.floor(barW - padL - padR - addW - 14));
       bar.style.setProperty("--suggest-max-w", `${maxW}px`);
     },
 
@@ -1884,27 +1882,125 @@
         : "";
       bar.innerHTML = visible.map((text, idx) => `
         <div class="suggest-chip${isPredicted ? " is-predicted" : ""}">
+          <div class="suggest-chip-progress-wrap" aria-hidden="true"><div class="suggest-chip-progress-fill"></div></div>
           <button type="button" class="suggest-chip-main" data-suggest-idx="${idx}" title="${escapeHtml(text)}">${sparkleSvg}<span>${escapeHtml(text)}</span></button>
           <button type="button" class="suggest-chip-clear" data-suggest-dismiss="${idx}" aria-label="关闭建议">&times;</button>
         </div>`).join("");
+
+      const HOLD_GRACE_MS = 160;
+      const HOLD_FILL_MS = 840; // 160 + 840 = 1000ms (1s)
+      const MOVE_SLOP_PX = 10;
+
+      const fillSuggestion = (text) => {
+        if (!text || !inputEl) return;
+        this.dismissedPredictedSuggestion = text;
+        inputEl.value = text;
+        inputEl.dispatchEvent(new Event("input", { bubbles: true }));
+        inputEl.focus();
+        this.renderSuggestedResponses();
+      };
+
+      const sendSuggestionDirectly = (text) => {
+        if (!text || !inputEl) return;
+        inputEl.value = text;
+        this.suggestedResponses = [];
+        this.suggestedResponseSource = "";
+        this.dismissedPredictedSuggestion = null;
+        this.renderSuggestedResponses();
+        sendMessage?.();
+      };
+
       bar.querySelectorAll("[data-suggest-idx]").forEach((btn) => {
-        btn.addEventListener("click", () => {
-          const text = visible[Number(btn.getAttribute("data-suggest-idx"))];
-          if (!text || !inputEl) return;
-          const sendDirectly = (window.AIAssist?.getTapAction?.() || "fill") === "send";
-          if (sendDirectly) {
-            inputEl.value = text;
-            this.suggestedResponses = [];
-            this.suggestedResponseSource = "";
-            this.dismissedPredictedSuggestion = null;
-            this.renderSuggestedResponses();
-            sendMessage?.();
-          } else {
-            this.dismissedPredictedSuggestion = text;
-            inputEl.value = text;
-            inputEl.dispatchEvent(new Event("input", { bubbles: true }));
-            inputEl.focus();
-            this.renderSuggestedResponses();
+        const chipEl = btn.closest(".suggest-chip");
+        const fillEl = chipEl?.querySelector(".suggest-chip-progress-fill");
+        const text = visible[Number(btn.getAttribute("data-suggest-idx"))];
+        let activePointerId = null;
+        let startX = 0;
+        let startY = 0;
+        let graceTimer = 0;
+        let sendTimer = 0;
+        let engaged = false;
+        let completed = false;
+        let moved = false;
+
+        const resetProgress = (animated) => {
+          if (graceTimer) { clearTimeout(graceTimer); graceTimer = 0; }
+          if (sendTimer) { clearTimeout(sendTimer); sendTimer = 0; }
+          chipEl?.classList.remove("is-holding");
+          if (fillEl) {
+            fillEl.style.transition = animated ? "transform 160ms ease-out" : "none";
+            fillEl.style.transform = "scaleX(0)";
+          }
+        };
+
+        btn.addEventListener("contextmenu", (e) => e.preventDefault());
+
+        btn.addEventListener("pointerdown", (e) => {
+          if (e.pointerType === "mouse" && e.button !== 0) return;
+          activePointerId = e.pointerId;
+          startX = e.clientX;
+          startY = e.clientY;
+          engaged = false;
+          completed = false;
+          moved = false;
+          resetProgress(false);
+
+          graceTimer = setTimeout(() => {
+            graceTimer = 0;
+            if (activePointerId === null || moved || completed) return;
+            engaged = true;
+            chipEl?.classList.add("is-holding");
+            if (fillEl) {
+              fillEl.style.transition = "none";
+              fillEl.style.transform = "scaleX(0)";
+              void fillEl.offsetWidth;
+              fillEl.style.transition = `transform ${HOLD_FILL_MS}ms linear`;
+              fillEl.style.transform = "scaleX(1)";
+            }
+            sendTimer = setTimeout(() => {
+              sendTimer = 0;
+              if (activePointerId === null || moved) return;
+              completed = true;
+              activePointerId = null;
+              chipEl?.classList.remove("is-holding");
+              try { navigator.vibrate?.(20); } catch (_) {}
+              sendSuggestionDirectly(text);
+            }, HOLD_FILL_MS);
+          }, HOLD_GRACE_MS);
+        });
+
+        btn.addEventListener("pointermove", (e) => {
+          if (activePointerId !== e.pointerId) return;
+          const dx = e.clientX - startX;
+          const dy = e.clientY - startY;
+          if (Math.hypot(dx, dy) > MOVE_SLOP_PX) {
+            moved = true;
+            activePointerId = null;
+            resetProgress(true);
+          }
+        });
+
+        const endPointer = (e, isCancel) => {
+          if (activePointerId !== e.pointerId) return;
+          activePointerId = null;
+          if (completed) return;
+          const wasEngaged = engaged;
+          const wasMoved = moved;
+          resetProgress(wasEngaged);
+          if (!isCancel && !wasMoved && !wasEngaged) {
+            fillSuggestion(text);
+          }
+        };
+
+        btn.addEventListener("pointerup", (e) => endPointer(e, false));
+        btn.addEventListener("pointercancel", (e) => endPointer(e, true));
+        btn.addEventListener("pointerleave", (e) => {
+          if (e.pointerType === "mouse") endPointer(e, true);
+        });
+        btn.addEventListener("keydown", (e) => {
+          if (e.key === "Enter" || e.key === " ") {
+            e.preventDefault();
+            fillSuggestion(text);
           }
         });
       });

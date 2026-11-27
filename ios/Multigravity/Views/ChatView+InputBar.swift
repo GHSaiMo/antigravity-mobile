@@ -60,7 +60,7 @@ extension ChatView {
                         viewModel.openMentionPicker()
                     }
 
-                    // 1b. 建议回复气泡（留在 + 与模型按钮之间；先占满中间宽度，超长原地向下折成 2～3 行完整展示）
+                    // 1b. 建议回复气泡（短按填入输入框，长按 1 秒带进度条防呆直发；优先单行向右延伸挤出模型胶囊，占满可视宽度后再折行）
                     ChatSuggestedReplyChipsHost(
                         viewModel: viewModel,
                         isInputFocused: $isInputFocused,
@@ -68,7 +68,6 @@ extension ChatView {
                         onSendSuggestion: { chosen in
                             guard !viewModel.isSending else { return }
                             guard viewModel.settings.serverURL != nil else { return }
-                            UIImpactFeedbackGenerator(style: .light).impactOccurred()
                             scrollHUD.hasUserInteracted = false
                             viewModel.suggestedResponses = []
                             viewModel.suggestedResponseSource = ""
@@ -99,13 +98,6 @@ extension ChatView {
                             }
                         }
                     )
-                    .onGeometryChange(for: CGFloat.self) { proxy in
-                        proxy.size.width
-                    } action: { newWidth in
-                        if newWidth > 0, abs(modelChipWidth - newWidth) > 0.5 {
-                            modelChipWidth = newWidth
-                        }
-                    }
 
                     // 2a. 已选中的斜杠命令胶囊（按选择顺序排在模型与 Workflow 之间，样式同高对齐，右上角带小叉，轻点移除单个）
                     ForEach(viewModel.selectedSlashCommands) { command in
@@ -390,12 +382,13 @@ extension ChatView {
         modelChipForegroundColor.opacity(0.35)
     }
 
-    /// 建议气泡在 `+` 与模型按钮之间可用的最大宽度：先铺满首行中间区域，超出后在原地向下折行。
+    /// 建议气泡的最大宽度：优先沿首行向右延伸（顺势将模型胶囊挤出可视区），
+    /// 直至占满 `+` 右侧整行可视宽度仍放不下时，再原地折成多行完整展示。
     private var suggestedChipMaxWidth: CGFloat {
-        guard inputBarRowWidth > 0 else { return 220 }
-        // 16pt*2 外边距 + 34pt (+) + 8pt*2 间距 + 模型胶囊宽度
-        let available = inputBarRowWidth - 32 - 34 - 16 - modelChipWidth
-        return max(150, available)
+        guard inputBarRowWidth > 0 else { return 300 }
+        // 16pt 左侧外边距 + 34pt (+) + 8pt 间距 + 16pt 右侧可视留白 = 74pt
+        let available = inputBarRowWidth - 74
+        return max(180, available)
     }
 }
 
@@ -800,15 +793,13 @@ private struct ChatSuggestedReplyChipsHost: View {
                 SuggestedReplyChipView(
                     text: text,
                     isPredicted: viewModel.isPredictedSuggestion,
-                    onSelect: {
-                        let shouldSendDirectly = AIAssistManager.shared.prefs.nextPromptTapAction == "send"
-                        if shouldSendDirectly {
-                            onSendSuggestion(text)
-                        } else {
-                            viewModel.dismissedPredictedSuggestion = text
-                            viewModel.inputText = text
-                            isInputFocused = true
-                        }
+                    onTapFill: {
+                        viewModel.dismissedPredictedSuggestion = text
+                        viewModel.inputText = text
+                        isInputFocused = true
+                    },
+                    onHoldSend: {
+                        onSendSuggestion(text)
                     },
                     onDismiss: {
                         withAnimation(.easeInOut(duration: 0.15)) {
@@ -825,48 +816,160 @@ private struct ChatSuggestedReplyChipsHost: View {
     }
 }
 
-/// 建议回复气泡按钮：留在 `+` 与模型按钮之间；先占满首行中间宽度，超长原地向下折成两行/三行完整展示，右上角带小叉，点击按设置填入输入框（默认）或直接发出。
+/// 建议回复气泡按钮：优先沿首行向右延伸（可把模型胶囊挤出可视区），占满整行后再折成多行完整展示，右上角带小叉；
+/// 短按填入输入框，长按 1 秒配合实时进度条防呆确认后直接发送，提前松手自动取消。
 private struct SuggestedReplyChipView: View {
     let text: String
     let isPredicted: Bool
-    let onSelect: () -> Void
+    let onTapFill: () -> Void
+    let onHoldSend: () -> Void
     let onDismiss: () -> Void
 
-    var body: some View {
-        Button {
-            UIImpactFeedbackGenerator(style: .light).impactOccurred()
-            onSelect()
-        } label: {
-            HStack(alignment: .top, spacing: 5) {
-                if isPredicted {
-                    Image(systemName: "sparkles")
-                        .font(.system(size: 11.5, weight: .semibold))
-                        .opacity(0.95)
-                        .padding(.top, 2.5)
-                        .fixedSize()
-                }
-                Text(text)
-                    .font(.system(size: 13, weight: .medium))
-                    .lineSpacing(2)
-                    .multilineTextAlignment(.leading)
-                    .fixedSize(horizontal: false, vertical: true)
+    @State private var isPressing = false
+    @State private var holdEngaged = false
+    @State private var didTriggerHoldSend = false
+    @State private var holdProgress: CGFloat = 0
+    @State private var holdGraceTask: Task<Void, Never>? = nil
+
+    private static let totalHoldDuration: Double = 1.0
+    private static let visualGraceDelay: Double = 0.16
+    private static let fillAnimationDuration: Double = 0.84 // 0.16 + 0.84 = 1.00s
+
+    private func resetHoldVisuals(animated: Bool) {
+        holdGraceTask?.cancel()
+        holdGraceTask = nil
+        isPressing = false
+        if animated {
+            withAnimation(.easeOut(duration: 0.18)) {
+                holdProgress = 0
             }
-            .foregroundColor(.indigo)
-            .padding(.leading, 11)
-            .padding(.trailing, 14)
-            .padding(.vertical, 7)
-            .frame(minHeight: 32, alignment: .leading)
-            .background(Color.indigo.opacity(0.12))
-            .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
-            .overlay(
-                RoundedRectangle(cornerRadius: 10, style: .continuous)
-                    .stroke(Color.indigo.opacity(0.35), lineWidth: 1)
-            )
-            .contentShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+        } else {
+            holdProgress = 0
         }
-        .buttonStyle(.plain)
+    }
+
+    var body: some View {
+        HStack(alignment: .top, spacing: 5) {
+            if isPredicted {
+                Image(systemName: "sparkles")
+                    .font(.system(size: 11.5, weight: .semibold))
+                    .opacity(0.95)
+                    .padding(.top, 2.5)
+                    .fixedSize()
+            }
+            Text(text)
+                .font(.system(size: 13, weight: .medium))
+                .lineSpacing(2)
+                .multilineTextAlignment(.leading)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .foregroundColor(.indigo)
+        .padding(.leading, 11)
+        .padding(.trailing, 14)
+        .padding(.vertical, 7)
+        .frame(minHeight: 32, alignment: .leading)
+        .background {
+            ZStack(alignment: .leading) {
+                Color.indigo.opacity(0.12)
+                GeometryReader { geo in
+                    let fillWidth = max(0, geo.size.width * holdProgress)
+                    ZStack(alignment: .bottomLeading) {
+                        Color.indigo.opacity(0.22)
+                            .frame(width: fillWidth, height: geo.size.height)
+                        Rectangle()
+                            .fill(Color.indigo)
+                            .frame(width: fillWidth, height: 2.5)
+                    }
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
+                }
+                .allowsHitTesting(false)
+            }
+        }
+        .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: 10, style: .continuous)
+                .stroke(
+                    Color.indigo.opacity(holdEngaged ? 0.78 : 0.35),
+                    lineWidth: holdEngaged ? 1.25 : 1
+                )
+        )
+        .scaleEffect(holdEngaged ? 0.98 : 1.0)
+        .animation(.easeOut(duration: 0.14), value: holdEngaged)
+        .contentShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+        .onTapGesture {
+            guard !didTriggerHoldSend && !holdEngaged else { return }
+            resetHoldVisuals(animated: false)
+            UIImpactFeedbackGenerator(style: .light).impactOccurred()
+            onTapFill()
+        }
+        .onLongPressGesture(minimumDuration: Self.totalHoldDuration, maximumDistance: 12) {
+            holdGraceTask?.cancel()
+            holdGraceTask = nil
+            didTriggerHoldSend = true
+            isPressing = false
+            holdEngaged = false
+            holdProgress = 1.0
+            UIImpactFeedbackGenerator(style: .medium).impactOccurred()
+            onHoldSend()
+        } onPressingChanged: { pressing in
+            if pressing {
+                didTriggerHoldSend = false
+                holdEngaged = false
+                isPressing = true
+                holdProgress = 0
+                holdGraceTask?.cancel()
+                holdGraceTask = Task { @MainActor in
+                    try? await Task.sleep(nanoseconds: UInt64(Self.visualGraceDelay * 1_000_000_000))
+                    guard !Task.isCancelled, isPressing, !didTriggerHoldSend else { return }
+                    holdEngaged = true
+                    UIImpactFeedbackGenerator(style: .soft).impactOccurred(intensity: 0.65)
+                    withAnimation(.linear(duration: Self.fillAnimationDuration)) {
+                        holdProgress = 1.0
+                    }
+                }
+            } else {
+                let wasCompleted = didTriggerHoldSend
+                let wasEngaged = holdEngaged
+                resetHoldVisuals(animated: !wasCompleted)
+                if wasCompleted {
+                    holdEngaged = false
+                    Task { @MainActor in
+                        try? await Task.sleep(nanoseconds: 120_000_000)
+                        didTriggerHoldSend = false
+                    }
+                } else if wasEngaged {
+                    // 提前松手取消发送：短暂保留标记拦截随后的 onTapGesture，避免误填入输入框
+                    Task { @MainActor in
+                        try? await Task.sleep(nanoseconds: 80_000_000)
+                        if !isPressing {
+                            holdEngaged = false
+                        }
+                    }
+                }
+            }
+        }
+        .onDisappear {
+            holdGraceTask?.cancel()
+            holdGraceTask = nil
+            isPressing = false
+            holdEngaged = false
+            didTriggerHoldSend = false
+            holdProgress = 0
+        }
+        .accessibilityElement(children: .ignore)
+        .accessibilityAddTraits(.isButton)
+        .accessibilityLabel(text)
+        .accessibilityHint(String(localized: "轻点填入输入框，长按 1 秒直接发送"))
+        .accessibilityAction(named: String(localized: "填入输入框")) {
+            onTapFill()
+        }
+        .accessibilityAction(named: String(localized: "直接发送")) {
+            onHoldSend()
+        }
         .overlay(alignment: .topTrailing) {
             Button {
+                resetHoldVisuals(animated: false)
+                holdEngaged = false
                 UIImpactFeedbackGenerator(style: .light).impactOccurred()
                 onDismiss()
             } label: {

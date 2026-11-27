@@ -141,6 +141,16 @@ fun TipsAndGesturesSubpageContent() {
             )
             GuideDivider()
             GuideRow(
+                icon = Icons.Default.AutoAwesome,
+                badgeColor = badgeColor(
+                    light = Color(0xFF6366F1), // 浅色模式靛蓝与建议胶囊一致
+                    dark = Color(0xFF6B70B8) // 深色模式保持灰调靛蓝
+                ),
+                title = "提示词建议胶囊".loc,
+                desc = "短按建议胶囊可将其填入输入框方便修改；长按 1 秒待进度条走满后直接发送，提前松手即可取消防误触。".loc
+            )
+            GuideDivider()
+            GuideRow(
                 icon = Icons.Default.ArrowUpward,
                 badgeColor = badgeColor(
                     light = Color(0xFFDE7342), // 浅色模式 Claude 品牌暖橙

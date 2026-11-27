@@ -15,11 +15,6 @@ import (
 	"antigravity-mobile/internal/i18n"
 )
 
-const (
-	NextPromptTapFill = "fill"
-	NextPromptTapSend = "send"
-)
-
 // AIAssistPrefs holds gateway-persisted, cross-device AI Assist preferences.
 // All capabilities default to opt-in (false) so no extra model calls are issued unexpectedly.
 type AIAssistPrefs struct {
@@ -30,7 +25,6 @@ type AIAssistPrefs struct {
 	StepPlanTranslateEnabled    bool   `json:"stepPlanTranslateEnabled"`
 	FocusTranslateEnabled       bool   `json:"focusTranslateEnabled"`
 	NextPromptEnabled           bool   `json:"nextPromptEnabled"`
-	NextPromptTapAction         string `json:"nextPromptTapAction"` // "fill" | "send"
 	PostCompactRehydrateEnabled bool   `json:"postCompactRehydrateEnabled"`
 }
 
@@ -42,7 +36,6 @@ type AIAssistPrefsPatch struct {
 	StepPlanTranslateEnabled    *bool   `json:"stepPlanTranslateEnabled,omitempty"`
 	FocusTranslateEnabled       *bool   `json:"focusTranslateEnabled,omitempty"`
 	NextPromptEnabled           *bool   `json:"nextPromptEnabled,omitempty"`
-	NextPromptTapAction         *string `json:"nextPromptTapAction,omitempty"`
 	PostCompactRehydrateEnabled *bool   `json:"postCompactRehydrateEnabled,omitempty"`
 }
 
@@ -74,10 +67,6 @@ func envBoolDefaultFalse(key string) bool {
 }
 
 func defaultAIAssistPrefs() AIAssistPrefs {
-	tapAction := strings.ToLower(strings.TrimSpace(os.Getenv("MGY_AI_NEXT_PROMPT_TAP")))
-	if tapAction != NextPromptTapSend {
-		tapAction = NextPromptTapFill
-	}
 	titleEnabled := envBoolDefaultFalse("MGY_AI_TITLE_TRANSLATE")
 	enabledAt := ""
 	if titleEnabled {
@@ -89,20 +78,12 @@ func defaultAIAssistPrefs() AIAssistPrefs {
 		StepPlanTranslateEnabled:    envBoolDefaultFalse("MGY_AI_STEP_PLAN_TRANSLATE"),
 		FocusTranslateEnabled:       envBoolDefaultFalse("MGY_AI_FOCUS_TRANSLATE"),
 		NextPromptEnabled:           envBoolDefaultFalse("MGY_AI_NEXT_PROMPT"),
-		NextPromptTapAction:         tapAction,
 		PostCompactRehydrateEnabled: envBoolDefaultFalse("MGY_POST_COMPACT_REHYDRATE"),
 	}
 }
 
 func aiAssistPrefsFilePath() string {
 	return filepath.Join(config.GetDataDir(), "ai_assist_prefs.json")
-}
-
-func normalizeTapAction(raw string) string {
-	if strings.EqualFold(strings.TrimSpace(raw), NextPromptTapSend) {
-		return NextPromptTapSend
-	}
-	return NextPromptTapFill
 }
 
 func (s *aiAssistPrefsStore) saveLocked() error {
@@ -190,13 +171,9 @@ func applyAIAssistPrefsPatch(dst *AIAssistPrefs, patch AIAssistPrefsPatch) {
 	if patch.NextPromptEnabled != nil {
 		dst.NextPromptEnabled = *patch.NextPromptEnabled
 	}
-	if patch.NextPromptTapAction != nil {
-		dst.NextPromptTapAction = normalizeTapAction(*patch.NextPromptTapAction)
-	}
 	if patch.PostCompactRehydrateEnabled != nil {
 		dst.PostCompactRehydrateEnabled = *patch.PostCompactRehydrateEnabled
 	}
-	dst.NextPromptTapAction = normalizeTapAction(dst.NextPromptTapAction)
 }
 
 func (s *aiAssistPrefsStore) Get() AIAssistPrefs {

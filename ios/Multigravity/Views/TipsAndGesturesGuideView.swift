@@ -101,6 +101,15 @@ public struct TipsAndGesturesGuideView: View {
                     description: String(localized: "轻按输入框底部的模型胶囊，在已设定的首选与次选模型（如 Gemini / Claude）之间一键极速轮换。")
                 )
                 TipRow(
+                    icon: "sparkles",
+                    badgeColor: badgeColor(
+                        light: .indigo,
+                        dark: Color(red: 0.42, green: 0.44, blue: 0.72) // 深色模式保持灰调靛蓝
+                    ),
+                    title: String(localized: "提示词建议胶囊"),
+                    description: String(localized: "短按建议胶囊可将其填入输入框方便修改；长按 1 秒待进度条走满后直接发送，提前松手即可取消防误触。")
+                )
+                TipRow(
                     icon: "hand.tap.fill",
                     badgeColor: badgeColor(
                         light: Color(red: 0.87, green: 0.45, blue: 0.26), // 浅色模式 Claude 品牌暖橙 (#DE7342)

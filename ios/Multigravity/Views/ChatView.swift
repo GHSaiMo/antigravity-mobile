@@ -55,7 +55,6 @@ public struct ChatView: View {
     @State var activeTurnJumpTask: Task<Void, Never>? = nil
     @State var chatAreaHeight: CGFloat = 0
     @State var inputBarRowWidth: CGFloat = 0
-    @State var modelChipWidth: CGFloat = 104
     let shouldAutoFocus: Bool
     let initialConversation: ConversationItem?
     let initialIsUnread: Bool

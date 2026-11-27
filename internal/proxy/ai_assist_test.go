@@ -17,7 +17,6 @@ func TestAIAssistPrefs_DefaultsAndPersistence(t *testing.T) {
 	t.Setenv("MULTIGRAVITY_DATA_DIR", t.TempDir())
 	t.Setenv("MGY_AI_TITLE_TRANSLATE", "")
 	t.Setenv("MGY_AI_NEXT_PROMPT", "")
-	t.Setenv("MGY_AI_NEXT_PROMPT_TAP", "")
 
 	p := NewProxy(inspector.NewInspector(time.Second))
 
@@ -35,14 +34,11 @@ func TestAIAssistPrefs_DefaultsAndPersistence(t *testing.T) {
 	if got.Prefs.TitleTranslateEnabled || got.Prefs.StepPlanTranslateEnabled || got.Prefs.FocusTranslateEnabled || got.Prefs.NextPromptEnabled {
 		t.Fatalf("expected opt-in defaults false, got %+v", got.Prefs)
 	}
-	if got.Prefs.NextPromptTapAction != NextPromptTapFill {
-		t.Fatalf("expected default tap action 'fill', got %q", got.Prefs.NextPromptTapAction)
-	}
 	if got.ModelID == "" || got.ModelName == "" {
 		t.Fatalf("expected resolved lightweight model, got %+v", got)
 	}
 
-	// POST partial patch
+	// POST partial patch (also verifies deprecated legacy nextPromptTapAction field is ignored cleanly)
 	patchBody := `{"titleTranslateEnabled":true,"titleTranslateLang":"pt-BR","titleTranslateLangName":"Portuguese","stepPlanTranslateEnabled":true,"focusTranslateEnabled":true,"nextPromptEnabled":true,"nextPromptTapAction":"send"}`
 	req2 := httptest.NewRequest(http.MethodPost, "/gateway/ai-assist/prefs", strings.NewReader(patchBody))
 	rec2 := httptest.NewRecorder()
@@ -62,9 +58,6 @@ func TestAIAssistPrefs_DefaultsAndPersistence(t *testing.T) {
 	}
 	if reloaded.TitleTranslateLang != "pt-BR" || reloaded.TitleTranslateLangName != "Portuguese" {
 		t.Fatalf("expected persisted target language pt-BR/Portuguese, got %+v", reloaded)
-	}
-	if reloaded.NextPromptTapAction != NextPromptTapSend {
-		t.Fatalf("expected persisted tap action 'send', got %q", reloaded.NextPromptTapAction)
 	}
 
 	// Disabling title translation clears the watermark

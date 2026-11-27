@@ -2428,13 +2428,7 @@ fun ChatScreen(
                             .padding(top = 4.dp, bottom = 12.dp),
                         verticalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
-                        // Quick Action Chips (including inline multi-line Suggested Reply bubble between + and Model chip)
-                        val aiAssistStatus by com.antigravity.mobile.data.service.AIAssistCache.statusFlow.collectAsState()
-                        LaunchedEffect(uiState.isPredictedSuggestion) {
-                            if (uiState.isPredictedSuggestion) {
-                                com.antigravity.mobile.data.service.AIAssistCache.ensureFetched(com.antigravity.mobile.data.service.ApiClient.defaultInstance)
-                            }
-                        }
+                        // Quick Action Chips (including inline multi-line Suggested Reply bubble: tap to fill, hold 1s to send)
                         val isActivelyRunningForSuggestions = uiState.isRunning || uiState.isAwaitingResponse || uiState.runningTasks.hasBlockingTasks
                         val visibleSuggestions = if (
                             uiState.suggestedResponses.isNotEmpty() &&
@@ -2470,14 +2464,13 @@ fun ChatScreen(
                                 suggestedResponses = visibleSuggestions,
                                 isPredictedSuggestion = uiState.isPredictedSuggestion,
                                 onSelectSuggestion = { chosen ->
-                                    if (aiAssistStatus.prefs.nextPromptTapAction == "send") {
-                                        dismissKeyboard()
-                                        viewModel.sendPresetMessage(chosen)
-                                    } else {
-                                        viewModel.dismissPredictedSuggestion(chosen)
-                                        viewModel.onInputTextChanged(chosen)
-                                        focusRequester.requestFocus()
-                                    }
+                                    viewModel.dismissPredictedSuggestion(chosen)
+                                    viewModel.onInputTextChanged(chosen)
+                                    focusRequester.requestFocus()
+                                },
+                                onSendSuggestion = { chosen ->
+                                    dismissKeyboard()
+                                    viewModel.sendPresetMessage(chosen)
                                 },
                                 onDismissSuggestion = { chosen ->
                                     viewModel.dismissPredictedSuggestion(chosen)

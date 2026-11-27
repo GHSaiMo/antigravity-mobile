@@ -531,14 +531,12 @@ function initApp() {
       stepPlanTranslateEnabled: false,
       focusTranslateEnabled: false,
       nextPromptEnabled: false,
-      nextPromptTapAction: "fill",
       postCompactRehydrateEnabled: false,
     },
     modelName: "Gemini 3.5 Flash Lite",
     resolvedLangName: "",
     available: true,
     rehydrateHookInstalled: false,
-    loadedAt: 0,
   };
 
   function resolveWebTitleTargetLanguage() {
@@ -676,10 +674,6 @@ function initApp() {
       chkNext.checked = Boolean(p.nextPromptEnabled);
       chkNext.disabled = !aiAssistState.available;
     }
-    const tapRow = document.getElementById("settings-ai-next-prompt-tap-row");
-    const tapSel = document.getElementById("settings-ai-next-prompt-tap");
-    if (tapRow) tapRow.classList.toggle("hidden", !p.nextPromptEnabled);
-    if (tapSel) tapSel.value = p.nextPromptTapAction === "send" ? "send" : "fill";
 
     const chkRehydrate = document.getElementById("settings-ai-rehydrate");
     if (chkRehydrate) {
@@ -721,13 +715,6 @@ function initApp() {
     getTargetLangTag() {
       return resolveWebTitleTargetLanguage().bcp47;
     },
-    getTapAction() {
-      return aiAssistState.prefs?.nextPromptTapAction === "send" ? "send" : "fill";
-    },
-    async ensureLoaded() {
-      if (aiAssistState.loadedAt > 0 && Date.now() - aiAssistState.loadedAt < 300000) return;
-      await this.refresh();
-    },
     async refresh() {
       try {
         const resp = await fetch("/gateway/ai-assist/prefs");
@@ -739,7 +726,6 @@ function initApp() {
             aiAssistState.resolvedLangName = data.resolvedLangName || "";
             aiAssistState.available = data.available !== false;
             aiAssistState.rehydrateHookInstalled = Boolean(data.rehydrateHookInstalled);
-            aiAssistState.loadedAt = Date.now();
           }
         }
       } catch (_) {}
@@ -767,7 +753,6 @@ function initApp() {
           aiAssistState.resolvedLangName = data.resolvedLangName || "";
           aiAssistState.available = data.available !== false;
           aiAssistState.rehydrateHookInstalled = Boolean(data.rehydrateHookInstalled);
-          aiAssistState.loadedAt = Date.now();
         }
         syncAIAssistUI();
       } catch (_) {
@@ -809,9 +794,6 @@ function initApp() {
   });
   document.getElementById("settings-ai-next-prompt")?.addEventListener("change", (e) => {
     window.AIAssist.patch({ nextPromptEnabled: Boolean(e.target.checked) });
-  });
-  document.getElementById("settings-ai-next-prompt-tap")?.addEventListener("change", (e) => {
-    window.AIAssist.patch({ nextPromptTapAction: e.target.value === "send" ? "send" : "fill" });
   });
   document.getElementById("settings-ai-rehydrate")?.addEventListener("change", (e) => {
     window.AIAssist.patch({ postCompactRehydrateEnabled: Boolean(e.target.checked) });
