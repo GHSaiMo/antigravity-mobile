@@ -417,7 +417,7 @@ struct MessageShareCardView: View {
         return CGSize(width: w * scale, height: h * scale)
     }
 
-    static let landingURL = "https://mgy.jiuge.space"
+    static let landingURL = "https://multigravity.app"
 
     private static let qrImage: UIImage? = {
         let filter = CIFilter.qrCodeGenerator()

@@ -739,7 +739,7 @@ private fun MessageShareCard(
     }
 }
 
-private const val LANDING_URL = "https://mgy.jiuge.space"
+private const val LANDING_URL = "https://multigravity.app"
 
 /** 用 zxing 本地生成落地页二维码（黑白位图）。 */
 private fun buildQrBitmap(text: String, size: Int = 320): Bitmap? = try {

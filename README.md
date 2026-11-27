@@ -27,7 +27,7 @@
 </p>
 
 <p align="center">
-  🌐 <b>官网</b>：<a href="https://mgy.jiuge.space/zh.html">mgy.jiuge.space/zh.html</a> &nbsp;·&nbsp; 🍎 <b>App Store</b>：<a href="https://apps.apple.com/app/id6835508934">iOS 正式版下载</a> &nbsp;·&nbsp; 🧪 <b>TestFlight</b>：<a href="https://testflight.apple.com/join/YM7f4aSK">公开测试通道</a> &nbsp;·&nbsp; 📦 <a href="https://github.com/GHSaiMo/antigravity-mobile/releases/latest">最新版 v1.2.8</a> &nbsp;·&nbsp; 𝕏 <a href="https://x.com/MultigravityApp">@MultigravityApp</a> &nbsp;·&nbsp; 💬 <a href="#wechat-group">微信用户群</a> &nbsp;·&nbsp; ☕ <a href="#sponsor">赞助支持</a>
+  🌐 <b>官网</b>：<a href="https://multigravity.app/zh.html">multigravity.app/zh.html</a> &nbsp;·&nbsp; 🍎 <b>App Store</b>：<a href="https://apps.apple.com/app/id6835508934">iOS 正式版下载</a> &nbsp;·&nbsp; 🧪 <b>TestFlight</b>：<a href="https://testflight.apple.com/join/YM7f4aSK">公开测试通道</a> &nbsp;·&nbsp; 📦 <a href="https://github.com/GHSaiMo/antigravity-mobile/releases/latest">最新版 v1.2.8</a> &nbsp;·&nbsp; 𝕏 <a href="https://x.com/MultigravityApp">@MultigravityApp</a> &nbsp;·&nbsp; 💬 <a href="#wechat-group">微信用户群</a> &nbsp;·&nbsp; ☕ <a href="#sponsor">赞助支持</a>
 </p>
 
 > 🎉 **反重力智能体移动伴侣 iOS 版现已正式上架 Apple App Store！**  
@@ -238,7 +238,7 @@ make test           # 运行 Go 单元与集成测试
 ## ❓ 常见问题（FAQ）
 
 - **Google Antigravity 有原生 iOS / Android 手机 App 吗？**  
-  Google 官方目前提供的是网页版 Remote Control（PWA），尚未推出独立原生 App。**Multigravity**（开源仓库 `GHSaiMo/antigravity-mobile`、官网 [mgy.jiuge.space/zh.html](https://mgy.jiuge.space/zh.html)）是社区独立维护的 **MIT 开源原生 iOS / Android 移动伴侣**，专为希望获得原生流畅度、锁屏 APNs 快捷审批、灵动岛实时步骤、桌面/锁屏额度小组件与完整 `/swarm` 看板的开发者打造。
+  Google 官方目前提供的是网页版 Remote Control（PWA），尚未推出独立原生 App。**Multigravity**（开源仓库 `GHSaiMo/antigravity-mobile`、官网 [multigravity.app/zh.html](https://multigravity.app/zh.html)）是社区独立维护的 **MIT 开源原生 iOS / Android 移动伴侣**，专为希望获得原生流畅度、锁屏 APNs 快捷审批、灵动岛实时步骤、桌面/锁屏额度小组件与完整 `/swarm` 看板的开发者打造。
 - **Multigravity 与桌面多开脚本（如 `multigravity-pro`）或第三方套壳工具有什么区别？**  
   Multigravity 是专注**手机与跨端远程操控**的原生移动伴侣（命令行工具为 `mgy`），与桌面多开脚本无关，也**不是**第三方 AI 套壳或 API 代理。所有模型调用、Skills、MCP 工具与 `/swarm` 编排仍 100% 在你电脑上的官方原版 Antigravity 内本地执行。
 - **代码或 Google 账号凭据会上传到开发者服务器吗？**  

@@ -28,7 +28,7 @@
 </p>
 
 <p align="center">
-  🌐 <b>公式サイト</b>：<a href="https://mgy.jiuge.space/ja.html">mgy.jiuge.space/ja.html</a> &nbsp;·&nbsp; 🍎 <b>App Store</b>：<a href="https://apps.apple.com/app/id6835508934">iOS 正式版をダウンロード</a> &nbsp;·&nbsp; 🧪 <b>TestFlight</b>：<a href="https://testflight.apple.com/join/YM7f4aSK">パブリックベータ</a> &nbsp;·&nbsp; 📦 <a href="https://github.com/GHSaiMo/antigravity-mobile/releases/latest">最新リリース v1.2.8</a> &nbsp;·&nbsp; 𝕏 <a href="https://x.com/MultigravityApp">@MultigravityApp</a> &nbsp;·&nbsp; ✈️ <a href="https://t.me/mgyapp">Telegram</a> &nbsp;·&nbsp; 💬 <a href="#wechat-group">WeChat ユーザーグループ</a> &nbsp;·&nbsp; ☕ <a href="#sponsor">スポンサー</a>
+  🌐 <b>公式サイト</b>：<a href="https://multigravity.app/ja.html">multigravity.app/ja.html</a> &nbsp;·&nbsp; 🍎 <b>App Store</b>：<a href="https://apps.apple.com/app/id6835508934">iOS 正式版をダウンロード</a> &nbsp;·&nbsp; 🧪 <b>TestFlight</b>：<a href="https://testflight.apple.com/join/YM7f4aSK">パブリックベータ</a> &nbsp;·&nbsp; 📦 <a href="https://github.com/GHSaiMo/antigravity-mobile/releases/latest">最新リリース v1.2.8</a> &nbsp;·&nbsp; 𝕏 <a href="https://x.com/MultigravityApp">@MultigravityApp</a> &nbsp;·&nbsp; ✈️ <a href="https://t.me/mgyapp">Telegram</a> &nbsp;·&nbsp; 💬 <a href="#wechat-group">WeChat ユーザーグループ</a> &nbsp;·&nbsp; ☕ <a href="#sponsor">スポンサー</a>
 </p>
 
 > 🎉 **Multigravity for iOS が Apple App Store にて正式公開されました！**  
@@ -239,7 +239,7 @@ make test           # Go のユニットテストおよび結合テストを実�
 ## ❓ よくある質問（FAQ）
 
 - **Google Antigravity にネイティブの iOS / Android アプリはありますか？**  
-  Google 公式が提供しているのは Web ベースの Remote Control（PWA）です。**Multigravity**（リポジトリ `GHSaiMo/antigravity-mobile`、公式サイト [mgy.jiuge.space/ja.html](https://mgy.jiuge.space/ja.html)）は、ネイティブ UI、ロック画面からの APNs ワンタップ承認、Dynamic Island 進捗表示、ホーム／ロック画面クォータウィジェット、`/swarm` 監視を求める開発者向けに作られた **MIT オープンソースのネイティブ iOS / Android コンパニオンアプリ**です。
+  Google 公式が提供しているのは Web ベースの Remote Control（PWA）です。**Multigravity**（リポジトリ `GHSaiMo/antigravity-mobile`、公式サイト [multigravity.app/ja.html](https://multigravity.app/ja.html)）は、ネイティブ UI、ロック画面からの APNs ワンタップ承認、Dynamic Island 進捗表示、ホーム／ロック画面クォータウィジェット、`/swarm` 監視を求める開発者向けに作られた **MIT オープンソースのネイティブ iOS / Android コンパニオンアプリ**です。
 - **デスクトップ向けマルチプロファイルツール（`multigravity-pro`）やサードパーティ製ラッパーとは何が違いますか？**  
   Multigravity は純正ローカル Antigravity IDE / CLI 専用の**モバイル＆リモートコンパニオン**（CLI バイナリ `mgy`）であり、デスクトップ複数起動スクリプトや外部 API ラッパーではありません。すべてのモデル推論・Skills・MCP・`/swarm` はお使いの PC 上の純正 Antigravity 内でそのまま実行されます。
 - **ソースコードや Google 認証情報が開発者サーバーに送信されることはありますか？**  

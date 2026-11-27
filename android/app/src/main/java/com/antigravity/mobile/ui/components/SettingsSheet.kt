@@ -113,9 +113,9 @@ private enum class SettingsSubpage {
 private fun resolveAppShareUrl(): String {
     // 统一按当前语言指向官网三语 OG 落地页（direct / play 均合规；待 play 变体正式上架 Google Play 后可在此按渠道覆写）
     return when (L10n.currentLang) {
-        L10n.AppLang.ZH -> "https://mgy.jiuge.space/zh.html"
-        L10n.AppLang.JA -> "https://mgy.jiuge.space/ja.html"
-        L10n.AppLang.EN -> "https://mgy.jiuge.space/"
+        L10n.AppLang.ZH -> "https://multigravity.app/zh.html"
+        L10n.AppLang.JA -> "https://multigravity.app/ja.html"
+        L10n.AppLang.EN -> "https://multigravity.app/"
     }
 }
 

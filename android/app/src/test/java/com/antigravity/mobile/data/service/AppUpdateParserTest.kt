@@ -222,12 +222,12 @@ class AppUpdateParserTest {
     @Test
     fun `formatReleaseNotes handles legacy preamble without chinese heading and strips markdown links`() {
         val legacyNotes = """
-            - 修复连接稳定性，详情见 [官网](https://mgy.jiuge.space)
+            - 修复连接稳定性，详情见 [官网](https://multigravity.app)
 
             ---
 
             ## English
-            - Improved connection stability, see [Website](https://mgy.jiuge.space)
+            - Improved connection stability, see [Website](https://multigravity.app)
         """.trimIndent()
 
         val zh = AppUpdateParser.formatReleaseNotes(legacyNotes, preferChinese = true)

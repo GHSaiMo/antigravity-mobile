@@ -783,11 +783,11 @@ public struct SettingsSheet: View {
     private var appShareURL: URL? {
         let lang = (Bundle.main.preferredLocalizations.first ?? Locale.preferredLanguages.first ?? "en").lowercased()
         if lang.hasPrefix("zh") {
-            return URL(string: "https://mgy.jiuge.space/zh.html")
+            return URL(string: "https://multigravity.app/zh.html")
         } else if lang.hasPrefix("ja") {
-            return URL(string: "https://mgy.jiuge.space/ja.html")
+            return URL(string: "https://multigravity.app/ja.html")
         } else {
-            return URL(string: "https://mgy.jiuge.space/")
+            return URL(string: "https://multigravity.app/")
         }
     }
 
