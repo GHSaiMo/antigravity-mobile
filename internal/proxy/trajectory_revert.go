@@ -70,9 +70,16 @@ func (p *Proxy) GetRevertPreview(cascadeID string, messageStepIndex int, targetI
 		targetIndex = *targetIndexOverride
 	}
 
+	upstreamCascadeID := cascadeID
+	if targetIndex < 0 {
+		if activeID := ResolveActiveCascadeID(cascadeID); activeID != "" {
+			upstreamCascadeID = activeID
+		}
+	}
+
 	apiURL := fmt.Sprintf("https://127.0.0.1:%d/exa.language_server_pb.LanguageServerService/GetRevertPreview", port)
 	reqPayload, _ := json.Marshal(map[string]interface{}{
-		"cascadeId": cascadeID,
+		"cascadeId": upstreamCascadeID,
 		"stepIndex": targetIndex,
 	})
 

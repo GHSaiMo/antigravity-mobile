@@ -15,8 +15,10 @@ import (
 )
 
 const (
-	stitchPromptHeaderMarker = "<!-- MGY_COMPACT_HANDOVER_V1 -->"
-	stitchPromptEndMarker    = "<!-- /MGY_COMPACT_HANDOVER_V1 -->"
+	stitchPromptHeaderMarker       = "<!-- CONTEXT_HANDOVER_SUMMARY -->"
+	stitchPromptEndMarker          = "<!-- /CONTEXT_HANDOVER_SUMMARY -->"
+	legacyStitchPromptHeaderMarker = "<!-- MGY_COMPACT_HANDOVER_V1 -->"
+	legacyStitchPromptEndMarker    = "<!-- /MGY_COMPACT_HANDOVER_V1 -->"
 )
 
 // CascadeStitchSegment represents one stitched underlying cascade segment in a virtual conversation chain.
@@ -355,9 +357,16 @@ func (p *Proxy) BuildOfflineCompactSummary(ctx context.Context, rootCascadeID st
 	if len(segments) == 0 {
 		segments = []CascadeStitchSegment{{CascadeID: rootCascadeID}}
 	}
-	for _, seg := range segments {
+	for i, seg := range segments {
 		if port > 0 {
-			if raw, err := p.fetchSingleSegmentTrajectory(ctx, seg.CascadeID, port, token, 5*time.Second); err == nil && raw != nil {
+			var raw *upstreamTrajectoryResp
+			var err error
+			if i < len(segments)-1 {
+				raw, err = p.fetchHistoricalSegmentTrajectory(ctx, seg.CascadeID, port, token)
+			} else {
+				raw, err = p.fetchSingleSegmentTrajectory(ctx, seg.CascadeID, port, token, 5*time.Second)
+			}
+			if err == nil && raw != nil {
 				if len(workspaceURIs) == 0 && len(raw.Trajectory.WorkspaceUris) > 0 {
 					workspaceURIs = append([]string(nil), raw.Trajectory.WorkspaceUris...)
 				}
@@ -568,14 +577,19 @@ func WrapUserPromptWithCompactHandover(summary, userText string) string {
 // StripCompactHandoverPrefix removes the internal compact handover block from a step's user input text
 // so mobile and web clients only render the user's real prompt text.
 func StripCompactHandoverPrefix(text string) string {
-	if !strings.Contains(text, stitchPromptHeaderMarker) {
-		return text
-	}
-	startIdx := strings.Index(text, stitchPromptHeaderMarker)
-	endIdx := strings.Index(text, stitchPromptEndMarker)
-	if startIdx >= 0 && endIdx > startIdx {
-		after := text[endIdx+len(stitchPromptEndMarker):]
-		return strings.TrimLeft(after, "\r\n ")
+	for _, pair := range [][2]string{
+		{stitchPromptHeaderMarker, stitchPromptEndMarker},
+		{legacyStitchPromptHeaderMarker, legacyStitchPromptEndMarker},
+	} {
+		if !strings.Contains(text, pair[0]) {
+			continue
+		}
+		startIdx := strings.Index(text, pair[0])
+		endIdx := strings.Index(text, pair[1])
+		if startIdx >= 0 && endIdx > startIdx {
+			after := text[endIdx+len(pair[1]):]
+			text = strings.TrimLeft(after, "\r\n ")
+		}
 	}
 	return text
 }
@@ -617,16 +631,18 @@ func (p *Proxy) EnsureCascadeTargetForSend(ctx context.Context, clientCascadeID 
 		startPayload["workspaceUris"] = wsURIs
 	}
 	cBody, cStatus, cErr := p.callUpstreamRPC(ctx, "StartCascade", startPayload)
+	if (cErr != nil || cStatus != http.StatusOK) && (ctx == nil || ctx.Err() == nil) {
+		time.Sleep(300 * time.Millisecond)
+		cBody, cStatus, cErr = p.callUpstreamRPC(ctx, "StartCascade", startPayload)
+	}
 	if cErr != nil || cStatus != http.StatusOK {
-		slog.Warn("[Stitch] StartCascade for compact handover failed; continuing on existing cascade", "root", shortCascadeID(rootID), "err", cErr, "status", cStatus)
-		RecordCascadeCreatedAtCurrentEpoch(prevActiveID)
+		slog.Warn("[Stitch] StartCascade for compact handover failed; will retry on next send", "root", shortCascadeID(rootID), "err", cErr, "status", cStatus)
 		return prevActiveID, false
 	}
 	var started struct {
 		CascadeID string `json:"cascadeId"`
 	}
 	if json.Unmarshal(cBody, &started) != nil || strings.TrimSpace(started.CascadeID) == "" {
-		RecordCascadeCreatedAtCurrentEpoch(prevActiveID)
 		return prevActiveID, false
 	}
 	newChildID := strings.TrimSpace(started.CascadeID)
@@ -646,6 +662,7 @@ func (p *Proxy) EnsureCascadeTargetForSend(ctx context.Context, clientCascadeID 
 	rawMap["cascadeId"] = newChildID
 
 	defaultStitchStore.appendSegment(rootID, prevActiveID, newChildID, accountID)
+	p.agentStateHub.OnCascadeTargetRolledOver(p, rootID)
 	slog.Info("[Stitch] 🔄 Compact handover created continuation cascade",
 		"root", shortCascadeID(rootID), "prev", shortCascadeID(prevActiveID), "new", shortCascadeID(newChildID), "account", accountID)
 	return newChildID, true

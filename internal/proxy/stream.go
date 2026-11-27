@@ -426,19 +426,24 @@ func (p *Proxy) HandleCascadeStream(w http.ResponseWriter, r *http.Request) {
 		desktopModel, desktopModelName := readDesktopSelectedModelCached(time.Second)
 		if err != nil {
 			if firstPush {
-				// Send empty init payload immediately so client never hangs spinning on load
-				_ = emitJSON(StreamUpdatePayload{
+				// For brand-new unsitched sessions, send an empty init payload so the client does not hang spinning;
+				// for stitched conversations, omit messages/steps so clients never wipe existing cached history on a transient error.
+				isStitched := len(GetStitchChainSegments(cascadeID)) > 1
+				initPayload := StreamUpdatePayload{
 					Type:                   "init",
 					CascadeID:              cascadeID,
 					Title:                  streamTitle,
 					Status:                 "CASCADE_RUN_STATUS_IDLE",
 					TotalSteps:             0,
-					Steps:                  []TrajectoryStep{},
-					Messages:               []CascadeMessageItem{},
 					DesktopActiveModel:     desktopModel,
 					DesktopActiveModelName: desktopModelName,
-				})
-				firstPush = false
+				}
+				if !isStitched {
+					initPayload.Steps = []TrajectoryStep{}
+					initPayload.Messages = []CascadeMessageItem{}
+					_ = emitJSON(initPayload)
+					firstPush = false
+				}
 			}
 			ticker.Reset(1000 * time.Millisecond)
 			return true

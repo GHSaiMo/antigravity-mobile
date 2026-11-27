@@ -807,10 +807,14 @@ func (p *Proxy) fetchUpstreamPendingMessages(cascadeID string, port int, token s
 	if cascadeID == "" || port <= 0 {
 		return []QueuedMessageItem{}, nil
 	}
+	upstreamCascadeID := ResolveActiveCascadeID(cascadeID)
+	if upstreamCascadeID == "" {
+		upstreamCascadeID = cascadeID
+	}
 
 	reqPayload := map[string]interface{}{
-		"conversationId": cascadeID,
-		"subscriberId":   fmt.Sprintf("gateway-probe-%s-%d", cascadeID, time.Now().UnixNano()),
+		"conversationId": upstreamCascadeID,
+		"subscriberId":   fmt.Sprintf("gateway-probe-%s-%d", upstreamCascadeID, time.Now().UnixNano()),
 		// Limit bounds to 0 to avoid transferring heavy trajectory history; only agent state & pending messages needed
 		"initialStepsPageBounds":              map[string]int{"startIndex": 0, "endIndexExclusive": 0},
 		"initialGeneratorMetadatasPageBounds": map[string]int{"startIndex": 0, "endIndexExclusive": 0},

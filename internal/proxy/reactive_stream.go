@@ -172,6 +172,29 @@ func (h *reactiveAgentStateHub) OnUpstreamChanged(p *Proxy, newPort int) {
 	}
 }
 
+// OnCascadeTargetRolledOver restarts an active StreamAgentStateUpdates slot when a stitched
+// conversation rolls over to a new continuation child leaf cascadeID.
+func (h *reactiveAgentStateHub) OnCascadeTargetRolledOver(p *Proxy, rootCascadeID string) {
+	if rootCascadeID == "" || p == nil {
+		return
+	}
+	port, _ := p.ActiveUpstream()
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	slot, ok := h.slots[rootCascadeID]
+	if !ok || slot == nil {
+		return
+	}
+	if slot.cancel != nil {
+		slot.cancel()
+		slot.cancel = nil
+	}
+	slot.live = false
+	if slot.refs > 0 && port > 0 {
+		h.startSlotLocked(p, slot, port)
+	}
+}
+
 // IsLive reports whether an active Connect stream is currently established for cascadeID.
 func (h *reactiveAgentStateHub) IsLive(cascadeID string) bool {
 	if cascadeID == "" {
@@ -349,6 +372,9 @@ func (h *reactiveAgentStateHub) streamOnce(
 		if state.Update.PendingAgentMessagesUpdate != nil || len(state.Update.PendingAgentMessages) > 0 || frames == 1 {
 			items := parseAgentStateQueuedMessages(&state)
 			setLivePendingMessagesCache(cascadeID, items)
+			if upstreamCascadeID != "" && upstreamCascadeID != cascadeID {
+				setLivePendingMessagesCache(upstreamCascadeID, items)
+			}
 		}
 
 		// 2. Capture live contextWindowUsage tokens if pushed by Antigravity 2.32+.
@@ -366,24 +392,28 @@ func (h *reactiveAgentStateHub) streamOnce(
 
 // expireTrajectoryCacheFreshness marks a cached trajectory entry stale so the next
 // fetchUpstreamTrajectoryWithMaxAge call refetches without breaking in-flight singleflight coalescing
-// or invalidating unrelated cascades' in-flight fetches.
+// or invalidating sealed historical segments in a stitched conversation chain.
 func expireTrajectoryCacheFreshness(cascadeID string) {
 	if cascadeID == "" {
 		return
 	}
 	rootID := ResolveVisibleRootCascadeID(cascadeID)
 	activeID := ResolveActiveCascadeID(rootID)
+	if activeID == "" {
+		activeID = cascadeID
+	}
+	stitchedKey := stitchedTrajectoryCacheKey(rootID)
 	defaultTrajCache.trajCacheMu.Lock()
-	if cached, ok := defaultTrajCache.trajCache[cascadeID]; ok {
+	if cached, ok := defaultTrajCache.trajCache[activeID]; ok {
 		cached.fetchedAt = time.Time{}
 	}
-	if rootID != "" && rootID != cascadeID {
-		if cached, ok := defaultTrajCache.trajCache[rootID]; ok {
+	if stitchedKey != "" {
+		if cached, ok := defaultTrajCache.trajCache[stitchedKey]; ok {
 			cached.fetchedAt = time.Time{}
 		}
 	}
-	if activeID != "" && activeID != cascadeID {
-		if cached, ok := defaultTrajCache.trajCache[activeID]; ok {
+	if activeID == rootID && cascadeID != activeID {
+		if cached, ok := defaultTrajCache.trajCache[cascadeID]; ok {
 			cached.fetchedAt = time.Time{}
 		}
 	}

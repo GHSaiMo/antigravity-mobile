@@ -721,20 +721,31 @@ func (p *Proxy) handleDeleteCascadeTrajectory(w http.ResponseWriter, r *http.Req
 		if isSafeCascadeID {
 			RecordDeletedCascade(reqData.CascadeID)
 			ClearTrajectoryCache(reqData.CascadeID)
+			ClearStitchedSegmentCaches(reqData.CascadeID, stitchedIDs)
 			p.notifySideQuestionDeleted(reqData.CascadeID)
+			allToClean := []string{reqData.CascadeID}
+			for _, sid := range stitchedIDs {
+				if sid != "" && sid != reqData.CascadeID && cascadeIDRe.MatchString(sid) {
+					allToClean = append(allToClean, sid)
+					RecordDeletedCascade(sid)
+					_, _, _ = p.callUpstreamRPC(r.Context(), "DeleteCascadeTrajectory", map[string]interface{}{"cascadeId": sid})
+				}
+			}
 			// Clean up local files only after upstream confirms deletion.
-			cockpit.ArchiveConversationTokens(reqData.CascadeID)
-			for _, agDir := range antigravityHomeCandidates() {
-				annPath := filepath.Join(agDir, "annotations", reqData.CascadeID+".pbtxt")
-				_ = os.Remove(annPath)
+			for _, cid := range allToClean {
+				cockpit.ArchiveConversationTokens(cid)
+				for _, agDir := range antigravityHomeCandidates() {
+					annPath := filepath.Join(agDir, "annotations", cid+".pbtxt")
+					_ = os.Remove(annPath)
 
-				convDir := filepath.Join(agDir, "conversations")
-				_ = os.Remove(filepath.Join(convDir, reqData.CascadeID+".db"))
-				_ = os.Remove(filepath.Join(convDir, reqData.CascadeID+".db-wal"))
-				_ = os.Remove(filepath.Join(convDir, reqData.CascadeID+".db-shm"))
+					convDir := filepath.Join(agDir, "conversations")
+					_ = os.Remove(filepath.Join(convDir, cid+".db"))
+					_ = os.Remove(filepath.Join(convDir, cid+".db-wal"))
+					_ = os.Remove(filepath.Join(convDir, cid+".db-shm"))
 
-				brainDir := filepath.Join(agDir, "brain", reqData.CascadeID)
-				_ = os.RemoveAll(brainDir)
+					brainDir := filepath.Join(agDir, "brain", cid)
+					_ = os.RemoveAll(brainDir)
+				}
 			}
 			slog.Info(fmt.Sprintf("[Proxy] 🗑️ 删除会话: %s", shortCascadeID(reqData.CascadeID)))
 		}
@@ -742,6 +753,11 @@ func (p *Proxy) handleDeleteCascadeTrajectory(w http.ResponseWriter, r *http.Req
 		// Upstream explicitly rejected deletion; release the tombstone so the cascade reappears.
 		if isSafeCascadeID {
 			RemoveDeletedCascadeTombstone(reqData.CascadeID)
+			for _, sid := range stitchedIDs {
+				if cascadeIDRe.MatchString(sid) {
+					RemoveDeletedCascadeTombstone(sid)
+				}
+			}
 		}
 	}
 

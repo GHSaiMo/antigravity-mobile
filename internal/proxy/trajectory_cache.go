@@ -381,29 +381,42 @@ func (tc *TrajectoryCache) bumpCascadeGenLocked(cascadeID string) {
 }
 
 // ClearTrajectoryCache invalidates cached trajectory for an updated cascade.
+// For stitched conversations, only the active leaf segment and the stitched combined cache entry
+// are invalidated so sealed historical segments (e.g. 15MB prior segments) stay cached in memory.
 func ClearTrajectoryCache(cascadeID string) {
 	if cascadeID == "" {
 		return
 	}
 	rootID := ResolveVisibleRootCascadeID(cascadeID)
-	idsToClear := []string{cascadeID}
-	if rootID != "" && rootID != cascadeID {
-		idsToClear = append(idsToClear, rootID)
-	}
-	for _, seg := range GetStitchChainSegments(rootID) {
-		if seg.CascadeID != "" && seg.CascadeID != cascadeID && seg.CascadeID != rootID {
-			idsToClear = append(idsToClear, seg.CascadeID)
+	activeID := ResolveActiveCascadeID(rootID)
+	var idsToClear []string
+	if activeID != "" && activeID != rootID {
+		// Stitched conversation: clear active leaf + stitched combined cache key,
+		// and cascadeID itself if it is not a sealed historical segment.
+		idsToClear = append(idsToClear, activeID, stitchedTrajectoryCacheKey(rootID))
+		if cascadeID != rootID && cascadeID != activeID {
+			idsToClear = append(idsToClear, cascadeID)
+		}
+	} else {
+		idsToClear = append(idsToClear, cascadeID)
+		if rootID != "" {
+			idsToClear = append(idsToClear, stitchedTrajectoryCacheKey(rootID))
 		}
 	}
 	defaultTrajCache.trajCacheMu.Lock()
 	for _, id := range idsToClear {
+		if id == "" {
+			continue
+		}
 		delete(defaultTrajCache.trajCache, id)
 		defaultTrajCache.bumpCascadeGenLocked(id)
 	}
 	defaultTrajCache.trajCacheMu.Unlock()
 	// Callers arriving after the invalidation must not join a fetch that may predate it.
 	for _, id := range idsToClear {
-		trajFlights.forget(id)
+		if id != "" {
+			trajFlights.forget(id)
+		}
 	}
 
 	defaultTrajCache.cascadeTitlesMu.Lock()
@@ -414,6 +427,9 @@ func ClearTrajectoryCache(cascadeID string) {
 
 	defaultTrajCache.loadedCascadesMu.Lock()
 	delete(defaultTrajCache.loadedCascades, cascadeID)
+	if activeID != "" {
+		delete(defaultTrajCache.loadedCascades, activeID)
+	}
 	defaultTrajCache.loadedCascadesMu.Unlock()
 
 	defaultTrajCache.annotationTitleCacheMu.Lock()
@@ -423,6 +439,33 @@ func ClearTrajectoryCache(cascadeID string) {
 	defaultTrajCache.annotationTitleCacheMu.Unlock()
 
 	InvalidateCascadeValidCache(cascadeID)
+}
+
+// ClearStitchedSegmentCaches purges all cached entries for a deleted stitched chain.
+func ClearStitchedSegmentCaches(rootID string, segmentIDs []string) {
+	defaultTrajCache.trajCacheMu.Lock()
+	if rootID != "" {
+		delete(defaultTrajCache.trajCache, rootID)
+		delete(defaultTrajCache.trajCache, stitchedTrajectoryCacheKey(rootID))
+		defaultTrajCache.bumpCascadeGenLocked(rootID)
+		defaultTrajCache.bumpCascadeGenLocked(stitchedTrajectoryCacheKey(rootID))
+	}
+	for _, sid := range segmentIDs {
+		if sid != "" {
+			delete(defaultTrajCache.trajCache, sid)
+			defaultTrajCache.bumpCascadeGenLocked(sid)
+		}
+	}
+	defaultTrajCache.trajCacheMu.Unlock()
+	if rootID != "" {
+		trajFlights.forget(rootID)
+		trajFlights.forget(stitchedTrajectoryCacheKey(rootID))
+	}
+	for _, sid := range segmentIDs {
+		if sid != "" {
+			trajFlights.forget(sid)
+		}
+	}
 }
 
 func readAnnotationTitle(cascadeID string) string {
