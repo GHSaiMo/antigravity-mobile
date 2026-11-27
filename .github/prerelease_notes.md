@@ -1,83 +1,85 @@
-> 🧪 **预发布测试版 / Pre-release Build (`v1.2.8-beta.2`)**
+> 🧪 **预发布测试版 / Pre-release Build (`v1.2.8-beta.3`)**
 >
 > - 此版本仅供灰度内测与尝鲜体验，**不会推送给正式版用户**（`mgy update`、Android 应用内自动更新及一键安装脚本均自动跳过预发布版，`v1.2.7` 仍保持为 `Latest` 正式版）。
-> - **网关更新至本测试版**：运行 `mgy update v1.2.8-beta.2`（若已安装早先的 `beta.2` 请执行 `mgy update -force v1.2.8-beta.2`）；测试完毕后运行 `mgy update` 即可切回最新正式版。
-> - **Android 测试安装**：直接下载下方 `Multigravity-v1.2.8-beta.2.apk` 安装即可（`versionCode 43`，与 `v1.2.7` / 早先 `beta` 同私有正式签名，可直接覆盖升级，后续亦可无缝覆盖升级至 `v1.2.8` 正式版）。
-> - **iOS 测试安装**：通过 TestFlight 安装 `1.2.8 (45)`。
+> - **网关更新至本测试版**：运行 `mgy update v1.2.8-beta.3`；测试完毕后运行 `mgy update` 即可切回最新正式版。
+> - **Android 测试安装**：直接下载下方 `Multigravity-v1.2.8-beta.3.apk` 安装即可（`versionCode 44`，与 `v1.2.7` / 早先 `beta` 同私有正式签名，可直接覆盖升级，后续亦可无缝覆盖升级至 `v1.2.8` 正式版）。
+> - **iOS 测试安装**：通过 **[TestFlight 公开测试链接](https://testflight.apple.com/join/YM7f4aSK)** 加入并安装 `1.2.8 (50)`（已对齐 `beta.3` 全量能力）。
 >
 > ---
 >
 > - This is a **Pre-release** build for grayscale testing and **will not be pushed to stable users** (`mgy update`, Android in-app updater, and install scripts ignore pre-releases; `v1.2.7` remains the `Latest` stable release).
-> - **Gateway CLI**: run `mgy update v1.2.8-beta.2` to install this build (or `mgy update -force v1.2.8-beta.2` if already on an earlier `beta.2`), or `mgy update` to return to the latest stable release.
-> - **Android**: download and install `Multigravity-v1.2.8-beta.2.apk` below (`versionCode 43`, signed with the same private release key as `v1.2.7` for seamless in-place upgrades).
-> - **iOS**: install `1.2.8 (45)` via TestFlight.
+> - **Gateway CLI**: run `mgy update v1.2.8-beta.3` to install this build, or `mgy update` to return to the latest stable release.
+> - **Android**: download and install `Multigravity-v1.2.8-beta.3.apk` below (`versionCode 44`, signed with the same private release key as `v1.2.7` for seamless in-place upgrades).
+> - **iOS**: join via **[TestFlight Public Beta](https://testflight.apple.com/join/YM7f4aSK)** and install `1.2.8 (50)` (aligned with `beta.3`).
 
 ---
 
 ## 🇨🇳 简体中文更新日志
 
-### ✨ `beta.2` 核心新增与体验打磨
+### ✨ `beta.3` 核心新增与体验升级（自 `beta.2` 以来）
 
-#### 1. Antigravity 2.35.2 原生能力全端落地（Gateway / iOS / Android / Web PWA）
-全面对齐 Antigravity 2.35.2 桌面端暴露的高价值能力，手机与 Web 端原生可用：
-- **浏览器实时预览与触控接管（Browser Live View）**：支持查看与切换浏览器标签页、实时画面流预览，并可直接远程点击、滚动、输入文本与发送导航快捷键。
-- **远程 SSH 主机管理（Remoting）**：支持查看远程 SSH 主机连接状态、重连/断开、在手机端直接响应密码 / Host Key / 2FA 交互提示，以及新建会话时直接选择远程工作区。
-- **插件市场搜索与 OAuth 混合鉴权闭环**：新增 Marketplace 热门/关键词检索、一键安装与卸载插件，并打通 Plugin 与 MCP OAuth 授权链接唤起与登录状态回传。
-- **四档权限策略 & 桌面端热更新/更新日志**：设置页支持查看与切换 Antigravity 四档权限模型，实时检查桌面端 Antigravity 版本更新、一键触发升级并查阅桌面端 Changelog。
-- **工作区代码/文件快速搜索、产物历史快照、Worktree 一键提 PR 与会话标星**：支持按文件名/代码内容检索工作区、查看并恢复 Markdown 产物历史版本、Git 变更页直接发起 Worktree PR，以及星标置顶重要会话与快捷筛选。
+#### 1. 智能辅助套件（AI Assist）全端上线（Gateway / iOS / Android / Web）
+通过本机 Antigravity 原生接口无状态执行，不产生额外会话，开关跨设备同步：
+- **智能翻译（Smart Translation）**：支持新会话英文标题自动翻译并覆盖，支持步骤清单（Step Plan）与实时执行状态（Live Focus）实时翻译（同步覆盖 iOS 灵动岛与实时活动），并内置输出校验、去截断与回退重试机制。
+- **下一步提示词建议（Next-Prompt Suggestions）**：每轮回复完成后轻量预测 1 条建议胶囊，内联展示在输入栏 `+` 与模型按钮之间并支持多行完整阅读，可在设置中自选「填入输入框 / 直接发送」，出现审批卡片或已有草稿时自动隐藏。
+- **长会话防失忆（Post-Compact Rehydration）**：支持在本机 `~/.gemini/config/hooks.json` 注册轻量原生 `PreInvocation` Hook，在 `/compact` 或自动压缩后的下一轮调用前自动单次回灌近期目标、改动文件与未完成要点（自动脱敏凭据）。
 
-#### 2. 多网关多入口无缝切换（iOS / Android 双端对齐）
-在保持单主机用户**零视觉打扰**与大标题纯净 `Multigravity` 视觉的前提下，为绑定 2 台及以上主机的用户补齐了更顺手的切换与状态感知体验：
-- **左右轻扫标题极速轮换**：无论大标题展开态还是收拢居中态，在顶部标题区**左右轻扫**即可直接循环切换上一台/下一台主机（无需等待 0.22s，不弹窗），3 台及以上主机在顶部切换胶囊自动附带 `(2/3)` 方位进度；垂直拖动 100% 让给列表滚动与下拉刷新。
-- **列表上滑居中标题自动变 `[当前主机名 ▾]`**：绑定 `>= 2` 台主机时，列表向上滑动收拢后顶部居中标题自动切换为当前主机名与旋转小三角，**短按直接展开同一套主机切换面板**（支持实时预览各机状态、重命名、解绑与 `+ 添加主机`），同时大/小标题均继续保留 **0.22s 长按下拉滑选**。
-- **后台主机待审批微提醒**：当其他非激活主机存在待审批操作时，收拢态 `[主机名 ▾]` 旁亮起一枚 5.5pt 静态橙点，平时零打扰、关键审批不遗漏。
-- **全链路细节补齐**：切机自动回到列表顶部；断网错误页明确提示 `无法连接「主机名」` 并提供「切换其他主机」快捷按钮；设置页「设备配对」标明当前主机名防误操作；「手势与使用技巧」补录多主机切换说明，并补全多网关全量中/英/日三语本地化。
+#### 2. 远程网关一键自更新 & 统一「宿主机更新」二级页（Gateway / iOS / Android / Web）
+- **手机/Web 端远程更新 `mgy` 网关**：在设置页「关于 → 宿主机更新」中可同时查看电脑端 Antigravity 桌面端与 `mgy` 网关版本状态，支持远程一键下载、SHA-256 校验、热替换二进制并自动重启重连。
+- **设置页横向二级菜单体验**：将「宿主机更新」由叠层弹窗重构为设置页二级菜单（iOS 使用 `NavigationStack` 原生推入与右滑返回，Android 与 Web 支持平滑左右切换及跟手右滑返回）。
 
-#### 3. 自 `beta.1` 以来的其他功能与修复
-- **`/btw` 旁路分支内收抽屉与完整树形连线重构（iOS / Android / Web 三端对齐）**：将旁路分支改为紧贴父卡片底部的对称内收灰色总控抽屉，展开时平滑舒展并在内部嵌入独立子对话卡片与不断开的圆角树形连线，彻底消除左侧断线与展开/折叠时的高度跳动；同时完整保留内嵌子对话的点按进入、长按菜单与独立滑动操作（置顶 / 归档 / 删除）。
-- **安全与中继增强（Gateway / iOS / Android）**：新增推送脱敏（Push Redaction）、自建中继（BYO-Relay）、强制端到端加密（Force-E2EE）以及 E2EE v2 防重放与 WebSocket 序列号保护。
-- **局域网多节点聚合与自动发现（Gateway）**：新增 `mgy hub` 多节点聚合与 `mgy node` 局域网节点发现能力。
-- **移动端分享应用入口（iOS / Android）**：设置页「关于」区块新增「分享应用」快捷入口。
-- **无相机链接配对增强（Gateway / iOS / Android）**：新增 `mgy pair -copy` / `-uri` 快捷导出配对链接，移动端新增一键粘贴按钮并在链接配对流程中完整保留 E2EE 密钥配置。
-- **iOS 26/27 聊天页左边缘滑动返回修复（iOS）**：修复在 iOS 26/27 下聊天详情页左侧边缘右滑返回失效问题，并避免与代码横向滚动和长按滑选器冲突。
-- **Orchestrator Plan & Execute 配置保留（Gateway / iOS）**：完整保留 Orchestrator Plan & Execute 配置与合成模型 ID。
-- **CLI 参数兼容（Gateway）**：`mgy` 新增支持 `-help` 与 `-version` 单横杠参数。
+#### 3. 配额监控、阈值自动切号与上下文审计（Gateway / iOS / Android / Web）
+- **空闲安全阈值自动切号（Idle-Safe Auto-Switch）**：支持按 Gemini / Claude 的 5h 或 Weekly 额度池设定触发阈值，默认等待本轮生成空闲后自动切换账号，避免打断运行中的任务；同步打磨 iOS 额度页「阈值自动切号」展开交互。
+- **上下文占比拆解与动态定价**：新增上下文细分（Context Breakdown）审计视图并优化 iOS 半屏自适应展示；新增动态模型定价与配额消耗预估，修复 Claude 驱动的 Orchestrator 模型正确归属 Claude 额度池。
 
-### ✨ 累计 `v1.2.8-beta.1` 核心灰度特性
-- **一机多主机（解耦多网关切换）**：一台手机绑定多台完全解耦的桌面网关，独立隔离凭证、E2EE 密钥与本地缓存；支持并发拉取各机状态、多端并发推送与点击通知/灵动岛自动路由至对应主机和会话。
-- **`/btw` 侧边分支折叠条、Swarm 看板 Markdown/嵌套列表与回到底部按钮、工作区自动放行及 Windows 终端二维码渲染修复**。
+#### 4. 会话、定时任务、斜杠指令与预览体验打磨（Gateway / iOS / Android / Web）
+- **定时任务（Automations）全面对齐桌面端**：支持「用 Prompt 创建定时任务」流程；对话中的定时任务触发提示词气泡默认折叠并支持点按展开；保留独立定时任务工作区名称与闹钟标识。
+- **多条有序斜杠指令**：支持在单条消息中输入并按顺序组合多个 `/command` 斜杠指令。
+- **HTML 产物预览卡片与预览器精简**：自动识别面向用户的 HTML 产物并以可交互预览卡片呈现；保留 HTML 与带标题文档链接的真实文件扩展名；移除各预览页多余的页内搜索按钮。
+- **模型选择器与交互细节修复**：保留经典双列模型选择器与配额窗口显示并升级 `XHigh` 命名与胶囊边框；优化双端主机滑选器居中宽度与卡片外纵向拖拽；统一 `/btw` 旁路图标为问号气泡；修复分支抽屉顶部锚点跳动、Android 交互填写项软键盘弹出及 iOS 移除主机时导航标题闪烁问题。
+
+#### 5. 网关跨平台服务、CLI 发现与中继稳定性加固（Gateway）
+- **跨平台后台自启与日志轮转**：新增 `mgy service` 支持 macOS / Linux / Windows 开机自启与按大小轮转日志，Windows 后台子进程默认静默隐藏控制台窗口。
+- **Antigravity CLI 与局域网被动发现**：支持 Antigravity CLI (`agy`) 探测与 `~/.gemini/antigravity-cli` 回退、Linux `agy` 守护进程自动重启与 OAuth Token 同步；支持独立 `mgy` 通过 6 位配对码进行局域网 Hub 被动发现；按 `projectId` 去重 Antigravity 2.0 项目；修复上游 Marketplace 作者对象与精选货架索引解析。
+- **中继探活与多网关隔离加固**：中继链路切换升级为丢包感知的多样本测速、本地重探与运行时 Ping 逃逸；严格隔离多网关 epoch、云端路由与 401 解绑处理；增强上游恢复、proxy-wrapper 发现与 503 诊断信息。
+
+### ✨ 累计 `v1.2.8-beta.1` / `beta.2` 核心灰度特性
+- **Antigravity 2.35.2 全套原生能力**：浏览器实时预览与触控接管、远程 SSH 主机管理、插件市场检索安装与 OAuth 闭环、四档权限策略、工作区代码/文件搜索、产物历史快照、Worktree PR 与会话标星。
+- **一机多主机（解耦多网关）与多入口切换**：完全隔离的多主机凭证/E2EE/缓存、左右轻扫标题极速切机、收拢居中主机切换器与后台待审批微提醒。
+- **`/btw` 旁路内收抽屉与完整树形连线、推送脱敏、自建中继（BYO-Relay）、强制 E2EE v2、局域网 `mgy hub` 聚合与无相机链接配对增强**。
 
 ---
 
 ## 🇺🇸 English Release Notes
 
-### ✨ What's New & Polished in `beta.2`
+### ✨ What's New & Improved in `beta.3` (Since `beta.2`)
 
-#### 1. Antigravity 2.35.2 Native Capabilities Across All Platforms (Gateway / iOS / Android / Web PWA)
-Full native support for the newly exposed Antigravity 2.35.2 desktop capabilities:
-- **Browser Live View & Touch Takeover**: Inspect and switch browser tabs, stream live page frames, and remotely tap, scroll, type, or send navigation shortcuts directly from your phone or browser.
-- **Remote SSH Host Management**: Monitor remote SSH hosts, reconnect/disconnect, respond to interactive password / host-key / 2FA prompts on mobile, and start new conversations directly in remote workspaces.
-- **Marketplace Discovery & Plugin/MCP OAuth Closure**: Browse featured plugins, search the Marketplace, install or uninstall plugins, and complete Plugin/MCP OAuth authorization flows seamlessly with live status sync.
-- **4-Tier Permission Policy & Desktop Self-Update / Changelog**: View and switch the unified 4-tier permission mode from Settings, inspect Antigravity desktop update status, trigger updates, and browse the desktop changelog.
-- **Workspace File/Code Search, Artifact Version Snapshots, Worktree PRs & Conversation Starring**: Fast workspace file & full-text code search, Markdown artifact revision history & restore, direct Worktree PR creation from Git Changes, and conversation starring with quick filter.
+#### 1. AI Assist Suite Across All Clients (Gateway / iOS / Android / Web)
+Powered statelessly by Antigravity's native local RPC with zero extra sessions and cross-device synced toggles:
+- **Smart Translation**: Auto-translate new English conversation titles, plus live translation for Step Checklists and Live Focus status lines (including iOS Dynamic Island & Live Activities), with output validation, untruncated titles, and fallback retry.
+- **Next-Prompt Suggestions**: Predicts a concise follow-up chip after each reply, rendered inline as a multi-line chip between `+` and the model button with configurable tap behavior (Fill / Send Immediately) and auto-hiding when approvals or drafts are active.
+- **Post-Compact Rehydration**: Registers a lightweight local `PreInvocation` hook in `~/.gemini/config/hooks.json` to inject recent user intent and modified files once after `/compact` or auto-compaction (with credential redaction).
 
-#### 2. Multi-Entry Multi-Gateway Switching (iOS & Android Parity)
-Keeping **zero visual clutter** for single-host users and preserving the clean `Multigravity` large title, `beta.2` rounds out multi-host ergonomics for users with 2+ paired gateways:
-- **Horizontal Title Swipe Cycling**: Swipe left or right across either the expanded `Multigravity` large title or the collapsed centered title to cycle smoothly between hosts with haptic feedback (and `(2/3)` index indicator when 3+ hosts are paired), while vertical drags always yield cleanly to scrolling and pull-to-refresh.
-- **Collapsed Centered `[Host Name ▾]` Switcher**: When 2+ hosts are paired and the list scrolls up, the centered inline title becomes your active host name with a rotating chevron. **Tap** to open the same live-status host switcher overlay directly (with rename/remove & `+ Add Host`), while **0.22s long-press & slide down** remains available in both large and collapsed states.
-- **Subtle Inactive-Host Approval Dot**: When another background host has pending approvals, a quiet 5.5pt static orange dot appears beside `[Host Name ▾]`—completely hidden otherwise.
-- **End-to-End Polish**: Auto-scrolls to top after switching hosts; offline error screen now names the unreachable host with a direct **Switch Host** action; Settings shows the active host name under Pairing Status; added Multi-Host guide to Gestures & Tips along with complete zh/en/ja localization.
+#### 2. Remote Gateway Self-Update & Unified Host Updates Subpage (Gateway / iOS / Android / Web)
+- **One-Tap Remote `mgy` Gateway Updates**: Inspect both Antigravity Desktop and `mgy` Gateway versions under **Settings → About → Host Updates**, and trigger remote download, SHA-256 verification, in-place binary replacement, and automatic reconnect right from mobile or Web.
+- **Native Horizontal Settings Subpage**: Moved Host Updates out of stacked modals/dialogs into a horizontal sliding Settings subpage (native `NavigationStack` push & swipe-back on iOS; smooth horizontal slide & interactive swipe-back on Android and Web).
 
-#### 3. Additional Improvements & Fixes Since `beta.1`
-- **Unified `/btw` Recessed Branch Drawer & Unbroken Tree Connector (iOS / Android / Web)**: Redesigned side-question branches into a symmetrically recessed tray tucked seamlessly beneath the parent card that expands smoothly into embedded child cards connected by a continuous rounded tree spine, eliminating broken left connectors and expand/collapse height jitter while preserving full tap, context menu, and independent swipe actions on every child conversation.
-- **Security & Relay Hardening (Gateway / iOS / Android)**: Added push notification redaction, Bring-Your-Own Relay (BYO-Relay), Force-E2EE enforcement, and E2EE v2 replay / WebSocket sequence protection.
-- **LAN Multi-Node Aggregation & Discovery (Gateway)**: Added `mgy hub` multi-node aggregation and `mgy node` LAN discovery.
-- **Share App Entry (iOS / Android)**: Added a quick **Share App** entry in Settings → About.
-- **Enhanced Camera-Free Link Pairing (Gateway / iOS / Android)**: Added `mgy pair -copy` / `-uri`, one-tap paste buttons on mobile, and preserved E2EE parameters through link pairing.
-- **iOS 26/27 Swipe-Back Fix (iOS)**: Restored reliable leading-edge swipe-back in chat on iOS 26/27 without interfering with horizontal scroll containers or slide pickers.
-- **Orchestrator Plan & Execute Config Preservation (Gateway / iOS)**: Preserved Orchestrator Plan & Execute settings and synthetic model IDs.
-- **CLI Flag Compatibility (Gateway)**: Added support for single-dash `-help` and `-version` flags.
+#### 3. Quota Auto-Switch, Dynamic Pricing & Context Breakdown (Gateway / iOS / Android / Web)
+- **Idle-Safe Auto-Switch**: Automatically switch accounts when a chosen quota pool (Gemini/Claude 5h or Weekly) falls below your threshold—waiting for the active turn to finish idle by default—with a refined expandable section on iOS.
+- **Context Breakdown & Dynamic Pricing**: Added context usage breakdown inspection with auto-fitting half-sheet sizing on iOS, dynamic model pricing and quota estimates, and fixed Claude-backed Orchestrator models to map to the Claude quota pool.
 
-### ✨ Included from `v1.2.8-beta.1`
-- **Decoupled Multi-Gateway Support**: Pair one phone with multiple independent desktop gateways with isolated credentials, E2EE keys, and caches, concurrent live status peeks, and multi-host push/Live Activity routing.
-- **Collapsible `/btw` Side Branches, Swarm Board Markdown & scroll-to-bottom button, automatic workspace allow-listing, and Windows terminal QR rendering fixes**.
+#### 4. Automations, Multi-Slash Commands, HTML Previews & UI Polish
+- **Desktop-Aligned Automations**: Added Create-with-Prompt flow, collapsed scheduled-task prompt bubbles by default with tap-to-expand, and preserved independent scheduled workspace names with trailing alarm icons.
+- **Multiple Ordered Slash Commands**: Compose and execute multiple ordered `/commands` in a single message across all clients.
+- **HTML Artifact Preview Cards & Cleaner Viewers**: Surfaces user-facing HTML artifacts as interactive preview cards, preserves real file extensions for HTML and titled document links, and removes redundant in-page search buttons from previewers.
+- **Model Picker & Ergonomics**: Restored classic 2-column model picker and quota window while keeping `XHigh` naming and chip border; polished centered host slide picker drag behavior, unified `/btw` question-bubble icons, fixed branch drawer top anchoring, Android write-in keyboard focus, and iOS host-removal title stability.
+
+#### 5. Cross-Platform Background Service, CLI Discovery & Relay Hardening (Gateway)
+- **Cross-Platform `mgy service` & Rotating Logs**: Added background auto-start service management across macOS/Linux/Windows, size-based log rotation, and Windows `HideWindow` console suppression.
+- **Antigravity CLI & Passive LAN Discovery**: Added `agy` CLI discovery with `~/.gemini/antigravity-cli` fallback, Linux `agy` daemon restart and OAuth token sync, passive LAN discovery via 6-char pair code for standalone `mgy` hubs, Antigravity 2.0 project deduplication by `projectId`, and fixed upstream Marketplace author object & featured shelf parsing.
+- **Loss-Aware Relay Probing & Multi-Gateway Isolation**: Added multi-sample loss-aware relay probing, local reprobe, and runtime ping escape; isolated multi-gateway epochs, cloud URLs, and 401 unpair handling; hardened upstream recovery, proxy-wrapper discovery, and 503 diagnostics.
+
+### ✨ Included from `v1.2.8-beta.1` & `beta.2`
+- **Antigravity 2.35.2 Native Capabilities**: Browser Live View & touch takeover, remote SSH host management, Marketplace discovery & Plugin/MCP OAuth closure, 4-tier permission presets, workspace file/code search, artifact snapshots, Worktree PRs, and conversation starring.
+- **Decoupled Multi-Gateway & Multi-Entry Switching**: Isolated multi-host credentials/E2EE/caches, horizontal title swipe cycling, collapsed host switcher, and subtle inactive-host approval indicator.
+- **Unified `/btw` recessed branch drawer & tree spine, push redaction, BYO-Relay, Force-E2EE v2, LAN `mgy hub` aggregation, and camera-free link pairing enhancements**.
