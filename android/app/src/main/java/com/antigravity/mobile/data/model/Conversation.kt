@@ -297,6 +297,7 @@ data class LocalDraftSession(
     val id: String = "local_draft_${UUID.randomUUID()}",
     val project: ProjectItem,
     var draftText: String = "",
+    val draftSlashCommands: List<SlashCommandOption> = emptyList(),
     val createdAtEpochMs: Long = System.currentTimeMillis(),
     var updatedAtEpochMs: Long = System.currentTimeMillis()
 ) {

@@ -31,8 +31,7 @@ const (
 
 // hiddenSlashCommands are desktop-oriented commands that make no sense on a phone.
 var hiddenSlashCommands = map[string]bool{
-	"schedule":           true, // 定时任务：手机端不做
-	"automation":         true,
+	"schedule":           true, // 会话内临时定时器，非长期定时任务
 	"browser":            true, // 需要桌面端 Chrome
 	"generative_ui":      true, // 生成内联 HTML 控件，手机端无法渲染
 	"ui-extension":       true,

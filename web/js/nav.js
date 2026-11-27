@@ -180,6 +180,22 @@ function renderRoute() {
     document.getElementById("btn-commit-push")?.classList.add("hidden");
     document.getElementById("btn-changes")?.classList.add("hidden");
     if (typeof clearSelectedSlash === "function") clearSelectedSlash();
+    if (
+      Array.isArray(activeDraftSession.prefillSlashCommands) &&
+      activeDraftSession.prefillSlashCommands.length > 0 &&
+      typeof slashState !== "undefined"
+    ) {
+      slashState.selected = activeDraftSession.prefillSlashCommands.map((cmd) => ({
+        name: cmd.name,
+        title: cmd.title || cmd.name,
+        kind: cmd.kind || "skill",
+        icon: typeof resolveSlashCommandIcon === "function" ? resolveSlashCommandIcon(cmd.name, cmd.icon, cmd.kind) : (cmd.icon || "schedule"),
+        definitionPath: cmd.definitionPath || "",
+      }));
+      slashState.cascadeId = "__draft__";
+      delete activeDraftSession.prefillSlashCommands;
+      if (typeof renderSlashChip === "function") renderSlashChip();
+    }
 
     convView.classList.add("pushed-left");
     chatView.classList.add("active");
@@ -220,12 +236,23 @@ function renderRoute() {
     }
 
     if (chatInput) {
-      chatInput.value = "";
+      const prefillText = typeof activeDraftSession.prefillText === "string" ? activeDraftSession.prefillText : "";
+      if (prefillText) delete activeDraftSession.prefillText;
+      chatInput.value = prefillText;
       chatInput.style.height = "auto";
+      if (prefillText) {
+        chatInput.style.height = Math.min(chatInput.scrollHeight, 120) + "px";
+      }
       // iOS WebKit rejects asynchronous setTimeout(.focus()) keyboard summons, leaving a
       // blinking caret without opening the software keyboard; only auto-focus on desktop pointers.
       if (window.matchMedia && window.matchMedia("(pointer: fine)").matches) {
-        setTimeout(() => chatInput.focus(), 120);
+        setTimeout(() => {
+          chatInput.focus();
+          if (prefillText && typeof chatInput.setSelectionRange === "function") {
+            const len = chatInput.value.length;
+            chatInput.setSelectionRange(len, len);
+          }
+        }, 120);
       }
     }
     updateChatControls(false, activeDraftSession.isPure ? "" : activeDraftSession.uri, false);

@@ -679,6 +679,7 @@ public struct AutomationSidecarItem: Codable, Sendable, Identifiable, Equatable 
     public let workspaceUri: String?
     public let workspaceUris: [String]?
     public let projectId: String?
+    public let projectName: String?
     public let accessGrants: [String]?
 
     public var isRunning: Bool {
@@ -688,7 +689,7 @@ public struct AutomationSidecarItem: Codable, Sendable, Identifiable, Equatable 
     enum CodingKeys: String, CodingKey {
         case id, name, description, status, cronExpression, timeZone, model, prompt
         case lastRunAt, nextRunAt, lastError, startTimeMs, enabled
-        case workspaceUri, workspaceUris, projectId, accessGrants
+        case workspaceUri, workspaceUris, projectId, projectName, accessGrants
     }
 
     public init(from decoder: Decoder) throws {
@@ -711,6 +712,7 @@ public struct AutomationSidecarItem: Codable, Sendable, Identifiable, Equatable 
         self.workspaceUri = try c.decodeIfPresent(String.self, forKey: .workspaceUri)
         self.workspaceUris = try c.decodeIfPresent([String].self, forKey: .workspaceUris)
         self.projectId = try c.decodeIfPresent(String.self, forKey: .projectId)
+        self.projectName = try c.decodeIfPresent(String.self, forKey: .projectName)
         self.accessGrants = try c.decodeIfPresent([String].self, forKey: .accessGrants)
     }
 }
@@ -721,9 +723,16 @@ public struct AutomationEventItem: Codable, Sendable, Identifiable, Equatable {
     public let sidecarId: String?
     public let conversationId: String?
     public let conversationExists: Bool?
+    public let conversationTitle: String?
+    public let runStatus: String?
     public let timestamp: String
     public let status: String
     public let message: String?
+
+    public var effectiveRunStatus: String {
+        if let rs = runStatus, !rs.isEmpty { return rs }
+        return status.lowercased() == "error" ? "failed" : "ok"
+    }
 
     public func matches(sidecar: AutomationSidecarItem) -> Bool {
         if let sid = sidecarId, !sid.isEmpty {
@@ -739,6 +748,8 @@ public struct AutomationEventItem: Codable, Sendable, Identifiable, Equatable {
         self.sidecarId = try c.decodeIfPresent(String.self, forKey: .sidecarId)
         self.conversationId = try c.decodeIfPresent(String.self, forKey: .conversationId)
         self.conversationExists = try c.decodeIfPresent(Bool.self, forKey: .conversationExists)
+        self.conversationTitle = try c.decodeIfPresent(String.self, forKey: .conversationTitle)
+        self.runStatus = try c.decodeIfPresent(String.self, forKey: .runStatus)
         self.timestamp = try c.decodeIfPresent(String.self, forKey: .timestamp) ?? ""
         self.status = try c.decodeIfPresent(String.self, forKey: .status) ?? ""
         self.message = try c.decodeIfPresent(String.self, forKey: .message)

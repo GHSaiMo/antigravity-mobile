@@ -520,6 +520,35 @@ class MainActivity : ComponentActivity() {
                                     popUpTo("conversations")
                                 }
                             },
+                            onCreateAutomationWithPrompt = {
+                                val automationCmd = com.antigravity.mobile.data.model.SlashCommandOption(
+                                    name = "automation",
+                                    title = "automation",
+                                    description = "交互式创建定时自动化任务".loc,
+                                    icon = "schedule",
+                                    kind = "skill"
+                                )
+                                val draft = conversationListViewModel.createLocalDraftSession(
+                                    project = com.antigravity.mobile.data.model.ProjectItem.PURE_CHAT,
+                                    draftText = "引导我创建一个定时自动化任务".loc,
+                                    draftSlashCommands = listOf(automationCmd)
+                                )
+                                val draftTitle = "新对话".loc
+                                chatViewModel.prepareSession(
+                                    cascadeId = draft.id,
+                                    initialTitle = draftTitle,
+                                    isNewConversation = true,
+                                    workspaceName = "Chat",
+                                    isUnread = false,
+                                    conversationStatus = ConversationStatus.IDLE,
+                                    draftProject = com.antigravity.mobile.data.model.ProjectItem.PURE_CHAT,
+                                    lastModifiedTime = null
+                                )
+                                val encodedDraftTitle = URLEncoder.encode(draftTitle, "UTF-8")
+                                navController.navigate("chat/${draft.id}/$encodedDraftTitle?isNew=true&isUnread=false&status=IDLE") {
+                                    popUpTo("conversations")
+                                }
+                            },
                             dismissModalsTrigger = dismissModalsTrigger
                         )
                     }

@@ -412,13 +412,17 @@ extension APIClient {
         )
     }
 
-    /// 获取定时任务日志（GET /gateway/automations/logs?sidecarId=...&tail=...）。
-    public func fetchAutomationLogs(sidecarId: String, tail: Int = 200, baseURL: URL) async throws -> AutomationLogsResponse {
+    /// 获取定时任务日志（GET /gateway/automations/logs?sidecarId=...&tail=...&file=...）。
+    public func fetchAutomationLogs(sidecarId: String, tail: Int = 200, file: String? = nil, baseURL: URL) async throws -> AutomationLogsResponse {
         var comps = URLComponents(url: baseURL.appendingPathComponent("gateway/automations/logs"), resolvingAgainstBaseURL: false)
-        comps?.queryItems = [
+        var items = [
             URLQueryItem(name: "sidecarId", value: sidecarId),
             URLQueryItem(name: "tail", value: String(tail))
         ]
+        if let file, !file.isEmpty {
+            items.append(URLQueryItem(name: "file", value: file))
+        }
+        comps?.queryItems = items
         guard let url = comps?.url else {
             throw APIError.invalidURL
         }

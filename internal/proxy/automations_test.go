@@ -827,3 +827,129 @@ func TestHandleGetAutomationsEventConversationExistsWithUpstreamAndZombie(t *tes
 		}
 	}
 }
+
+func TestParseAndBuildScheduleArgsOnceAndTitleFlags(t *testing.T) {
+	args := []string{
+		"--once",
+		"CRON_TZ=Australia/Adelaide 30 8 * * 1-5",
+		"agentapi",
+		"new-conversation",
+		"--title", "Morning Digest",
+		"--profile", "reviewer",
+		"--model=gemini-4-neon-high",
+		"Summarize overnight changes",
+	}
+	cron, tz, model, prompt, flags := parseScheduleArgs(args)
+	if cron != "CRON_TZ=Australia/Adelaide 30 8 * * 1-5" {
+		t.Fatalf("cron = %q", cron)
+	}
+	if tz != "Australia/Adelaide" {
+		t.Fatalf("tz = %q", tz)
+	}
+	if model != "gemini-4-neon-high" {
+		t.Fatalf("model = %q", model)
+	}
+	if prompt != "Summarize overnight changes" {
+		t.Fatalf("prompt = %q", prompt)
+	}
+	if len(flags) != 5 {
+		t.Fatalf("flags = %v", flags)
+	}
+
+	rebuilt := buildScheduleArgs(args, "0 9 * * *", nil, "Updated prompt")
+	if rebuilt[0] != "--once" || rebuilt[1] != "0 9 * * *" {
+		t.Fatalf("expected --once preserved, got %v", rebuilt)
+	}
+	_, _, model2, prompt2, _ := parseScheduleArgs(rebuilt)
+	if model2 != "gemini-4-neon-high" || prompt2 != "Updated prompt" {
+		t.Fatalf("rebuilt parse mismatch: model=%q prompt=%q", model2, prompt2)
+	}
+}
+
+func TestHandleUpdateAutomationSetsProjectAndLiveEventStatus(t *testing.T) {
+	tmpHome := t.TempDir()
+	t.Setenv("HOME", tmpHome)
+
+	sidecarsDir := filepath.Join(tmpHome, ".gemini", "config", "sidecars", "digest")
+	if err := os.MkdirAll(sidecarsDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(sidecarsDir, "sidecar.json"), []byte(`{"builtin":"schedule","args":["0 9 * * *","agentapi","new-conversation","--","Old"],"display_name":"Digest"}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	eventsDir := filepath.Join(tmpHome, ".gemini", "antigravity", "sidecar_data", "digest", "events")
+	if err := os.MkdirAll(eventsDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(eventsDir, "20261127_070000_wait.json"), []byte(`{"timestampMs":"1795647600000","payload":{"newConversation":{"conversationId":"conv-wait","prompt":"Old"}}}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	var mu sync.Mutex
+	var actions []string
+	var capturedProjectID string
+
+	mockUpstream := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch r.URL.Path {
+		case "/exa.language_server_pb.LanguageServerService/GetSidecars":
+			_, _ = w.Write([]byte(`{"sidecars":[{"sidecarId":"digest","status":"SIDECAR_STATUS_RUNNING","config":{"builtin":"schedule","displayName":"Digest","args":["0 9 * * *","agentapi","new-conversation","--","Old"]}}]}`))
+		case "/exa.language_server_pb.LanguageServerService/GetAllCascadeTrajectories":
+			_, _ = w.Write([]byte(`{"trajectorySummaries":{"conv-wait":{"status":"CASCADE_RUN_STATUS_IDLE","stepCount":3,"summary":"PR Digest Run","waitingSteps":[{"stepIndex":2}]}}}`))
+		case "/exa.language_server_pb.LanguageServerService/ManageSidecar":
+			var body map[string]interface{}
+			_ = json.NewDecoder(r.Body).Decode(&body)
+			mu.Lock()
+			if act, ok := body["action"].(string); ok {
+				actions = append(actions, act)
+			}
+			if pid, ok := body["projectId"].(string); ok {
+				capturedProjectID = pid
+			}
+			mu.Unlock()
+			_, _ = w.Write([]byte(`{}`))
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer mockUpstream.Close()
+
+	tcpAddr := mockUpstream.Listener.Addr().(*net.TCPAddr)
+	p := &Proxy{
+		mediumClient: mockUpstream.Client(),
+		activePort:   tcpAddr.Port,
+		activeToken:  "tok",
+	}
+
+	// 1. Update prompt + projectId
+	req := httptest.NewRequest(http.MethodPost, "/gateway/automations/update", bytes.NewBufferString(`{"sidecarId":"digest","prompt":"New prompt","projectId":"proj-xyz"}`))
+	w := httptest.NewRecorder()
+	p.HandleUpdateAutomation(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("update failed: %d %s", w.Code, w.Body.String())
+	}
+	mu.Lock()
+	if len(actions) != 2 || actions[0] != "SIDECAR_ACTION_UPDATE" || actions[1] != "SIDECAR_ACTION_SET_PROJECT" || capturedProjectID != "proj-xyz" {
+		mu.Unlock()
+		t.Fatalf("unexpected manage calls: actions=%v projectId=%q", actions, capturedProjectID)
+	}
+	mu.Unlock()
+
+	// 2. GET /gateway/automations enriches event runStatus + conversationTitle
+	reqGet := httptest.NewRequest(http.MethodGet, "/gateway/automations", nil)
+	wGet := httptest.NewRecorder()
+	p.HandleGetAutomations(wGet, reqGet)
+	if wGet.Code != http.StatusOK {
+		t.Fatalf("get failed: %d %s", wGet.Code, wGet.Body.String())
+	}
+	var resp AutomationsResponse
+	if err := json.Unmarshal(wGet.Body.Bytes(), &resp); err != nil {
+		t.Fatal(err)
+	}
+	if len(resp.Events) != 1 {
+		t.Fatalf("expected 1 event, got %d", len(resp.Events))
+	}
+	if resp.Events[0].RunStatus != "needs_input" || resp.Events[0].ConversationTitle != "PR Digest Run" {
+		t.Fatalf("expected needs_input + PR Digest Run, got %+v", resp.Events[0])
+	}
+}

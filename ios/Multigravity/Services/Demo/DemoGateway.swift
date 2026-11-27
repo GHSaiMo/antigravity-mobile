@@ -2083,6 +2083,66 @@ final class DemoGateway: @unchecked Sendable {
         return ["ok": true]
     }
 
+    func updateAutomation(
+        sidecarId: String,
+        name: String?,
+        description: String?,
+        cron: String?,
+        model: String?,
+        prompt: String?,
+        projectId: String?
+    ) -> [String: Any] {
+        lock.lock()
+        defer { lock.unlock() }
+        for i in automations.indices where (automations[i]["id"] as? String) == sidecarId {
+            if let name, !name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                automations[i]["name"] = name.trimmingCharacters(in: .whitespacesAndNewlines)
+            }
+            if let description {
+                automations[i]["description"] = description
+            }
+            if let cron, !cron.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                automations[i]["cronExpression"] = cron.trimmingCharacters(in: .whitespacesAndNewlines)
+            }
+            if let model {
+                automations[i]["model"] = model
+            }
+            if let prompt, !prompt.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                automations[i]["prompt"] = prompt.trimmingCharacters(in: .whitespacesAndNewlines)
+            }
+            if let projectId {
+                automations[i]["projectId"] = projectId
+            }
+        }
+        return ["ok": true, "sidecarId": sidecarId]
+    }
+
+    func createAutomation(name: String, cron: String, prompt: String, model: String?, projectId: String?) -> [String: Any] {
+        lock.lock()
+        defer { lock.unlock() }
+        let sid = "schedule-\(UUID().uuidString.prefix(6).lowercased())"
+        var entry: [String: Any] = [
+            "id": sid,
+            "name": name.isEmpty ? sid : name,
+            "status": "RUNNING",
+            "enabled": true,
+            "cronExpression": cron,
+            "prompt": prompt,
+            "nextRunAt": Self.iso(Date().addingTimeInterval(3600))
+        ]
+        if let model, !model.isEmpty { entry["model"] = model }
+        if let projectId, !projectId.isEmpty { entry["projectId"] = projectId }
+        automations.insert(entry, at: 0)
+        return ["ok": true, "sidecarId": sid]
+    }
+
+    func deleteAutomation(sidecarId: String) -> [String: Any] {
+        lock.lock()
+        defer { lock.unlock() }
+        automations.removeAll { ($0["id"] as? String) == sidecarId }
+        return ["ok": true, "sidecarId": sidecarId]
+    }
+
     func workflowTemplatesPayload() -> Data {
         lock.lock()
         let resp = WorkflowTemplatesResponse(templates: workflowTemplates, updatedAt: Self.iso(Date()))

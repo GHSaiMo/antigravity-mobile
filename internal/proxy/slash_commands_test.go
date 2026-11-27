@@ -22,6 +22,7 @@ func TestBuildSlashCommandTables(t *testing.T) {
 		mk("plan", "SLASH_COMMAND_TYPE_SYSTEM", "ballot"),
 		mk("zeta-skill", "SLASH_COMMAND_TYPE_SKILL", "z"),
 		mk("schedule", "SLASH_COMMAND_TYPE_SYSTEM", "schedule"), // 隐藏
+		mk("automation", "SLASH_COMMAND_TYPE_SKILL", "schedule"), // 定时任务创建向导：开放给移动端
 		mk("alpha-skill", "SLASH_COMMAND_TYPE_SKILL", "a"),
 		mk("goal", "SLASH_COMMAND_TYPE_SYSTEM", "timer"),
 		mk("plan", "SLASH_COMMAND_TYPE_SYSTEM", "dup"), // 重复名：忽略
@@ -34,7 +35,7 @@ func TestBuildSlashCommandTables(t *testing.T) {
 	for _, o := range options {
 		names = append(names, o.Kind+":"+o.Name)
 	}
-	want := "system:btw,system:goal,system:plan,system:workflow,skill:alpha-skill,skill:zeta-skill"
+	want := "system:btw,system:goal,system:plan,system:workflow,skill:alpha-skill,skill:automation,skill:zeta-skill"
 	if strings.Join(names, ",") != want {
 		t.Fatalf("menu = %v, want %s", names, want)
 	}

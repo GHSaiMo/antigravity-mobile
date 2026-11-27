@@ -625,6 +625,7 @@ public struct LocalDraftSession: Codable, Sendable, Identifiable, Hashable {
     public let project: ProjectItem
     public var draftText: String
     public var draftImages: [Data]
+    public var draftSlashCommands: [SlashCommandOption]
     public var createdAt: Date
     public var updatedAt: Date
     
@@ -633,6 +634,7 @@ public struct LocalDraftSession: Codable, Sendable, Identifiable, Hashable {
         case project
         case draftText
         case draftImages
+        case draftSlashCommands
         case createdAt
         case updatedAt
     }
@@ -642,6 +644,7 @@ public struct LocalDraftSession: Codable, Sendable, Identifiable, Hashable {
         project: ProjectItem,
         draftText: String = "",
         draftImages: [Data] = [],
+        draftSlashCommands: [SlashCommandOption] = [],
         createdAt: Date = Date(),
         updatedAt: Date = Date()
     ) {
@@ -649,6 +652,7 @@ public struct LocalDraftSession: Codable, Sendable, Identifiable, Hashable {
         self.project = project
         self.draftText = draftText
         self.draftImages = draftImages
+        self.draftSlashCommands = draftSlashCommands
         self.createdAt = createdAt
         self.updatedAt = updatedAt
     }
@@ -659,6 +663,7 @@ public struct LocalDraftSession: Codable, Sendable, Identifiable, Hashable {
         self.project = try container.decode(ProjectItem.self, forKey: .project)
         self.draftText = try container.decodeIfPresent(String.self, forKey: .draftText) ?? ""
         self.draftImages = try container.decodeIfPresent([Data].self, forKey: .draftImages) ?? []
+        self.draftSlashCommands = try container.decodeIfPresent([SlashCommandOption].self, forKey: .draftSlashCommands) ?? []
         self.createdAt = try container.decodeIfPresent(Date.self, forKey: .createdAt) ?? Date()
         self.updatedAt = try container.decodeIfPresent(Date.self, forKey: .updatedAt) ?? Date()
     }
@@ -669,6 +674,9 @@ public struct LocalDraftSession: Codable, Sendable, Identifiable, Hashable {
         try container.encode(project, forKey: .project)
         try container.encode(draftText, forKey: .draftText)
         try container.encode(draftImages, forKey: .draftImages)
+        if !draftSlashCommands.isEmpty {
+            try container.encode(draftSlashCommands, forKey: .draftSlashCommands)
+        }
         try container.encode(createdAt, forKey: .createdAt)
         try container.encode(updatedAt, forKey: .updatedAt)
     }

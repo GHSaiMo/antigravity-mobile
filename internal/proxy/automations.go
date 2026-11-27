@@ -34,6 +34,7 @@ type AutomationSchedule struct {
 	WorkspaceURI   string   `json:"workspaceUri,omitempty"`
 	WorkspaceURIs  []string `json:"workspaceUris,omitempty"`
 	ProjectID      string   `json:"projectId,omitempty"`
+	ProjectName    string   `json:"projectName,omitempty"`
 	AccessGrants   []string `json:"accessGrants,omitempty"`
 }
 
@@ -44,6 +45,8 @@ type AutomationEvent struct {
 	SidecarID          string `json:"sidecarId,omitempty"`
 	ConversationID     string `json:"conversationId,omitempty"`
 	ConversationExists *bool  `json:"conversationExists,omitempty"`
+	ConversationTitle  string `json:"conversationTitle,omitempty"`
+	RunStatus          string `json:"runStatus,omitempty"` // ok, running, needs_input, failed
 	Timestamp          string `json:"timestamp"`
 	Status             string `json:"status"` // success, error, running
 	Message            string `json:"message,omitempty"`
@@ -62,40 +65,49 @@ var scheduleFlagsWithValue = map[string]bool{
 	"--model":     true,
 	"-model":      true,
 	"-m":          true,
+	"--title":     true,
+	"-title":      true,
+	"--profile":   true,
 	"--workspace": true,
 	"-w":          true,
 	"--project":   true,
 }
 
-// parseScheduleArgs mirrors Antigravity desktop's frd/grd/d3 parsing for schedule sidecar args.
+// parseScheduleArgs mirrors Antigravity desktop's fzd/gzd parsing for schedule sidecar args,
+// and also tolerates an optional leading "--once" scheduler flag before the cron expression.
 func parseScheduleArgs(args []string) (cronPattern, timeZone, model, prompt string, flags []string) {
 	if len(args) == 0 {
 		return "", "", "", "", nil
 	}
-	cronPattern = strings.TrimSpace(args[0])
+	offset := 0
+	if strings.TrimSpace(args[0]) == "--once" && len(args) > 1 {
+		offset = 1
+	}
+	cronPattern = strings.TrimSpace(args[offset])
 	if m := cronTZPrefixRe.FindStringSubmatch(cronPattern); len(m) == 3 {
 		timeZone = m[1]
 	}
 
-	if len(args) <= 3 {
+	flagStart := offset + 3
+	if len(args) <= flagStart {
 		return cronPattern, timeZone, "", "", nil
 	}
 
-	// Look for explicit "--" separator at index >= 3.
+	// Look for explicit "--" separator at index >= flagStart.
 	sepIdx := -1
-	for i := 3; i < len(args); i++ {
+	for i := flagStart; i < len(args); i++ {
 		if args[i] == "--" {
 			sepIdx = i
 			break
 		}
 	}
 	if sepIdx != -1 {
-		flags = append(flags, args[3:sepIdx]...)
+		flags = append(flags, args[flagStart:sepIdx]...)
 		if sepIdx+1 < len(args) {
 			prompt = strings.Join(args[sepIdx+1:], " ")
 		}
 	} else {
-		i := 3
+		i := flagStart
 		for i < len(args) {
 			tok := args[i]
 			if strings.HasPrefix(tok, "-") {
@@ -137,7 +149,7 @@ func parseScheduleArgs(args []string) (cronPattern, timeZone, model, prompt stri
 	return cronPattern, timeZone, model, prompt, flags
 }
 
-// buildScheduleArgs mirrors Antigravity desktop's krd builder, preserving non-model flags.
+// buildScheduleArgs mirrors Antigravity desktop's kzd builder, preserving non-model flags and --once.
 func buildScheduleArgs(origArgs []string, cronPattern string, newModel *string, prompt string) []string {
 	_, _, _, _, origFlags := parseScheduleArgs(origArgs)
 	var updatedFlags []string
@@ -172,16 +184,25 @@ func buildScheduleArgs(origArgs []string, cronPattern string, newModel *string, 
 		updatedFlags = append(updatedFlags, origFlags...)
 	}
 
-	cmd1 := "agentapi"
-	cmd2 := "new-conversation"
-	if len(origArgs) > 1 && strings.TrimSpace(origArgs[1]) != "" {
-		cmd1 = origArgs[1]
-	}
-	if len(origArgs) > 2 && strings.TrimSpace(origArgs[2]) != "" {
-		cmd2 = origArgs[2]
+	hasOnce := len(origArgs) > 1 && strings.TrimSpace(origArgs[0]) == "--once"
+	offset := 0
+	if hasOnce {
+		offset = 1
 	}
 
-	out := make([]string, 0, 5+len(updatedFlags))
+	cmd1 := "agentapi"
+	cmd2 := "new-conversation"
+	if len(origArgs) > offset+1 && strings.TrimSpace(origArgs[offset+1]) != "" {
+		cmd1 = origArgs[offset+1]
+	}
+	if len(origArgs) > offset+2 && strings.TrimSpace(origArgs[offset+2]) != "" {
+		cmd2 = origArgs[offset+2]
+	}
+
+	out := make([]string, 0, 6+len(updatedFlags))
+	if hasOnce {
+		out = append(out, "--once")
+	}
 	out = append(out, strings.TrimSpace(cronPattern), cmd1, cmd2)
 	out = append(out, updatedFlags...)
 	out = append(out, "--", strings.TrimSpace(prompt))
@@ -432,9 +453,40 @@ func (p *Proxy) HandleGetAutomations(w http.ResponseWriter, r *http.Request) {
 	}
 	p.annotateAutomationEventsConversationExists(r.Context(), port, token, allEvents)
 
+	// Resolve friendly projectName for schedules bound to a user project (skipping sidecar shadow projects)
+	var projectNameByID map[string]string
+	needsProjectLookup := false
+	for _, sc := range schedulesMap {
+		if strings.TrimSpace(sc.ProjectID) != "" {
+			needsProjectLookup = true
+			break
+		}
+	}
+	if needsProjectLookup && p != nil {
+		if projects, err := p.GetProjects(); err == nil && len(projects) > 0 {
+			projectNameByID = make(map[string]string, len(projects))
+			for _, pr := range projects {
+				if pr.ID != "" {
+					display := strings.TrimSpace(pr.Alias)
+					if display == "" {
+						display = strings.TrimSpace(pr.Name)
+					}
+					if display != "" {
+						projectNameByID[pr.ID] = display
+					}
+				}
+			}
+		}
+	}
+
 	// Convert schedulesMap to slice and sort
 	automations := make([]AutomationSchedule, 0, len(schedulesMap))
 	for _, sc := range schedulesMap {
+		if sc.ProjectID != "" && projectNameByID != nil {
+			if pn := projectNameByID[sc.ProjectID]; pn != "" && !strings.EqualFold(pn, sc.ID) && !strings.EqualFold(pn, sc.Name) {
+				sc.ProjectName = pn
+			}
+		}
 		automations = append(automations, *sc)
 	}
 	sort.Slice(automations, func(i, j int) bool {
@@ -574,6 +626,7 @@ func (p *Proxy) HandleUpdateAutomation(w http.ResponseWriter, r *http.Request) {
 		Cron        *string `json:"cron"`
 		Model       *string `json:"model"`
 		Prompt      *string `json:"prompt"`
+		ProjectID   *string `json:"projectId"`
 	}
 	if err := json.NewDecoder(io.LimitReader(r.Body, 512*1024)).Decode(&req); err != nil {
 		writeJSONError(w, "invalid request: "+err.Error(), http.StatusBadRequest)
@@ -593,146 +646,185 @@ func (p *Proxy) HandleUpdateAutomation(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// 1. Load existing sidecar config (prefer live GetSidecars to preserve all upstream proto fields)
-	var cfgMap map[string]interface{}
-	if port > 0 && p.mediumClient != nil {
-		sidecarsURL := fmt.Sprintf("https://127.0.0.1:%d/exa.language_server_pb.LanguageServerService/GetSidecars", port)
-		upReq, _ := http.NewRequestWithContext(r.Context(), http.MethodPost, sidecarsURL, strings.NewReader("{}"))
-		upReq.Header.Set("Content-Type", "application/json")
-		upReq.Header.Set("Connect-Protocol-Version", "1")
-		if token != "" {
-			upReq.Header.Set("x-codeium-csrf-token", token)
-		}
-		if res, err := p.mediumClient.Do(upReq); err == nil {
-			defer res.Body.Close()
-			if res.StatusCode == http.StatusOK {
-				body, _ := io.ReadAll(res.Body)
-				var raw struct {
-					Sidecars []struct {
-						SidecarID string                 `json:"sidecarId"`
-						ID        string                 `json:"id"`
-						Config    map[string]interface{} `json:"config"`
-					} `json:"sidecars"`
-				}
-				if json.Unmarshal(body, &raw) == nil {
-					for _, sc := range raw.Sidecars {
-						id := sc.SidecarID
-						if id == "" {
-							id = sc.ID
-						}
-						if id == sid && sc.Config != nil {
-							cfgMap = sc.Config
-							break
+	hasConfigUpdate := req.Name != nil || req.Description != nil || req.Cron != nil || req.Model != nil || req.Prompt != nil
+
+	if hasConfigUpdate {
+		// 1. Load existing sidecar config (prefer live GetSidecars to preserve all upstream proto fields)
+		var cfgMap map[string]interface{}
+		if port > 0 && p.mediumClient != nil {
+			sidecarsURL := fmt.Sprintf("https://127.0.0.1:%d/exa.language_server_pb.LanguageServerService/GetSidecars", port)
+			upReq, _ := http.NewRequestWithContext(r.Context(), http.MethodPost, sidecarsURL, strings.NewReader("{}"))
+			upReq.Header.Set("Content-Type", "application/json")
+			upReq.Header.Set("Connect-Protocol-Version", "1")
+			if token != "" {
+				upReq.Header.Set("x-codeium-csrf-token", token)
+			}
+			if res, err := p.mediumClient.Do(upReq); err == nil {
+				defer res.Body.Close()
+				if res.StatusCode == http.StatusOK {
+					body, _ := io.ReadAll(res.Body)
+					var raw struct {
+						Sidecars []struct {
+							SidecarID string                 `json:"sidecarId"`
+							ID        string                 `json:"id"`
+							Config    map[string]interface{} `json:"config"`
+						} `json:"sidecars"`
+					}
+					if json.Unmarshal(body, &raw) == nil {
+						for _, sc := range raw.Sidecars {
+							id := sc.SidecarID
+							if id == "" {
+								id = sc.ID
+							}
+							if id == sid && sc.Config != nil {
+								cfgMap = sc.Config
+								break
+							}
 						}
 					}
 				}
 			}
 		}
-	}
 
-	// Fallback to reading local sidecar.json
-	var localPath string
-	if home, err := os.UserHomeDir(); err == nil && home != "" {
-		localPath = filepath.Join(home, ".gemini", "config", "sidecars", sid, "sidecar.json")
-	}
-	if cfgMap == nil && localPath != "" {
-		if data, err := os.ReadFile(localPath); err == nil {
-			var localMap map[string]interface{}
-			if json.Unmarshal(data, &localMap) == nil {
-				cfgMap = normalizeSidecarConfigToCamel(localMap)
+		// Fallback to reading local sidecar.json
+		var localPath string
+		if home, err := os.UserHomeDir(); err == nil && home != "" {
+			localPath = filepath.Join(home, ".gemini", "config", "sidecars", sid, "sidecar.json")
+		}
+		if cfgMap == nil && localPath != "" {
+			if data, err := os.ReadFile(localPath); err == nil {
+				var localMap map[string]interface{}
+				if json.Unmarshal(data, &localMap) == nil {
+					cfgMap = normalizeSidecarConfigToCamel(localMap)
+				}
+			}
+		}
+		if cfgMap == nil {
+			writeJSONError(w, "automation not found: "+sid, http.StatusNotFound)
+			return
+		}
+
+		// Extract current args slice
+		var origArgs []string
+		if rawArgs, ok := cfgMap["args"].([]interface{}); ok {
+			for _, item := range rawArgs {
+				if s, ok := item.(string); ok {
+					origArgs = append(origArgs, s)
+				}
+			}
+		}
+		curCron, _, _, curPrompt, _ := parseScheduleArgs(origArgs)
+
+		newCron := curCron
+		if req.Cron != nil {
+			newCron = strings.TrimSpace(*req.Cron)
+		}
+		newPrompt := curPrompt
+		if req.Prompt != nil {
+			newPrompt = strings.TrimSpace(*req.Prompt)
+		}
+		if newCron == "" {
+			writeJSONError(w, "cron expression cannot be empty", http.StatusBadRequest)
+			return
+		}
+		if newPrompt == "" {
+			writeJSONError(w, "prompt cannot be empty", http.StatusBadRequest)
+			return
+		}
+
+		if req.Name != nil {
+			trimmedName := strings.TrimSpace(*req.Name)
+			if trimmedName != "" {
+				cfgMap["displayName"] = trimmedName
+			}
+		}
+		if req.Description != nil {
+			cfgMap["description"] = strings.TrimSpace(*req.Description)
+		}
+		if _, hasBuiltin := cfgMap["builtin"]; !hasBuiltin {
+			cfgMap["builtin"] = "schedule"
+		}
+		if req.Cron != nil || req.Model != nil || req.Prompt != nil {
+			cfgMap["args"] = buildScheduleArgs(origArgs, newCron, req.Model, newPrompt)
+		}
+
+		// 2. Persist via upstream ManageSidecar(SIDECAR_ACTION_UPDATE) when online
+		if port > 0 && p.mediumClient != nil {
+			manageURL := fmt.Sprintf("https://127.0.0.1:%d/exa.language_server_pb.LanguageServerService/ManageSidecar", port)
+			payload, _ := json.Marshal(map[string]interface{}{
+				"sidecarId": sid,
+				"action":    "SIDECAR_ACTION_UPDATE",
+				"config":    cfgMap,
+			})
+			upReq, _ := http.NewRequestWithContext(r.Context(), http.MethodPost, manageURL, bytes.NewReader(payload))
+			upReq.Header.Set("Content-Type", "application/json")
+			upReq.Header.Set("Connect-Protocol-Version", "1")
+			if token != "" {
+				upReq.Header.Set("x-codeium-csrf-token", token)
+			}
+			resp, err := p.mediumClient.Do(upReq)
+			if err != nil {
+				writeJSONError(w, "upstream update failed: "+err.Error(), http.StatusInternalServerError)
+				return
+			}
+			defer resp.Body.Close()
+			if resp.StatusCode != http.StatusOK {
+				respBody, _ := io.ReadAll(resp.Body)
+				writeJSONError(w, fmt.Sprintf("upstream error (HTTP %d): %s", resp.StatusCode, string(respBody)), resp.StatusCode)
+				return
+			}
+		} else if localPath != "" {
+			// Offline fallback: update sidecar.json in snake_case format
+			snakeMap := normalizeSidecarConfigToSnake(cfgMap)
+			out, err := json.MarshalIndent(snakeMap, "", "  ")
+			if err != nil {
+				writeJSONError(w, err.Error(), http.StatusInternalServerError)
+				return
+			}
+			tmpFile := localPath + ".tmp"
+			if err := os.WriteFile(tmpFile, append(out, '\n'), 0o644); err != nil {
+				writeJSONError(w, err.Error(), http.StatusInternalServerError)
+				return
+			}
+			if err := os.Rename(tmpFile, localPath); err != nil {
+				writeJSONError(w, err.Error(), http.StatusInternalServerError)
+				return
 			}
 		}
 	}
-	if cfgMap == nil {
-		writeJSONError(w, "automation not found: "+sid, http.StatusNotFound)
-		return
-	}
 
-	// Extract current args slice
-	var origArgs []string
-	if rawArgs, ok := cfgMap["args"].([]interface{}); ok {
-		for _, item := range rawArgs {
-			if s, ok := item.(string); ok {
-				origArgs = append(origArgs, s)
+	// 3. Optional project binding update (mirrors Desktop setSidecarProject / SIDECAR_ACTION_SET_PROJECT)
+	if req.ProjectID != nil {
+		projID := strings.TrimSpace(*req.ProjectID)
+		if port > 0 && p.mediumClient != nil {
+			manageURL := fmt.Sprintf("https://127.0.0.1:%d/exa.language_server_pb.LanguageServerService/ManageSidecar", port)
+			payload, _ := json.Marshal(map[string]interface{}{
+				"sidecarId": sid,
+				"action":    "SIDECAR_ACTION_SET_PROJECT",
+				"projectId": projID,
+			})
+			upReq, _ := http.NewRequestWithContext(r.Context(), http.MethodPost, manageURL, bytes.NewReader(payload))
+			upReq.Header.Set("Content-Type", "application/json")
+			upReq.Header.Set("Connect-Protocol-Version", "1")
+			if token != "" {
+				upReq.Header.Set("x-codeium-csrf-token", token)
 			}
-		}
-	}
-	curCron, _, _, curPrompt, _ := parseScheduleArgs(origArgs)
-
-	newCron := curCron
-	if req.Cron != nil {
-		newCron = strings.TrimSpace(*req.Cron)
-	}
-	newPrompt := curPrompt
-	if req.Prompt != nil {
-		newPrompt = strings.TrimSpace(*req.Prompt)
-	}
-	if newCron == "" {
-		writeJSONError(w, "cron expression cannot be empty", http.StatusBadRequest)
-		return
-	}
-	if newPrompt == "" {
-		writeJSONError(w, "prompt cannot be empty", http.StatusBadRequest)
-		return
-	}
-
-	if req.Name != nil {
-		trimmedName := strings.TrimSpace(*req.Name)
-		if trimmedName != "" {
-			cfgMap["displayName"] = trimmedName
-		}
-	}
-	if req.Description != nil {
-		cfgMap["description"] = strings.TrimSpace(*req.Description)
-	}
-	if _, hasBuiltin := cfgMap["builtin"]; !hasBuiltin {
-		cfgMap["builtin"] = "schedule"
-	}
-	if req.Cron != nil || req.Model != nil || req.Prompt != nil {
-		cfgMap["args"] = buildScheduleArgs(origArgs, newCron, req.Model, newPrompt)
-	}
-
-	// 2. Persist via upstream ManageSidecar(SIDECAR_ACTION_UPDATE) when online
-	if port > 0 && p.mediumClient != nil {
-		manageURL := fmt.Sprintf("https://127.0.0.1:%d/exa.language_server_pb.LanguageServerService/ManageSidecar", port)
-		payload, _ := json.Marshal(map[string]interface{}{
-			"sidecarId": sid,
-			"action":    "SIDECAR_ACTION_UPDATE",
-			"config":    cfgMap,
-		})
-		upReq, _ := http.NewRequestWithContext(r.Context(), http.MethodPost, manageURL, bytes.NewReader(payload))
-		upReq.Header.Set("Content-Type", "application/json")
-		upReq.Header.Set("Connect-Protocol-Version", "1")
-		if token != "" {
-			upReq.Header.Set("x-codeium-csrf-token", token)
-		}
-		resp, err := p.mediumClient.Do(upReq)
-		if err != nil {
-			writeJSONError(w, "upstream update failed: "+err.Error(), http.StatusInternalServerError)
-			return
-		}
-		defer resp.Body.Close()
-		if resp.StatusCode != http.StatusOK {
-			respBody, _ := io.ReadAll(resp.Body)
-			writeJSONError(w, fmt.Sprintf("upstream error (HTTP %d): %s", resp.StatusCode, string(respBody)), resp.StatusCode)
-			return
-		}
-	} else if localPath != "" {
-		// Offline fallback: update sidecar.json in snake_case format
-		snakeMap := normalizeSidecarConfigToSnake(cfgMap)
-		out, err := json.MarshalIndent(snakeMap, "", "  ")
-		if err != nil {
-			writeJSONError(w, err.Error(), http.StatusInternalServerError)
-			return
-		}
-		tmpFile := localPath + ".tmp"
-		if err := os.WriteFile(tmpFile, append(out, '\n'), 0o644); err != nil {
-			writeJSONError(w, err.Error(), http.StatusInternalServerError)
-			return
-		}
-		if err := os.Rename(tmpFile, localPath); err != nil {
-			writeJSONError(w, err.Error(), http.StatusInternalServerError)
-			return
+			resp, err := p.mediumClient.Do(upReq)
+			if err != nil {
+				writeJSONError(w, "upstream set project failed: "+err.Error(), http.StatusInternalServerError)
+				return
+			}
+			defer resp.Body.Close()
+			if resp.StatusCode != http.StatusOK {
+				respBody, _ := io.ReadAll(resp.Body)
+				writeJSONError(w, fmt.Sprintf("upstream error (HTTP %d): %s", resp.StatusCode, string(respBody)), resp.StatusCode)
+				return
+			}
+		} else {
+			if err := updateLocalSidecarProject(sid, projID); err != nil {
+				writeJSONError(w, "failed to update local projectId: "+err.Error(), http.StatusInternalServerError)
+				return
+			}
 		}
 	}
 
@@ -1150,9 +1242,39 @@ func (p *Proxy) annotateAutomationEventsConversationExists(ctx context.Context, 
 
 	now := time.Now()
 	for i := range events {
+		// Default runStatus based on recorded event status
+		if events[i].Status == "error" {
+			events[i].RunStatus = "failed"
+		} else if events[i].RunStatus == "" {
+			events[i].RunStatus = "ok"
+		}
+
 		cid := strings.TrimSpace(events[i].ConversationID)
 		if cid == "" {
 			continue
+		}
+
+		// Enrich live conversation title & run status (matching Desktop qzd)
+		if idx != nil {
+			if live, ok := idx.liveByID[cid]; ok {
+				if t := strings.TrimSpace(live.Title); t != "" {
+					events[i].ConversationTitle = t
+				}
+				if events[i].Status != "error" {
+					switch {
+					case live.WaitingSteps > 0:
+						events[i].RunStatus = "needs_input"
+					case live.Status == "CASCADE_RUN_STATUS_RUNNING" ||
+						live.Status == "CASCADE_RUN_STATUS_BUSY" ||
+						live.Status == "CASCADE_RUN_STATUS_CANCELING":
+						events[i].RunStatus = "running"
+					case live.Status == "CASCADE_RUN_STATUS_ERROR":
+						events[i].RunStatus = "failed"
+					default:
+						events[i].RunStatus = "ok"
+					}
+				}
+			}
 		}
 
 		// 1. Explicitly deleted via gateway tombstone.
@@ -1532,6 +1654,54 @@ func updateLocalSidecarEnabled(sidecarID string, enabled bool) error {
 
 	tmpFile := configJSONPath + ".tmp"
 	if err := os.WriteFile(tmpFile, newBytes, 0644); err != nil {
+		return err
+	}
+	return os.Rename(tmpFile, configJSONPath)
+}
+
+// updateLocalSidecarProject updates the bound projectId of a sidecar in ~/.gemini/config/config.json.
+func updateLocalSidecarProject(sidecarID, projectID string) error {
+	home, err := os.UserHomeDir()
+	if err != nil || home == "" {
+		return err
+	}
+
+	configJSONPath := filepath.Join(home, ".gemini", "config", "config.json")
+	var root map[string]interface{}
+	if data, err := os.ReadFile(configJSONPath); err == nil {
+		if err := json.Unmarshal(data, &root); err != nil {
+			return err
+		}
+	} else {
+		root = make(map[string]interface{})
+	}
+
+	sidecars, ok := root["sidecars"].(map[string]interface{})
+	if !ok {
+		sidecars = make(map[string]interface{})
+		root["sidecars"] = sidecars
+	}
+
+	scMap, ok := sidecars[sidecarID].(map[string]interface{})
+	if !ok {
+		scMap = make(map[string]interface{})
+		sidecars[sidecarID] = scMap
+	}
+	if projectID == "" {
+		delete(scMap, "projectId")
+	} else {
+		scMap["projectId"] = projectID
+	}
+
+	newBytes, err := json.MarshalIndent(root, "", "  ")
+	if err != nil {
+		return err
+	}
+	if err := os.MkdirAll(filepath.Dir(configJSONPath), 0o755); err != nil {
+		return err
+	}
+	tmpFile := configJSONPath + ".tmp"
+	if err := os.WriteFile(tmpFile, newBytes, 0o644); err != nil {
 		return err
 	}
 	return os.Rename(tmpFile, configJSONPath)

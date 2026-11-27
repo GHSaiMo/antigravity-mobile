@@ -265,10 +265,32 @@ private enum DemoRouter {
             let action = (obj["action"] as? String) ?? ""
             return json(gw.manageAutomation(sidecarId: sidecarId, action: action))
 
+        case ("POST", "/gateway/automations/create"):
+            let obj = bodyJSON(body)
+            let name = (obj["name"] as? String) ?? ""
+            let cron = (obj["cron"] as? String) ?? (obj["schedule"] as? String) ?? "0 9 * * *"
+            let prompt = (obj["prompt"] as? String) ?? ""
+            let model = obj["model"] as? String
+            let projectId = obj["projectId"] as? String
+            return json(gw.createAutomation(name: name, cron: cron, prompt: prompt, model: model, projectId: projectId))
+
         case ("POST", "/gateway/automations/update"):
             let obj = bodyJSON(body)
             let sidecarId = (obj["sidecarId"] as? String) ?? ""
-            return json(["ok": true, "sidecarId": sidecarId])
+            return json(gw.updateAutomation(
+                sidecarId: sidecarId,
+                name: obj["name"] as? String,
+                description: obj["description"] as? String,
+                cron: obj["cron"] as? String,
+                model: obj["model"] as? String,
+                prompt: obj["prompt"] as? String,
+                projectId: obj["projectId"] as? String
+            ))
+
+        case ("POST", "/gateway/automations/delete"):
+            let obj = bodyJSON(body)
+            let sidecarId = (obj["sidecarId"] as? String) ?? ""
+            return json(gw.deleteAutomation(sidecarId: sidecarId))
 
         case ("GET", "/gateway/automations/logs"):
             let sid = URLComponents(url: url, resolvingAgainstBaseURL: false)?

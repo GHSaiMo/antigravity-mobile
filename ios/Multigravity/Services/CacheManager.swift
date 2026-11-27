@@ -1474,13 +1474,24 @@ public final class CacheManager: @unchecked Sendable {
         }
     }
     
-    public func createLocalDraftSession(project: ProjectItem) -> LocalDraftSession {
-        let session = LocalDraftSession(project: project)
+    public func createLocalDraftSession(
+        project: ProjectItem,
+        draftText: String = "",
+        draftSlashCommands: [SlashCommandOption] = []
+    ) -> LocalDraftSession {
+        let session = LocalDraftSession(
+            project: project,
+            draftText: draftText,
+            draftSlashCommands: draftSlashCommands
+        )
         lock.lock()
         ensureLocalDraftSessionsLoaded()
         memLocalDraftSessions?[session.id] = session
         persistDraftSessionsToDisk()
         lock.unlock()
+        if !draftText.isEmpty {
+            saveDraft(key: session.id, text: draftText)
+        }
         return session
     }
     

@@ -163,10 +163,11 @@ func subagentIdentity(raw *upstreamTrajectoryResp) (parentID, role string) {
 
 // subagentLive is the slice of a list-snapshot entry we need.
 type subagentLive struct {
-	Status    string
-	StepCount int
-	Title     string
-	Parent    string
+	Status       string
+	StepCount    int
+	WaitingSteps int
+	Title        string
+	Parent       string
 }
 
 // liveSummaries looks the given conversations up in the shared list snapshot.

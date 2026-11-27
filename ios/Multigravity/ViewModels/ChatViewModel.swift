@@ -884,6 +884,10 @@ public final class ChatViewModel {
         }
         let existingDraft = resolvedCacheManager.getDraft(for: draftSession.id)
         self.inputText = existingDraft.isEmpty ? draftSession.draftText : existingDraft
+        if !draftSession.draftSlashCommands.isEmpty {
+            self.selectedSlashCommands = draftSession.draftSlashCommands
+            self.focusInputTrigger &+= 1
+        }
         
         self.setupStreamClient()
         self.isInitializing = false

@@ -8788,6 +8788,181 @@ body.font-comfortable pre, body.font-comfortable code {
 .p3-btn-group { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; }
 .p3-empty { font-size: 13px; color: var(--color-text-secondary, #8e8e93); padding: 14px 4px; text-align: center; }
 
+.p3-auto-create-bar {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  margin-bottom: 12px;
+}
+.p3-auto-prompt-btn {
+  flex: 1;
+  padding: 8px 12px;
+  font-size: 13px;
+  font-weight: 600;
+  border-radius: 10px;
+}
+.p3-auto-manual-btn {
+  padding: 8px 12px;
+  font-size: 13px;
+  border-radius: 10px;
+  white-space: nowrap;
+}
+.p3-auto-card {
+  cursor: pointer;
+  align-items: flex-start;
+}
+.p3-auto-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  font-size: 11.5px;
+  opacity: 0.82;
+}
+.p3-auto-preview {
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  opacity: 0.78;
+}
+.p3-auto-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+}
+.p3-auto-icon-btn {
+  padding: 4px 7px;
+  min-width: 28px;
+  line-height: 1.2;
+}
+.p3-auto-err-badge {
+  background: rgba(255, 69, 58, 0.16);
+  color: #ff453a;
+}
+.p3-auto-field-label {
+  display: block;
+  font-size: 11.5px;
+  opacity: 0.72;
+  margin-bottom: 4px;
+}
+.p3-auto-slug-hint {
+  font-size: 11px;
+  opacity: 0.72;
+  margin-top: 3px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+.p3-auto-slug-hint.error {
+  color: #ff453a;
+  opacity: 1;
+}
+.p3-auto-pill-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.p3-auto-pill,
+.p3-auto-day-chip {
+  border: 1px solid rgba(120, 120, 128, 0.28);
+  background: rgba(120, 120, 128, 0.12);
+  color: var(--color-text-primary, #fff);
+  border-radius: 8px;
+  padding: 5px 10px;
+  font-size: 12px;
+  cursor: pointer;
+}
+.p3-auto-day-chip {
+  min-width: 32px;
+  padding: 5px 6px;
+  text-align: center;
+}
+.p3-auto-pill.active,
+.p3-auto-day-chip.active {
+  background: #0a84ff;
+  border-color: #0a84ff;
+  color: #fff;
+  font-weight: 600;
+}
+.p3-auto-inline-grid {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.p3-auto-inline-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+.p3-auto-compact-input {
+  width: 84px;
+  margin: 0;
+}
+.p3-auto-cron-preview {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-top: 8px;
+  padding: 6px 9px;
+  border-radius: 8px;
+  background: rgba(120, 120, 128, 0.12);
+  font-size: 11.5px;
+}
+.p3-auto-config-summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  cursor: pointer;
+}
+.p3-auto-config-chips,
+.p3-auto-sources {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
+  font-size: 11.5px;
+}
+.p3-auto-sources {
+  margin-top: 8px;
+  padding-top: 8px;
+  border-top: 1px solid rgba(120, 120, 128, 0.16);
+}
+.p3-auto-chip {
+  padding: 3px 8px;
+  border-radius: 999px;
+  background: rgba(120, 120, 128, 0.16);
+  font-size: 11.5px;
+}
+.p3-auto-prompt-md {
+  font-size: 13px;
+  line-height: 1.55;
+  word-break: break-word;
+}
+.p3-auto-prompt-md.collapsed {
+  max-height: 160px;
+  overflow: hidden;
+  -webkit-mask-image: linear-gradient(180deg, #000 68%, transparent 100%);
+  mask-image: linear-gradient(180deg, #000 68%, transparent 100%);
+}
+.p3-auto-status-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  display: inline-block;
+  flex-shrink: 0;
+  background: #30d158;
+}
+.p3-auto-status-dot.running { background: #5e5ce6; }
+.p3-auto-status-dot.needs_input { background: #ff9f0a; }
+.p3-auto-status-dot.failed { background: #ff453a; }
+.p3-auto-st-badge.running { background: rgba(94, 92, 230, 0.18); color: #5e5ce6; }
+.p3-auto-st-badge.needs_input { background: rgba(255, 159, 10, 0.18); color: #ff9f0a; }
+.p3-auto-st-badge.failed { background: rgba(255, 69, 58, 0.16); color: #ff453a; }
+.p3-auto-st-badge.ok { background: rgba(48, 209, 88, 0.16); color: #30d158; }
+
+
 .suggest-chips {
   display: inline-flex;
   align-items: center;

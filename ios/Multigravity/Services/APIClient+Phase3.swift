@@ -432,7 +432,15 @@ extension APIClient {
 
     // MARK: - Automations CRUD
 
-    public func createAutomation(name: String, schedule: String, prompt: String, model: String = "", workspace: String = "", baseURL: URL) async throws {
+    public func createAutomation(
+        name: String,
+        schedule: String,
+        prompt: String,
+        model: String = "",
+        projectId: String = "",
+        workspace: String = "",
+        baseURL: URL
+    ) async throws {
         var payload: [String: JSONValue] = [
             "name": .string(name),
             "cron": .string(schedule),
@@ -440,6 +448,7 @@ extension APIClient {
             "prompt": .string(prompt)
         ]
         if !model.isEmpty { payload["model"] = .string(model) }
+        if !projectId.isEmpty { payload["projectId"] = .string(projectId) }
         if !workspace.isEmpty { payload["workspace"] = .string(workspace) }
         let _: P3OkResponse = try await p3PostJSON(path: "gateway/automations/create", payload: payload, baseURL: baseURL)
     }
@@ -451,6 +460,7 @@ extension APIClient {
         cron: String? = nil,
         model: String? = nil,
         prompt: String? = nil,
+        projectId: String? = nil,
         baseURL: URL
     ) async throws {
         var payload: [String: JSONValue] = [
@@ -461,6 +471,7 @@ extension APIClient {
         if let cron { payload["cron"] = .string(cron) }
         if let model { payload["model"] = .string(model) }
         if let prompt { payload["prompt"] = .string(prompt) }
+        if let projectId { payload["projectId"] = .string(projectId) }
         let _: P3OkResponse = try await p3PostJSON(path: "gateway/automations/update", payload: payload, baseURL: baseURL)
     }
 

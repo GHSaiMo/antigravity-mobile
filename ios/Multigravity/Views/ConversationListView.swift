@@ -429,6 +429,30 @@ public struct ConversationListView: View {
             let session = CacheManager.shared.createLocalDraftSession(project: project)
             navigationPath = [session.toConversationItem()]
         }
+        .onReceive(NotificationCenter.default.publisher(for: .startAutomationPromptSession)) { _ in
+            let hadModal = dismissAllModals()
+            NotificationCenter.default.post(name: .dismissAllPresentedModals, object: nil)
+            let automationCmd = SlashCommandOption(
+                name: "automation",
+                title: "automation",
+                description: String(localized: "交互式创建定时自动化任务"),
+                icon: "schedule",
+                kind: "skill"
+            )
+            let session = CacheManager.shared.createLocalDraftSession(
+                project: .pureChat,
+                draftText: String(localized: "引导我创建一个定时自动化任务"),
+                draftSlashCommands: [automationCmd]
+            )
+            let item = session.toConversationItem()
+            if hadModal {
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.18) {
+                    navigationPath = [item]
+                }
+            } else {
+                navigationPath = [item]
+            }
+        }
         .onOpenURL { url in
             if url.isFileURL {
                 handleSharedFile(url)

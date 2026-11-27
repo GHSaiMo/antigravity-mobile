@@ -194,6 +194,7 @@ fun ChatScreen(
     onOpenSubagent: (com.antigravity.mobile.data.model.SubagentItem) -> Unit = {},
     onOpenConversation: (cascadeId: String, title: String) -> Unit = { _, _ -> },
     onStartNewSession: () -> Unit = {},
+    onCreateAutomationWithPrompt: () -> Unit = {},
     dismissModalsTrigger: Int = 0
 ) {
     val context = LocalContext.current
@@ -3079,6 +3080,11 @@ fun ChatScreen(
             },
             onTasksChanged = { viewModel.updateGlobalBackgroundTasks(it) },
             onOpenSwarm = { showSwarmSheet = true },
+            onCreateAutomationWithPrompt = {
+                showMcpSkillsSheet = false
+                mcpSkillsInitialTabOverride = null
+                onCreateAutomationWithPrompt()
+            },
             onDismiss = {
                 showMcpSkillsSheet = false
                 mcpSkillsInitialTabOverride = null

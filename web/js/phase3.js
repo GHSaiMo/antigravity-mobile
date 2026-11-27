@@ -664,97 +664,162 @@
           this._automationsCache = list;
           this._automationEventsCache = events;
 
+          if (this._creatingAutomation) {
+            await this.renderCreateAutomationForm(body, list);
+            return;
+          }
+
           if (this._selectedAutomationId) {
             const target = list.find((s) => s.id === this._selectedAutomationId);
             if (target) {
-              await this.renderAutomationDetail(body, target, events);
+              const openPrompt = !!this._openAutomationPromptEditor;
+              this._openAutomationPromptEditor = false;
+              await this.renderAutomationDetail(body, target, events, openPrompt);
               return;
             }
             this._selectedAutomationId = null;
+            this._openAutomationPromptEditor = false;
           }
 
           const isAutoRunning = (sc) => !!(sc.enabled || /^(running|ready)$/i.test(sc.status || ""));
-          body.innerHTML = `
-            <div class="p3-section-header">
-              <span>定时自动化任务 (${list.length})</span>
-              <button type="button" class="p3-mini-btn primary" id="btn-auto-new">+ 新建定时任务</button>
-            </div>
-            <div id="p3-auto-form" class="p3-form-card hidden">
-              <input type="text" id="p3-auto-name" class="p3-input" placeholder="任务名称 (如 晨间代码巡检)" />
-              <input type="text" id="p3-auto-cron" class="p3-input monospaced" placeholder="Cron (如 0 9 * * *)" />
-              <textarea id="p3-auto-prompt" class="p3-textarea" rows="3" placeholder="触发时交给 Agent 的指令…"></textarea>
-              <div class="p3-form-actions">
-                <button type="button" class="p3-mini-btn" id="btn-auto-cancel">取消</button>
-                <button type="button" class="p3-mini-btn primary" id="btn-auto-save">创建并启用</button>
-              </div>
-            </div>
-            <div class="p3-list">` + (list.map((sc) => {
-              const running = isAutoRunning(sc);
-              return `
-              <div class="p3-row" data-auto-open="${escapeHtml(sc.id)}" style="cursor:pointer;">
+          const scheduled = list
+            .filter(isAutoRunning)
+            .sort((a, b) => {
+              const diff = this._parseAutoNextRunMs(a.nextRunAt) - this._parseAutoNextRunMs(b.nextRunAt);
+              return diff !== 0 ? diff : String(a.name || a.id).localeCompare(String(b.name || b.id));
+            });
+          const paused = list
+            .filter((sc) => !isAutoRunning(sc))
+            .sort((a, b) => String(a.name || a.id).localeCompare(String(b.name || b.id)));
+
+          const renderAutoCard = (sc) => {
+            const running = isAutoRunning(sc);
+            const hasErr = /^error$/i.test(sc.status || "") || !!sc.lastError;
+            const summary = this._humanizeAutoCron(sc.cronExpression || "");
+            const preview = (sc.description || sc.prompt || "").replace(/\s+/g, " ").trim().slice(0, 100);
+            const runLine = [
+              running && sc.nextRunAt ? `下次 ${sc.nextRunAt}` : "",
+              sc.lastRunAt ? `上次 ${sc.lastRunAt}` : "",
+            ].filter(Boolean).join(" · ");
+            return `
+              <div class="p3-row p3-auto-card" data-auto-open="${escapeHtml(sc.id)}">
                 <div class="p3-row-main">
                   <div class="p3-row-title">
-                    ${escapeHtml(sc.name || sc.id)}
-                    <span class="p3-badge" style="${running ? "color:#16a34a;background:rgba(22,163,74,.12);" : "opacity:.7;"}">${running ? "运行中" : "已暂停"}</span>
+                    <span>${escapeHtml(sc.name || sc.id)}</span>
+                    ${hasErr ? `<span class="p3-badge p3-auto-err-badge">异常</span>` : ""}
                   </div>
-                  <div class="p3-row-sub monospaced" style="font-size:11px;opacity:.75;">${escapeHtml(sc.cronExpression || "")}${running && sc.nextRunAt ? " · 下次 " + escapeHtml(sc.nextRunAt) : (sc.lastRunAt ? " · 上次 " + escapeHtml(sc.lastRunAt) : "")}</div>
-                  <div class="p3-row-sub">${escapeHtml((sc.description || sc.prompt || "").slice(0, 90))}</div>
+                  <div class="p3-row-sub p3-auto-meta">
+                    ${summary ? `<span>⏱ ${escapeHtml(summary)}</span>` : ""}
+                    ${sc.projectName ? `<span>· 📁 ${escapeHtml(sc.projectName)}</span>` : ""}
+                  </div>
+                  ${runLine ? `<div class="p3-row-sub monospaced" style="font-size:11px;opacity:.72;">${escapeHtml(runLine)}</div>` : ""}
+                  ${preview ? `<div class="p3-row-sub p3-auto-preview">${escapeHtml(preview)}</div>` : ""}
                 </div>
-                <div class="p3-row-actions" style="flex-shrink:0;">
-                  ${running ? `<button type="button" class="p3-mini-btn" data-auto-run="${escapeHtml(sc.id)}" title="立即运行">▶</button>` : ""}
-                  <button type="button" class="p3-mini-btn ${running ? "" : "primary"}" data-auto-toggle="${escapeHtml(sc.id)}" data-auto-running="${running ? "1" : "0"}">${running ? "停止" : "启动"}</button>
+                <div class="p3-row-actions p3-auto-actions">
+                  ${running ? `<button type="button" class="p3-mini-btn p3-auto-icon-btn" data-auto-run="${escapeHtml(sc.id)}" title="立即运行">▶</button>` : ""}
+                  <button type="button" class="p3-mini-btn p3-auto-icon-btn" data-auto-edit-prompt="${escapeHtml(sc.id)}" title="编辑执行指令">✎</button>
+                  <label class="wf-switch" title="${running ? "暂停" : "启用"}">
+                    <input type="checkbox" data-auto-toggle="${escapeHtml(sc.id)}" ${running ? "checked" : ""}>
+                    <span class="wf-switch-slider"></span>
+                  </label>
                 </div>
               </div>`;
-            }).join("") || `<div class="p3-empty">暂无定时任务</div>`) + `</div>`;
+          };
 
+          const renderEventsHtml = () => {
+            if (!events.length) return "";
+            const statusDot = (ev) => {
+              const st = ev.runStatus || (ev.status === "error" ? "failed" : "ok");
+              return `<span class="p3-auto-status-dot ${escapeHtml(st)}"></span>`;
+            };
+            return `
+              <div class="p3-section-header" style="margin-top:14px;">
+                <span>最近触发记录</span>
+              </div>
+              <div class="p3-list">
+                ${events.slice(0, 12).map((ev) => {
+                  const title = ev.conversationTitle || ev.scheduleId || "自动化执行";
+                  const sub = [ev.conversationTitle && ev.scheduleId && ev.scheduleId !== ev.conversationTitle ? ev.scheduleId : "", ev.message || ""].filter(Boolean).join(" · ").slice(0, 110);
+                  return `
+                    <div class="p3-row" ${ev.conversationId ? `data-auto-conv="${escapeHtml(ev.conversationId)}" data-auto-conv-exists="${ev.conversationExists === false ? "0" : "1"}" style="cursor:pointer;"` : ""}>
+                      <div class="p3-row-main">
+                        <div class="p3-row-title" style="font-size:13px;gap:6px;display:flex;align-items:center;">
+                          ${statusDot(ev)}
+                          <span>${escapeHtml(title)}</span>
+                        </div>
+                        <div class="p3-row-sub monospaced" style="font-size:11px;opacity:.7;">${escapeHtml(ev.timestamp || "")}</div>
+                        ${sub ? `<div class="p3-row-sub">${escapeHtml(sub)}</div>` : ""}
+                      </div>
+                      ${ev.conversationId ? `<span style="opacity:.45;font-size:14px;">›</span>` : ""}
+                    </div>`;
+                }).join("")}
+              </div>`;
+          };
+
+          body.innerHTML = `
+            <div class="p3-auto-create-bar">
+              <button type="button" class="p3-mini-btn primary p3-auto-prompt-btn" id="btn-auto-create-prompt">✨ 通过提示词创建</button>
+              <button type="button" class="p3-mini-btn p3-auto-manual-btn" id="btn-auto-new">+ 手动新建</button>
+            </div>
+            ${list.length === 0 ? `
+              <div class="p3-empty" style="padding:24px 12px;">
+                <div style="font-size:14px;font-weight:600;margin-bottom:6px;color:var(--color-text-primary, #fff);">暂无定时自动化任务</div>
+                <div style="font-size:12px;opacity:.78;">描述你想自动化的事项让 AI 帮你设计，或手动配置 Cron 计划</div>
+              </div>
+            ` : `
+              ${scheduled.length > 0 ? `
+                <div class="p3-section-header"><span>计划运行 (${scheduled.length})</span></div>
+                <div class="p3-list">${scheduled.map(renderAutoCard).join("")}</div>
+              ` : ""}
+              ${paused.length > 0 ? `
+                <div class="p3-section-header" style="${scheduled.length > 0 ? "margin-top:14px;" : ""}"><span>已暂停 (${paused.length})</span></div>
+                <div class="p3-list">${paused.map(renderAutoCard).join("")}</div>
+              ` : ""}
+            `}
+            ${renderEventsHtml()}`;
+
+          document.getElementById("btn-auto-create-prompt")?.addEventListener("click", () => {
+            this.startAutomationWithPrompt();
+          });
           document.getElementById("btn-auto-new")?.addEventListener("click", () => {
-            document.getElementById("p3-auto-form")?.classList.remove("hidden");
-          });
-          document.getElementById("btn-auto-cancel")?.addEventListener("click", () => {
-            document.getElementById("p3-auto-form")?.classList.add("hidden");
-          });
-          document.getElementById("btn-auto-save")?.addEventListener("click", async () => {
-            const name = document.getElementById("p3-auto-name").value.trim();
-            const cron = document.getElementById("p3-auto-cron").value.trim();
-            const prompt = document.getElementById("p3-auto-prompt").value.trim();
-            const r = await fetch("/gateway/automations/create", {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({ name, cron, prompt, enabled: true }),
-            });
-            const d = await r.json().catch(() => ({}));
-            if (!r.ok || d.ok === false) {
-              showToast?.("创建失败: " + (d.error || r.status));
-              return;
-            }
-            showToast?.("已创建定时任务");
+            this._creatingAutomation = true;
             this.renderToolsTab(false);
           });
           body.querySelectorAll("[data-auto-open]").forEach((row) => {
             row.addEventListener("click", (e) => {
-              if (e.target.closest("button")) return;
+              if (e.target.closest("button, label, input")) return;
               this._selectedAutomationId = row.getAttribute("data-auto-open");
+              this._openAutomationPromptEditor = false;
               this.renderToolsTab(false);
             });
           });
-          body.querySelectorAll("[data-auto-toggle]").forEach((btn) => {
-            btn.addEventListener("click", async (e) => {
+          body.querySelectorAll("[data-auto-edit-prompt]").forEach((btn) => {
+            btn.addEventListener("click", (e) => {
               e.stopPropagation();
-              const sidecarId = btn.getAttribute("data-auto-toggle");
-              const running = btn.getAttribute("data-auto-running") === "1";
-              btn.disabled = true;
+              this._selectedAutomationId = btn.getAttribute("data-auto-edit-prompt");
+              this._openAutomationPromptEditor = true;
+              this.renderToolsTab(false);
+            });
+          });
+          body.querySelectorAll("[data-auto-toggle]").forEach((cb) => {
+            cb.addEventListener("change", async (e) => {
+              e.stopPropagation();
+              const sidecarId = cb.getAttribute("data-auto-toggle");
+              const wantStart = !!cb.checked;
+              cb.disabled = true;
               const r = await fetch("/gateway/automations/manage", {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ sidecarId, action: running ? "stop" : "start" }),
+                body: JSON.stringify({ sidecarId, action: wantStart ? "start" : "stop" }),
               });
               const d = await r.json().catch(() => ({}));
               if (!r.ok) {
-                btn.disabled = false;
+                cb.checked = !wantStart;
+                cb.disabled = false;
                 showToast?.("操作失败: " + (d.error || r.status));
                 return;
               }
-              showToast?.(running ? "已暂停定时任务" : "已启动定时任务");
+              showToast?.(wantStart ? "已启动定时任务" : "已暂停定时任务");
               this.renderToolsTab(false);
             });
           });
@@ -776,6 +841,23 @@
               }
               showToast?.("已触发立即执行");
               this.renderToolsTab(false);
+            });
+          });
+          body.querySelectorAll("[data-auto-conv]").forEach((row) => {
+            row.addEventListener("click", () => {
+              const cid = row.getAttribute("data-auto-conv");
+              const exists = row.getAttribute("data-auto-conv-exists") !== "0";
+              if (!exists) {
+                showToast?.(typeof t === "function" ? t("该触发记录对应的会话已删除") : "该触发记录对应的会话已删除", 2400);
+                return;
+              }
+              const openConv = typeof selectCascadeConversation === "function"
+                ? selectCascadeConversation
+                : (typeof selectConversation === "function" ? selectConversation : null);
+              if (cid && openConv) {
+                this.closeToolsBoard();
+                openConv(cid);
+              }
             });
           });
           return;
@@ -2211,17 +2293,489 @@
       });
     },
 
-    async renderAutomationDetail(body, sc, allEvents) {
+    startAutomationWithPrompt() {
+      this._selectedAutomationId = null;
+      this._creatingAutomation = false;
+      this._openAutomationPromptEditor = false;
+      this.closeToolsBoard();
+      const promptText = typeof t === "function" ? t("引导我创建一个定时自动化任务") : "引导我创建一个定时自动化任务";
+      if (typeof ensureSlashCommands === "function") ensureSlashCommands();
+      if (typeof startDraftSession === "function") {
+        startDraftSession({
+          isPure: true,
+          name: "新对话",
+          path: "",
+          uri: "",
+          rawId: "outside-of-project",
+          prefillSlashCommands: [{ name: "automation", title: "automation", kind: "skill", icon: "schedule" }],
+          prefillText: promptText,
+        });
+      }
+    },
+
+    _autoSlugify(name) {
+      return String(name || "")
+        .toLowerCase()
+        .trim()
+        .replace(/[^a-z0-9]+/g, "-")
+        .replace(/^-+|-+$/g, "");
+    },
+
+    _parseAutoNextRunMs(str) {
+      if (!str) return Number.MAX_SAFE_INTEGER;
+      const ms = Date.parse(String(str).replace(" ", "T"));
+      return Number.isFinite(ms) ? ms : Number.MAX_SAFE_INTEGER;
+    },
+
+    _extractAutoDataSources(prompt) {
+      const text = String(prompt || "");
+      if (!text) return [];
+      const found = [];
+      const pushUnique = (label) => {
+        const clean = String(label || "").trim();
+        if (!clean || found.includes(clean)) return;
+        found.push(clean);
+      };
+      const known = [
+        [/\bgithub\b|github\.com/i, "GitHub"],
+        [/\bslack\b/i, "Slack"],
+        [/\bgmail\b|google mail/i, "Gmail"],
+        [/google calendar|\bcalendar\b/i, "Calendar"],
+        [/\blinear\b/i, "Linear"],
+        [/\bnotion\b/i, "Notion"],
+        [/\bjira\b/i, "Jira"],
+        [/\bdiscord\b/i, "Discord"],
+        [/\btelegram\b/i, "Telegram"],
+        [/\bwechat\b|微信/i, "WeChat"],
+        [/\bsubstack\b/i, "Substack"],
+        [/hacker\s*news|news\.ycombinator/i, "Hacker News"],
+        [/\breddit\b/i, "Reddit"],
+        [/\btwi(?:tter)?\b|x\.com/i, "X / Twitter"],
+      ];
+      for (const [re, label] of known) {
+        if (re.test(text)) pushUnique(label);
+      }
+      const urls = text.match(/https?:\/\/([a-z0-9.-]+\.[a-z]{2,})/gi) || [];
+      for (const u of urls.slice(0, 4)) {
+        try {
+          const host = new URL(u).hostname.replace(/^www\./, "");
+          if (host) pushUnique(host);
+        } catch (_) {}
+      }
+      return found.slice(0, 5);
+    },
+
+    _defaultAutoTimeZone() {
+      try {
+        return Intl.DateTimeFormat().resolvedOptions().timeZone || "";
+      } catch (_) {
+        return "";
+      }
+    },
+
+    _parseAutoCron(rawExpr, fallbackTz) {
+      let expr = String(rawExpr || "").trim();
+      let timeZone = String(fallbackTz || "").trim();
+      const tzMatch = expr.match(/^(?:CRON_TZ|TZ)=([^\s]+)\s+(.+)$/);
+      if (tzMatch) {
+        timeZone = tzMatch[1];
+        expr = tzMatch[2].trim();
+      }
+      const base = {
+        preset: "daily", // hourly | daily | weekdays | weekly | custom
+        customKind: "every_hours", // every_hours | multi_days | monthly | raw
+        hour: 9,
+        minute: 0,
+        weekday: 1,
+        weekdays: [1, 3, 5],
+        everyHours: 2,
+        dayOfMonth: 1,
+        timeZone: timeZone || this._defaultAutoTimeZone(),
+        rawCron: expr || "0 9 * * *",
+      };
+      const parts = expr.split(/\s+/);
+      if (parts.length !== 5) {
+        return { ...base, preset: "custom", customKind: "raw", rawCron: expr || "0 9 * * *" };
+      }
+      const [minS, hourS, domS, monS, dowS] = parts;
+      const minNum = /^\d+$/.test(minS) ? Number(minS) : NaN;
+      const hourNum = /^\d+$/.test(hourS) ? Number(hourS) : NaN;
+
+      if (minS === "0" && hourS === "*" && domS === "*" && monS === "*" && dowS === "*") {
+        return { ...base, preset: "hourly", minute: 0 };
+      }
+      const everyHMatch = hourS.match(/^\*\/(\d+)$/);
+      if (minS === "0" && everyHMatch && domS === "*" && monS === "*" && dowS === "*") {
+        const n = Number(everyHMatch[1]);
+        if ([2, 3, 4, 6, 8, 12].includes(n)) {
+          return { ...base, preset: "custom", customKind: "every_hours", everyHours: n };
+        }
+      }
+      if (Number.isFinite(minNum) && Number.isFinite(hourNum) && monS === "*") {
+        if (domS === "*" && dowS === "*") {
+          return { ...base, preset: "daily", hour: hourNum, minute: minNum };
+        }
+        if (domS === "*" && dowS === "1-5") {
+          return { ...base, preset: "weekdays", hour: hourNum, minute: minNum };
+        }
+        if (domS === "*" && /^[0-7]$/.test(dowS)) {
+          return { ...base, preset: "weekly", hour: hourNum, minute: minNum, weekday: Number(dowS) % 7 };
+        }
+        if (domS === "*" && /^[0-7](,[0-7])+$/.test(dowS)) {
+          const days = Array.from(new Set(dowS.split(",").map((d) => Number(d) % 7))).sort((a, b) => a - b);
+          return { ...base, preset: "custom", customKind: "multi_days", hour: hourNum, minute: minNum, weekdays: days };
+        }
+        if (/^\d+$/.test(domS) && dowS === "*") {
+          const dom = Math.min(28, Math.max(1, Number(domS)));
+          return { ...base, preset: "custom", customKind: "monthly", hour: hourNum, minute: minNum, dayOfMonth: dom };
+        }
+      }
+      return { ...base, preset: "custom", customKind: "raw", rawCron: expr };
+    },
+
+    _buildAutoCron(draft) {
+      const m = Math.min(59, Math.max(0, Number(draft.minute) || 0));
+      const h = Math.min(23, Math.max(0, Number(draft.hour) || 0));
+      let core = "";
+      if (draft.preset === "hourly") {
+        core = "0 * * * *";
+      } else if (draft.preset === "daily") {
+        core = `${m} ${h} * * *`;
+      } else if (draft.preset === "weekdays") {
+        core = `${m} ${h} * * 1-5`;
+      } else if (draft.preset === "weekly") {
+        core = `${m} ${h} * * ${Number(draft.weekday) % 7}`;
+      } else if (draft.customKind === "every_hours") {
+        core = `0 */${draft.everyHours || 2} * * *`;
+      } else if (draft.customKind === "multi_days") {
+        const days = (draft.weekdays && draft.weekdays.length ? draft.weekdays : [1]).slice().sort((a, b) => a - b);
+        core = `${m} ${h} * * ${days.join(",")}`;
+      } else if (draft.customKind === "monthly") {
+        const dom = Math.min(28, Math.max(1, Number(draft.dayOfMonth) || 1));
+        core = `${m} ${h} ${dom} * *`;
+      } else {
+        core = String(draft.rawCron || "").trim();
+        if (/^(?:CRON_TZ|TZ)=/.test(core)) return core;
+      }
+      if (!core) return "";
+      const tz = String(draft.timeZone || "").trim();
+      return tz ? `CRON_TZ=${tz} ${core}` : core;
+    },
+
+    _humanizeAutoCron(rawExpr) {
+      const expr = String(rawExpr || "").trim();
+      if (!expr) return "";
+      const d = this._parseAutoCron(expr, "");
+      const pad = (n) => String(n).padStart(2, "0");
+      const timeStr = `${pad(d.hour)}:${pad(d.minute)}`;
+      const dayNames = ["周日", "周一", "周二", "周三", "周四", "周五", "周六"];
+      let label = expr;
+      if (d.preset === "hourly") label = "每小时";
+      else if (d.preset === "daily") label = `每天 ${timeStr}`;
+      else if (d.preset === "weekdays") label = `工作日 ${timeStr}`;
+      else if (d.preset === "weekly") label = `每${dayNames[d.weekday % 7]} ${timeStr}`;
+      else if (d.customKind === "every_hours") label = `每 ${d.everyHours} 小时`;
+      else if (d.customKind === "multi_days") label = `每${d.weekdays.map((x) => dayNames[x % 7]).join("、")} ${timeStr}`;
+      else if (d.customKind === "monthly") label = `每月 ${d.dayOfMonth} 日 ${timeStr}`;
+      else label = d.rawCron || expr;
+      const hasExplicitTz = /^(?:CRON_TZ|TZ)=([^\s]+)\s+/.exec(expr);
+      return hasExplicitTz ? `${label} (${hasExplicitTz[1]})` : label;
+    },
+
+    _renderAutoScheduleEditorHtml(prefix, draft) {
+      const pad = (n) => String(n).padStart(2, "0");
+      const timeVal = `${pad(draft.hour)}:${pad(draft.minute)}`;
+      const presets = [
+        ["hourly", "每小时"],
+        ["daily", "每天"],
+        ["weekdays", "工作日"],
+        ["weekly", "每周"],
+        ["custom", "自定义"],
+      ];
+      const dayLabels = ["日", "一", "二", "三", "四", "五", "六"];
+      const needTime = draft.preset === "daily" || draft.preset === "weekdays" || draft.preset === "weekly" || (draft.preset === "custom" && (draft.customKind === "multi_days" || draft.customKind === "monthly"));
+      const builtCron = this._buildAutoCron(draft);
+      return `
+        <div class="p3-auto-sched" data-sched-prefix="${prefix}">
+          <div class="p3-auto-pill-row">
+            ${presets.map(([k, lbl]) => `<button type="button" class="p3-auto-pill ${draft.preset === k ? "active" : ""}" data-sched-preset="${k}">${lbl}</button>`).join("")}
+          </div>
+          ${draft.preset === "weekly" ? `
+            <div class="p3-auto-pill-row" style="margin-top:6px;">
+              ${dayLabels.map((lbl, idx) => `<button type="button" class="p3-auto-day-chip ${draft.weekday === idx ? "active" : ""}" data-sched-weekday="${idx}">${lbl}</button>`).join("")}
+            </div>
+          ` : ""}
+          ${draft.preset === "custom" ? `
+            <div class="p3-auto-pill-row" style="margin-top:6px;">
+              <button type="button" class="p3-auto-pill ${draft.customKind === "every_hours" ? "active" : ""}" data-sched-custom="every_hours">每隔数小时</button>
+              <button type="button" class="p3-auto-pill ${draft.customKind === "multi_days" ? "active" : ""}" data-sched-custom="multi_days">每周多日</button>
+              <button type="button" class="p3-auto-pill ${draft.customKind === "monthly" ? "active" : ""}" data-sched-custom="monthly">每月</button>
+              <button type="button" class="p3-auto-pill ${draft.customKind === "raw" ? "active" : ""}" data-sched-custom="raw">原始 Cron</button>
+            </div>
+            ${draft.customKind === "every_hours" ? `
+              <div class="p3-auto-pill-row" style="margin-top:6px;">
+                ${[2, 3, 4, 6, 8, 12].map((n) => `<button type="button" class="p3-auto-pill ${draft.everyHours === n ? "active" : ""}" data-sched-every-h="${n}">每 ${n} 小时</button>`).join("")}
+              </div>
+            ` : ""}
+            ${draft.customKind === "multi_days" ? `
+              <div class="p3-auto-pill-row" style="margin-top:6px;">
+                ${dayLabels.map((lbl, idx) => `<button type="button" class="p3-auto-day-chip ${(draft.weekdays || []).includes(idx) ? "active" : ""}" data-sched-multiday="${idx}">${lbl}</button>`).join("")}
+              </div>
+            ` : ""}
+            ${draft.customKind === "monthly" ? `
+              <div class="p3-auto-inline-row" style="margin-top:6px;">
+                <span class="p3-auto-field-label">每月几日 (1-28)</span>
+                <input type="number" min="1" max="28" class="p3-input p3-auto-compact-input" data-sched-dom value="${draft.dayOfMonth || 1}" />
+              </div>
+            ` : ""}
+            ${draft.customKind === "raw" ? `
+              <input type="text" class="p3-input monospaced" style="margin-top:6px;" data-sched-raw value="${escapeHtml(draft.rawCron || "")}" placeholder="如 0 9 * * 1-5" />
+            ` : ""}
+          ` : ""}
+          <div class="p3-auto-inline-grid" style="margin-top:8px;">
+            ${needTime ? `
+              <div>
+                <span class="p3-auto-field-label">执行时间</span>
+                <input type="time" class="p3-input" data-sched-time value="${timeVal}" />
+              </div>
+            ` : ""}
+            <div style="flex:1;">
+              <span class="p3-auto-field-label">时区（IANA，可选）</span>
+              <input type="text" class="p3-input monospaced" data-sched-tz value="${escapeHtml(draft.timeZone || "")}" placeholder="如 Asia/Shanghai" />
+            </div>
+          </div>
+          <div class="p3-auto-cron-preview monospaced" data-sched-preview>
+            <span>${escapeHtml(this._humanizeAutoCron(builtCron) || builtCron)}</span>
+            <span style="opacity:.65;">${escapeHtml(builtCron)}</span>
+          </div>
+        </div>`;
+    },
+
+    _mountAutoScheduleEditor(container, prefix, draft, onChange) {
+      if (!container) return;
+      const render = () => {
+        container.innerHTML = this._renderAutoScheduleEditorHtml(prefix, draft);
+        const notify = () => {
+          const built = this._buildAutoCron(draft);
+          const prev = container.querySelector("[data-sched-preview]");
+          if (prev) {
+            prev.innerHTML = `<span>${escapeHtml(this._humanizeAutoCron(built) || built)}</span><span style="opacity:.65;">${escapeHtml(built)}</span>`;
+          }
+          onChange?.(built);
+        };
+        container.querySelectorAll("[data-sched-preset]").forEach((btn) => {
+          btn.addEventListener("click", () => {
+            draft.preset = btn.getAttribute("data-sched-preset");
+            render();
+            onChange?.(this._buildAutoCron(draft));
+          });
+        });
+        container.querySelectorAll("[data-sched-custom]").forEach((btn) => {
+          btn.addEventListener("click", () => {
+            draft.customKind = btn.getAttribute("data-sched-custom");
+            render();
+            onChange?.(this._buildAutoCron(draft));
+          });
+        });
+        container.querySelectorAll("[data-sched-weekday]").forEach((btn) => {
+          btn.addEventListener("click", () => {
+            draft.weekday = Number(btn.getAttribute("data-sched-weekday"));
+            render();
+            onChange?.(this._buildAutoCron(draft));
+          });
+        });
+        container.querySelectorAll("[data-sched-multiday]").forEach((btn) => {
+          btn.addEventListener("click", () => {
+            const d = Number(btn.getAttribute("data-sched-multiday"));
+            const set = new Set(draft.weekdays || []);
+            if (set.has(d)) {
+              if (set.size > 1) set.delete(d);
+            } else {
+              set.add(d);
+            }
+            draft.weekdays = Array.from(set).sort((a, b) => a - b);
+            render();
+            onChange?.(this._buildAutoCron(draft));
+          });
+        });
+        container.querySelectorAll("[data-sched-every-h]").forEach((btn) => {
+          btn.addEventListener("click", () => {
+            draft.everyHours = Number(btn.getAttribute("data-sched-every-h"));
+            render();
+            onChange?.(this._buildAutoCron(draft));
+          });
+        });
+        container.querySelector("[data-sched-dom]")?.addEventListener("input", (e) => {
+          draft.dayOfMonth = Math.min(28, Math.max(1, Number(e.target.value) || 1));
+          notify();
+        });
+        container.querySelector("[data-sched-raw]")?.addEventListener("input", (e) => {
+          draft.rawCron = e.target.value;
+          notify();
+        });
+        container.querySelector("[data-sched-time]")?.addEventListener("input", (e) => {
+          const [hh, mm] = String(e.target.value || "09:00").split(":").map(Number);
+          if (Number.isFinite(hh)) draft.hour = hh;
+          if (Number.isFinite(mm)) draft.minute = mm;
+          notify();
+        });
+        container.querySelector("[data-sched-tz]")?.addEventListener("input", (e) => {
+          draft.timeZone = e.target.value.trim();
+          notify();
+        });
+      };
+      render();
+    },
+
+    async _fetchAutoPickerDeps() {
+      const [mRes, pRes] = await Promise.all([
+        fetch("/gateway/models").catch(() => null),
+        fetch("/gateway/projects").catch(() => null),
+      ]);
+      const mData = mRes ? await mRes.json().catch(() => ({})) : {};
+      const pData = pRes ? await pRes.json().catch(() => ({})) : {};
+      const models = Array.isArray(mData.models) ? mData.models : [];
+      const rawProjects = Array.isArray(pData.projects) ? pData.projects : (Array.isArray(pData) ? pData : []);
+      const seen = new Set();
+      const projects = [];
+      for (const p of rawProjects) {
+        const pid = String(p.projectId || p.id || "").trim();
+        if (!pid || pid === "outside-of-project" || seen.has(pid)) continue;
+        seen.add(pid);
+        const label = p.name || (p.path ? p.path.split("/").filter(Boolean).pop() : "") || pid;
+        projects.push({ id: pid, name: label });
+      }
+      return { models, projects };
+    },
+
+    async renderCreateAutomationForm(body, existingList) {
+      const { models, projects } = await this._fetchAutoPickerDeps();
+      const existingIds = new Set((existingList || []).map((x) => String(x.id || "").toLowerCase()));
+      const draft = this._parseAutoCron("0 9 * * *", this._defaultAutoTimeZone());
+
+      const modelOptionsHtml = [
+        `<option value="">默认模型</option>`,
+        ...models.map((m) => `<option value="${escapeHtml(m.id)}">${escapeHtml(m.name || m.id)}</option>`),
+      ].join("");
+      const projectOptionsHtml = [
+        `<option value="">不绑定项目（独立运行）</option>`,
+        ...projects.map((p) => `<option value="${escapeHtml(p.id)}">${escapeHtml(p.name)}</option>`),
+      ].join("");
+
+      body.innerHTML = `
+        <div class="p3-section-header" style="margin-bottom:10px;">
+          <button type="button" class="p3-mini-btn" id="btn-auto-create-back">← 返回列表</button>
+          <span style="font-weight:600;">手动新建定时任务</span>
+        </div>
+        <div class="p3-form-card">
+          <label class="p3-auto-field-label">任务名称</label>
+          <input type="text" id="p3-create-auto-name" class="p3-input" placeholder="任务名称 (如 晨间代码巡检)" />
+          <div id="p3-create-auto-slug-hint" class="p3-auto-slug-hint hidden"></div>
+
+          <label class="p3-auto-field-label" style="margin-top:10px;">触发计划</label>
+          <div id="p3-create-auto-sched-mount"></div>
+
+          <div class="p3-auto-inline-grid" style="margin-top:10px;">
+            <div style="flex:1;">
+              <label class="p3-auto-field-label">执行模型</label>
+              <select id="p3-create-auto-model" class="p3-input">${modelOptionsHtml}</select>
+            </div>
+            <div style="flex:1;">
+              <label class="p3-auto-field-label">所属项目</label>
+              <select id="p3-create-auto-project" class="p3-input">${projectOptionsHtml}</select>
+            </div>
+          </div>
+
+          <label class="p3-auto-field-label" style="margin-top:10px;">执行指令（Prompt）</label>
+          <textarea id="p3-create-auto-prompt" class="p3-textarea" rows="6" placeholder="描述任务触发时 Agent 需要完成的具体工作与输出格式…"></textarea>
+
+          <div class="p3-row" style="margin-top:10px;">
+            <span style="font-size:12.5px;opacity:.85;">创建后立即启用</span>
+            <label class="wf-switch"><input type="checkbox" id="p3-create-auto-enabled" checked><span class="wf-switch-slider"></span></label>
+          </div>
+
+          <div class="p3-form-actions" style="margin-top:12px;">
+            <button type="button" class="p3-mini-btn" id="btn-auto-create-cancel">取消</button>
+            <button type="button" class="p3-mini-btn primary" id="btn-auto-create-submit">创建任务</button>
+          </div>
+        </div>`;
+
+      this._mountAutoScheduleEditor(document.getElementById("p3-create-auto-sched-mount"), "create", draft);
+
+      const nameInput = document.getElementById("p3-create-auto-name");
+      const slugHint = document.getElementById("p3-create-auto-slug-hint");
+      const updateSlugHint = () => {
+        const slug = this._autoSlugify(nameInput?.value || "");
+        if (!slugHint) return false;
+        if (!slug) {
+          slugHint.classList.add("hidden");
+          slugHint.textContent = "";
+          return false;
+        }
+        const dup = existingIds.has(slug);
+        slugHint.classList.remove("hidden");
+        slugHint.classList.toggle("error", dup);
+        slugHint.textContent = dup ? `ID「${slug}」已存在，请换一个任务名称` : `ID: ${slug}`;
+        return dup;
+      };
+      nameInput?.addEventListener("input", updateSlugHint);
+
+      const leaveCreate = () => {
+        this._creatingAutomation = false;
+        this.renderToolsTab(false);
+      };
+      document.getElementById("btn-auto-create-back")?.addEventListener("click", leaveCreate);
+      document.getElementById("btn-auto-create-cancel")?.addEventListener("click", leaveCreate);
+      document.getElementById("btn-auto-create-submit")?.addEventListener("click", async () => {
+        const name = nameInput?.value.trim() || "";
+        const cron = this._buildAutoCron(draft).trim();
+        const model = document.getElementById("p3-create-auto-model")?.value || "";
+        const projectId = document.getElementById("p3-create-auto-project")?.value || "";
+        const prompt = document.getElementById("p3-create-auto-prompt")?.value.trim() || "";
+        const enabled = !!document.getElementById("p3-create-auto-enabled")?.checked;
+        if (!name || !cron || !prompt) {
+          showToast?.("请填写任务名称、触发计划和执行指令");
+          return;
+        }
+        if (updateSlugHint()) {
+          showToast?.("已存在同 ID 的定时任务");
+          return;
+        }
+        const btn = document.getElementById("btn-auto-create-submit");
+        if (btn) btn.disabled = true;
+        const r = await fetch("/gateway/automations/create", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ name, cron, model, projectId, prompt, enabled }),
+        });
+        const d = await r.json().catch(() => ({}));
+        if (!r.ok || d.ok === false) {
+          if (btn) btn.disabled = false;
+          showToast?.("创建失败: " + (d.error || r.status));
+          return;
+        }
+        this._creatingAutomation = false;
+        showToast?.("已创建定时任务");
+        this.renderToolsTab(false);
+      });
+    },
+
+    async renderAutomationDetail(body, sc, allEvents, openPromptImmediately = false) {
       const running = !!(sc.enabled || /^(running|ready)$/i.test(sc.status || ""));
       const taskEvents = (allEvents || []).filter((ev) =>
         (ev.sidecarId && ev.sidecarId === sc.id) || ev.scheduleId === sc.id || ev.scheduleId === sc.name
       );
-      let models = [];
-      try {
-        const mr = await fetch("/gateway/models");
-        const md = await mr.json();
-        models = Array.isArray(md.models) ? md.models : [];
-      } catch (_) {}
+      const { models, projects } = await this._fetchAutoPickerDeps();
+
+      const modelLabel = (models.find((m) => m.id === sc.model)?.name) || sc.model || "默认模型";
+      const wsName = sc.projectName || (sc.workspaceUri ? sc.workspaceUri.replace(/^file:\/\//, "").split("/").filter(Boolean).pop() : "") || "不绑定项目";
+      const scheduleLabel = this._humanizeAutoCron(sc.cronExpression || "") || sc.cronExpression || "未设置";
+      const dataSources = this._extractAutoDataSources(sc.prompt || "");
+      const promptRaw = String(sc.prompt || "");
+      const isLongPrompt = promptRaw.length > 480;
+      const promptRenderedHtml = promptRaw
+        ? (typeof renderMarkdown === "function" ? renderMarkdown(promptRaw) : `<div style="white-space:pre-wrap;">${escapeHtml(promptRaw)}</div>`)
+        : `<div style="opacity:.6;">暂无执行指令</div>`;
 
       const modelOptionsHtml = [
         `<option value="">默认模型</option>`,
@@ -2229,7 +2783,18 @@
         ...(sc.model && !models.some((m) => m.id === sc.model) ? [`<option value="${escapeHtml(sc.model)}" selected>${escapeHtml(sc.model)}</option>`] : []),
       ].join("");
 
-      const wsName = sc.workspaceUri ? sc.workspaceUri.replace(/^file:\/\//, "").split("/").filter(Boolean).pop() : "";
+      const projectOptionsHtml = [
+        `<option value="">不绑定项目（独立运行）</option>`,
+        ...projects.map((p) => `<option value="${escapeHtml(p.id)}" ${sc.projectId === p.id ? "selected" : ""}>${escapeHtml(p.name)}</option>`),
+        ...(sc.projectId && !projects.some((p) => p.id === sc.projectId) ? [`<option value="${escapeHtml(sc.projectId)}" selected>${escapeHtml(sc.projectName || sc.projectId)}</option>`] : []),
+      ].join("");
+
+      const statusLabelMap = {
+        running: "运行中",
+        needs_input: "等待确认",
+        failed: "失败",
+        ok: "已完成",
+      };
 
       body.innerHTML = `
         <div class="p3-section-header" style="margin-bottom:10px;">
@@ -2242,50 +2807,97 @@
         </div>
 
         <div class="p3-form-card" style="margin-bottom:10px;">
-          <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:8px;">
-            <div>
-              <div style="font-size:16px;font-weight:700;">${escapeHtml(sc.name || sc.id)}</div>
-              <div style="font-size:11.5px;opacity:.7;margin-top:2px;">
-                <span class="p3-badge" style="${running ? "color:#16a34a;background:rgba(22,163,74,.12);" : ""}">${running ? "运行中" : "已暂停"}</span>
+          <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:10px;">
+            <div style="flex:1;min-width:0;">
+              <div id="p3-auto-title-view" style="display:flex;align-items:center;gap:6px;">
+                <span style="font-size:16px;font-weight:700;word-break:break-word;">${escapeHtml(sc.name || sc.id)}</span>
+                <button type="button" class="p3-mini-btn p3-auto-icon-btn" id="btn-auto-title-edit" title="修改名称">✎</button>
+              </div>
+              <div id="p3-auto-title-editor" class="hidden" style="display:flex;gap:6px;align-items:center;">
+                <input type="text" id="p3-edit-auto-name" class="p3-input" value="${escapeHtml(sc.name || "")}" style="margin:0;flex:1;" />
+                <button type="button" class="p3-mini-btn primary" id="btn-auto-title-save">保存</button>
+                <button type="button" class="p3-mini-btn" id="btn-auto-title-cancel">取消</button>
+              </div>
+              <div style="font-size:11.5px;opacity:.75;margin-top:4px;">
+                <span class="p3-badge ${running ? "ok" : ""}">${running ? "计划运行" : "已暂停"}</span>
                 ${running && sc.nextRunAt ? ` · 下次 ${escapeHtml(sc.nextRunAt)}` : ""}
                 ${sc.lastRunAt ? ` · 上次 ${escapeHtml(sc.lastRunAt)}` : ""}
-                ${wsName ? ` · 📁 ${escapeHtml(wsName)}` : ""}
               </div>
             </div>
-            <div style="display:flex;gap:6px;flex-shrink:0;">
-              <button type="button" class="p3-mini-btn" id="btn-auto-detail-run" ${running ? "" : "disabled"} title="${running ? "立即运行" : "请先启动任务"}">立即运行</button>
-              <button type="button" class="p3-mini-btn ${running ? "" : "primary"}" id="btn-auto-detail-toggle">${running ? "停止" : "启动"}</button>
+            <div style="display:flex;gap:8px;align-items:center;flex-shrink:0;">
+              <button type="button" class="p3-mini-btn" id="btn-auto-detail-run" ${running ? "" : "disabled"} title="${running ? "立即运行" : "请先启动任务"}">▶ 运行</button>
+              <label class="wf-switch" title="${running ? "暂停" : "启用"}">
+                <input type="checkbox" id="p3-auto-detail-switch" ${running ? "checked" : ""}>
+                <span class="wf-switch-slider"></span>
+              </label>
             </div>
           </div>
-          ${sc.lastError ? `<div style="color:#ef4444;font-size:12px;padding:6px 8px;border-radius:8px;background:rgba(239,68,68,.1);margin-bottom:8px;">${escapeHtml(sc.lastError)}</div>` : ""}
+          ${sc.lastError ? `<div style="color:#ef4444;font-size:12px;padding:6px 8px;border-radius:8px;background:rgba(239,68,68,.1);margin-top:8px;">${escapeHtml(sc.lastError)}</div>` : ""}
+        </div>
 
-          <label style="display:block;font-size:11.5px;opacity:.7;margin:6px 0 3px;">任务名称</label>
-          <input type="text" id="p3-edit-auto-name" class="p3-input" value="${escapeHtml(sc.name || "")}" />
-
-          <label style="display:block;font-size:11.5px;opacity:.7;margin:6px 0 3px;">Cron 表达式（支持 CRON_TZ=... 前缀）</label>
-          <div style="display:flex;gap:4px;flex-wrap:wrap;margin-bottom:4px;">
-            <button type="button" class="p3-mini-btn" data-cron-preset="0 * * * *">每小时</button>
-            <button type="button" class="p3-mini-btn" data-cron-preset="0 9 * * *">每天 09:00</button>
-            <button type="button" class="p3-mini-btn" data-cron-preset="0 23 * * *">每天 23:00</button>
-            <button type="button" class="p3-mini-btn" data-cron-preset="0 8 * * 5">每周五 08:00</button>
+        <div class="p3-form-card" style="margin-bottom:10px;">
+          <div class="p3-auto-config-summary" id="btn-auto-config-toggle" role="button" tabindex="0">
+            <div style="flex:1;min-width:0;">
+              <div style="font-size:12px;font-weight:600;opacity:.7;margin-bottom:4px;">运行配置（点击编辑）</div>
+              <div class="p3-auto-config-chips">
+                <span class="p3-auto-chip">⏱ ${escapeHtml(scheduleLabel)}</span>
+                <span class="p3-auto-chip">🤖 ${escapeHtml(modelLabel)}</span>
+                <span class="p3-auto-chip">📁 ${escapeHtml(wsName)}</span>
+              </div>
+            </div>
+            <span id="p3-auto-config-chevron" style="opacity:.55;font-size:13px;">✎</span>
           </div>
-          <input type="text" id="p3-edit-auto-cron" class="p3-input monospaced" value="${escapeHtml(sc.cronExpression || "")}" />
+          <div id="p3-auto-config-editor" class="hidden" style="margin-top:10px;padding-top:10px;border-top:1px solid rgba(120,120,128,.2);">
+            <label class="p3-auto-field-label">触发计划</label>
+            <div id="p3-edit-auto-sched-mount"></div>
+            <div class="p3-auto-inline-grid" style="margin-top:10px;">
+              <div style="flex:1;">
+                <label class="p3-auto-field-label">执行模型</label>
+                <select id="p3-edit-auto-model" class="p3-input">${modelOptionsHtml}</select>
+              </div>
+              <div style="flex:1;">
+                <label class="p3-auto-field-label">所属项目</label>
+                <select id="p3-edit-auto-project" class="p3-input">${projectOptionsHtml}</select>
+              </div>
+            </div>
+            <div class="p3-form-actions" style="margin-top:10px;">
+              <button type="button" class="p3-mini-btn" id="btn-auto-config-cancel">取消</button>
+              <button type="button" class="p3-mini-btn primary" id="btn-auto-config-save">保存配置</button>
+            </div>
+          </div>
+        </div>
 
-          <label style="display:block;font-size:11.5px;opacity:.7;margin:6px 0 3px;">执行模型</label>
-          <select id="p3-edit-auto-model" class="p3-input">${modelOptionsHtml}</select>
-
-          <label style="display:block;font-size:11.5px;opacity:.7;margin:6px 0 3px;">执行指令（Prompt）</label>
-          <textarea id="p3-edit-auto-prompt" class="p3-textarea" rows="6">${escapeHtml(sc.prompt || "")}</textarea>
-
-          <div class="p3-form-actions" style="margin-top:8px;">
-            <button type="button" class="p3-mini-btn primary" id="btn-auto-detail-save">保存修改</button>
+        <div class="p3-form-card" style="margin-bottom:10px;">
+          <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:8px;">
+            <span style="font-size:13px;font-weight:600;">执行指令（Prompt）</span>
+            <button type="button" class="p3-mini-btn primary" id="btn-auto-prompt-edit">✎ 编辑指令</button>
+          </div>
+          <div id="p3-auto-prompt-view">
+            <div id="p3-auto-prompt-md" class="p3-auto-prompt-md ${isLongPrompt ? "collapsed" : ""}">${promptRenderedHtml}</div>
+            ${isLongPrompt ? `<button type="button" class="p3-mini-btn" id="btn-auto-prompt-expand" style="margin-top:6px;">展开完整指令</button>` : ""}
+            ${dataSources.length > 0 ? `
+              <div class="p3-auto-sources">
+                <span style="opacity:.65;">读取：</span>
+                ${dataSources.map((src) => `<span class="p3-auto-chip">${escapeHtml(src)}</span>`).join("")}
+              </div>
+            ` : ""}
+          </div>
+          <div id="p3-auto-prompt-editor" class="hidden">
+            <textarea id="p3-edit-auto-prompt" class="p3-textarea" rows="10" placeholder="输入定时任务触发时交给 Agent 的完整指令…">${escapeHtml(promptRaw)}</textarea>
+            <div class="p3-form-actions" style="margin-top:8px;">
+              <button type="button" class="p3-mini-btn" id="btn-auto-prompt-cancel">取消</button>
+              <button type="button" class="p3-mini-btn primary" id="btn-auto-prompt-save">保存指令</button>
+            </div>
           </div>
         </div>
 
         <div id="p3-auto-logs-box" class="p3-form-card hidden" style="margin-bottom:10px;">
-          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;">
-            <span style="font-size:12px;font-weight:600;">运行日志 (sidecar.log)</span>
-            <button type="button" class="p3-mini-btn" id="btn-auto-logs-refresh">刷新</button>
+          <div style="display:flex;justify-content:space-between;align-items:center;gap:6px;margin-bottom:6px;flex-wrap:wrap;">
+            <span style="font-size:12px;font-weight:600;">运行日志</span>
+            <div style="display:flex;gap:6px;align-items:center;">
+              <select id="p3-auto-logs-file" class="p3-input hidden" style="width:auto;margin:0;padding:3px 6px;font-size:11.5px;"></select>
+              <button type="button" class="p3-mini-btn" id="btn-auto-logs-refresh">刷新</button>
+            </div>
           </div>
           <pre id="p3-auto-logs-pre" style="margin:0;max-height:240px;overflow:auto;font-size:11px;line-height:1.45;white-space:pre-wrap;word-break:break-all;opacity:.9;"></pre>
         </div>
@@ -2293,41 +2905,180 @@
         <div class="p3-section-header" style="margin-top:6px;">
           <span>运行历史 (${taskEvents.length})</span>
         </div>
-        <div class="p3-list">` + (taskEvents.slice(0, 15).map((ev) => `
+        <div class="p3-list">` + (taskEvents.slice(0, 15).map((ev) => {
+          const st = ev.runStatus || (ev.status === "error" ? "failed" : "ok");
+          const stLabel = statusLabelMap[st] || statusLabelMap.ok;
+          const title = ev.conversationTitle || ev.timestamp || "自动化执行";
+          return `
           <div class="p3-row" ${ev.conversationId ? `data-auto-conv="${escapeHtml(ev.conversationId)}" data-auto-conv-exists="${ev.conversationExists === false ? "0" : "1"}" style="cursor:pointer;"` : ""}>
             <div class="p3-row-main">
-              <div class="p3-row-title" style="font-size:12.5px;">
-                ${ev.status === "error" ? "🔴" : "🟢"} <span class="monospaced">${escapeHtml(ev.timestamp || "")}</span>
+              <div class="p3-row-title" style="font-size:13px;display:flex;align-items:center;gap:6px;">
+                <span class="p3-auto-status-dot ${escapeHtml(st)}"></span>
+                <span>${escapeHtml(title)}</span>
+                <span class="p3-badge p3-auto-st-badge ${escapeHtml(st)}">${escapeHtml(stLabel)}</span>
               </div>
-              <div class="p3-row-sub">${escapeHtml((ev.message || "").slice(0, 120))}</div>
+              <div class="p3-row-sub monospaced" style="font-size:11px;opacity:.7;">${escapeHtml(ev.timestamp || "")}</div>
+              ${ev.message ? `<div class="p3-row-sub">${escapeHtml(ev.message.slice(0, 120))}</div>` : ""}
             </div>
             ${ev.conversationId ? `<span style="opacity:.5;font-size:13px;">›</span>` : ""}
-          </div>`).join("") || `<div class="p3-empty">${running ? "暂无运行记录" : "任务已暂停"}</div>`) + `</div>`;
+          </div>`;
+        }).join("") || `<div class="p3-empty">${running ? "暂无运行记录" : "任务已暂停"}</div>`) + `</div>`;
+
+      const schedDraft = this._parseAutoCron(sc.cronExpression || "", sc.timeZone || "");
+      let schedMounted = false;
+      let promptEditing = false;
+
+      const isPromptDirty = () => {
+        if (!promptEditing) return false;
+        const cur = document.getElementById("p3-edit-auto-prompt")?.value ?? promptRaw;
+        return cur !== promptRaw;
+      };
+
+      const setPromptEditing = (editing) => {
+        promptEditing = editing;
+        document.getElementById("p3-auto-prompt-view")?.classList.toggle("hidden", editing);
+        document.getElementById("p3-auto-prompt-editor")?.classList.toggle("hidden", !editing);
+        document.getElementById("btn-auto-prompt-edit")?.classList.toggle("hidden", editing);
+        if (editing) {
+          const ta = document.getElementById("p3-edit-auto-prompt");
+          if (ta) {
+            ta.value = promptRaw;
+            setTimeout(() => ta.focus(), 60);
+          }
+        }
+      };
+
+      if (openPromptImmediately) {
+        setPromptEditing(true);
+      }
 
       document.getElementById("btn-auto-back")?.addEventListener("click", () => {
+        if (isPromptDirty()) {
+          const msg = typeof t === "function" ? t("有未保存的指令修改，确定放弃并返回吗？") : "有未保存的指令修改，确定放弃并返回吗？";
+          if (!confirm(msg)) return;
+        }
         this._selectedAutomationId = null;
         this.renderToolsTab(false);
       });
-      body.querySelectorAll("[data-cron-preset]").forEach((btn) => {
-        btn.addEventListener("click", () => {
-          const preset = btn.getAttribute("data-cron-preset") || "";
-          const tzPrefix = sc.timeZone ? `CRON_TZ=${sc.timeZone} ` : "";
-          const input = document.getElementById("p3-edit-auto-cron");
-          if (input) input.value = tzPrefix + preset;
-        });
+
+      // Inline Title Editor
+      const titleView = document.getElementById("p3-auto-title-view");
+      const titleEditor = document.getElementById("p3-auto-title-editor");
+      document.getElementById("btn-auto-title-edit")?.addEventListener("click", () => {
+        titleView?.classList.add("hidden");
+        titleEditor?.classList.remove("hidden");
+        document.getElementById("p3-edit-auto-name")?.focus();
       });
-      document.getElementById("btn-auto-detail-toggle")?.addEventListener("click", async () => {
+      document.getElementById("btn-auto-title-cancel")?.addEventListener("click", () => {
+        titleEditor?.classList.add("hidden");
+        titleView?.classList.remove("hidden");
+      });
+      document.getElementById("btn-auto-title-save")?.addEventListener("click", async () => {
+        const name = document.getElementById("p3-edit-auto-name")?.value.trim() || "";
+        if (!name) return;
+        const r = await fetch("/gateway/automations/update", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ sidecarId: sc.id, name }),
+        });
+        const d = await r.json().catch(() => ({}));
+        if (!r.ok || d.ok === false) {
+          showToast?.("保存失败: " + (d.error || r.status));
+          return;
+        }
+        showToast?.("已更新任务名称");
+        this.renderToolsTab(false);
+      });
+
+      // Config Summary Card Toggle & Save
+      const configEditor = document.getElementById("p3-auto-config-editor");
+      const toggleConfigEditor = (open) => {
+        const nextOpen = typeof open === "boolean" ? open : configEditor?.classList.contains("hidden");
+        configEditor?.classList.toggle("hidden", !nextOpen);
+        if (nextOpen && !schedMounted) {
+          schedMounted = true;
+          this._mountAutoScheduleEditor(document.getElementById("p3-edit-auto-sched-mount"), "edit", schedDraft);
+        }
+      };
+      document.getElementById("btn-auto-config-toggle")?.addEventListener("click", () => toggleConfigEditor());
+      document.getElementById("btn-auto-config-cancel")?.addEventListener("click", () => toggleConfigEditor(false));
+      document.getElementById("btn-auto-config-save")?.addEventListener("click", async () => {
+        const cron = this._buildAutoCron(schedDraft).trim();
+        const model = document.getElementById("p3-edit-auto-model")?.value || "";
+        const projectId = document.getElementById("p3-edit-auto-project")?.value || "";
+        if (!cron) {
+          showToast?.("请填写有效的 Cron 表达式");
+          return;
+        }
+        const r = await fetch("/gateway/automations/update", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ sidecarId: sc.id, cron, model, projectId }),
+        });
+        const d = await r.json().catch(() => ({}));
+        if (!r.ok || d.ok === false) {
+          showToast?.("保存失败: " + (d.error || r.status));
+          return;
+        }
+        showToast?.("已保存配置");
+        this.renderToolsTab(false);
+      });
+
+      // Prompt Markdown Expand & Edit
+      document.getElementById("btn-auto-prompt-expand")?.addEventListener("click", (e) => {
+        const mdEl = document.getElementById("p3-auto-prompt-md");
+        if (!mdEl) return;
+        const expanded = !mdEl.classList.toggle("collapsed");
+        e.target.textContent = expanded ? (typeof t === "function" ? t("收起指令") : "收起指令") : (typeof t === "function" ? t("展开完整指令") : "展开完整指令");
+      });
+      document.getElementById("btn-auto-prompt-edit")?.addEventListener("click", () => setPromptEditing(true));
+      document.getElementById("btn-auto-prompt-cancel")?.addEventListener("click", () => {
+        if (isPromptDirty()) {
+          const msg = typeof t === "function" ? t("有未保存的指令修改，确定放弃吗？") : "有未保存的指令修改，确定放弃吗？";
+          if (!confirm(msg)) return;
+        }
+        setPromptEditing(false);
+      });
+      document.getElementById("btn-auto-prompt-save")?.addEventListener("click", async () => {
+        const prompt = document.getElementById("p3-edit-auto-prompt")?.value.trim() || "";
+        if (!prompt) {
+          showToast?.("执行指令不能为空");
+          return;
+        }
+        const btn = document.getElementById("btn-auto-prompt-save");
+        if (btn) btn.disabled = true;
+        const r = await fetch("/gateway/automations/update", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ sidecarId: sc.id, prompt }),
+        });
+        const d = await r.json().catch(() => ({}));
+        if (!r.ok || d.ok === false) {
+          if (btn) btn.disabled = false;
+          showToast?.("保存失败: " + (d.error || r.status));
+          return;
+        }
+        showToast?.("已保存执行指令");
+        this.renderToolsTab(false);
+      });
+
+      // Lifecycle controls
+      document.getElementById("p3-auto-detail-switch")?.addEventListener("change", async (e) => {
+        const wantStart = !!e.target.checked;
+        e.target.disabled = true;
         const r = await fetch("/gateway/automations/manage", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ sidecarId: sc.id, action: running ? "stop" : "start" }),
+          body: JSON.stringify({ sidecarId: sc.id, action: wantStart ? "start" : "stop" }),
         });
         const d = await r.json().catch(() => ({}));
         if (!r.ok) {
+          e.target.checked = !wantStart;
+          e.target.disabled = false;
           showToast?.("操作失败: " + (d.error || r.status));
           return;
         }
-        showToast?.(running ? "已暂停定时任务" : "已启动定时任务");
+        showToast?.(wantStart ? "已启动定时任务" : "已暂停定时任务");
         this.renderToolsTab(false);
       });
       document.getElementById("btn-auto-detail-run")?.addEventListener("click", async () => {
@@ -2359,28 +3110,6 @@
         showToast?.("已重启任务");
         this.renderToolsTab(false);
       });
-      document.getElementById("btn-auto-detail-save")?.addEventListener("click", async () => {
-        const name = document.getElementById("p3-edit-auto-name")?.value.trim() || "";
-        const cron = document.getElementById("p3-edit-auto-cron")?.value.trim() || "";
-        const model = document.getElementById("p3-edit-auto-model")?.value || "";
-        const prompt = document.getElementById("p3-edit-auto-prompt")?.value.trim() || "";
-        if (!cron || !prompt) {
-          showToast?.("请填写 Cron 表达式和执行指令");
-          return;
-        }
-        const r = await fetch("/gateway/automations/update", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ sidecarId: sc.id, name, cron, model, prompt }),
-        });
-        const d = await r.json().catch(() => ({}));
-        if (!r.ok || d.ok === false) {
-          showToast?.("保存失败: " + (d.error || r.status));
-          return;
-        }
-        showToast?.("已保存修改");
-        this.renderToolsTab(false);
-      });
       document.getElementById("btn-auto-detail-del")?.addEventListener("click", async () => {
         if (!confirm(typeof t === "function" ? t(`确定删除定时任务「${sc.name || sc.id}」？`) : `确定删除定时任务「${sc.name || sc.id}」？`)) return;
         const r = await fetch("/gateway/automations/delete", {
@@ -2394,22 +3123,38 @@
           this.renderToolsTab(false);
         }
       });
-      const loadLogs = async () => {
+
+      // Multi-file Logs Viewer
+      let selectedLogFile = "";
+      const loadLogs = async (fileOverride) => {
         const box = document.getElementById("p3-auto-logs-box");
         const pre = document.getElementById("p3-auto-logs-pre");
+        const sel = document.getElementById("p3-auto-logs-file");
         if (!box || !pre) return;
+        if (typeof fileOverride === "string") selectedLogFile = fileOverride;
         box.classList.remove("hidden");
         pre.textContent = "加载中…";
         try {
-          const r = await fetch(`/gateway/automations/logs?sidecarId=${encodeURIComponent(sc.id)}&tail=200`);
+          const qs = new URLSearchParams({ sidecarId: sc.id, tail: "200" });
+          if (selectedLogFile) qs.set("file", selectedLogFile);
+          const r = await fetch(`/gateway/automations/logs?${qs.toString()}`);
           const d = await r.json();
+          const files = Array.isArray(d.files) ? d.files : [];
+          if (sel && files.length > 1) {
+            const activeFile = d.file || selectedLogFile || files[0];
+            selectedLogFile = activeFile;
+            sel.innerHTML = files.map((f) => `<option value="${escapeHtml(f)}" ${f === activeFile ? "selected" : ""}>${escapeHtml(f)}</option>`).join("");
+            sel.classList.remove("hidden");
+          }
           pre.textContent = (d.logs && d.logs.trim()) ? d.logs : "暂无日志输出";
         } catch (err) {
           pre.textContent = "加载日志失败: " + err.message;
         }
       };
-      document.getElementById("btn-auto-detail-logs")?.addEventListener("click", loadLogs);
-      document.getElementById("btn-auto-logs-refresh")?.addEventListener("click", loadLogs);
+      document.getElementById("btn-auto-detail-logs")?.addEventListener("click", () => loadLogs());
+      document.getElementById("btn-auto-logs-refresh")?.addEventListener("click", () => loadLogs());
+      document.getElementById("p3-auto-logs-file")?.addEventListener("change", (e) => loadLogs(e.target.value));
+
       body.querySelectorAll("[data-auto-conv]").forEach((row) => {
         row.addEventListener("click", () => {
           const cid = row.getAttribute("data-auto-conv");

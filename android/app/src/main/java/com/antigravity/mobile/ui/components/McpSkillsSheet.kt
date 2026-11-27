@@ -86,6 +86,7 @@ fun McpSkillsSheet(
     onSelectConversation: ((cascadeId: String, title: String) -> Unit)? = null,
     onTasksChanged: ((List<GlobalBackgroundTaskItem>) -> Unit)? = null,
     onOpenSwarm: (() -> Unit)? = null,
+    onCreateAutomationWithPrompt: (() -> Unit)? = null,
     modifier: Modifier = Modifier
 ) {
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
@@ -128,6 +129,8 @@ fun McpSkillsSheet(
     var pendingDeleteMemory by remember { mutableStateOf<MemoryRuleItem?>(null) }
     var showNewAutomationDialog by remember { mutableStateOf(false) }
     var selectedAutomationId by remember { mutableStateOf<String?>(null) }
+    var selectedAutomationOpenPrompt by remember { mutableStateOf(false) }
+    var pendingDeleteAutomation by remember { mutableStateOf<AutomationSidecarItem?>(null) }
     var automationActionError by remember { mutableStateOf<String?>(null) }
     var isRefreshingMcp by remember { mutableStateOf(false) }
 
@@ -1095,32 +1098,116 @@ fun McpSkillsSheet(
                     if (query.isEmpty()) automationEvents
                     else automationEvents.filter { ev ->
                         ev.scheduleId.lowercase().contains(query) ||
+                        (ev.conversationTitle?.lowercase()?.contains(query) == true) ||
                         (ev.message?.lowercase()?.contains(query) == true)
+                    }
+                }
+                val scheduledAutomations = remember(filteredAutomations) {
+                    filteredAutomations
+                        .filter { it.isRunning }
+                        .sortedWith(
+                            compareBy<AutomationSidecarItem> { AutomationCronHelper.parseSortMillis(it.nextRunAt) }
+                                .thenBy { it.name.lowercase() }
+                        )
+                }
+                val pausedAutomations = remember(filteredAutomations) {
+                    filteredAutomations
+                        .filter { !it.isRunning }
+                        .sortedBy { it.name.lowercase() }
+                }
+
+                val renderActionBar: @Composable () -> Unit = {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        if (onCreateAutomationWithPrompt != null) {
+                            Button(
+                                onClick = {
+                                    haptic.light()
+                                    onDismiss()
+                                    onCreateAutomationWithPrompt.invoke()
+                                },
+                                modifier = Modifier.weight(1f).height(38.dp),
+                                contentPadding = PaddingValues(horizontal = 10.dp, vertical = 0.dp),
+                                shape = RoundedCornerShape(10.dp),
+                                colors = ButtonDefaults.buttonColors(containerColor = colors.accentIndigo)
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.AutoAwesome,
+                                    contentDescription = null,
+                                    modifier = Modifier.size(15.dp)
+                                )
+                                Spacer(modifier = Modifier.width(5.dp))
+                                Text(
+                                    text = "通过提示词创建".loc,
+                                    fontSize = 12.5.sp,
+                                    fontWeight = FontWeight.SemiBold,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
+                                )
+                            }
+                        }
+                        FilledTonalButton(
+                            onClick = { showNewAutomationDialog = true },
+                            modifier = Modifier
+                                .then(if (onCreateAutomationWithPrompt != null) Modifier else Modifier.fillMaxWidth())
+                                .height(38.dp),
+                            contentPadding = PaddingValues(horizontal = 12.dp, vertical = 0.dp),
+                            shape = RoundedCornerShape(10.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Add,
+                                contentDescription = null,
+                                modifier = Modifier.size(15.dp)
+                            )
+                            Spacer(modifier = Modifier.width(3.dp))
+                            Text(
+                                text = "手动新建".loc,
+                                fontSize = 12.5.sp,
+                                fontWeight = FontWeight.Medium,
+                                maxLines = 1,
+                                softWrap = false
+                            )
+                        }
                     }
                 }
 
                 if (filteredAutomations.isEmpty() && filteredEvents.isEmpty()) {
-                    Box(
+                    Column(
                         modifier = Modifier.fillMaxSize(),
-                        contentAlignment = Alignment.Center
+                        verticalArrangement = Arrangement.spacedBy(12.dp)
                     ) {
-                        Column(
-                            horizontalAlignment = Alignment.CenterHorizontally,
-                            verticalArrangement = Arrangement.spacedBy(10.dp)
+                        renderActionBar()
+                        Box(
+                            modifier = Modifier.weight(1f).fillMaxWidth(),
+                            contentAlignment = Alignment.Center
                         ) {
-                            Icon(
-                                imageVector = Icons.Default.Schedule,
-                                contentDescription = null,
-                                tint = colors.textSecondary,
-                                modifier = Modifier.size(32.dp)
-                            )
-                            Text(
-                                text = "暂无定时自动化任务或未找到匹配项".loc,
-                                fontSize = 14.sp,
-                                color = colors.textSecondary
-                            )
-                            FilledTonalButton(onClick = { showNewAutomationDialog = true }) {
-                                Text("+ 新建定时任务".loc, fontSize = 13.sp)
+                            Column(
+                                horizontalAlignment = Alignment.CenterHorizontally,
+                                verticalArrangement = Arrangement.spacedBy(8.dp),
+                                modifier = Modifier.padding(horizontal = 24.dp)
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.Schedule,
+                                    contentDescription = null,
+                                    tint = colors.textSecondary,
+                                    modifier = Modifier.size(34.dp)
+                                )
+                                Text(
+                                    text = "暂无定时自动化任务或未找到匹配项".loc,
+                                    fontSize = 14.sp,
+                                    fontWeight = FontWeight.Medium,
+                                    color = colors.textPrimary,
+                                    textAlign = TextAlign.Center
+                                )
+                                Text(
+                                    text = "描述你想自动化的事项让 AI 帮你设计，或手动配置 Cron 计划".loc,
+                                    fontSize = 12.5.sp,
+                                    color = colors.textSecondary,
+                                    textAlign = TextAlign.Center
+                                )
                             }
                         }
                     }
@@ -1130,42 +1217,38 @@ fun McpSkillsSheet(
                         verticalArrangement = Arrangement.spacedBy(10.dp),
                         contentPadding = PaddingValues(top = 4.dp, bottom = 84.dp)
                     ) {
-                        item(key = "automations_top_bar") {
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.SpaceBetween,
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
+                        item(key = "automations_action_bar") {
+                            renderActionBar()
+                        }
+
+                        if (scheduledAutomations.isNotEmpty()) {
+                            item(key = "automations_scheduled_header") {
                                 Text(
-                                    text = "定时计划 (%d)".loc(filteredAutomations.size),
-                                    fontSize = 13.5.sp,
+                                    text = "计划运行 (%d)".loc(scheduledAutomations.size),
+                                    fontSize = 13.sp,
                                     fontWeight = FontWeight.SemiBold,
                                     color = colors.textSecondary,
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis,
-                                    modifier = Modifier.weight(1f, fill = false).padding(start = 2.dp, end = 8.dp)
+                                    modifier = Modifier.padding(top = 4.dp, start = 2.dp)
                                 )
-                                FilledTonalButton(
-                                    onClick = { showNewAutomationDialog = true },
-                                    contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp),
-                                    modifier = Modifier.height(30.dp)
-                                ) {
-                                    Text("+ 新建定时任务".loc, fontSize = 12.sp, maxLines = 1, softWrap = false)
-                                }
                             }
-                        }
-                        if (filteredAutomations.isNotEmpty()) {
-                            items(filteredAutomations, key = { it.targetSidecarId }) { sidecar ->
+                            items(scheduledAutomations, key = { "sched_${it.targetSidecarId}" }) { sidecar ->
                                 val sid = sidecar.targetSidecarId
                                 AutomationCard(
                                     sidecar = sidecar,
                                     isManaging = managingAutomationNames.contains(sid),
-                                    onOpenDetail = { selectedAutomationId = sid },
+                                    onOpenDetail = {
+                                        selectedAutomationOpenPrompt = false
+                                        selectedAutomationId = sid
+                                    },
+                                    onEditPrompt = {
+                                        selectedAutomationOpenPrompt = true
+                                        selectedAutomationId = sid
+                                    },
+                                    onDelete = { pendingDeleteAutomation = sidecar },
                                     onToggle = {
                                         scope.launch {
-                                            val action = if (sidecar.isRunning) "stop" else "start"
                                             managingAutomationNames.add(sid)
-                                            apiClient.manageAutomation(action, sid)
+                                            apiClient.manageAutomation("stop", sid)
                                                 .onFailure { automationActionError = it.message }
                                             apiClient.fetchAutomationsData().onSuccess {
                                                 automations = it.automations
@@ -1175,7 +1258,6 @@ fun McpSkillsSheet(
                                         }
                                     },
                                     onRunNow = {
-                                        if (!sidecar.isRunning) return@AutomationCard
                                         scope.launch {
                                             managingAutomationNames.add(sid)
                                             apiClient.manageAutomation("run_now", sid)
@@ -1191,14 +1273,55 @@ fun McpSkillsSheet(
                             }
                         }
 
+                        if (pausedAutomations.isNotEmpty()) {
+                            item(key = "automations_paused_header") {
+                                Text(
+                                    text = "已暂停 (%d)".loc(pausedAutomations.size),
+                                    fontSize = 13.sp,
+                                    fontWeight = FontWeight.SemiBold,
+                                    color = colors.textSecondary,
+                                    modifier = Modifier.padding(top = if (scheduledAutomations.isNotEmpty()) 10.dp else 4.dp, start = 2.dp)
+                                )
+                            }
+                            items(pausedAutomations, key = { "paused_${it.targetSidecarId}" }) { sidecar ->
+                                val sid = sidecar.targetSidecarId
+                                AutomationCard(
+                                    sidecar = sidecar,
+                                    isManaging = managingAutomationNames.contains(sid),
+                                    onOpenDetail = {
+                                        selectedAutomationOpenPrompt = false
+                                        selectedAutomationId = sid
+                                    },
+                                    onEditPrompt = {
+                                        selectedAutomationOpenPrompt = true
+                                        selectedAutomationId = sid
+                                    },
+                                    onDelete = { pendingDeleteAutomation = sidecar },
+                                    onToggle = {
+                                        scope.launch {
+                                            managingAutomationNames.add(sid)
+                                            apiClient.manageAutomation("start", sid)
+                                                .onFailure { automationActionError = it.message }
+                                            apiClient.fetchAutomationsData().onSuccess {
+                                                automations = it.automations
+                                                automationEvents = it.events
+                                            }
+                                            managingAutomationNames.remove(sid)
+                                        }
+                                    },
+                                    onRunNow = null
+                                )
+                            }
+                        }
+
                         if (filteredEvents.isNotEmpty()) {
                             item(key = "automation_events_header") {
                                 Text(
                                     text = "最近触发记录".loc,
-                                    fontSize = 13.5.sp,
+                                    fontSize = 13.sp,
                                     fontWeight = FontWeight.SemiBold,
                                     color = colors.textSecondary,
-                                    modifier = Modifier.padding(top = 14.dp, bottom = 2.dp, start = 2.dp)
+                                    modifier = Modifier.padding(top = 12.dp, bottom = 2.dp, start = 2.dp)
                                 )
                             }
                             item(key = "automation_events_group") {
@@ -1213,6 +1336,14 @@ fun McpSkillsSheet(
                                         if (index > 0) {
                                             HorizontalDivider(thickness = 0.5.dp, color = colors.border.copy(alpha = 0.6f))
                                         }
+                                        val dotColor = when (ev.effectiveRunStatus) {
+                                            "running" -> colors.accentIndigo
+                                            "needs_input" -> Color(0xFFFF9800)
+                                            "failed" -> Color(0xFFF44336)
+                                            else -> colors.accentGreen
+                                        }
+                                        val displayTitle = ev.conversationTitle?.takeIf { it.isNotBlank() }
+                                            ?: ev.scheduleId.ifBlank { "自动化执行".loc }
                                         Column(
                                             modifier = Modifier
                                                 .fillMaxWidth()
@@ -1224,7 +1355,7 @@ fun McpSkillsSheet(
                                                             Toast.makeText(context, "该触发记录对应的会话已删除".loc, Toast.LENGTH_SHORT).show()
                                                         } else {
                                                             onDismiss()
-                                                            onSelectConversation?.invoke(cid, ev.scheduleId.ifBlank { "自动化任务记录".loc })
+                                                            onSelectConversation?.invoke(cid, displayTitle)
                                                         }
                                                     }
                                                 }
@@ -1236,15 +1367,26 @@ fun McpSkillsSheet(
                                                 horizontalArrangement = Arrangement.SpaceBetween,
                                                 modifier = Modifier.fillMaxWidth()
                                             ) {
-                                                Text(
-                                                    text = ev.scheduleId.ifBlank { "自动化执行".loc },
-                                                    color = colors.textPrimary,
-                                                    fontSize = 13.5.sp,
-                                                    fontWeight = FontWeight.SemiBold,
-                                                    modifier = Modifier.weight(1f, fill = false),
-                                                    maxLines = 1,
-                                                    overflow = TextOverflow.Ellipsis
-                                                )
+                                                Row(
+                                                    verticalAlignment = Alignment.CenterVertically,
+                                                    horizontalArrangement = Arrangement.spacedBy(7.dp),
+                                                    modifier = Modifier.weight(1f)
+                                                ) {
+                                                    Box(
+                                                        modifier = Modifier
+                                                            .size(8.dp)
+                                                            .clip(CircleShape)
+                                                            .background(dotColor)
+                                                    )
+                                                    Text(
+                                                        text = displayTitle,
+                                                        color = colors.textPrimary,
+                                                        fontSize = 13.5.sp,
+                                                        fontWeight = FontWeight.SemiBold,
+                                                        maxLines = 1,
+                                                        overflow = TextOverflow.Ellipsis
+                                                    )
+                                                }
                                                 if (ev.timestamp.isNotBlank()) {
                                                     Spacer(modifier = Modifier.width(8.dp))
                                                     Text(
@@ -1254,15 +1396,19 @@ fun McpSkillsSheet(
                                                     )
                                                 }
                                             }
-                                            val msg = ev.message.takeIf { !it.isNullOrBlank() }
-                                            if (msg != null) {
+                                            val subtitle = listOfNotNull(
+                                                ev.scheduleId.takeIf { it.isNotBlank() && it != displayTitle },
+                                                ev.message?.takeIf { it.isNotBlank() }
+                                            ).joinToString(" · ")
+                                            if (subtitle.isNotBlank()) {
                                                 Text(
-                                                    text = msg,
+                                                    text = subtitle,
                                                     color = colors.textSecondary,
                                                     fontSize = 12.sp,
                                                     lineHeight = 16.sp,
                                                     maxLines = 2,
-                                                    overflow = TextOverflow.Ellipsis
+                                                    overflow = TextOverflow.Ellipsis,
+                                                    modifier = Modifier.padding(start = 15.dp)
                                                 )
                                             }
                                         }
@@ -1718,57 +1864,46 @@ fun McpSkillsSheet(
     }
 
     if (showNewAutomationDialog) {
-        var autoName by remember { mutableStateOf("") }
-        var autoCron by remember { mutableStateOf("0 9 * * *") }
-        var autoPrompt by remember { mutableStateOf("") }
-        AlertDialog(
-            onDismissRequest = { showNewAutomationDialog = false },
-            containerColor = colors.surface,
-            title = { Text("新建定时自动化任务".loc, fontSize = 16.sp, fontWeight = FontWeight.SemiBold) },
-            text = {
-                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    OutlinedTextField(
-                        value = autoName,
-                        onValueChange = { autoName = it },
-                        label = { Text("任务名称".loc) },
-                        singleLine = true,
-                        modifier = Modifier.fillMaxWidth()
-                    )
-                    OutlinedTextField(
-                        value = autoCron,
-                        onValueChange = { autoCron = it },
-                        label = { Text("Cron 表达式（如 0 9 * * *）".loc) },
-                        singleLine = true,
-                        modifier = Modifier.fillMaxWidth()
-                    )
-                    OutlinedTextField(
-                        value = autoPrompt,
-                        onValueChange = { autoPrompt = it },
-                        label = { Text("执行 Prompt".loc) },
-                        minLines = 2,
-                        maxLines = 5,
-                        modifier = Modifier.fillMaxWidth()
-                    )
+        CreateAutomationDialog(
+            existingIds = automations.map { it.targetSidecarId }.toSet(),
+            apiClient = apiClient,
+            prefs = prefs,
+            onCreated = {
+                apiClient.fetchAutomationsData().onSuccess {
+                    automations = it.automations
+                    automationEvents = it.events
                 }
             },
+            onDismiss = { showNewAutomationDialog = false }
+        )
+    }
+
+    pendingDeleteAutomation?.let { item ->
+        AlertDialog(
+            onDismissRequest = { pendingDeleteAutomation = null },
+            containerColor = colors.surface,
+            title = { Text("确认删除定时任务？".loc) },
+            text = { Text("确定要删除定时任务「%s」吗？删除后将停止调度并移除该任务配置。".loc(item.name.ifBlank { item.targetSidecarId })) },
             confirmButton = {
                 TextButton(
-                    enabled = autoName.isNotBlank() && autoCron.isNotBlank() && autoPrompt.isNotBlank(),
                     onClick = {
-                        val n = autoName.trim(); val s = autoCron.trim(); val p = autoPrompt.trim()
-                        showNewAutomationDialog = false
+                        val targetId = item.targetSidecarId
+                        pendingDeleteAutomation = null
                         scope.launch {
-                            apiClient.createAutomation(n, s, p)
+                            managingAutomationNames.add(targetId)
+                            apiClient.deleteAutomation(targetId)
+                                .onFailure { automationActionError = it.message }
                             apiClient.fetchAutomationsData().onSuccess {
                                 automations = it.automations
                                 automationEvents = it.events
                             }
+                            managingAutomationNames.remove(targetId)
                         }
                     }
-                ) { Text("创建".loc) }
+                ) { Text("删除".loc, color = Color(0xFFF44336)) }
             },
             dismissButton = {
-                TextButton(onClick = { showNewAutomationDialog = false }) { Text("取消".loc) }
+                TextButton(onClick = { pendingDeleteAutomation = null }) { Text("取消".loc) }
             }
         )
     }
@@ -1782,15 +1917,20 @@ fun McpSkillsSheet(
             allEvents = automationEvents,
             apiClient = apiClient,
             prefs = prefs,
+            initialEditPrompt = selectedAutomationOpenPrompt,
             onRefresh = {
                 apiClient.fetchAutomationsData().onSuccess {
                     automations = it.automations
                     automationEvents = it.events
                 }
             },
-            onDismiss = { selectedAutomationId = null },
+            onDismiss = {
+                selectedAutomationId = null
+                selectedAutomationOpenPrompt = false
+            },
             onSelectConversation = { cid, title ->
                 selectedAutomationId = null
+                selectedAutomationOpenPrompt = false
                 onDismiss()
                 onSelectConversation?.invoke(cid, title)
             }
@@ -2632,11 +2772,15 @@ private fun AutomationCard(
     sidecar: AutomationSidecarItem,
     isManaging: Boolean,
     onOpenDetail: () -> Unit,
+    onEditPrompt: () -> Unit,
+    onDelete: () -> Unit,
     onToggle: () -> Unit,
     onRunNow: (() -> Unit)? = null
 ) {
     val colors = AntigravityTheme.colors
     val isRunning = sidecar.isRunning
+    val hasError = sidecar.status.equals("ERROR", ignoreCase = true) || !sidecar.lastError.isNullOrBlank()
+    var menuExpanded by remember { mutableStateOf(false) }
 
     Column(
         modifier = Modifier
@@ -2648,7 +2792,7 @@ private fun AutomationCard(
             .padding(14.dp),
         verticalArrangement = Arrangement.spacedBy(7.dp)
     ) {
-        // Line 1: Title + Status Capsule + Action Buttons
+        // Line 1: Title + Error badge + Run Now + Switch + Quick Overflow Menu
         Row(
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.SpaceBetween,
@@ -2664,33 +2808,25 @@ private fun AutomationCard(
                     color = colors.textPrimary,
                     fontSize = 15.sp,
                     fontWeight = FontWeight.Bold,
-                    maxLines = 1,
+                    maxLines = 2,
                     overflow = TextOverflow.Ellipsis,
                     modifier = Modifier.weight(1f, fill = false)
                 )
-                Box(
-                    modifier = Modifier
-                        .clip(CircleShape)
-                        .background(if (isRunning) colors.accentGreen.copy(alpha = 0.12f) else colors.surfaceVariant)
-                        .padding(horizontal = 6.dp, vertical = 2.dp)
-                ) {
-                    Text(
-                        text = if (isRunning) "运行中".loc else "已暂停".loc,
-                        color = if (isRunning) colors.accentGreen else colors.textSecondary,
-                        fontSize = 11.sp,
-                        fontWeight = FontWeight.Medium,
-                        maxLines = 1,
-                        softWrap = false
+                if (hasError) {
+                    Icon(
+                        imageVector = Icons.Default.Error,
+                        contentDescription = null,
+                        tint = Color(0xFFF44336),
+                        modifier = Modifier.size(15.dp)
                     )
                 }
             }
 
             Spacer(modifier = Modifier.width(6.dp))
 
-            // Action Buttons (Run Now only shown when enabled, matching desktop)
             Row(
                 verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(6.dp)
+                horizontalArrangement = Arrangement.spacedBy(4.dp)
             ) {
                 if (isRunning && onRunNow != null) {
                     Box(
@@ -2709,60 +2845,106 @@ private fun AutomationCard(
                         )
                     }
                 }
-                Box(
-                    modifier = Modifier
-                        .height(28.dp)
-                        .clip(CircleShape)
-                        .background(if (isRunning) colors.surfaceVariant else colors.accentIndigo.copy(alpha = 0.14f))
-                        .clickable(enabled = !isManaging, onClick = onToggle)
-                        .padding(horizontal = 12.dp),
-                    contentAlignment = Alignment.Center
-                ) {
-                    if (isManaging) {
-                        CircularProgressIndicator(
-                            modifier = Modifier.size(12.dp),
-                            strokeWidth = 1.5.dp,
-                            color = colors.accentIndigo
+                if (isManaging) {
+                    CircularProgressIndicator(
+                        modifier = Modifier.size(18.dp).padding(2.dp),
+                        strokeWidth = 2.dp,
+                        color = colors.accentIndigo
+                    )
+                } else {
+                    Switch(
+                        checked = isRunning,
+                        onCheckedChange = { onToggle() },
+                        modifier = Modifier.height(28.dp)
+                    )
+                }
+                Box {
+                    IconButton(
+                        onClick = { menuExpanded = true },
+                        modifier = Modifier.size(28.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.MoreVert,
+                            contentDescription = "更多操作".loc,
+                            tint = colors.textSecondary,
+                            modifier = Modifier.size(17.dp)
                         )
-                    } else {
-                        Text(
-                            text = if (isRunning) "停止".loc else "启动".loc,
-                            color = if (isRunning) colors.textPrimary else colors.accentIndigo,
-                            fontSize = 11.5.sp,
-                            fontWeight = FontWeight.SemiBold,
-                            maxLines = 1,
-                            softWrap = false
+                    }
+                    DropdownMenu(
+                        expanded = menuExpanded,
+                        onDismissRequest = { menuExpanded = false },
+                        containerColor = colors.surface
+                    ) {
+                        DropdownMenuItem(
+                            text = { Text("编辑执行指令".loc) },
+                            leadingIcon = { Icon(Icons.Default.Edit, contentDescription = null) },
+                            onClick = {
+                                menuExpanded = false
+                                onEditPrompt()
+                            }
+                        )
+                        DropdownMenuItem(
+                            text = { Text("任务详情".loc) },
+                            leadingIcon = { Icon(Icons.Default.Info, contentDescription = null) },
+                            onClick = {
+                                menuExpanded = false
+                                onOpenDetail()
+                            }
+                        )
+                        if (isRunning && onRunNow != null) {
+                            DropdownMenuItem(
+                                text = { Text("立即运行".loc) },
+                                leadingIcon = { Icon(Icons.Default.PlayArrow, contentDescription = null) },
+                                onClick = {
+                                    menuExpanded = false
+                                    onRunNow()
+                                }
+                            )
+                        }
+                        HorizontalDivider()
+                        DropdownMenuItem(
+                            text = { Text("删除任务".loc, color = Color(0xFFF44336)) },
+                            leadingIcon = { Icon(Icons.Default.Delete, contentDescription = null, tint = Color(0xFFF44336)) },
+                            onClick = {
+                                menuExpanded = false
+                                onDelete()
+                            }
                         )
                     }
                 }
-                Icon(
-                    imageVector = Icons.Default.ChevronRight,
-                    contentDescription = "任务详情".loc,
-                    tint = colors.textSecondary.copy(alpha = 0.7f),
-                    modifier = Modifier.size(18.dp)
-                )
             }
         }
 
-        // Line 2: Human-readable schedule summary
-        if (!sidecar.cronExpression.isNullOrBlank()) {
+        // Line 2: Schedule summary + Project tag
+        if (!sidecar.cronExpression.isNullOrBlank() || !sidecar.projectName.isNullOrBlank()) {
             Row(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(4.dp)
             ) {
-                Icon(
-                    imageVector = Icons.Default.Schedule,
-                    contentDescription = null,
-                    tint = colors.textSecondary,
-                    modifier = Modifier.size(11.dp)
-                )
-                Text(
-                    text = AutomationCronHelper.humanSummary(sidecar.cronExpression),
-                    color = colors.textSecondary,
-                    fontSize = 11.5.sp,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
-                )
+                if (!sidecar.cronExpression.isNullOrBlank()) {
+                    Icon(
+                        imageVector = Icons.Default.Schedule,
+                        contentDescription = null,
+                        tint = colors.textSecondary,
+                        modifier = Modifier.size(11.dp)
+                    )
+                    Text(
+                        text = AutomationCronHelper.humanSummary(sidecar.cronExpression),
+                        color = colors.textSecondary,
+                        fontSize = 11.5.sp,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                }
+                if (!sidecar.projectName.isNullOrBlank()) {
+                    Text(
+                        text = "· ${sidecar.projectName}",
+                        color = colors.textSecondary,
+                        fontSize = 11.5.sp,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                }
             }
         }
 
@@ -2778,6 +2960,7 @@ private fun AutomationCard(
                         text = "下次: %s".loc(sidecar.nextRunAt),
                         color = colors.textSecondary,
                         fontSize = 11.sp,
+                        fontFamily = FontFamily.Monospace,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis
                     )
@@ -2787,6 +2970,7 @@ private fun AutomationCard(
                         text = "上次: %s".loc(sidecar.lastRunAt),
                         color = colors.textMuted,
                         fontSize = 11.sp,
+                        fontFamily = FontFamily.Monospace,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis
                     )
@@ -2794,7 +2978,7 @@ private fun AutomationCard(
             }
         }
 
-        // Line 4: Prompt / Description
+        // Line 4: Prompt / Description preview
         val desc = sidecar.description.takeIf { !it.isNullOrBlank() } ?: sidecar.prompt
         if (!desc.isNullOrBlank()) {
             Text(

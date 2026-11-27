@@ -1577,6 +1577,7 @@ data class AutomationSidecarItem(
     val workspaceUri: String? = null,
     val workspaceUris: List<String> = emptyList(),
     val projectId: String? = null,
+    val projectName: String? = null,
     val accessGrants: List<String> = emptyList()
 ) {
     val targetSidecarId: String get() = id.ifBlank { name }
@@ -1590,10 +1591,15 @@ data class AutomationEventItem(
     val sidecarId: String? = null,
     val conversationId: String? = null,
     val conversationExists: Boolean? = null,
+    val conversationTitle: String? = null,
+    val runStatus: String? = null,
     val timestamp: String = "",
     val status: String = "",
     val message: String? = null
 ) {
+    val effectiveRunStatus: String
+        get() = runStatus?.takeIf { it.isNotBlank() } ?: if (status.equals("error", ignoreCase = true)) "failed" else "ok"
+
     fun matches(sidecar: AutomationSidecarItem): Boolean {
         if (!sidecarId.isNullOrBlank()) {
             return sidecarId == sidecar.targetSidecarId

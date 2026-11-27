@@ -39,19 +39,21 @@ func parseSingleSummaryEntry(entry json.RawMessage) (uint64, subagentLive, bool)
 	sig := h.Sum64()
 
 	var s struct {
-		Status             string `json:"status"`
-		StepCount          int    `json:"stepCount"`
-		Summary            string `json:"summary"`
+		Status             string            `json:"status"`
+		StepCount          int               `json:"stepCount"`
+		WaitingSteps       []json.RawMessage `json:"waitingSteps"`
+		Summary            string            `json:"summary"`
 		TrajectoryMetadata struct {
 			ParentConversationID string `json:"parentConversationId"`
 		} `json:"trajectoryMetadata"`
 	}
 	if json.Unmarshal(entry, &s) == nil {
 		return sig, subagentLive{
-			Status:    s.Status,
-			StepCount: s.StepCount,
-			Title:     s.Summary,
-			Parent:    strings.TrimSpace(s.TrajectoryMetadata.ParentConversationID),
+			Status:       s.Status,
+			StepCount:    s.StepCount,
+			WaitingSteps: len(s.WaitingSteps),
+			Title:        s.Summary,
+			Parent:       strings.TrimSpace(s.TrajectoryMetadata.ParentConversationID),
 		}, true
 	}
 	return sig, subagentLive{}, false

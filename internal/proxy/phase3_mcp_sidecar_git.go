@@ -486,6 +486,7 @@ func (p *Proxy) HandleAutomationCreateDelete(w http.ResponseWriter, r *http.Requ
 			Cron        string `json:"cron"`
 			Schedule    string `json:"schedule"`
 			Model       string `json:"model"`
+			ProjectID   string `json:"projectId"`
 			Prompt      string `json:"prompt"`
 			Enabled     *bool  `json:"enabled"`
 		}
@@ -514,6 +515,7 @@ func (p *Proxy) HandleAutomationCreateDelete(w http.ResponseWriter, r *http.Requ
 			m := strings.TrimSpace(req.Model)
 			modelPtr = &m
 		}
+		projectID := strings.TrimSpace(req.ProjectID)
 		args := buildScheduleArgs(nil, cronExpr, modelPtr, req.Prompt)
 		displayName := firstNonEmpty(req.Name, sid)
 
@@ -527,11 +529,15 @@ func (p *Proxy) HandleAutomationCreateDelete(w http.ResponseWriter, r *http.Requ
 				"displayName":   displayName,
 				"description":   strings.TrimSpace(req.Description),
 			}
-			_, status, err := p.callUpstreamRPC(ctx, "ManageSidecar", map[string]interface{}{
+			createReq := map[string]interface{}{
 				"sidecarId": sid,
 				"action":    "SIDECAR_ACTION_CREATE",
 				"config":    upCfg,
-			})
+			}
+			if projectID != "" {
+				createReq["projectId"] = projectID
+			}
+			_, status, err := p.callUpstreamRPC(ctx, "ManageSidecar", createReq)
 			if err == nil && status == http.StatusOK {
 				createdUpstream = true
 				if enabled {
@@ -563,6 +569,9 @@ func (p *Proxy) HandleAutomationCreateDelete(w http.ResponseWriter, r *http.Requ
 				return
 			}
 			_ = updateLocalSidecarEnabled(sid, enabled)
+			if projectID != "" {
+				_ = updateLocalSidecarProject(sid, projectID)
+			}
 		}
 
 		writeJSONStatus(w, http.StatusOK, map[string]interface{}{

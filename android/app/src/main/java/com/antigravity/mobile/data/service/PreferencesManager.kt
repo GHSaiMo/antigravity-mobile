@@ -1097,13 +1097,22 @@ class PreferencesManager(context: Context) {
         }
     }
 
-    fun createLocalDraftSession(project: ProjectItem): LocalDraftSession {
+    fun createLocalDraftSession(
+        project: ProjectItem,
+        draftText: String = "",
+        draftSlashCommands: List<com.antigravity.mobile.data.model.SlashCommandOption> = emptyList()
+    ): LocalDraftSession {
         val session = LocalDraftSession(
             id = "local_draft_${java.util.UUID.randomUUID()}",
-            project = project
+            project = project,
+            draftText = draftText,
+            draftSlashCommands = draftSlashCommands
         )
         val current = getLocalDraftSessions().filter { it.id != session.id }
         saveLocalDraftSessions(listOf(session) + current)
+        if (draftText.isNotEmpty()) {
+            setDraftText(session.id, draftText)
+        }
         return session
     }
 

@@ -808,6 +808,7 @@ public enum SlashCommandTextTokenizer {
 public extension Notification.Name {
     static let openConversationFromTaskCenter = Notification.Name("openConversationFromTaskCenter")
     static let startNewSessionForWorkspace = Notification.Name("startNewSessionForWorkspace")
+    static let startAutomationPromptSession = Notification.Name("startAutomationPromptSession")
 }
 
 public struct GlobalBackgroundTaskItem: Codable, Sendable, Identifiable, Equatable {

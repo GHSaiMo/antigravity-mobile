@@ -457,6 +457,7 @@ suspend fun ApiClient.createAutomation(
     schedule: String,
     prompt: String,
     model: String = "",
+    projectId: String = "",
     workspace: String = ""
 ): Result<Unit> {
     val payload = buildJsonObject {
@@ -465,6 +466,7 @@ suspend fun ApiClient.createAutomation(
         put("schedule", schedule)
         put("prompt", prompt)
         if (model.isNotBlank()) put("model", model)
+        if (projectId.isNotBlank()) put("projectId", projectId)
         if (workspace.isNotBlank()) put("workspace", workspace)
     }
     return p3PostJson("/gateway/automations/create", payload).map { }
@@ -476,7 +478,8 @@ suspend fun ApiClient.updateAutomation(
     description: String? = null,
     cron: String? = null,
     model: String? = null,
-    prompt: String? = null
+    prompt: String? = null,
+    projectId: String? = null
 ): Result<Unit> {
     val payload = buildJsonObject {
         put("sidecarId", sidecarId)
@@ -485,16 +488,19 @@ suspend fun ApiClient.updateAutomation(
         if (cron != null) put("cron", cron)
         if (model != null) put("model", model)
         if (prompt != null) put("prompt", prompt)
+        if (projectId != null) put("projectId", projectId)
     }
     return p3PostJson("/gateway/automations/update", payload).map { }
 }
 
 suspend fun ApiClient.fetchAutomationLogs(
     sidecarId: String,
-    tail: Int = 200
+    tail: Int = 200,
+    file: String? = null
 ): Result<AutomationLogsResponse> {
     val encodedId = URLEncoder.encode(sidecarId, "UTF-8")
-    return p3Get("/gateway/automations/logs?sidecarId=$encodedId&tail=$tail").mapCatching { body ->
+    val fileQuery = if (!file.isNullOrBlank()) "&file=${URLEncoder.encode(file, "UTF-8")}" else ""
+    return p3Get("/gateway/automations/logs?sidecarId=$encodedId&tail=$tail$fileQuery").mapCatching { body ->
         json.decodeFromString<AutomationLogsResponse>(body)
     }
 }

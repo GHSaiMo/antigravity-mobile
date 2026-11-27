@@ -931,8 +931,12 @@ class ConversationListViewModel(
         applyFilter()
     }
 
-    fun createLocalDraftSession(project: ProjectItem): LocalDraftSession {
-        return prefs.createLocalDraftSession(project)
+    fun createLocalDraftSession(
+        project: ProjectItem,
+        draftText: String = "",
+        draftSlashCommands: List<com.antigravity.mobile.data.model.SlashCommandOption> = emptyList()
+    ): LocalDraftSession {
+        return prefs.createLocalDraftSession(project, draftText, draftSlashCommands)
     }
 
     fun notifySessionFocus(cascadeId: String) {

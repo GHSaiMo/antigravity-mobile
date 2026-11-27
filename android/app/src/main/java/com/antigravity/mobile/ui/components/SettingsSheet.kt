@@ -145,6 +145,7 @@ fun SettingsSheet(
     onUnpair: () -> Unit,
     onDismiss: () -> Unit,
     modifier: Modifier = Modifier,
+    onCreateAutomationWithPrompt: (() -> Unit)? = null,
     onLoadModels: suspend () -> Result<ModelsResponse> = { Result.failure(IllegalStateException("未提供模型目录".loc)) }
 ) {
     var showUnpairAlert by remember { mutableStateOf(false) }
@@ -445,7 +446,15 @@ fun SettingsSheet(
     }
 
     if (showMcpSkillsSheet) {
-        McpSkillsSheet(onDismiss = { showMcpSkillsSheet = false })
+        McpSkillsSheet(
+            onDismiss = { showMcpSkillsSheet = false },
+            onCreateAutomationWithPrompt = onCreateAutomationWithPrompt?.let { cb ->
+                {
+                    showMcpSkillsSheet = false
+                    cb()
+                }
+            }
+        )
     }
 }
 

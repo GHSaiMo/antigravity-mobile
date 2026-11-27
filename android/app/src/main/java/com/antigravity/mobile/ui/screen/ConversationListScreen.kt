@@ -1108,6 +1108,22 @@ fun ConversationListScreen(
                 )
             },
             onTasksChanged = { viewModel.updateGlobalBackgroundTasks(it) },
+            onCreateAutomationWithPrompt = {
+                showBackgroundTasksSheet = false
+                val automationCmd = com.antigravity.mobile.data.model.SlashCommandOption(
+                    name = "automation",
+                    title = "automation",
+                    description = "交互式创建定时自动化任务".loc,
+                    icon = "schedule",
+                    kind = "skill"
+                )
+                val draftSession = viewModel.createLocalDraftSession(
+                    project = ProjectItem.PURE_CHAT,
+                    draftText = "引导我创建一个定时自动化任务".loc,
+                    draftSlashCommands = listOf(automationCmd)
+                )
+                onSelectConversation(draftSession.id, "新对话".loc, true, false, com.antigravity.mobile.data.model.ConversationStatus.IDLE, null)
+            },
             onDismiss = { showBackgroundTasksSheet = false }
         )
     }
@@ -1159,6 +1175,22 @@ fun ConversationListScreen(
         SettingsSheet(
             prefs = viewModel.prefs,
             onThemeModeChange = { viewModel.prefs.themeMode = it },
+            onCreateAutomationWithPrompt = {
+                showSettingsSheet = false
+                val automationCmd = com.antigravity.mobile.data.model.SlashCommandOption(
+                    name = "automation",
+                    title = "automation",
+                    description = "交互式创建定时自动化任务".loc,
+                    icon = "schedule",
+                    kind = "skill"
+                )
+                val draftSession = viewModel.createLocalDraftSession(
+                    project = ProjectItem.PURE_CHAT,
+                    draftText = "引导我创建一个定时自动化任务".loc,
+                    draftSlashCommands = listOf(automationCmd)
+                )
+                onSelectConversation(draftSession.id, "新对话".loc, true, false, com.antigravity.mobile.data.model.ConversationStatus.IDLE, null)
+            },
             onUnpair = {
                 showSettingsSheet = false
                 onNavigateToPair()

@@ -227,7 +227,8 @@ internal fun ChatViewModel.prepareSession(
     hasUserManuallySelectedModel = false
 
     val isDraft = cascadeId.isBlank() || cascadeId.startsWith("local_draft_") || cascadeId.startsWith("draft_")
-    val resolvedDraftProject = draftProject ?: (if (isDraft) prefs?.getLocalDraftSession(cascadeId)?.project else null)
+    val localDraftSession = if (isDraft) prefs?.getLocalDraftSession(cascadeId) else null
+    val resolvedDraftProject = draftProject ?: localDraftSession?.project
     this.currentDraftProject = resolvedDraftProject
 
     val resolvedWs = workspaceName?.takeIf { it.isNotBlank() }
@@ -235,8 +236,9 @@ internal fun ChatViewModel.prepareSession(
     val defaultTitle = if (isDraft) (if (resolvedWs.isNotBlank() && resolvedWs != "Chat") resolvedWs else "新对话".loc) else "会话 %s".loc(cascadeId)
 
     // Restore draft text and warm memory images immediately (zero disk I/O on Main)
-    val savedDraftText = prefs?.getDraftText(cascadeId).orEmpty()
+    val savedDraftText = prefs?.getDraftText(cascadeId).orEmpty().ifBlank { localDraftSession?.draftText.orEmpty() }
     _inputText.value = savedDraftText
+    val initialSlashCommands = localDraftSession?.draftSlashCommands.orEmpty()
 
     val memDraftImages = prefs?.getMemoryDraftImages(cascadeId)
     val attachments = if (!memDraftImages.isNullOrEmpty()) {
@@ -276,6 +278,7 @@ internal fun ChatViewModel.prepareSession(
             isRunning = false,
             isAwaitingResponse = false,
             selectedImages = attachments,
+            selectedSlashCommands = initialSlashCommands,
             canProceed = false,
             proceedArtifactUri = null,
             pendingInteraction = null,
