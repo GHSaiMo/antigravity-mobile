@@ -122,6 +122,86 @@ jobs:
           path: dist/*.apk
 
   # ============================================================================
+  # 1.5. 构建 iOS 未签名 Release IPA (供自签 / 侧载工具使用)
+  # ============================================================================
+  build-ios:
+    name: Build iOS Unsigned IPA
+    runs-on: macos-latest
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+
+      - name: Archive iOS App (Unsigned Release)
+        run: |
+          xcodebuild -version
+          xcodebuild \
+            -project ios/Multigravity.xcodeproj \
+            -scheme Multigravity \
+            -configuration Release \
+            -destination 'generic/platform=iOS' \
+            -derivedDataPath "$RUNNER_TEMP/mgy-ios-dd" \
+            -archivePath "$RUNNER_TEMP/Multigravity.xcarchive" \
+            CODE_SIGN_IDENTITY="" \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGNING_ALLOWED=NO \
+            clean archive
+
+      - name: Package & Verify Unsigned IPA
+        env:
+          REF_TYPE: ${{ github.ref_type }}
+          REF_NAME: ${{ github.ref_name }}
+          INPUT_TAG: ${{ inputs.tag }}
+        run: |
+          set -euo pipefail
+          if [ "$REF_TYPE" = "tag" ] && [ -n "$REF_NAME" ]; then
+            TAG_NAME="$REF_NAME"
+          else
+            TAG_NAME="${INPUT_TAG:-v1.2.8}"
+          fi
+
+          APP_SRC="$RUNNER_TEMP/Multigravity.xcarchive/Products/Applications/Multigravity.app"
+          if [ ! -d "$APP_SRC" ]; then
+            echo "❌ 未找到归档后的 Multigravity.app"
+            exit 1
+          fi
+
+          STAGE_DIR="$RUNNER_TEMP/ipa-stage"
+          rm -rf "$STAGE_DIR"
+          mkdir -p "$STAGE_DIR/Payload" dist
+          cp -a "$APP_SRC" "$STAGE_DIR/Payload/Multigravity.app"
+
+          # 确保纯未签名包不含任何签名目录或描述文件
+          find "$STAGE_DIR/Payload/Multigravity.app" \
+            \( -name "_CodeSignature" -o -name "embedded.mobileprovision" -o -name "*.mobileprovision" \) \
+            -exec rm -rf {} +
+
+          OUT_IPA="$GITHUB_WORKSPACE/dist/Multigravity-${TAG_NAME}-unsigned.ipa"
+          rm -f "$OUT_IPA"
+          (cd "$STAGE_DIR" && zip -qr -y -9 "$OUT_IPA" Payload)
+
+          echo "🔍 校验未签名 IPA 完整性与产物信息..."
+          unzip -tq "$OUT_IPA"
+          ls -lh "$OUT_IPA"
+          shasum -a 256 "$OUT_IPA"
+          /usr/libexec/PlistBuddy \
+            -c "Print :CFBundleIdentifier" \
+            -c "Print :CFBundleShortVersionString" \
+            -c "Print :CFBundleVersion" \
+            -c "Print :MinimumOSVersion" \
+            "$STAGE_DIR/Payload/Multigravity.app/Info.plist"
+          file "$STAGE_DIR/Payload/Multigravity.app/Multigravity"
+          if [ -d "$STAGE_DIR/Payload/Multigravity.app/PlugIns/ActivityExtension.appex" ]; then
+            file "$STAGE_DIR/Payload/Multigravity.app/PlugIns/ActivityExtension.appex/ActivityExtension"
+          fi
+          echo "✅ 成功生成 iOS 未签名 IPA 资产: dist/Multigravity-${TAG_NAME}-unsigned.ipa"
+
+      - name: Upload iOS IPA Artifact
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: ios-ipa
+          path: dist/*.ipa
+
+  # ============================================================================
   # 2. 构建 macOS Universal 通用二进制 (Apple Silicon + Intel Mac)
   # ============================================================================
   build-macos:
@@ -270,7 +350,7 @@ jobs:
   # ============================================================================
   publish-release:
     name: Publish GitHub Release
-    needs: [build-android, build-macos, build-windows, build-linux]
+    needs: [build-android, build-ios, build-macos, build-windows, build-linux]
     runs-on: ubuntu-latest
     steps:
       - name: Checkout Repository
@@ -280,6 +360,12 @@ jobs:
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
           name: android-apk
+          path: release-assets
+
+      - name: Download iOS IPA Artifact
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: ios-ipa
           path: release-assets
 
       - name: Download macOS Artifact
@@ -342,12 +428,14 @@ jobs:
           > - 此版本仅供内测与尝鲜体验，**不会推送给正式版用户**（\`mgy update\` / Android 应用内更新 / 一键安装脚本均自动跳过）。
           > - **网关更新至本测试版**：运行 \`mgy update ${TAG_NAME}\`；测试完毕后运行 \`mgy update\` 即可切回最新正式版。
           > - **Android 测试安装**：直接下载下方 \`Multigravity-${TAG_NAME}.apk\` 安装即可（与正式版同签名，可直接覆盖升级）。
+          > - **iOS 自签安装**：下载下方 \`Multigravity-${TAG_NAME}-unsigned.ipa\` 并使用 AltStore / SideStore / Sideloadly / 轻松签 / 巨魔等工具自签安装（自签版不包含官方远程 APNs 推送；免费 Apple ID 自签时移除扩展即可）。
           >
           > ---
           >
           > - This is a **Pre-release** build for testing only and **will not be pushed to stable users** (\`mgy update\`, Android in-app updater, and install scripts ignore pre-releases).
           > - **Gateway CLI**: run \`mgy update ${TAG_NAME}\` to install this build, or \`mgy update\` to return to the latest stable release.
           > - **Android**: download and install \`Multigravity-${TAG_NAME}.apk\` below (signed with the same release key for seamless upgrades).
+          > - **iOS (Self-Sign / Sideload)**: download \`Multigravity-${TAG_NAME}-unsigned.ipa\` below and sign with AltStore, SideStore, Sideloadly, TrollStore, etc. (self-signed builds do not receive official remote APNs push; remove app extensions when signing with a free Apple ID).
           EOF
               GEN_NOTES="true"
             fi
