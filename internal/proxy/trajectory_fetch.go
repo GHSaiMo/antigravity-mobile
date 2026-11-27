@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
@@ -93,8 +94,9 @@ func (p *Proxy) fetchUpstreamTrajectoryWithContext(ctx context.Context, cascadeI
 	}
 
 	resp, err := p.fetchUpstreamTrajectoryWithMaxAgeContext(ctx, cascadeID, port, token, maxAge)
-	// Fallback: If not found or empty steps, try loading from disk via LoadTrajectory and retry once
-	if (err != nil || (resp != nil && len(resp.Trajectory.Steps) == 0)) && port > 0 {
+	// Fallback: If not found or empty steps, try loading from disk via LoadTrajectory and retry once.
+	// Skip pointless LoadTrajectory retries when the trajectory was already loaded but exceeded our size cap.
+	if (err != nil || (resp != nil && len(resp.Trajectory.Steps) == 0)) && !errors.Is(err, errUpstreamTrajectoryTooLarge) && port > 0 {
 		if ctx != nil && ctx.Err() != nil {
 			return nil, ctx.Err()
 		}
@@ -499,6 +501,274 @@ func (g *trajFlightGroup) do(key string, fn func() (*upstreamTrajectoryResp, err
 	})
 }
 
+var (
+	// maxRawTrajectoryCacheBytes bounds how large a raw GetCascadeTrajectory JSON payload
+	// may be preserved verbatim in trajCache for zero-overhead desktop RPC replay.
+	// Payloads larger than this threshold are decoded via streaming step-by-step JSON parsing
+	// so multi-tens-of-MB sessions never allocate a single contiguous raw JSON buffer.
+	maxRawTrajectoryCacheBytes int64 = 8 * 1024 * 1024
+
+	// maxUpstreamTrajectoryBytes is the safety ceiling for streaming a single local
+	// language_server GetCascadeTrajectory response (overrideable via MGY_MAX_UPSTREAM_TRAJECTORY_BYTES).
+	maxUpstreamTrajectoryBytes int64 = 512 * 1024 * 1024
+
+	// trajFlightTimeout caps a shared singleflight upstream GetCascadeTrajectory fetch.
+	// Detached from short caller deadlines (e.g. 500ms list probes) and generous enough
+	// for 65-250 MiB / 4,000+ step trajectories on slower disks or CPUs.
+	trajFlightTimeout = 45 * time.Second
+
+	// errUpstreamTrajectoryTooLarge signals that GetCascadeTrajectory exceeded maxUpstreamTrajectoryBytes.
+	errUpstreamTrajectoryTooLarge = errors.New("upstream trajectory response exceeds safety limit")
+)
+
+func effectiveMaxUpstreamTrajectoryBytes() int64 {
+	if raw := strings.TrimSpace(os.Getenv("MGY_MAX_UPSTREAM_TRAJECTORY_BYTES")); raw != "" {
+		if n, err := strconv.ParseInt(raw, 10, 64); err == nil && n > 0 {
+			return n
+		}
+	}
+	if maxUpstreamTrajectoryBytes > 0 {
+		return maxUpstreamTrajectoryBytes
+	}
+	return 512 * 1024 * 1024
+}
+
+func formatByteLimit(limit int64) string {
+	const mib = 1024 * 1024
+	if limit >= mib && limit%mib == 0 {
+		return fmt.Sprintf("%d MiB", limit/mib)
+	}
+	return fmt.Sprintf("%d bytes", limit)
+}
+
+type limitedCountingReader struct {
+	r        io.Reader
+	read     int64
+	limit    int64
+	exceeded bool
+}
+
+func (l *limitedCountingReader) Read(p []byte) (int, error) {
+	if l.exceeded {
+		return 0, errUpstreamTrajectoryTooLarge
+	}
+	if l.limit > 0 {
+		rem := (l.limit + 1) - l.read
+		if rem <= 0 {
+			l.exceeded = true
+			return 0, errUpstreamTrajectoryTooLarge
+		}
+		if int64(len(p)) > rem {
+			p = p[:rem]
+		}
+	}
+	n, err := l.r.Read(p)
+	l.read += int64(n)
+	if l.limit > 0 && l.read > l.limit {
+		l.exceeded = true
+		return n, errUpstreamTrajectoryTooLarge
+	}
+	return n, err
+}
+
+func skipJSONValue(dec *json.Decoder) error {
+	tok, err := dec.Token()
+	if err != nil {
+		return err
+	}
+	delim, ok := tok.(json.Delim)
+	if !ok {
+		return nil
+	}
+	if delim != '{' && delim != '[' {
+		return fmt.Errorf("unexpected JSON delimiter %q", delim)
+	}
+	depth := 1
+	for depth > 0 {
+		t, err := dec.Token()
+		if err != nil {
+			return err
+		}
+		if d, ok := t.(json.Delim); ok {
+			switch d {
+			case '{', '[':
+				depth++
+			case '}', ']':
+				depth--
+			}
+		}
+	}
+	return nil
+}
+
+// decodeUpstreamTrajectoryStreaming decodes a GetCascadeTrajectory JSON payload incrementally,
+// streaming each element of trajectory.steps one TrajectoryStep at a time and compacting
+// large inline images immediately. This avoids buffering 60-500 MiB of raw JSON in RAM
+// while ignoring huge unknown upstream fields in O(nesting depth) memory.
+func decodeUpstreamTrajectoryStreaming(r io.Reader, out *upstreamTrajectoryResp) error {
+	dec := json.NewDecoder(r)
+	tok, err := dec.Token()
+	if err != nil {
+		return err
+	}
+	if tok == nil {
+		return nil
+	}
+	if delim, ok := tok.(json.Delim); !ok || delim != '{' {
+		return fmt.Errorf("expected top-level JSON object, got %v", tok)
+	}
+
+	for dec.More() {
+		keyTok, err := dec.Token()
+		if err != nil {
+			return err
+		}
+		key, ok := keyTok.(string)
+		if !ok {
+			return fmt.Errorf("expected JSON object key, got %v", keyTok)
+		}
+		switch key {
+		case "status":
+			if err := dec.Decode(&out.Status); err != nil {
+				return err
+			}
+		case "pendingAgentMessages":
+			if err := dec.Decode(&out.PendingAgentMessages); err != nil {
+				return err
+			}
+		case "trajectory":
+			if err := decodeUpstreamTrajectoryBody(dec, out); err != nil {
+				return err
+			}
+		default:
+			switch strings.ToLower(key) {
+			case "status":
+				if err := dec.Decode(&out.Status); err != nil {
+					return err
+				}
+			case "pendingagentmessages":
+				if err := dec.Decode(&out.PendingAgentMessages); err != nil {
+					return err
+				}
+			case "trajectory":
+				if err := decodeUpstreamTrajectoryBody(dec, out); err != nil {
+					return err
+				}
+			default:
+				if err := skipJSONValue(dec); err != nil {
+					return err
+				}
+			}
+		}
+	}
+
+	endTok, err := dec.Token()
+	if err != nil {
+		return err
+	}
+	if delim, ok := endTok.(json.Delim); !ok || delim != '}' {
+		return fmt.Errorf("expected closing '}', got %v", endTok)
+	}
+	return nil
+}
+
+func decodeUpstreamTrajectoryBody(dec *json.Decoder, out *upstreamTrajectoryResp) error {
+	tok, err := dec.Token()
+	if err != nil {
+		return err
+	}
+	if tok == nil {
+		return nil
+	}
+	if delim, ok := tok.(json.Delim); !ok || delim != '{' {
+		return fmt.Errorf("expected trajectory JSON object, got %v", tok)
+	}
+
+	decodeField := func(k string) error {
+		switch k {
+		case "trajectoryId", "trajectoryid":
+			return dec.Decode(&out.Trajectory.TrajectoryID)
+		case "cascadeId", "cascadeid":
+			return dec.Decode(&out.Trajectory.CascadeID)
+		case "trajectoryType", "trajectorytype":
+			return dec.Decode(&out.Trajectory.TrajectoryType)
+		case "workspaceUris", "workspaceuris":
+			return dec.Decode(&out.Trajectory.WorkspaceUris)
+		case "parentReferences", "parentreferences":
+			return dec.Decode(&out.Trajectory.ParentReferences)
+		case "annotations":
+			return dec.Decode(&out.Trajectory.Annotations)
+		case "summary":
+			return dec.Decode(&out.Trajectory.Summary)
+		case "metadata":
+			return dec.Decode(&out.Trajectory.Metadata)
+		case "executorMetadatas", "executormetadatas":
+			return dec.Decode(&out.Trajectory.ExecutorMetadatas)
+		case "steps":
+			arrTok, err := dec.Token()
+			if err != nil {
+				return err
+			}
+			if arrTok == nil {
+				return nil
+			}
+			if d, ok := arrTok.(json.Delim); !ok || d != '[' {
+				return fmt.Errorf("expected steps JSON array, got %v", arrTok)
+			}
+			for dec.More() {
+				var step TrajectoryStep
+				if err := dec.Decode(&step); err != nil {
+					return err
+				}
+				compactTrajectoryStepMedia(&step)
+				out.Trajectory.Steps = append(out.Trajectory.Steps, step)
+			}
+			endArr, err := dec.Token()
+			if err != nil {
+				return err
+			}
+			if d, ok := endArr.(json.Delim); !ok || d != ']' {
+				return fmt.Errorf("expected closing ']' for steps, got %v", endArr)
+			}
+			return nil
+		default:
+			return skipJSONValue(dec)
+		}
+	}
+
+	for dec.More() {
+		keyTok, err := dec.Token()
+		if err != nil {
+			return err
+		}
+		key, ok := keyTok.(string)
+		if !ok {
+			return fmt.Errorf("expected trajectory object key, got %v", keyTok)
+		}
+		switch key {
+		case "trajectoryId", "cascadeId", "trajectoryType", "workspaceUris",
+			"parentReferences", "annotations", "summary", "metadata",
+			"executorMetadatas", "steps":
+			if err := decodeField(key); err != nil {
+				return err
+			}
+		default:
+			if err := decodeField(strings.ToLower(key)); err != nil {
+				return err
+			}
+		}
+	}
+
+	endTok, err := dec.Token()
+	if err != nil {
+		return err
+	}
+	if delim, ok := endTok.(json.Delim); !ok || delim != '}' {
+		return fmt.Errorf("expected closing '}' for trajectory, got %v", endTok)
+	}
+	return nil
+}
+
 func (g *trajFlightGroup) doCtx(ctx context.Context, key string, fn func(context.Context) (*upstreamTrajectoryResp, error)) (*upstreamTrajectoryResp, error) {
 	if ctx != nil && ctx.Err() != nil {
 		return nil, ctx.Err()
@@ -509,7 +779,7 @@ func (g *trajFlightGroup) doCtx(ctx context.Context, key string, fn func(context
 		c = &trajFlightCall{done: make(chan struct{})}
 		g.calls[key] = c
 		go func() {
-			upCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+			upCtx, cancel := context.WithTimeout(context.Background(), trajFlightTimeout)
 			defer func() {
 				cancel()
 				g.mu.Lock()
@@ -561,14 +831,14 @@ func (p *Proxy) fetchUpstreamTrajectoryUncached(ctx context.Context, cascadeID s
 		req.Header.Set("x-codeium-csrf-token", token)
 	}
 
-	resp, err := p.mediumClient.Do(req)
+	resp, err := p.trajectoryHTTPClient().Do(req)
 	if err != nil {
 		return nil, err
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		b, _ := io.ReadAll(resp.Body)
+		b, _ := io.ReadAll(io.LimitReader(resp.Body, 64*1024))
 		return nil, fmt.Errorf("upstream returned %d: %s", resp.StatusCode, string(b))
 	}
 
@@ -582,24 +852,48 @@ func (p *Proxy) fetchUpstreamTrajectoryUncached(ctx context.Context, cascadeID s
 		reader = gzReader
 	}
 
-	const maxRawCacheBytes = 8 * 1024 * 1024
-	const maxUpstreamTrajectoryBytes = 64 * 1024 * 1024
+	maxBytes := effectiveMaxUpstreamTrajectoryBytes()
+	rawCacheLimit := maxRawTrajectoryCacheBytes
+	if rawCacheLimit > maxBytes {
+		rawCacheLimit = maxBytes
+	}
+
 	rawBuf := GetHugeBuffer()
 	defer PutHugeBuffer(rawBuf)
-	if _, err := rawBuf.ReadFrom(io.LimitReader(reader, maxUpstreamTrajectoryBytes)); err != nil {
+	if _, err := rawBuf.ReadFrom(io.LimitReader(reader, rawCacheLimit+1)); err != nil {
 		return nil, fmt.Errorf("failed to read upstream response: %w", err)
 	}
 
 	var data upstreamTrajectoryResp
-	if err := json.Unmarshal(rawBuf.Bytes(), &data); err != nil {
-		return nil, fmt.Errorf("failed to decode upstream response: %w", err)
-	}
 	var preservedRaw []byte
-	if rawBuf.Len() > 0 && rawBuf.Len() <= maxRawCacheBytes {
-		preservedRaw = make([]byte, rawBuf.Len())
-		copy(preservedRaw, rawBuf.Bytes())
+
+	if int64(rawBuf.Len()) > maxBytes {
+		return nil, fmt.Errorf("%w (%s)", errUpstreamTrajectoryTooLarge, formatByteLimit(maxBytes))
 	}
-	compactTrajectoryMedia(&data)
+
+	if int64(rawBuf.Len()) <= rawCacheLimit {
+		if err := json.Unmarshal(rawBuf.Bytes(), &data); err != nil {
+			return nil, fmt.Errorf("failed to decode upstream response: %w", err)
+		}
+		if rawBuf.Len() > 0 {
+			preservedRaw = make([]byte, rawBuf.Len())
+			copy(preservedRaw, rawBuf.Bytes())
+		}
+		compactTrajectoryMedia(&data)
+	} else {
+		// Response exceeds raw cache ceiling (8 MiB): stream-decode step by step directly
+		// from the remaining HTTP response body without buffering the full payload in memory.
+		combined := io.MultiReader(bytes.NewReader(rawBuf.Bytes()), reader)
+		cr := &limitedCountingReader{r: combined, limit: maxBytes}
+		if err := decodeUpstreamTrajectoryStreaming(cr, &data); err != nil {
+			if cr.exceeded || errors.Is(err, errUpstreamTrajectoryTooLarge) {
+				return nil, fmt.Errorf("%w (%s)", errUpstreamTrajectoryTooLarge, formatByteLimit(maxBytes))
+			}
+			return nil, fmt.Errorf("failed to decode upstream response: %w", err)
+		}
+		// Drain trailing whitespace/newline so the keep-alive connection stays reusable.
+		_, _ = io.Copy(io.Discard, io.LimitReader(reader, 4096))
+	}
 
 	defaultTrajCache.trajCacheMu.Lock()
 	if defaultTrajCache.cascadeGenLocked(cascadeID) == gen {
@@ -968,7 +1262,17 @@ func (p *Proxy) fetchUpstreamGeneratorMetadata(cascadeID string, port int, token
 			req.Header.Set("x-codeium-csrf-token", token)
 		}
 
-		resp, err := p.shortClient.Do(req)
+		client := p.shortClient
+		if offset == 0 && p.mediumClient != nil {
+			client = p.mediumClient
+		}
+		if client == nil {
+			client = p.mediumClient
+		}
+		if client == nil {
+			return nil, generatorMetaSummary{}, false
+		}
+		resp, err := client.Do(req)
 		if err != nil {
 			return nil, generatorMetaSummary{}, false
 		}

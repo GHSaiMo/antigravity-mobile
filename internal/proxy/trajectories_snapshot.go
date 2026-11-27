@@ -22,7 +22,7 @@ import (
 const allTrajectoriesTTL = time.Second
 
 // maxAllTrajectoriesBody caps the upstream list response we are willing to buffer.
-const maxAllTrajectoriesBody = 64 * 1024 * 1024
+var maxAllTrajectoriesBody int64 = 128 * 1024 * 1024
 
 // allTrajectoriesParsed holds pre-decoded lightweight indices over a GetAllCascadeTrajectories
 // response so stream change detection, subagent live lookups, and events list hashing never
@@ -367,8 +367,15 @@ func (p *Proxy) fetchAllTrajectoriesUpstream(ctx context.Context, port int, toke
 
 	buf := GetHugeBuffer()
 	defer PutHugeBuffer(buf)
-	if _, err := buf.ReadFrom(io.LimitReader(reader, maxAllTrajectoriesBody)); err != nil {
+	limit := maxAllTrajectoriesBody
+	if limit <= 0 {
+		limit = 128 * 1024 * 1024
+	}
+	if _, err := buf.ReadFrom(io.LimitReader(reader, limit+1)); err != nil {
 		return nil, err
+	}
+	if int64(buf.Len()) > limit {
+		return nil, fmt.Errorf("upstream GetAllCascadeTrajectories response exceeds %s safety limit", formatByteLimit(limit))
 	}
 	out := make([]byte, buf.Len())
 	copy(out, buf.Bytes())

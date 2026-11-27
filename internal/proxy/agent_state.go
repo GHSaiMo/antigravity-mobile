@@ -241,6 +241,8 @@ func encodeConnectEnvelope(data []byte) []byte {
 	return buf
 }
 
+const maxConnectEnvelopeBytes = 64 * 1024 * 1024
+
 // readConnectEnvelope reads a single Connect streaming envelope.
 func readConnectEnvelope(r io.Reader) (byte, []byte, error) {
 	header := make([]byte, 5)
@@ -249,7 +251,7 @@ func readConnectEnvelope(r io.Reader) (byte, []byte, error) {
 	}
 	flag := header[0]
 	length := binary.BigEndian.Uint32(header[1:5])
-	if length > 10*1024*1024 {
+	if length > maxConnectEnvelopeBytes {
 		return 0, nil, fmt.Errorf("connect envelope too large: %d bytes", length)
 	}
 	body := make([]byte, length)

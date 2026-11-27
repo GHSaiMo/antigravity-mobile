@@ -55,33 +55,40 @@ func compactTrajectoryMedia(data *upstreamTrajectoryResp) {
 		return
 	}
 	for i := range data.Trajectory.Steps {
-		ui := data.Trajectory.Steps[i].UserInput
-		if ui == nil {
+		compactTrajectoryStepMedia(&data.Trajectory.Steps[i])
+	}
+}
+
+// compactTrajectoryStepMedia compacts large inline image payloads inside a single step.
+// Calling this per-step during streaming JSON decode keeps peak memory bounded even for
+// huge trajectories containing many full-resolution mobile image uploads.
+func compactTrajectoryStepMedia(step *TrajectoryStep) {
+	if step == nil || step.UserInput == nil {
+		return
+	}
+	ui := step.UserInput
+	for j := range ui.Media {
+		m := &ui.Media[j]
+		// Without a uri the inline data is the only copy, so it has to stay.
+		if m.URI == "" || len(m.InlineData) <= inlineMediaCompactThreshold {
 			continue
 		}
-		for j := range ui.Media {
-			m := &ui.Media[j]
-			// Without a uri the inline data is the only copy, so it has to stay.
-			if m.URI == "" || len(m.InlineData) <= inlineMediaCompactThreshold {
-				continue
-			}
-			if m.Thumbnail == "" {
-				m.Thumbnail = cachedMediaThumbnail(m.URI+"#"+strconv.Itoa(len(m.InlineData)), m.InlineData)
-			}
-			m.InlineData = ""
+		if m.Thumbnail == "" {
+			m.Thumbnail = cachedMediaThumbnail(m.URI+"#"+strconv.Itoa(len(m.InlineData)), m.InlineData)
 		}
-		for j := range ui.Images {
-			img := &ui.Images[j]
-			if len(img.Base64Data) <= inlineMediaCompactThreshold {
-				continue
-			}
-			// Legacy images carry no uri; only swap in a thumbnail when one can be made.
-			b64 := img.Base64Data
-			key := "img#" + strconv.Itoa(len(b64)) + "#" + b64[:64] + b64[len(b64)-64:]
-			if thumb := cachedMediaThumbnail(key, b64); thumb != "" {
-				img.Base64Data = thumb
-				img.MimeType = "image/jpeg"
-			}
+		m.InlineData = ""
+	}
+	for j := range ui.Images {
+		img := &ui.Images[j]
+		if len(img.Base64Data) <= inlineMediaCompactThreshold {
+			continue
+		}
+		// Legacy images carry no uri; only swap in a thumbnail when one can be made.
+		b64 := img.Base64Data
+		key := "img#" + strconv.Itoa(len(b64)) + "#" + b64[:64] + b64[len(b64)-64:]
+		if thumb := cachedMediaThumbnail(key, b64); thumb != "" {
+			img.Base64Data = thumb
+			img.MimeType = "image/jpeg"
 		}
 	}
 }

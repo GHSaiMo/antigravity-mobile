@@ -540,6 +540,29 @@ func (p *Proxy) streamingHTTPClient() *http.Client {
 	return nil
 }
 
+// trajectoryHTTPClient returns an HTTP client with generous headroom (60s) for fetching
+// potentially huge GetCascadeTrajectory responses (tens or hundreds of MiB), while preserving
+// custom test transports when unit tests only initialize mediumClient or shortClient.
+func (p *Proxy) trajectoryHTTPClient() *http.Client {
+	if p.longClient != nil && (p.mediumClient == nil || p.longClient.Transport == p.mediumClient.Transport) {
+		return p.longClient
+	}
+	if p.mediumClient != nil {
+		cp := *p.mediumClient
+		if cp.Timeout > 0 && cp.Timeout < 60*time.Second {
+			cp.Timeout = 60 * time.Second
+		}
+		return &cp
+	}
+	if p.longClient != nil {
+		return p.longClient
+	}
+	if p.shortClient != nil {
+		return p.shortClient
+	}
+	return http.DefaultClient
+}
+
 // Shutdown gracefully closes all tracked WebSocket connections and releases upstream resources.
 // Must be called before http.Server.Shutdown to allow hijacked connections to drain.
 func (p *Proxy) Shutdown() {

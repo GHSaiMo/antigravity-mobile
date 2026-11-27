@@ -342,6 +342,20 @@ func (p *Proxy) handleGetCascadeTrajectoryRPC(w http.ResponseWriter, r *http.Req
 	defaultTrajCache.trajCacheMu.RUnlock()
 
 	if len(respBytes) == 0 {
+		// Large trajectories (> maxRawTrajectoryCacheBytes) do not retain rawJSON in memory.
+		// Forward directly to upstream when activeProxy is available so desktop clients preserve
+		// 100% of unknown proto fields without re-marshaling tens of megabytes in Go.
+		p.mu.RLock()
+		rp := p.activeProxy
+		p.mu.RUnlock()
+		if rp != nil {
+			fwdReq := r.Clone(r.Context())
+			fwdReq.URL.Path = "/exa.language_server_pb.LanguageServerService/GetCascadeTrajectory"
+			fwdReq.Body = io.NopCloser(bytes.NewReader(bodyBytes))
+			fwdReq.ContentLength = int64(len(bodyBytes))
+			rp.ServeHTTP(w, fwdReq)
+			return
+		}
 		var encErr error
 		respBytes, encErr = json.Marshal(rawResp)
 		if encErr != nil {
@@ -746,6 +760,7 @@ func (p *Proxy) handleGetAllCascadeTrajectories(w http.ResponseWriter, r *http.R
 	}
 
 	var keptSideQuestionIDs []string
+	untitledIDs := make(map[string]bool)
 	// Enrich missing titles, filter out subagent sessions, deleted sessions, and stale abandoned drafts
 	for id, s := range summaries {
 		// Filter out recently deleted sessions (tombstone protection against upstream sync delays)
@@ -989,6 +1004,14 @@ func (p *Proxy) handleGetAllCascadeTrajectories(w http.ResponseWriter, r *http.R
 			if !isRecent {
 				delete(summaries, id)
 			}
+		} else if !hasTitle && stepCount > 0 {
+			isArchived := false
+			if ann, ok := s["annotations"].(map[string]interface{}); ok && ann != nil {
+				isArchived, _ = ann["archived"].(bool)
+			}
+			if !isArchived {
+				untitledIDs[id] = true
+			}
 		}
 	}
 
@@ -1081,6 +1104,9 @@ func (p *Proxy) handleGetAllCascadeTrajectories(w http.ResponseWriter, r *http.R
 			}
 			inspectedFresh[sn.cid] = true
 			details := p.ParseTrajectoryDetailsCached(sn.data)
+			if untitledIDs[sn.cid] && applyFallbackSummaryTitle(s, details.Title) {
+				delete(untitledIDs, sn.cid)
+			}
 			if details.PendingInteraction != nil || details.CanProceed {
 				s["needsInput"] = true
 			}
@@ -1229,6 +1255,39 @@ func (p *Proxy) handleGetAllCascadeTrajectories(w http.ResponseWriter, r *http.R
 				candidates[recentItems[i].id] = true
 			}
 		}
+
+		// Also probe up to 3 most-recent non-archived untitled sessions that have steps so their
+		// first user prompt fallback title can be recovered without waiting for the user to open them.
+		if len(untitledIDs) > 0 {
+			var untitledRecent []recentItem
+			for id := range untitledIDs {
+				if inspectedFresh[id] || candidates[id] {
+					continue
+				}
+				s := summaries[id]
+				if s == nil {
+					continue
+				}
+				var modT time.Time
+				if modStr, ok := s["lastModifiedTime"].(string); ok && modStr != "" {
+					if t, err := parseTime(modStr); err == nil {
+						modT = t
+					}
+				}
+				untitledRecent = append(untitledRecent, recentItem{id: id, t: modT})
+			}
+			if len(untitledRecent) > 0 {
+				sort.Slice(untitledRecent, func(i, j int) bool {
+					if !untitledRecent[i].t.Equal(untitledRecent[j].t) {
+						return untitledRecent[i].t.After(untitledRecent[j].t)
+					}
+					return untitledRecent[i].id < untitledRecent[j].id
+				})
+				for i := 0; i < len(untitledRecent) && i < 3; i++ {
+					candidates[untitledRecent[i].id] = true
+				}
+			}
+		}
 	}
 
 	if len(candidates) > 0 {
@@ -1236,6 +1295,7 @@ func (p *Proxy) handleGetAllCascadeTrajectories(w http.ResponseWriter, r *http.R
 		actionMap := make(map[string]bool)
 		errorMap := make(map[string]string)
 		clearedErrorMap := make(map[string]string)
+		titleMap := make(map[string]string)
 		sem := make(chan struct{}, 3)
 
 		// Responsive 500ms timeout budget with full context propagation
@@ -1256,6 +1316,11 @@ func (p *Proxy) handleGetAllCascadeTrajectories(w http.ResponseWriter, r *http.R
 				raw, err := p.fetchUpstreamTrajectoryWithContext(ctx, cascadeID, port, token)
 				if err == nil && raw != nil {
 					details := p.ParseTrajectoryDetailsCached(raw)
+					if details.Title != "" && !isUntitledPlaceholderTitle(details.Title) {
+						mu.Lock()
+						titleMap[cascadeID] = details.Title
+						mu.Unlock()
+					}
 					if details.PendingInteraction != nil || details.CanProceed {
 						mu.Lock()
 						actionMap[cascadeID] = true
@@ -1284,6 +1349,7 @@ func (p *Proxy) handleGetAllCascadeTrajectories(w http.ResponseWriter, r *http.R
 		case <-ctx.Done():
 		}
 
+		mu.Lock()
 		for cid, hasAction := range actionMap {
 			if hasAction && summaries[cid] != nil {
 				summaries[cid]["needsInput"] = true
@@ -1303,6 +1369,12 @@ func (p *Proxy) handleGetAllCascadeTrajectories(w http.ResponseWriter, r *http.R
 				delete(summaries[cid], "errorMessage")
 			}
 		}
+		for cid, t := range titleMap {
+			if untitledIDs[cid] && summaries[cid] != nil {
+				applyFallbackSummaryTitle(summaries[cid], t)
+			}
+		}
+		mu.Unlock()
 	}
 
 	if r.Header.Get("X-Widget-Lite") == "1" {
@@ -1321,6 +1393,24 @@ func (p *Proxy) handleGetAllCascadeTrajectories(w http.ResponseWriter, r *http.R
 	w.Header().Set("Content-Length", strconv.Itoa(len(respBytes)))
 	w.WriteHeader(http.StatusOK)
 	w.Write(respBytes)
+}
+
+func applyFallbackSummaryTitle(s map[string]interface{}, rawTitle string) bool {
+	if s == nil || isUntitledPlaceholderTitle(rawTitle) {
+		return false
+	}
+	cleanTitle := SanitizeTitle(rawTitle)
+	if cleanTitle == "" || isUntitledPlaceholderTitle(cleanTitle) {
+		return false
+	}
+	ann, _ := s["annotations"].(map[string]interface{})
+	if ann == nil {
+		ann = make(map[string]interface{})
+	}
+	ann["title"] = cleanTitle
+	s["annotations"] = ann
+	s["summary"] = cleanTitle
+	return true
 }
 
 // compactSummariesForWidget strips bulky step/metadata payloads and archived sessions

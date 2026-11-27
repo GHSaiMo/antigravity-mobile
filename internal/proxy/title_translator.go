@@ -237,11 +237,14 @@ func isUntitledPlaceholderTitle(title string) bool {
 	if t == "" ||
 		t == "未命名会话" ||
 		t == "当前会话" ||
+		t == "当前对话" ||
 		t == "無題のセッション" ||
 		t == "現在のセッション" ||
+		t == "現在の会話" ||
 		strings.EqualFold(t, "Untitled") ||
 		strings.EqualFold(t, "Untitled Session") ||
 		strings.EqualFold(t, "Current Session") ||
+		strings.EqualFold(t, "Current Chat") ||
 		strings.EqualFold(t, "New Chat") {
 		return true
 	}
