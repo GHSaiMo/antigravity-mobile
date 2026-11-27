@@ -48,9 +48,15 @@ struct ChatScrollBottomPinner: UIViewRepresentable {
     let scrollHUD: ChatScrollHUDState
     let canPin: Bool
     let isStreamRunning: Bool
+    let useLazyMessagesStack: Bool
 
     func makeCoordinator() -> Coordinator {
-        Coordinator(scrollHUD: scrollHUD, canPin: canPin, isStreamRunning: isStreamRunning)
+        Coordinator(
+            scrollHUD: scrollHUD,
+            canPin: canPin,
+            isStreamRunning: isStreamRunning,
+            useLazyMessagesStack: useLazyMessagesStack
+        )
     }
 
     func makeUIView(context: Context) -> ScrollPinAnchorView {
@@ -65,6 +71,7 @@ struct ChatScrollBottomPinner: UIViewRepresentable {
         context.coordinator.scrollHUD = scrollHUD
         context.coordinator.canPin = canPin
         context.coordinator.isStreamRunning = isStreamRunning
+        context.coordinator.useLazyMessagesStack = useLazyMessagesStack
         if context.coordinator.scrollView == nil {
             uiView.attachIfNeeded()
         }
@@ -105,14 +112,16 @@ struct ChatScrollBottomPinner: UIViewRepresentable {
         var scrollHUD: ChatScrollHUDState
         var canPin: Bool
         var isStreamRunning: Bool
+        var useLazyMessagesStack: Bool
         weak var scrollView: UIScrollView?
         private var contentSizeObservation: NSKeyValueObservation?
         private var isApplyingOffset = false
 
-        init(scrollHUD: ChatScrollHUDState, canPin: Bool, isStreamRunning: Bool) {
+        init(scrollHUD: ChatScrollHUDState, canPin: Bool, isStreamRunning: Bool, useLazyMessagesStack: Bool) {
             self.scrollHUD = scrollHUD
             self.canPin = canPin
             self.isStreamRunning = isStreamRunning
+            self.useLazyMessagesStack = useLazyMessagesStack
         }
 
         func attach(to sv: UIScrollView) {
@@ -139,6 +148,9 @@ struct ChatScrollBottomPinner: UIViewRepresentable {
 
         private func handleContentSizeChange(scrollView: UIScrollView, oldSize: CGSize, newSize: CGSize) {
             guard !isApplyingOffset else { return }
+            // Never directly mutate UIScrollView.contentOffset underneath SwiftUI's LazyVStack +
+            // scrollTargetLayout, which can desync virtualization and unmaterialize visible rows.
+            guard !useLazyMessagesStack else { return }
             guard canPin, isStreamRunning || scrollHUD.isPacingActive else { return }
 
             if scrollView.isDragging {

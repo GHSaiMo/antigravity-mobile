@@ -199,7 +199,8 @@ extension ChatView {
                     ChatScrollBottomPinner(
                         scrollHUD: scrollHUD,
                         canPin: hasInitiallyAligned && !preserveScrollOnReturn,
-                        isStreamRunning: viewModel.isRunning || viewModel.isAwaitingResponse
+                        isStreamRunning: viewModel.isRunning || viewModel.isAwaitingResponse,
+                        useLazyMessagesStack: useLazyMessagesStack
                     )
                 )
         }
@@ -411,8 +412,8 @@ extension ChatView {
                     return
                 }
                 if !scrollHUD.hasUserInteracted || scrollHUD.isNearBottom {
-                    // 新 Agent 气泡进入流式传输时无动画贴底，避免与 PacedAgentRow 的 followStreamGrowth 动画冲突抖动
-                    let shouldAnimate = !(viewModel.messages.last?.isAgent == true && viewModel.isActivelyRunning)
+                    // 新 Agent 气泡进入流式传输或处于 LazyVStack 时无动画贴底，避免与虚拟化容器/followStreamGrowth 动画冲突引发闪黑
+                    let shouldAnimate = !(viewModel.messages.last?.isAgent == true && viewModel.isActivelyRunning) && !useLazyMessagesStack
                     scrollToBottom(proxy: proxy, animated: shouldAnimate)
                 }
             }
@@ -422,7 +423,7 @@ extension ChatView {
                 // 新消息 ID 切换已由上方 last?.id 处理；同一条 Agent 消息的文本增长由 PacedAgentRow 按节奏驱动滚动
                 guard oldMsg?.id == lastMsg.id, !lastMsg.isAgent else { return }
                 if !scrollHUD.hasUserInteracted || scrollHUD.isNearBottom {
-                    scrollToBottom(proxy: proxy, animated: true)
+                    scrollToBottom(proxy: proxy, animated: !useLazyMessagesStack)
                 }
             }
             .onChange(of: viewModel.queuedMessages) { oldVal, newVal in

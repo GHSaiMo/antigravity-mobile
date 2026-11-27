@@ -169,11 +169,13 @@ public struct ChatView: View {
         for msg in messages {
             totalChars += msg.content.count
             totalTools += msg.toolCount
-            if totalChars > 60_000 || totalTools > 120 {
+            if totalChars > 80_000 {
                 return true
             }
         }
-        return false
+        // Collapsed tool batches render as a single lightweight row each; only factor tool volume
+        // once the message list itself is genuinely long so 15-40 message windows stay in VStack.
+        return messages.count > 40 && totalTools > 300
     }
     
     public init(draftSession: LocalDraftSession, sessionStore: ChatSessionStore? = nil) {

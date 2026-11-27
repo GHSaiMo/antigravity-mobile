@@ -95,8 +95,12 @@ extension ChatView {
             return
         }
         
-        let target = "BOTTOM_ANCHOR"
-        if animated {
+        // LazyVStack 中避免对 1pt 的 Color.clear(BOTTOM_ANCHOR) 执行动画滚动，
+        // 否则在高频流式/工具批次刷新期间会触发虚拟化行卸载导致整屏纯黑闪烁。
+        let target = useLazyMessagesStack
+            ? (shouldShowThinkingBubble ? "THINKING_INDICATOR" : (viewModel.messages.last?.id ?? "BOTTOM_ANCHOR"))
+            : "BOTTOM_ANCHOR"
+        if animated && !useLazyMessagesStack {
             withAnimation(.easeOut(duration: 0.2)) {
                 proxy.scrollTo(target, anchor: .bottom)
             }
@@ -141,7 +145,7 @@ extension ChatView {
     /// 流式文本增长时的兜底跟随：正常情况下由 `ChatScrollBottomPinner` 在 `UIScrollView.contentSize`
     /// 变化的同一个 CoreAnimation 帧内同步贴底（零延迟、零回弹）；此处仅在无法挂接底层 ScrollView 时回退。
     func followStreamGrowth(proxy: ScrollViewProxy) {
-        if scrollHUD.underlyingScrollView != nil { return }
+        if scrollHUD.underlyingScrollView != nil && !useLazyMessagesStack { return }
         guard hasInitiallyAligned, !scrollHUD.isUserDragging else { return }
         guard scrollHUD.isNearBottom || !scrollHUD.hasUserInteracted else { return }
         let now = Date()
@@ -152,7 +156,8 @@ extension ChatView {
 
     /// 兜底校准：若 SwiftUI HostingScrollView 在布局结束后把偏移留在距底 (2, 140] 之间，同步对齐到底部。
     func pinStreamBottomIfDrifted() {
-        guard hasInitiallyAligned,
+        guard !useLazyMessagesStack,
+              hasInitiallyAligned,
               !preserveScrollOnReturn,
               !scrollHUD.hasUserInteracted,
               !scrollHUD.isUserDragging,
@@ -263,15 +268,22 @@ extension ChatView {
             }
             guard stillEmpty else { return }
             let now = Date()
-            guard now.timeIntervalSince(scrollHUD.lastMidBlankHealAt) >= 1.2 else { return }
+            guard now.timeIntervalSince(scrollHUD.lastMidBlankHealAt) >= 0.35 else { return }
             scrollHUD.lastMidBlankHealAt = now
 
             if !scrollHUD.hasUserInteracted || scrollHUD.isNearBottom {
-                if let lastId = viewModel.messages.last?.id {
-                    proxy.scrollTo(lastId, anchor: .bottom)
-                }
-                DispatchQueue.main.async {
-                    scrollToBottom(proxy: proxy, animated: false)
+                if useLazyMessagesStack {
+                    let target = shouldShowThinkingBubble
+                        ? "THINKING_INDICATOR"
+                        : (viewModel.messages.last?.id ?? "BOTTOM_ANCHOR")
+                    proxy.scrollTo(target, anchor: .bottom)
+                } else {
+                    if let lastId = viewModel.messages.last?.id {
+                        proxy.scrollTo(lastId, anchor: .bottom)
+                    }
+                    DispatchQueue.main.async {
+                        scrollToBottom(proxy: proxy, animated: false)
+                    }
                 }
             } else if let anchorId = scrollHUD.lastKnownVisibleMessageId,
                       viewModel.messages.contains(where: { $0.id == anchorId }) {
