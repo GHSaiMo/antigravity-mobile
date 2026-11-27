@@ -950,81 +950,79 @@ public struct DesktopUpdateSheet: View {
     }
 
     public var body: some View {
-        NavigationStack {
-            GeometryReader { proxy in
-                ScrollView {
-                    VStack(spacing: 0) {
-                        if shouldCenterVertically {
-                            Spacer(minLength: 16)
+        GeometryReader { proxy in
+            ScrollView {
+                VStack(spacing: 0) {
+                    if shouldCenterVertically {
+                        Spacer(minLength: 16)
+                    }
+
+                    VStack(spacing: 22) {
+                        statusHeroSection
+
+                        if hasAnyLoadedData || !isLoading {
+                            desktopSection
+                            gatewaySection
                         }
 
-                        VStack(spacing: 22) {
-                            statusHeroSection
-
-                            if hasAnyLoadedData || !isLoading {
-                                desktopSection
-                                gatewaySection
+                        if !changelogMarkdown.isEmpty {
+                            VStack(alignment: .leading, spacing: 10) {
+                                Text("桌面端更新日志")
+                                    .font(.system(size: 13.5, weight: .semibold))
+                                    .foregroundColor(.secondary)
+                                    .padding(.horizontal, 4)
+                                MarkdownContentView(content: changelogMarkdown)
+                                    .padding(16)
+                                    .frame(maxWidth: .infinity, alignment: .leading)
+                                    .background(Color(uiColor: .secondarySystemGroupedBackground))
+                                    .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+                                    .overlay(
+                                        RoundedRectangle(cornerRadius: 16, style: .continuous)
+                                            .stroke(cardBorderColor, lineWidth: 0.5)
+                                    )
                             }
-
-                            if !changelogMarkdown.isEmpty {
-                                VStack(alignment: .leading, spacing: 10) {
-                                    Text("桌面端更新日志")
-                                        .font(.system(size: 13.5, weight: .semibold))
-                                        .foregroundColor(.secondary)
-                                        .padding(.horizontal, 4)
-                                    MarkdownContentView(content: changelogMarkdown)
-                                        .padding(16)
-                                        .frame(maxWidth: .infinity, alignment: .leading)
-                                        .background(Color(uiColor: .secondarySystemGroupedBackground))
-                                        .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
-                                        .overlay(
-                                            RoundedRectangle(cornerRadius: 16, style: .continuous)
-                                                .stroke(cardBorderColor, lineWidth: 0.5)
-                                        )
-                                }
-                            }
-                        }
-                        .frame(maxWidth: 520)
-
-                        if shouldCenterVertically {
-                            Spacer(minLength: 24)
-                            Spacer(minLength: 16)
                         }
                     }
-                    .padding(.horizontal, 20)
-                    .padding(.top, shouldCenterVertically ? 12 : 24)
-                    .padding(.bottom, 36)
-                    .frame(maxWidth: .infinity)
-                    .frame(minHeight: proxy.size.height)
-                    .animation(.easeInOut(duration: 0.22), value: shouldCenterVertically)
+                    .frame(maxWidth: 520)
+
+                    if shouldCenterVertically {
+                        Spacer(minLength: 24)
+                        Spacer(minLength: 16)
+                    }
                 }
-                .refreshable {
-                    await loadAllUpdates(forceGatewayRefresh: true)
-                }
+                .padding(.horizontal, 20)
+                .padding(.top, shouldCenterVertically ? 12 : 24)
+                .padding(.bottom, 36)
+                .frame(maxWidth: .infinity)
+                .frame(minHeight: proxy.size.height)
+                .animation(.easeInOut(duration: 0.22), value: shouldCenterVertically)
             }
-            .background(Color(uiColor: .systemGroupedBackground).ignoresSafeArea())
-            .navigationTitle("宿主机更新")
-            .navigationBarTitleDisplayMode(.inline)
-            .presentationDragIndicator(.visible)
-            .confirmationDialog("确认更新并重启电脑端 Antigravity？", isPresented: $showConfirmDesktopApply, titleVisibility: .visible) {
-                Button("确认更新并重启") {
-                    Task { await triggerApplyDesktopUpdate() }
-                }
-                Button("取消", role: .cancel) {}
-            } message: {
-                Text("电脑端将安装新版本并短暂停机重启，网关会自动重连。")
-            }
-            .confirmationDialog("确认更新并重启 mgy 网关？", isPresented: $showConfirmGatewayApply, titleVisibility: .visible) {
-                Button("确认升级并重启") {
-                    Task { await triggerApplyGatewayUpdate() }
-                }
-                Button("取消", role: .cancel) {}
-            } message: {
-                Text("电脑端将下载校验最新 mgy 网关并重启，期间手机会短暂断开并自动恢复连接。")
+            .refreshable {
+                await loadAllUpdates(forceGatewayRefresh: true)
             }
         }
-        .presentationDragIndicator(.visible)
+        .background(Color(uiColor: .systemGroupedBackground).ignoresSafeArea())
+        .navigationTitle("宿主机更新")
+        .navigationBarTitleDisplayMode(.inline)
+        .confirmationDialog("确认更新并重启电脑端 Antigravity？", isPresented: $showConfirmDesktopApply, titleVisibility: .visible) {
+            Button("确认更新并重启") {
+                Task { await triggerApplyDesktopUpdate() }
+            }
+            Button("取消", role: .cancel) {}
+        } message: {
+            Text("电脑端将安装新版本并短暂停机重启，网关会自动重连。")
+        }
+        .confirmationDialog("确认更新并重启 mgy 网关？", isPresented: $showConfirmGatewayApply, titleVisibility: .visible) {
+            Button("确认升级并重启") {
+                Task { await triggerApplyGatewayUpdate() }
+            }
+            Button("取消", role: .cancel) {}
+        } message: {
+            Text("电脑端将下载校验最新 mgy 网关并重启，期间手机会短暂断开并自动恢复连接。")
+        }
         .task {
+            if status == nil, let initialStatus { status = initialStatus }
+            if gatewayStatus == nil, let initialGatewayStatus { gatewayStatus = initialGatewayStatus }
             await loadAllUpdates(forceGatewayRefresh: false)
         }
         .onDisappear {

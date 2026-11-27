@@ -18,7 +18,6 @@ public struct SettingsSheet: View {
     @State private var webSheetURL: IdentifiableURL? = nil
     @State private var showPrivacyPolicySheet: Bool = false
     @State private var showLicensesSheet: Bool = false
-    @State private var showDesktopUpdateSheet: Bool = false
     @State private var desktopUpdateStatus: DesktopUpdateStatus? = nil
     @State private var gatewayUpdateStatus: GatewaySelfUpdateStatus? = nil
     @State private var permissionPreset: String = AppSettings.shared.cachedPermissionPreset
@@ -456,12 +455,18 @@ public struct SettingsSheet: View {
                     if settings.isPaired && !settings.isDemoMode {
                         let anyHostUpdate = (desktopUpdateStatus?.hasUpdate == true) || (gatewayUpdateStatus?.hasUpdate == true)
                         let hasHostStatus = (desktopUpdateStatus != nil) || (gatewayUpdateStatus != nil)
-                        Button {
-                            showDesktopUpdateSheet = true
+                        NavigationLink {
+                            DesktopUpdateSheet(
+                                initialStatus: desktopUpdateStatus,
+                                initialGatewayStatus: gatewayUpdateStatus,
+                                onStatusUpdated: { dStatus, gStatus in
+                                    if let dStatus { desktopUpdateStatus = dStatus }
+                                    if let gStatus { gatewayUpdateStatus = gStatus }
+                                }
+                            )
                         } label: {
                             HStack(spacing: 6) {
                                 Text("宿主机更新")
-                                    .foregroundColor(.primary)
                                 Spacer()
                                 if anyHostUpdate {
                                     Text("有新版")
@@ -476,9 +481,6 @@ public struct SettingsSheet: View {
                                         .font(.subheadline)
                                         .foregroundColor(.secondary)
                                 }
-                                Image(systemName: "chevron.right")
-                                    .font(.caption)
-                                    .foregroundColor(.secondary)
                             }
                         }
                     }
@@ -686,16 +688,6 @@ public struct SettingsSheet: View {
         }
         .sheet(isPresented: $showLicensesSheet) {
             OpenSourceLicensesSheet()
-        }
-        .sheet(isPresented: $showDesktopUpdateSheet) {
-            DesktopUpdateSheet(
-                initialStatus: desktopUpdateStatus,
-                initialGatewayStatus: gatewayUpdateStatus,
-                onStatusUpdated: { dStatus, gStatus in
-                    if let dStatus { desktopUpdateStatus = dStatus }
-                    if let gStatus { gatewayUpdateStatus = gStatus }
-                }
-            )
         }
     }
 

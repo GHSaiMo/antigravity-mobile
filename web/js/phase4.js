@@ -428,11 +428,15 @@
       });
     },
 
-    // --- 3. Host Updates: Antigravity Desktop + mgy Gateway (Settings -> About) ---
+    // --- 3. Host Updates: Antigravity Desktop + mgy Gateway (Settings -> About Subpage) ---
     bindDesktopUpdateRow() {
       const btn = document.getElementById("btn-settings-desktop-update");
       if (!btn) return;
-      btn.addEventListener("click", () => this.openDesktopUpdateModal());
+      btn.addEventListener("click", () => {
+        if (window.V233?.openSettingsSubpage) {
+          window.V233.openSettingsSubpage("hostUpdates");
+        }
+      });
       this.refreshSettingsDesktopUpdateRow();
     },
 
@@ -445,6 +449,8 @@
           fetch("/gateway/desktop/update").then((r) => (r.ok ? r.json() : null)).catch(() => null),
           fetch("/gateway/self/update").then((r) => (r.ok ? r.json() : null)).catch(() => null),
         ]);
+        if (dRes) this._hostUpdatesCache = { ...(this._hostUpdatesCache || {}), desktop: dRes };
+        if (gRes) this._hostUpdatesCache = { ...(this._hostUpdatesCache || {}), gateway: gRes };
         const anyUpdate = !!(dRes?.updateAvailable || gRes?.updateAvailable);
         const hasAny = !!(dRes || gRes);
         if (badgeEl) badgeEl.classList.toggle("hidden", !anyUpdate);
@@ -452,54 +458,38 @@
       } catch (_) {}
     },
 
-    async openDesktopUpdateModal() {
-      let overlay = document.getElementById("p4-desktop-update-overlay");
-      if (!overlay) {
-        overlay = document.createElement("div");
-        overlay.id = "p4-desktop-update-overlay";
-        overlay.className = "ios-sheet-overlay hidden";
-        document.body.appendChild(overlay);
-      }
-
+    unmountHostUpdatesSubpage() {
       if (this._gwUpdatePollTimer) {
         clearInterval(this._gwUpdatePollTimer);
         this._gwUpdatePollTimer = null;
       }
+      this._hostUpdatesReload = null;
+      this._hostUpdatesBusyFn = null;
+    },
 
-      const closeModal = () => {
-        if (this._gwUpdatePollTimer) {
-          clearInterval(this._gwUpdatePollTimer);
-          this._gwUpdatePollTimer = null;
-        }
-        overlay.classList.add("hidden");
-      };
+    refreshHostUpdatesSubpage() {
+      if (typeof this._hostUpdatesReload === "function" && !(this._hostUpdatesBusyFn && this._hostUpdatesBusyFn())) {
+        this._hostUpdatesReload(true);
+      }
+    },
 
-      overlay.innerHTML = `
-        <div class="ios-sheet-card tall-sheet-card">
-          <div class="sheet-grabber"></div>
-          <div class="sheet-header">
-            <button type="button" class="sheet-header-btn" id="p4-du-refresh">${_esc(_t("刷新"))}</button>
-            <h2 class="sheet-title">${_esc(_t("宿主机更新"))}</h2>
-            <button type="button" class="sheet-header-btn primary" id="p4-du-close">${_esc(_t("完成"))}</button>
-          </div>
-          <div id="p4-du-body" class="sheet-body" style="padding:14px 16px 24px;">
-            <div class="sheet-state"><div class="ios-spinner"></div><p>${_esc(_t("正在检查宿主机版本…"))}</p></div>
-          </div>
-        </div>`;
-      overlay.classList.remove("hidden");
-      overlay.onclick = (e) => { if (e.target === overlay) closeModal(); };
-      document.getElementById("p4-du-close")?.addEventListener("click", closeModal);
+    async mountHostUpdatesSubpage() {
+      const container = document.getElementById("settings-sub-host-updates");
+      if (!container) return;
+
+      this.unmountHostUpdatesSubpage();
 
       const state = {
-        desktop: null,
+        desktop: this._hostUpdatesCache?.desktop || null,
         desktopErr: "",
         desktopNotice: "",
         changelog: "",
-        gateway: null,
+        gateway: this._hostUpdatesCache?.gateway || null,
         gatewayUnsupported: false,
         gatewayErr: "",
         gatewayNotice: "",
         gwWaitingReconnect: false,
+        loading: true,
       };
 
       const isGwBusy = (g) => !!g && ["checking", "downloading", "verifying", "replacing", "restarting"].includes(g.state);
@@ -518,28 +508,73 @@
       };
 
       const render = () => {
-        const body = document.getElementById("p4-du-body");
+        const body = document.getElementById("settings-sub-host-updates");
         if (!body) return;
         const d = state.desktop;
         const g = state.gateway;
         const busy = isGwBusy(g) || state.gwWaitingReconnect;
+        const anyUpdate = !!(d?.updateAvailable || g?.updateAvailable);
+        const hasAny = !!(d || g);
+        const bothFailed = !state.loading && !hasAny && (!!state.desktopErr || !!state.gatewayErr);
+
+        const refreshBtn = document.getElementById("btn-settings-host-refresh");
+        if (refreshBtn) refreshBtn.disabled = state.loading || busy;
 
         const dCur = d?.currentVersion ? `v${d.currentVersion}` : (state.desktopErr ? _t("未连接") : "-");
         const dLatest = d?.latestVersion ? `v${d.latestVersion}` : "";
         const gCur = g?.currentVersion ? `v${g.currentVersion}` : "-";
         const gLatest = g?.latestVersion ? `v${g.latestVersion}` : "";
 
+        const heroTone = (state.loading && !hasAny)
+          ? "neutral"
+          : (bothFailed ? "warn" : ((anyUpdate || busy) ? "accent" : "ok"));
+        const heroTitle = (state.loading && !hasAny)
+          ? _t("正在检查更新...")
+          : (bothFailed
+            ? _t("检查更新失败")
+            : (state.gwWaitingReconnect
+              ? _t("正在重启网关...")
+              : (anyUpdate ? _t("发现新版本") : _t("已是最新版本"))));
+        let heroSubtitle = "";
+        if (!(state.loading && !hasAny) && !bothFailed) {
+          if (state.gwWaitingReconnect) heroSubtitle = _t("mgy 网关正在重启并恢复连接，请稍候");
+          else if (d?.updateAvailable && g?.updateAvailable) heroSubtitle = _t("Antigravity 桌面端与 mgy 网关均有新版本");
+          else if (d?.updateAvailable) heroSubtitle = dLatest ? `${_t("Antigravity 桌面端")} → ${dLatest}` : _t("Antigravity 桌面端更新");
+          else if (g?.updateAvailable) heroSubtitle = gLatest ? `${_t("mgy 网关")} → ${gLatest}` : _t("mgy 网关");
+          else if (d && g) heroSubtitle = _t("宿主机 Antigravity 与 mgy 网关均已是最新版本");
+          else if (g) heroSubtitle = _t("宿主机 mgy 网关已是最新版本");
+          else if (d) heroSubtitle = _t("宿主机 Antigravity 已是最新版本");
+        }
+
+        const badgeSvg = heroTone === "ok"
+          ? `<span class="p4-host-hero-badge ok">✓</span>`
+          : (heroTone === "accent" && !busy
+            ? `<span class="p4-host-hero-badge accent">↓</span>`
+            : (heroTone === "warn" ? `<span class="p4-host-hero-badge warn">!</span>` : ""));
+
         const mdHtml = state.changelog && typeof renderMarkdown === "function"
-          ? `<div class="p4-host-changelog-title">${_esc(_t("桌面端更新日志"))}</div><div class="md-viewer-markdown">${renderMarkdown(state.changelog)}</div>`
+          ? `<div class="p4-host-changelog-title">${_esc(_t("桌面端更新日志"))}</div><div class="p4-host-card"><div class="md-viewer-markdown">${renderMarkdown(state.changelog)}</div></div>`
           : "";
 
         body.innerHTML = `
+          <div class="p4-host-hero">
+            <div class="p4-host-hero-ring ${heroTone}">
+              ${(state.loading && !hasAny) || busy
+                ? `<div class="ios-spinner"></div>`
+                : `<svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="2" y="3" width="20" height="14" rx="2" ry="2"></rect><line x1="8" y1="21" x2="16" y2="21"></line><line x1="12" y1="17" x2="12" y2="21"></line></svg>`}
+              ${badgeSvg}
+            </div>
+            <div class="p4-host-hero-title">${_esc(heroTitle)}</div>
+            ${heroSubtitle ? `<div class="p4-host-hero-sub">${_esc(heroSubtitle)}</div>` : ""}
+          </div>
+
+          ${hasAny || !state.loading ? `
           <div class="p4-host-card">
             <div class="p4-host-card-head">
               <span class="p4-host-card-title">${_esc(_t("Antigravity 桌面端"))}</span>
               ${d?.updateAvailable ? `<span class="p4-badge-warn">${_esc(_t("有更新"))}</span>` : (d ? `<span class="p4-host-ok-tag">${_esc(_t("已是最新"))}</span>` : "")}
             </div>
-            <div class="p4-host-kv"><span>${_esc(_t("当前版本"))}</span><code>${_esc(dCur)}</code></div>
+            <div class="p4-host-kv"><span>${_esc(_t("当前桌面端版本"))}</span><code>${_esc(dCur)}</code></div>
             ${dLatest ? `<div class="p4-host-kv"><span>${_esc(_t("最新可用版本"))}</span><code class="${d?.updateAvailable ? "p4-host-ver-new" : ""}">${_esc(dLatest)}</code></div>` : ""}
             ${d?.updateAvailable && d.runningCount > 0 ? `<div class="p4-warn-box">${_esc(`注意：电脑端当前有 ${d.runningCount} 个活跃会话运行中，应用更新会重启桌面客户端。`)}</div>` : ""}
             ${state.desktopNotice ? `<div class="p4-host-ok">${_esc(state.desktopNotice)}</div>` : ""}
@@ -553,7 +588,7 @@
               ${g?.updateAvailable && !busy ? `<span class="p4-badge-warn">${_esc(_t("有更新"))}</span>` : (g && !busy && !state.gatewayUnsupported && !g.checkError ? `<span class="p4-host-ok-tag">${_esc(_t("已是最新"))}</span>` : "")}
             </div>
             ${state.gatewayUnsupported ? `<div class="p4-host-muted">${_esc(_t("当前网关版本暂不支持远程自更新检测，请在电脑端执行 mgy update 升级。"))}</div>` : `
-              <div class="p4-host-kv"><span>${_esc(_t("当前版本"))}</span><code>${_esc(gCur)}</code></div>
+              <div class="p4-host-kv"><span>${_esc(_t("当前网关版本"))}</span><code>${_esc(gCur)}</code></div>
               ${gLatest ? `<div class="p4-host-kv"><span>${_esc(_t("最新可用版本"))}</span><code class="${g?.updateAvailable ? "p4-host-ver-new" : ""}">${_esc(gLatest)}</code></div>` : (g?.checkError ? `<div class="p4-host-kv"><span>${_esc(_t("最新可用版本"))}</span><span class="p4-host-warn-text">${_esc(_t("检测失败"))}</span></div>` : "")}
               ${busy ? `<div class="p4-host-progress"><div class="ios-spinner" style="width:14px;height:14px;border-width:2px;"></div><span>${_esc(gwStageText())}</span></div>` : ""}
               ${g?.updateAvailable && !busy && g.runningCount > 0 ? `<div class="p4-warn-box">${_esc(`当前有 ${g.runningCount} 个活跃会话运行中，重启网关会短暂断开重连，不会中断电脑端任务。`)}</div>` : ""}
@@ -565,7 +600,7 @@
             `}
           </div>
 
-          ${mdHtml}`;
+          ${mdHtml}` : ""}`;
 
         document.getElementById("p4-du-apply")?.addEventListener("click", async (e) => {
           if (!confirm(_t("确认重启并更新桌面端？更新期间 Antigravity 将短暂重启。"))) return;
@@ -695,12 +730,10 @@
       };
 
       const loadAll = async (forceRefresh) => {
-        const body = document.getElementById("p4-du-body");
-        if (body && !state.desktop && !state.gateway) {
-          body.innerHTML = `<div class="sheet-state"><div class="ios-spinner"></div><p>${_esc(_t("正在检查宿主机版本…"))}</p></div>`;
-        }
+        state.loading = true;
         state.desktopErr = "";
         state.gatewayErr = "";
+        render();
 
         await Promise.all([
           fetch("/gateway/desktop/update")
@@ -735,15 +768,14 @@
             .catch((e) => { state.gatewayErr = e.message; }),
         ]);
 
+        state.loading = false;
+        this._hostUpdatesCache = { desktop: state.desktop, gateway: state.gateway };
         render();
         this.refreshSettingsDesktopUpdateRow();
       };
 
-      document.getElementById("p4-du-refresh")?.addEventListener("click", () => {
-        if (!isGwBusy(state.gateway) && !state.gwWaitingReconnect) {
-          loadAll(true);
-        }
-      });
+      this._hostUpdatesReload = loadAll;
+      this._hostUpdatesBusyFn = () => state.loading || isGwBusy(state.gateway) || state.gwWaitingReconnect;
 
       await loadAll(false);
     },

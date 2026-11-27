@@ -67,34 +67,64 @@
   }
 
   function openSettingsSubpage(kind) {
-    activeSettingsSubpage = kind === "compact" || kind === "alerts" || kind === "quotaDisplay" || kind === "aiAssist" ? kind : null;
+    const prevSubpage = activeSettingsSubpage;
+    activeSettingsSubpage =
+      kind === "compact" ||
+      kind === "alerts" ||
+      kind === "quotaDisplay" ||
+      kind === "aiAssist" ||
+      kind === "hostUpdates"
+        ? kind
+        : null;
     const headerMain = document.getElementById("settings-header-main");
     const headerSub = document.getElementById("settings-header-sub");
+    const viewport = document.getElementById("settings-pages-viewport");
     const mainBody = document.getElementById("settings-main-body");
     const subBody = document.getElementById("settings-sub-body");
     const subCompact = document.getElementById("settings-sub-compact");
     const subAlerts = document.getElementById("settings-sub-alerts");
     const subAiAssist = document.getElementById("settings-sub-ai-assist");
-    const subTitle = document.getElementById("settings-sub-title");
-
     const subQuotaDisplay = document.getElementById("settings-sub-quota-display");
-    subCompact?.classList.add("hidden");
-    subAlerts?.classList.add("hidden");
-    subQuotaDisplay?.classList.add("hidden");
-    subAiAssist?.classList.add("hidden");
+    const subHostUpdates = document.getElementById("settings-sub-host-updates");
+    const subTitle = document.getElementById("settings-sub-title");
+    const hostRefreshBtn = document.getElementById("btn-settings-host-refresh");
+    const subCloseBtn = document.getElementById("btn-sheet-settings-close-sub");
+
+    if (prevSubpage === "hostUpdates" && activeSettingsSubpage !== "hostUpdates") {
+      window.Phase4?.unmountHostUpdatesSubpage?.();
+    }
+
+    if (mainBody) {
+      mainBody.style.transition = "";
+      mainBody.style.transform = "";
+    }
+    if (subBody) {
+      subBody.style.transition = "";
+      subBody.style.transform = "";
+    }
 
     if (!activeSettingsSubpage) {
       headerMain?.classList.remove("hidden");
       headerSub?.classList.add("hidden");
-      mainBody?.classList.remove("hidden");
-      subBody?.classList.add("hidden");
+      viewport?.classList.remove("subpage-active");
+      hostRefreshBtn?.classList.add("hidden");
+      subCloseBtn?.classList.remove("hidden");
       return;
     }
 
+    subCompact?.classList.add("hidden");
+    subAlerts?.classList.add("hidden");
+    subQuotaDisplay?.classList.add("hidden");
+    subAiAssist?.classList.add("hidden");
+    subHostUpdates?.classList.add("hidden");
+
+    const isHostUpdates = activeSettingsSubpage === "hostUpdates";
+    hostRefreshBtn?.classList.toggle("hidden", !isHostUpdates);
+    subCloseBtn?.classList.toggle("hidden", isHostUpdates);
+
     headerMain?.classList.add("hidden");
     headerSub?.classList.remove("hidden");
-    mainBody?.classList.add("hidden");
-    subBody?.classList.remove("hidden");
+    viewport?.classList.add("subpage-active");
     if (subBody) subBody.scrollTop = 0;
 
     if (activeSettingsSubpage === "alerts") {
@@ -108,10 +138,85 @@
     } else if (activeSettingsSubpage === "quotaDisplay") {
       if (subTitle) subTitle.textContent = typeof t === "function" ? t("额度显示") : "额度显示";
       subQuotaDisplay?.classList.remove("hidden");
+    } else if (activeSettingsSubpage === "hostUpdates") {
+      if (subTitle) subTitle.textContent = typeof t === "function" ? t("宿主机更新") : "宿主机更新";
+      subHostUpdates?.classList.remove("hidden");
+      window.Phase4?.mountHostUpdatesSubpage?.();
     } else {
       if (subTitle) subTitle.textContent = typeof t === "function" ? t("精简模式") : "精简模式";
       subCompact?.classList.remove("hidden");
     }
+  }
+
+  function initSettingsSubpageSwipeBack() {
+    const viewport = document.getElementById("settings-pages-viewport");
+    const mainBody = document.getElementById("settings-main-body");
+    const subBody = document.getElementById("settings-sub-body");
+    if (!viewport || !mainBody || !subBody || subBody.dataset.swipeBackBound === "1") return;
+    subBody.dataset.swipeBackBound = "1";
+
+    let startX = 0;
+    let startY = 0;
+    let dx = 0;
+    let swiping = false;
+    let rejected = false;
+
+    subBody.addEventListener("touchstart", (e) => {
+      if (!activeSettingsSubpage || e.touches.length !== 1) return;
+      const touch = e.touches[0];
+      startX = touch.clientX;
+      startY = touch.clientY;
+      dx = 0;
+      swiping = false;
+      rejected = false;
+    }, { passive: true });
+
+    subBody.addEventListener("touchmove", (e) => {
+      if (!activeSettingsSubpage || rejected || e.touches.length !== 1) return;
+      const touch = e.touches[0];
+      const curDx = touch.clientX - startX;
+      const curDy = touch.clientY - startY;
+
+      if (!swiping) {
+        if (Math.abs(curDy) > Math.abs(curDx) && Math.abs(curDy) > 8) {
+          rejected = true;
+          return;
+        }
+        if (curDx > 10 && curDx > Math.abs(curDy) * 1.25) {
+          swiping = true;
+          mainBody.style.transition = "none";
+          subBody.style.transition = "none";
+        } else {
+          return;
+        }
+      }
+
+      const width = viewport.clientWidth || window.innerWidth || 360;
+      dx = Math.max(0, Math.min(width, curDx));
+      if (e.cancelable) e.preventDefault();
+      const progress = 1 - dx / width;
+      subBody.style.transform = `translate3d(${dx}px, 0, 0)`;
+      mainBody.style.transform = `translate3d(${-width * progress}px, 0, 0)`;
+    }, { passive: false });
+
+    const finishSwipe = () => {
+      if (!swiping) return;
+      const width = viewport.clientWidth || window.innerWidth || 360;
+      const shouldPop = dx > width * 0.28;
+      swiping = false;
+      mainBody.style.transition = "";
+      subBody.style.transition = "";
+      if (shouldPop) {
+        openSettingsSubpage(null);
+      } else {
+        mainBody.style.transform = "";
+        subBody.style.transform = "";
+      }
+      dx = 0;
+    };
+
+    subBody.addEventListener("touchend", finishSwipe, { passive: true });
+    subBody.addEventListener("touchcancel", finishSwipe, { passive: true });
   }
 
   function applyTheme(mode) {
@@ -168,10 +273,14 @@
     document.getElementById("btn-open-ai-assist-settings")?.addEventListener("click", () => openSettingsSubpage("aiAssist"));
     document.getElementById("btn-open-quota-display-settings")?.addEventListener("click", () => openSettingsSubpage("quotaDisplay"));
     document.getElementById("btn-settings-sub-back")?.addEventListener("click", () => openSettingsSubpage(null));
+    document.getElementById("btn-settings-host-refresh")?.addEventListener("click", () => {
+      window.Phase4?.refreshHostUpdatesSubpage?.();
+    });
     document.getElementById("btn-sheet-settings-close-sub")?.addEventListener("click", () => {
       openSettingsSubpage(null);
       if (typeof closeSettingsSheet === "function") closeSettingsSheet();
     });
+    initSettingsSubpageSwipeBack();
     window.addEventListener("storage", (e) => {
       if (e.key === THEME_STORAGE_KEY) applyTheme();
     });

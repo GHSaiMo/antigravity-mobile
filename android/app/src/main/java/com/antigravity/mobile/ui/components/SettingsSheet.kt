@@ -13,14 +13,15 @@ import android.os.Build
 import android.provider.Settings
 import android.widget.Toast
 import androidx.activity.compose.BackHandler
+import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.FastOutSlowInEasing
-import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.core.app.NotificationManagerCompat
 import androidx.core.content.ContextCompat
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
@@ -43,6 +44,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.RectangleShape
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.text.SpanStyle
@@ -84,7 +86,8 @@ private enum class SettingsSubpage {
     QUOTA_DISPLAY,
     NOTIFICATION_ALERTS,
     AI_ASSIST,
-    TIPS;
+    TIPS,
+    HOST_UPDATES;
 
     val title: String
         get() = when (this) {
@@ -102,6 +105,7 @@ private enum class SettingsSubpage {
                 L10n.AppLang.ZH -> "智能辅助"
             }
             TIPS -> "手势与使用技巧".loc
+            HOST_UPDATES -> "宿主机更新".loc
         }
 }
 
@@ -155,26 +159,51 @@ fun SettingsSheet(
     var alertPrefsError by remember { mutableStateOf<String?>(null) }
     val aiAssistStatus by com.antigravity.mobile.data.service.AIAssistCache.statusFlow.collectAsState()
     var aiAssistSyncError by remember { mutableStateOf<String?>(null) }
+    var desktopUpdateStatus by remember { mutableStateOf<com.antigravity.mobile.data.model.DesktopUpdateStatus?>(null) }
+    var gatewayUpdateStatus by remember { mutableStateOf<com.antigravity.mobile.data.model.GatewaySelfUpdateStatus?>(null) }
+    var hostUpdatesRefreshSignal by remember { mutableIntStateOf(0) }
+    var isHostUpdatesBusy by remember { mutableStateOf(false) }
     var activeSubpage by remember { mutableStateOf(SettingsSubpage.MAIN) }
     val sheetScope = rememberCoroutineScope()
 
     LaunchedEffect(Unit) {
         if (prefs.isPaired()) {
-            ApiClient.defaultInstance?.fetchAlertPreferences()?.onSuccess {
-                alertPrefs = it
+            launch {
+                ApiClient.defaultInstance?.fetchAlertPreferences()?.onSuccess {
+                    alertPrefs = it
+                }
             }
-            com.antigravity.mobile.data.service.AIAssistCache.refresh(ApiClient.defaultInstance)
+            launch {
+                com.antigravity.mobile.data.service.AIAssistCache.refresh(ApiClient.defaultInstance)
+            }
+            launch {
+                ApiClient.defaultInstance?.fetchDesktopUpdateStatus()?.onSuccess {
+                    desktopUpdateStatus = it
+                }
+            }
+            launch {
+                ApiClient.defaultInstance?.fetchGatewaySelfUpdateStatus(refresh = false)?.onSuccess {
+                    gatewayUpdateStatus = it
+                }
+            }
         }
     }
     var renderedSubpage by remember { mutableStateOf<SettingsSubpage?>(null) }
-    val subpageProgress by animateFloatAsState(
-        targetValue = if (activeSubpage != SettingsSubpage.MAIN) 1f else 0f,
-        animationSpec = tween(durationMillis = 260, easing = FastOutSlowInEasing),
-        label = "settings_subpage_slide"
-    )
-    LaunchedEffect(activeSubpage, subpageProgress) {
-        if (activeSubpage == SettingsSubpage.MAIN && subpageProgress == 0f) {
-            renderedSubpage = null
+    val subpageProgress = remember { Animatable(0f) }
+    LaunchedEffect(activeSubpage) {
+        if (activeSubpage != SettingsSubpage.MAIN) {
+            subpageProgress.animateTo(
+                targetValue = 1f,
+                animationSpec = tween(durationMillis = 260, easing = FastOutSlowInEasing)
+            )
+        } else {
+            subpageProgress.animateTo(
+                targetValue = 0f,
+                animationSpec = tween(durationMillis = 260, easing = FastOutSlowInEasing)
+            )
+            if (activeSubpage == SettingsSubpage.MAIN) {
+                renderedSubpage = null
+            }
         }
     }
     val colors = AntigravityTheme.colors
@@ -240,7 +269,7 @@ fun SettingsSheet(
                         modifier = Modifier
                             .fillMaxSize()
                             .graphicsLayer {
-                                translationX = -widthPx * subpageProgress
+                                translationX = -widthPx * subpageProgress.value
                             }
                     ) {
                         SettingsPageHeader(
@@ -260,6 +289,8 @@ fun SettingsSheet(
                                 currentThemeMode = currentThemeMode,
                                 alertPrefs = alertPrefs,
                                 aiAssistStatus = aiAssistStatus,
+                                desktopUpdateStatus = desktopUpdateStatus,
+                                gatewayUpdateStatus = gatewayUpdateStatus,
                                 onThemeModeChange = onThemeModeChange,
                                 onOpenCompactSettings = { openSubpage(SettingsSubpage.COMPACT) },
                                 onOpenQuotaDisplay = { openSubpage(SettingsSubpage.QUOTA_DISPLAY) },
@@ -284,6 +315,7 @@ fun SettingsSheet(
                                     }
                                 },
                                 onOpenTipsGuide = { openSubpage(SettingsSubpage.TIPS) },
+                                onOpenHostUpdates = { openSubpage(SettingsSubpage.HOST_UPDATES) },
                                 onPromptUnpair = { showUnpairAlert = true },
                                 onPromptClearCache = { showClearCacheAlert = true },
                                 onOpenMcpSkills = { showMcpSkillsSheet = true },
@@ -298,9 +330,49 @@ fun SettingsSheet(
                             modifier = Modifier
                                 .fillMaxSize()
                                 .graphicsLayer {
-                                    translationX = widthPx * (1f - subpageProgress)
+                                    translationX = widthPx * (1f - subpageProgress.value)
                                 }
                                 .background(colors.background)
+                                .pointerInput(currentSubpage, widthPx) {
+                                    var totalDragX = 0f
+                                    detectHorizontalDragGestures(
+                                        onDragStart = { totalDragX = 0f },
+                                        onHorizontalDrag = { change, dragAmount ->
+                                            val nextDrag = (totalDragX + dragAmount).coerceIn(0f, widthPx)
+                                            if (nextDrag > 0f || totalDragX > 0f) {
+                                                change.consume()
+                                                totalDragX = nextDrag
+                                                if (widthPx > 0f) {
+                                                    sheetScope.launch {
+                                                        subpageProgress.snapTo((1f - totalDragX / widthPx).coerceIn(0f, 1f))
+                                                    }
+                                                }
+                                            }
+                                        },
+                                        onDragEnd = {
+                                            if (widthPx > 0f && totalDragX > widthPx * 0.28f) {
+                                                activeSubpage = SettingsSubpage.MAIN
+                                            } else {
+                                                sheetScope.launch {
+                                                    subpageProgress.animateTo(
+                                                        targetValue = 1f,
+                                                        animationSpec = tween(durationMillis = 180, easing = FastOutSlowInEasing)
+                                                    )
+                                                }
+                                            }
+                                            totalDragX = 0f
+                                        },
+                                        onDragCancel = {
+                                            totalDragX = 0f
+                                            sheetScope.launch {
+                                                subpageProgress.animateTo(
+                                                    targetValue = 1f,
+                                                    animationSpec = tween(durationMillis = 180, easing = FastOutSlowInEasing)
+                                                )
+                                            }
+                                        }
+                                    )
+                                }
                                 .clickable(
                                     interactionSource = remember { MutableInteractionSource() },
                                     indication = null,
@@ -310,7 +382,29 @@ fun SettingsSheet(
                             SettingsPageHeader(
                                 title = currentSubpage.title,
                                 showBack = true,
-                                onBack = { activeSubpage = SettingsSubpage.MAIN }
+                                onBack = { activeSubpage = SettingsSubpage.MAIN },
+                                trailingContent = if (currentSubpage == SettingsSubpage.HOST_UPDATES) {
+                                    {
+                                        IconButton(
+                                            onClick = {
+                                                if (!isHostUpdatesBusy) {
+                                                    hostUpdatesRefreshSignal++
+                                                }
+                                            },
+                                            enabled = !isHostUpdatesBusy,
+                                            modifier = Modifier
+                                                .align(Alignment.CenterEnd)
+                                                .size(34.dp)
+                                        ) {
+                                            Icon(
+                                                imageVector = Icons.Default.Refresh,
+                                                contentDescription = "刷新".loc,
+                                                tint = if (isHostUpdatesBusy) colors.textMuted else colors.accentBlue,
+                                                modifier = Modifier.size(20.dp)
+                                            )
+                                        }
+                                    }
+                                } else null
                             )
                             HorizontalDivider(thickness = 0.5.dp, color = colors.border)
                             Box(
@@ -353,6 +447,16 @@ fun SettingsSheet(
                                         onSyncError = { aiAssistSyncError = it }
                                     )
                                     SettingsSubpage.TIPS -> TipsAndGesturesSubpageContent()
+                                    SettingsSubpage.HOST_UPDATES -> HostUpdatesSubpageContent(
+                                        initialDesktopStatus = desktopUpdateStatus,
+                                        initialGatewayStatus = gatewayUpdateStatus,
+                                        refreshSignal = hostUpdatesRefreshSignal,
+                                        onBusyChange = { isHostUpdatesBusy = it },
+                                        onStatusUpdated = { dSt, gSt ->
+                                            if (dSt != null) desktopUpdateStatus = dSt
+                                            if (gSt != null) gatewayUpdateStatus = gSt
+                                        }
+                                    )
                                     SettingsSubpage.MAIN -> Unit
                                 }
                             }
@@ -462,7 +566,8 @@ fun SettingsSheet(
 private fun SettingsPageHeader(
     title: String,
     showBack: Boolean,
-    onBack: () -> Unit
+    onBack: () -> Unit,
+    trailingContent: (@Composable BoxScope.() -> Unit)? = null
 ) {
     val colors = AntigravityTheme.colors
     Box(
@@ -508,6 +613,7 @@ private fun SettingsPageHeader(
                 .fillMaxWidth()
                 .padding(horizontal = if (showBack) 96.dp else 0.dp)
         )
+        trailingContent?.invoke(this)
     }
 }
 
@@ -518,12 +624,15 @@ private fun MainSettingsContent(
     currentThemeMode: String,
     alertPrefs: ApiClient.AlertPreferencesPayload,
     aiAssistStatus: com.antigravity.mobile.data.service.AIAssistStatusPayload,
+    desktopUpdateStatus: com.antigravity.mobile.data.model.DesktopUpdateStatus?,
+    gatewayUpdateStatus: com.antigravity.mobile.data.model.GatewaySelfUpdateStatus?,
     onThemeModeChange: (String) -> Unit,
     onOpenCompactSettings: () -> Unit,
     onOpenQuotaDisplay: () -> Unit,
     onOpenAIAssist: () -> Unit,
     onOpenNotificationAlerts: () -> Unit,
     onOpenTipsGuide: () -> Unit,
+    onOpenHostUpdates: () -> Unit,
     onPromptUnpair: () -> Unit,
     onPromptClearCache: () -> Unit,
     onOpenMcpSkills: () -> Unit,
@@ -1527,23 +1636,6 @@ private fun MainSettingsContent(
         val appUpdateState by AppUpdateInstaller.state.collectAsState()
         val updateHaptic = rememberHaptic()
         var showAppUpdateDialog by remember { mutableStateOf(false) }
-        var desktopUpdateStatus by remember { mutableStateOf<com.antigravity.mobile.data.model.DesktopUpdateStatus?>(null) }
-        var gatewayUpdateStatus by remember { mutableStateOf<com.antigravity.mobile.data.model.GatewaySelfUpdateStatus?>(null) }
-        var showDesktopUpdateDialog by remember { mutableStateOf(false) }
-        LaunchedEffect(isPaired) {
-            if (isPaired) {
-                launch {
-                    ApiClient.defaultInstance?.fetchDesktopUpdateStatus()?.onSuccess {
-                        desktopUpdateStatus = it
-                    }
-                }
-                launch {
-                    ApiClient.defaultInstance?.fetchGatewaySelfUpdateStatus(refresh = false)?.onSuccess {
-                        gatewayUpdateStatus = it
-                    }
-                }
-            }
-        }
 
         SettingsSection(title = "关于".loc) {
             Column(
@@ -1703,7 +1795,7 @@ private fun MainSettingsContent(
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .clickable { showDesktopUpdateDialog = true }
+                            .clickable { onOpenHostUpdates() }
                             .padding(horizontal = 16.dp, vertical = 14.dp),
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.SpaceBetween
@@ -1757,18 +1849,6 @@ private fun MainSettingsContent(
                     )
                 }
             }
-        }
-
-        if (showDesktopUpdateDialog) {
-            DesktopUpdateDialog(
-                initialDesktopStatus = desktopUpdateStatus,
-                initialGatewayStatus = gatewayUpdateStatus,
-                onStatusUpdated = { dSt, gSt ->
-                    if (dSt != null) desktopUpdateStatus = dSt
-                    if (gSt != null) gatewayUpdateStatus = gSt
-                },
-                onDismiss = { showDesktopUpdateDialog = false }
-            )
         }
 
         if (AppUpdateInstaller.isSupported && showAppUpdateDialog) {

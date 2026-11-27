@@ -35,6 +35,7 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
@@ -687,14 +688,15 @@ fun OAuthHybridDialog(
 
 // endregion
 
-// region 3. DesktopUpdateDialog (Host Updates: Antigravity Desktop + mgy Gateway)
+// region 3. HostUpdatesSubpageContent (Host Updates: Antigravity Desktop + mgy Gateway)
 
 @Composable
-fun DesktopUpdateDialog(
+fun HostUpdatesSubpageContent(
     initialDesktopStatus: DesktopUpdateStatus? = null,
     initialGatewayStatus: GatewaySelfUpdateStatus? = null,
-    onStatusUpdated: ((DesktopUpdateStatus?, GatewaySelfUpdateStatus?) -> Unit)? = null,
-    onDismiss: () -> Unit
+    refreshSignal: Int = 0,
+    onBusyChange: ((Boolean) -> Unit)? = null,
+    onStatusUpdated: ((DesktopUpdateStatus?, GatewaySelfUpdateStatus?) -> Unit)? = null
 ) {
     val colors = AntigravityTheme.colors
     val scope = rememberCoroutineScope()
@@ -718,6 +720,13 @@ fun DesktopUpdateDialog(
     var pollJob by remember { mutableStateOf<Job?>(null) }
 
     val isGatewayBusy = isApplyingGateway || isWaitingGatewayReconnect || (gatewayStatus?.isInProgress == true)
+    val anyHasUpdate = (desktopStatus?.updateAvailable == true) || (gatewayStatus?.updateAvailable == true)
+    val hasAnyLoadedData = desktopStatus != null || gatewayStatus != null
+    val bothFailed = !isLoading && !hasAnyLoadedData && (desktopErrorMsg != null || gatewayErrorMsg != null)
+
+    LaunchedEffect(isLoading, isGatewayBusy) {
+        onBusyChange?.invoke(isLoading || isGatewayBusy)
+    }
 
     fun startPollingGateway(previousVersion: String, expectedVersion: String?) {
         pollJob?.cancel()
@@ -839,7 +848,15 @@ fun DesktopUpdateDialog(
     }
 
     LaunchedEffect(Unit) {
+        if (desktopStatus == null && initialDesktopStatus != null) desktopStatus = initialDesktopStatus
+        if (gatewayStatus == null && initialGatewayStatus != null) gatewayStatus = initialGatewayStatus
         loadAll(forceGatewayRefresh = false)
+    }
+
+    LaunchedEffect(refreshSignal) {
+        if (refreshSignal > 0 && !isLoading && !isGatewayBusy) {
+            loadAll(forceGatewayRefresh = true)
+        }
     }
 
     DisposableEffect(Unit) {
@@ -847,6 +864,42 @@ fun DesktopUpdateDialog(
             pollJob?.cancel()
             pollJob = null
         }
+    }
+
+    val dCur = desktopStatus?.currentVersion?.takeIf { it.isNotBlank() }?.let { "v$it" }
+        ?: if (desktopErrorMsg != null) "未连接".loc else "-"
+    val dLatest = desktopStatus?.latestVersion?.takeIf { it.isNotBlank() }?.let { "v$it" }
+    val gCur = gatewayStatus?.currentVersion?.takeIf { it.isNotBlank() }?.let { "v$it" } ?: "-"
+    val gLatest = gatewayStatus?.latestVersion?.takeIf { it.isNotBlank() }?.let { "v$it" }
+
+    val heroAccentColor = when {
+        isLoading && !hasAnyLoadedData -> colors.textSecondary
+        bothFailed -> colors.accentOrange
+        anyHasUpdate || isGatewayBusy -> colors.accentIndigo
+        else -> colors.accentGreen
+    }
+    val heroTitle = when {
+        isLoading && !hasAnyLoadedData -> "正在检查更新...".loc
+        bothFailed -> "检查更新失败".loc
+        isWaitingGatewayReconnect -> "正在重启网关...".loc
+        anyHasUpdate -> "发现新版本".loc
+        else -> "已是最新版本".loc
+    }
+    val heroSubtitle: String? = when {
+        isLoading && !hasAnyLoadedData -> null
+        bothFailed -> null
+        isWaitingGatewayReconnect -> "mgy 网关正在重启并恢复连接，请稍候".loc
+        desktopStatus?.updateAvailable == true && gatewayStatus?.updateAvailable == true ->
+            "Antigravity 桌面端与 mgy 网关均有新版本".loc
+        desktopStatus?.updateAvailable == true ->
+            if (dLatest != null) "桌面端可升级至 %s".loc(dLatest) else "检测到可用的桌面端新版本".loc
+        gatewayStatus?.updateAvailable == true ->
+            if (gLatest != null) "mgy 网关可升级至 %s".loc(gLatest) else "检测到可用的 mgy 网关新版本".loc
+        desktopStatus != null && gatewayStatus != null ->
+            "宿主机 Antigravity 与 mgy 网关均已是最新版本".loc
+        gatewayStatus != null -> "宿主机 mgy 网关已是最新版本".loc
+        desktopStatus != null -> "宿主机 Antigravity 已是最新版本".loc
+        else -> null
     }
 
     val gatewayStageLabel = when {
@@ -860,222 +913,412 @@ fun DesktopUpdateDialog(
         else -> "正在更新 mgy 网关...".loc
     }
 
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        containerColor = colors.surface,
-        title = {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.SpaceBetween
-            ) {
-                Text("宿主机更新".loc, fontSize = 16.5.sp, fontWeight = FontWeight.Bold, color = colors.textPrimary)
-                IconButton(
-                    onClick = { if (!isLoading && !isGatewayBusy) loadAll(forceGatewayRefresh = true) },
-                    enabled = !isLoading && !isGatewayBusy,
-                    modifier = Modifier.size(32.dp)
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .verticalScroll(rememberScrollState())
+            .padding(horizontal = 18.dp, vertical = 22.dp)
+            .navigationBarsPadding(),
+        verticalArrangement = Arrangement.spacedBy(20.dp),
+        horizontalAlignment = Alignment.CenterHorizontally
+    ) {
+        // Hero Status Section (aligned with iOS DesktopUpdateSheet)
+        Column(
+            modifier = Modifier.fillMaxWidth().padding(top = 8.dp, bottom = 4.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.spacedBy(14.dp)
+        ) {
+            Box(contentAlignment = Alignment.BottomEnd) {
+                Box(
+                    modifier = Modifier
+                        .size(76.dp)
+                        .clip(CircleShape)
+                        .background(heroAccentColor.copy(alpha = 0.13f))
+                        .border(1.dp, heroAccentColor.copy(alpha = 0.22f), CircleShape),
+                    contentAlignment = Alignment.Center
                 ) {
-                    Icon(
-                        imageVector = Icons.Default.Refresh,
-                        contentDescription = null,
-                        tint = if (isLoading || isGatewayBusy) colors.textMuted else colors.accentIndigo,
-                        modifier = Modifier.size(18.dp)
+                    if ((isLoading && !hasAnyLoadedData) || isGatewayBusy) {
+                        CircularProgressIndicator(
+                            modifier = Modifier.size(26.dp),
+                            strokeWidth = 2.5.dp,
+                            color = heroAccentColor
+                        )
+                    } else {
+                        Icon(
+                            imageVector = Icons.Default.Computer,
+                            contentDescription = null,
+                            tint = if (anyHasUpdate) colors.accentIndigo else colors.textPrimary,
+                            modifier = Modifier.size(32.dp)
+                        )
+                    }
+                }
+                if (!isGatewayBusy && !(isLoading && !hasAnyLoadedData) && (bothFailed || anyHasUpdate || hasAnyLoadedData)) {
+                    val badgeIcon = when {
+                        bothFailed -> Icons.Default.Error
+                        anyHasUpdate -> Icons.Default.ArrowCircleDown
+                        else -> Icons.Default.CheckCircle
+                    }
+                    Box(
+                        modifier = Modifier
+                            .offset(x = 2.dp, y = 2.dp)
+                            .size(26.dp)
+                            .clip(CircleShape)
+                            .background(colors.background),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(
+                            imageVector = badgeIcon,
+                            contentDescription = null,
+                            tint = heroAccentColor,
+                            modifier = Modifier.size(22.dp)
+                        )
+                    }
+                }
+            }
+
+            Column(
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.spacedBy(6.dp),
+                modifier = Modifier.padding(horizontal = 12.dp)
+            ) {
+                Text(
+                    text = heroTitle,
+                    fontSize = 20.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    color = colors.textPrimary,
+                    textAlign = TextAlign.Center
+                )
+                if (!heroSubtitle.isNullOrBlank()) {
+                    Text(
+                        text = heroSubtitle,
+                        fontSize = 13.5.sp,
+                        color = colors.textSecondary,
+                        textAlign = TextAlign.Center,
+                        lineHeight = 19.sp
                     )
                 }
             }
-        },
-        text = {
+        }
+
+        if (hasAnyLoadedData || !isLoading) {
+            // Section 1: Antigravity Desktop
             Column(
-                modifier = Modifier.fillMaxWidth().heightIn(max = 420.dp).verticalScroll(rememberScrollState()),
-                verticalArrangement = Arrangement.spacedBy(12.dp)
+                modifier = Modifier.fillMaxWidth(),
+                verticalArrangement = Arrangement.spacedBy(8.dp)
             ) {
-                if (isLoading && desktopStatus == null && gatewayStatus == null) {
-                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp, color = colors.accentIndigo)
-                        Text("正在检查宿主机版本...".loc, fontSize = 13.sp, color = colors.textSecondary)
+                Row(
+                    modifier = Modifier.fillMaxWidth().padding(horizontal = 4.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Text(
+                        text = "Antigravity 桌面端".loc,
+                        fontSize = 13.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        color = colors.textSecondary
+                    )
+                    if (desktopStatus?.updateAvailable == true) {
+                        Text(
+                            text = "有更新".loc,
+                            color = Color.White,
+                            fontSize = 10.5.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(999.dp))
+                                .background(colors.accentIndigo)
+                                .padding(horizontal = 7.dp, vertical = 2.dp)
+                        )
                     }
-                } else {
-                    // Card 1: Antigravity Desktop
-                    Column(
+                }
+
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(14.dp))
+                        .background(colors.surface)
+                        .border(0.5.dp, colors.border, RoundedCornerShape(14.dp))
+                ) {
+                    HostUpdateVersionRow(
+                        label = "当前桌面端版本".loc,
+                        value = dCur,
+                        valueColor = if (desktopStatus != null) colors.textPrimary else colors.textSecondary,
+                        bold = true
+                    )
+                    if (dLatest != null) {
+                        HorizontalDivider(
+                            modifier = Modifier.padding(start = 16.dp),
+                            color = colors.separator.copy(alpha = 0.45f),
+                            thickness = 0.5.dp
+                        )
+                        HostUpdateVersionRow(
+                            label = "最新可用版本".loc,
+                            value = dLatest,
+                            valueColor = if (desktopStatus?.updateAvailable == true) colors.accentIndigo else colors.textSecondary,
+                            bold = desktopStatus?.updateAvailable == true
+                        )
+                    }
+                }
+
+                if ((desktopStatus?.runningCount ?: 0) > 0 && desktopStatus?.updateAvailable == true) {
+                    Text(
+                        text = "注意：电脑端当前有 %d 个活跃会话运行中，应用更新会重启 Antigravity 桌面客户端。".loc(desktopStatus?.runningCount ?: 0),
+                        fontSize = 12.5.sp,
+                        color = colors.accentOrange,
                         modifier = Modifier
                             .fillMaxWidth()
                             .clip(RoundedCornerShape(12.dp))
-                            .background(colors.surfaceVariant)
-                            .border(0.5.dp, colors.border, RoundedCornerShape(12.dp))
-                            .padding(12.dp),
-                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                            .background(colors.accentOrange.copy(alpha = 0.11f))
+                            .padding(horizontal = 14.dp, vertical = 10.dp)
+                    )
+                }
+                desktopResultNotice?.let {
+                    Text(
+                        text = it,
+                        fontSize = 13.sp,
+                        color = colors.accentGreen,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(12.dp))
+                            .background(colors.accentGreen.copy(alpha = 0.11f))
+                            .padding(horizontal = 14.dp, vertical = 10.dp)
+                    )
+                }
+                desktopErrorMsg?.let {
+                    val errColor = if (desktopStatus == null) colors.accentOrange else colors.accentRed
+                    Text(
+                        text = it,
+                        fontSize = 13.sp,
+                        color = errColor,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(12.dp))
+                            .background(errColor.copy(alpha = 0.11f))
+                            .padding(horizontal = 14.dp, vertical = 10.dp)
+                    )
+                }
+
+                if (desktopStatus?.updateAvailable == true && desktopResultNotice == null) {
+                    Button(
+                        enabled = !isApplyingDesktop,
+                        onClick = { showConfirmDesktopApply = true },
+                        modifier = Modifier.fillMaxWidth().height(46.dp),
+                        shape = RoundedCornerShape(13.dp),
+                        colors = ButtonDefaults.buttonColors(containerColor = colors.accentIndigo)
                     ) {
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.SpaceBetween
-                        ) {
-                            Text("Antigravity 桌面端".loc, fontSize = 14.sp, fontWeight = FontWeight.SemiBold, color = colors.textPrimary)
-                            if (desktopStatus?.updateAvailable == true) {
-                                Text(
-                                    text = "有更新".loc,
-                                    color = colors.accentIndigo,
-                                    fontSize = 11.sp,
-                                    fontWeight = FontWeight.SemiBold,
-                                    modifier = Modifier
-                                        .clip(RoundedCornerShape(999.dp))
-                                        .background(colors.accentIndigo.copy(alpha = 0.14f))
-                                        .padding(horizontal = 7.dp, vertical = 2.dp)
-                                )
-                            } else if (desktopStatus != null) {
-                                Text("已是最新".loc, fontSize = 11.5.sp, color = colors.accentGreen, fontWeight = FontWeight.Medium)
-                            }
-                        }
+                        Text(
+                            text = if (isApplyingDesktop) "正在触发更新...".loc else "立即更新桌面端".loc,
+                            fontSize = 14.5.sp,
+                            fontWeight = FontWeight.SemiBold
+                        )
+                    }
+                }
+            }
 
-                        val dCur = desktopStatus?.currentVersion?.takeIf { it.isNotBlank() }?.let { "v$it" }
-                            ?: if (desktopErrorMsg != null) "未连接".loc else "-"
-                        val dLatest = desktopStatus?.latestVersion?.takeIf { it.isNotBlank() }?.let { "v$it" }
-                        HostUpdateVersionRow("当前版本".loc, dCur, colors.textPrimary)
-                        if (dLatest != null) {
+            // Section 2: mgy Gateway
+            Column(
+                modifier = Modifier.fillMaxWidth(),
+                verticalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                Row(
+                    modifier = Modifier.fillMaxWidth().padding(horizontal = 4.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Text(
+                        text = "mgy 网关".loc,
+                        fontSize = 13.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        color = colors.textSecondary
+                    )
+                    if (gatewayStatus?.updateAvailable == true && !isGatewayBusy) {
+                        Text(
+                            text = "有更新".loc,
+                            color = Color.White,
+                            fontSize = 10.5.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(999.dp))
+                                .background(colors.accentIndigo)
+                                .padding(horizontal = 7.dp, vertical = 2.dp)
+                        )
+                    }
+                }
+
+                if (gatewayUnsupported) {
+                    Text(
+                        text = "当前网关版本暂不支持远程自更新检测，请在电脑端执行 mgy update 升级。".loc,
+                        fontSize = 13.sp,
+                        color = colors.textSecondary,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(14.dp))
+                            .background(colors.surface)
+                            .border(0.5.dp, colors.border, RoundedCornerShape(14.dp))
+                            .padding(horizontal = 16.dp, vertical = 14.dp)
+                    )
+                } else {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(14.dp))
+                            .background(colors.surface)
+                            .border(0.5.dp, colors.border, RoundedCornerShape(14.dp))
+                    ) {
+                        HostUpdateVersionRow(
+                            label = "当前网关版本".loc,
+                            value = gCur,
+                            valueColor = if (gatewayStatus != null) colors.textPrimary else colors.textSecondary,
+                            bold = true
+                        )
+                        if (gLatest != null) {
+                            HorizontalDivider(
+                                modifier = Modifier.padding(start = 16.dp),
+                                color = colors.separator.copy(alpha = 0.45f),
+                                thickness = 0.5.dp
+                            )
                             HostUpdateVersionRow(
-                                "最新可用版本".loc,
-                                dLatest,
-                                if (desktopStatus?.updateAvailable == true) colors.accentIndigo else colors.textSecondary
+                                label = "最新可用版本".loc,
+                                value = gLatest,
+                                valueColor = if (gatewayStatus?.updateAvailable == true) colors.accentIndigo else colors.textSecondary,
+                                bold = gatewayStatus?.updateAvailable == true
+                            )
+                        } else if (!gatewayStatus?.checkError.isNullOrBlank()) {
+                            HorizontalDivider(
+                                modifier = Modifier.padding(start = 16.dp),
+                                color = colors.separator.copy(alpha = 0.45f),
+                                thickness = 0.5.dp
+                            )
+                            HostUpdateVersionRow(
+                                label = "最新可用版本".loc,
+                                value = "检测失败".loc,
+                                valueColor = colors.accentOrange,
+                                bold = false
                             )
                         }
+                    }
 
-                        if ((desktopStatus?.runningCount ?: 0) > 0 && desktopStatus?.updateAvailable == true) {
+                    if (isGatewayBusy) {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clip(RoundedCornerShape(12.dp))
+                                .background(colors.accentIndigo.copy(alpha = 0.11f))
+                                .padding(horizontal = 14.dp, vertical = 11.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(10.dp)
+                        ) {
+                            CircularProgressIndicator(
+                                modifier = Modifier.size(16.dp),
+                                strokeWidth = 2.dp,
+                                color = colors.accentIndigo
+                            )
                             Text(
-                                text = "注意：电脑端当前有 %d 个活跃会话运行中，应用更新会重启 Antigravity 桌面客户端。".loc(desktopStatus?.runningCount ?: 0),
-                                fontSize = 11.5.sp,
-                                color = colors.accentOrange
+                                text = gatewayStageLabel,
+                                fontSize = 13.sp,
+                                fontWeight = FontWeight.Medium,
+                                color = colors.accentIndigo
                             )
                         }
-                        desktopResultNotice?.let { Text(it, fontSize = 12.sp, color = colors.accentGreen) }
-                        desktopErrorMsg?.let { Text(it, fontSize = 12.sp, color = if (desktopStatus == null) colors.accentOrange else colors.accentRed) }
+                    }
 
-                        if (desktopStatus?.updateAvailable == true && desktopResultNotice == null) {
+                    if ((gatewayStatus?.runningCount ?: 0) > 0 && gatewayStatus?.updateAvailable == true && !isGatewayBusy) {
+                        Text(
+                            text = "当前有 %d 个活跃会话运行中，重启网关会短暂断开重连，不会中断电脑端任务。".loc(gatewayStatus?.runningCount ?: 0),
+                            fontSize = 12.5.sp,
+                            color = colors.accentOrange,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clip(RoundedCornerShape(12.dp))
+                                .background(colors.accentOrange.copy(alpha = 0.11f))
+                                .padding(horizontal = 14.dp, vertical = 10.dp)
+                        )
+                    }
+
+                    gatewayResultNotice?.let {
+                        Text(
+                            text = it,
+                            fontSize = 13.sp,
+                            color = colors.accentGreen,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clip(RoundedCornerShape(12.dp))
+                                .background(colors.accentGreen.copy(alpha = 0.11f))
+                                .padding(horizontal = 14.dp, vertical = 10.dp)
+                        )
+                    }
+                    gatewayErrorMsg?.let {
+                        Text(
+                            text = it,
+                            fontSize = 13.sp,
+                            color = colors.accentRed,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clip(RoundedCornerShape(12.dp))
+                                .background(colors.accentRed.copy(alpha = 0.11f))
+                                .padding(horizontal = 14.dp, vertical = 10.dp)
+                        )
+                    }
+
+                    if (gatewayStatus?.updateAvailable == true && !isGatewayBusy) {
+                        if (gatewayStatus?.canSelfUpdate == true) {
                             Button(
-                                enabled = !isApplyingDesktop,
-                                onClick = { showConfirmDesktopApply = true },
-                                modifier = Modifier.fillMaxWidth(),
+                                onClick = { showConfirmGatewayApply = true },
+                                modifier = Modifier.fillMaxWidth().height(46.dp),
+                                shape = RoundedCornerShape(13.dp),
                                 colors = ButtonDefaults.buttonColors(containerColor = colors.accentIndigo)
                             ) {
-                                Text(if (isApplyingDesktop) "正在触发更新...".loc else "立即更新桌面端".loc, fontSize = 13.sp)
-                            }
-                        }
-                    }
-
-                    // Card 2: mgy Gateway
-                    Column(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .clip(RoundedCornerShape(12.dp))
-                            .background(colors.surfaceVariant)
-                            .border(0.5.dp, colors.border, RoundedCornerShape(12.dp))
-                            .padding(12.dp),
-                        verticalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.SpaceBetween
-                        ) {
-                            Text("mgy 网关".loc, fontSize = 14.sp, fontWeight = FontWeight.SemiBold, color = colors.textPrimary)
-                            if (gatewayStatus?.updateAvailable == true && !isGatewayBusy) {
                                 Text(
-                                    text = "有更新".loc,
-                                    color = colors.accentIndigo,
-                                    fontSize = 11.sp,
-                                    fontWeight = FontWeight.SemiBold,
-                                    modifier = Modifier
-                                        .clip(RoundedCornerShape(999.dp))
-                                        .background(colors.accentIndigo.copy(alpha = 0.14f))
-                                        .padding(horizontal = 7.dp, vertical = 2.dp)
+                                    text = "升级并重启 mgy 网关".loc,
+                                    fontSize = 14.5.sp,
+                                    fontWeight = FontWeight.SemiBold
                                 )
-                            } else if (gatewayStatus != null && !isGatewayBusy && !gatewayUnsupported && gatewayStatus?.checkError.isNullOrBlank()) {
-                                Text("已是最新".loc, fontSize = 11.5.sp, color = colors.accentGreen, fontWeight = FontWeight.Medium)
                             }
-                        }
-
-                        if (gatewayUnsupported) {
-                            Text(
-                                text = "当前网关版本暂不支持远程自更新检测，请在电脑端执行 mgy update 升级。".loc,
-                                fontSize = 12.sp,
-                                color = colors.textSecondary
-                            )
                         } else {
-                            val gCur = gatewayStatus?.currentVersion?.takeIf { it.isNotBlank() }?.let { "v$it" } ?: "-"
-                            val gLatest = gatewayStatus?.latestVersion?.takeIf { it.isNotBlank() }?.let { "v$it" }
-                            HostUpdateVersionRow("当前版本".loc, gCur, colors.textPrimary)
-                            if (gLatest != null) {
-                                HostUpdateVersionRow(
-                                    "最新可用版本".loc,
-                                    gLatest,
-                                    if (gatewayStatus?.updateAvailable == true) colors.accentIndigo else colors.textSecondary
-                                )
-                            } else if (!gatewayStatus?.checkError.isNullOrBlank()) {
-                                HostUpdateVersionRow("最新可用版本".loc, "检测失败".loc, colors.accentOrange)
-                            }
-
-                            if (isGatewayBusy) {
-                                Row(
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .clip(RoundedCornerShape(8.dp))
-                                        .background(colors.accentIndigo.copy(alpha = 0.10f))
-                                        .padding(horizontal = 10.dp, vertical = 8.dp),
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                                ) {
-                                    CircularProgressIndicator(modifier = Modifier.size(14.dp), strokeWidth = 2.dp, color = colors.accentIndigo)
-                                    Text(gatewayStageLabel, fontSize = 12.sp, color = colors.accentIndigo)
-                                }
-                            }
-
-                            if ((gatewayStatus?.runningCount ?: 0) > 0 && gatewayStatus?.updateAvailable == true && !isGatewayBusy) {
-                                Text(
-                                    text = "当前有 %d 个活跃会话运行中，重启网关会短暂断开重连，不会中断电脑端任务。".loc(gatewayStatus?.runningCount ?: 0),
-                                    fontSize = 11.5.sp,
-                                    color = colors.accentOrange
-                                )
-                            }
-
-                            gatewayResultNotice?.let { Text(it, fontSize = 12.sp, color = colors.accentGreen) }
-                            gatewayErrorMsg?.let { Text(it, fontSize = 12.sp, color = colors.accentRed) }
-
-                            if (gatewayStatus?.updateAvailable == true && !isGatewayBusy) {
-                                if (gatewayStatus?.canSelfUpdate == true) {
-                                    Button(
-                                        onClick = { showConfirmGatewayApply = true },
-                                        modifier = Modifier.fillMaxWidth(),
-                                        colors = ButtonDefaults.buttonColors(containerColor = colors.accentIndigo)
-                                    ) {
-                                        Text("升级并重启 mgy 网关".loc, fontSize = 13.sp)
-                                    }
-                                } else {
-                                    Text(
-                                        text = gatewayStatus?.cannotUpdateReason?.takeIf { it.isNotBlank() }
-                                            ?: "当前安装环境不支持一键覆盖，请在电脑端执行 mgy update 升级。".loc,
-                                        fontSize = 12.sp,
-                                        color = colors.accentOrange
-                                    )
-                                }
-                            }
-                        }
-                    }
-
-                    val md = changelog?.trim().orEmpty()
-                    if (md.isNotEmpty()) {
-                        Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                            Text("桌面端更新日志".loc, fontSize = 12.5.sp, fontWeight = FontWeight.SemiBold, color = colors.textSecondary)
-                            MarkdownContentView(content = md)
+                            Text(
+                                text = gatewayStatus?.cannotUpdateReason?.takeIf { it.isNotBlank() }
+                                    ?: "当前安装环境不支持一键覆盖，请在电脑端执行 mgy update 升级。".loc,
+                                fontSize = 12.5.sp,
+                                color = colors.accentOrange,
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clip(RoundedCornerShape(12.dp))
+                                    .background(colors.accentOrange.copy(alpha = 0.11f))
+                                    .padding(horizontal = 14.dp, vertical = 10.dp)
+                            )
                         }
                     }
                 }
             }
-        },
-        confirmButton = {
-            TextButton(onClick = onDismiss) {
-                Text("关闭".loc, color = colors.accentIndigo)
+
+            val md = changelog?.trim().orEmpty()
+            if (md.isNotEmpty()) {
+                Column(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Text(
+                        text = "桌面端更新日志".loc,
+                        fontSize = 13.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        color = colors.textSecondary,
+                        modifier = Modifier.padding(horizontal = 4.dp)
+                    )
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(14.dp))
+                            .background(colors.surface)
+                            .border(0.5.dp, colors.border, RoundedCornerShape(14.dp))
+                            .padding(16.dp)
+                    ) {
+                        MarkdownContentView(content = md)
+                    }
+                }
             }
         }
-    )
+
+        Spacer(modifier = Modifier.height(12.dp))
+    }
 
     if (showConfirmDesktopApply) {
         AlertDialog(
@@ -1170,19 +1413,26 @@ fun DesktopUpdateDialog(
 }
 
 @Composable
-private fun HostUpdateVersionRow(label: String, value: String, valueColor: Color) {
+private fun HostUpdateVersionRow(
+    label: String,
+    value: String,
+    valueColor: Color,
+    bold: Boolean = false
+) {
     val colors = AntigravityTheme.colors
     Row(
-        modifier = Modifier.fillMaxWidth(),
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp, vertical = 14.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.SpaceBetween
     ) {
-        Text(label, fontSize = 12.5.sp, color = colors.textSecondary)
+        Text(label, fontSize = 14.5.sp, color = colors.textSecondary)
         Text(
             text = value,
-            fontSize = 13.sp,
+            fontSize = 15.sp,
             fontFamily = FontFamily.Monospace,
-            fontWeight = FontWeight.Medium,
+            fontWeight = if (bold) FontWeight.SemiBold else FontWeight.Medium,
             color = valueColor
         )
     }

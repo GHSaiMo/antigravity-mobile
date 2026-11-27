@@ -1065,95 +1065,112 @@ public struct AccountQuotaSheet: View {
             }
         }()
 
-        DisclosureGroup(isExpanded: $isAutoSwitchExpanded) {
-            VStack(alignment: .leading, spacing: 12) {
-                Toggle(isOn: Binding(
-                    get: { cfg?.enabled ?? false },
-                    set: { newVal in
-                        UIImpactFeedbackGenerator(style: .light).impactOccurred()
-                        Task { await updateAutoSwitch(["enabled": newVal]) }
-                    }
-                )) {
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text("额度低于阈值自动切号")
-                            .font(.system(size: 13, weight: .medium))
-                        Text("默认等当前生成空闲后再切换，避免打断运行中的任务")
-                            .font(.system(size: 11))
-                            .foregroundColor(.secondary)
-                    }
+        VStack(alignment: .leading, spacing: 0) {
+            Button(action: {
+                withAnimation(.easeInOut(duration: 0.2)) {
+                    isAutoSwitchExpanded.toggle()
                 }
-                .disabled(isSavingAutoSwitch || AppSettings.shared.isDemoMode)
+            }) {
+                HStack(spacing: 8) {
+                    Image(systemName: "arrow.triangle.2.circlepath")
+                        .font(.system(size: 13, weight: .semibold))
+                        .foregroundColor(isEnabled ? .blue : .secondary)
+                    Text("阈值自动切号")
+                        .font(.system(size: 13.5, weight: .semibold))
+                        .foregroundColor(.primary)
+                    Spacer()
+                    Text(statusLabel)
+                        .font(.system(size: 11, weight: .medium))
+                        .foregroundColor(isEnabled ? .blue : .secondary)
+                        .padding(.horizontal, 7)
+                        .padding(.vertical, 2)
+                        .background((isEnabled ? Color.blue : Color.secondary).opacity(0.12))
+                        .clipShape(Capsule())
+                    Image(systemName: "chevron.right")
+                        .font(.system(size: 11, weight: .semibold))
+                        .foregroundColor(.secondary)
+                        .rotationEffect(.degrees(isAutoSwitchExpanded ? 90 : 0))
+                }
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
 
-                if let cfg {
-                    Divider()
-                    HStack {
-                        Text("监控池窗")
-                            .font(.system(size: 12.5))
-                            .foregroundColor(.secondary)
-                        Spacer()
-                        Picker("监控池窗", selection: Binding(
-                            get: { cfg.targetBucket },
-                            set: { val in Task { await updateAutoSwitch(["target_bucket": val]) } }
-                        )) {
-                            Text("Gemini · 5h").tag("gemini_5h")
-                            Text("Gemini · Weekly").tag("gemini_weekly")
-                            Text("Claude · 5h").tag("claude_5h")
-                            Text("Claude · Weekly").tag("claude_weekly")
-                        }
-                        .pickerStyle(.menu)
-                        .disabled(isSavingAutoSwitch || AppSettings.shared.isDemoMode)
-                    }
-
-                    HStack {
-                        Text("触发阈值")
-                            .font(.system(size: 12.5))
-                            .foregroundColor(.secondary)
-                        Spacer()
-                        Text("≤ \(Int(cfg.thresholdPercent.rounded()))%")
-                            .font(.system(size: 12.5, weight: .semibold, design: .monospaced))
-                            .monospacedDigit()
-                        Stepper("", value: Binding(
-                            get: { Int(cfg.thresholdPercent.rounded()) },
-                            set: { val in Task { await updateAutoSwitch(["threshold_percent": Double(val)]) } }
-                        ), in: 5...30, step: 5)
-                        .labelsHidden()
-                        .disabled(isSavingAutoSwitch || AppSettings.shared.isDemoMode)
-                    }
-
+            if isAutoSwitchExpanded {
+                VStack(alignment: .leading, spacing: 12) {
                     Toggle(isOn: Binding(
-                        get: { cfg.waitUntilIdle },
-                        set: { val in Task { await updateAutoSwitch(["wait_until_idle": val]) } }
+                        get: { cfg?.enabled ?? false },
+                        set: { newVal in
+                            UIImpactFeedbackGenerator(style: .light).impactOccurred()
+                            Task { await updateAutoSwitch(["enabled": newVal]) }
+                        }
                     )) {
-                        Text("等本轮生成空闲再切")
-                            .font(.system(size: 12.5))
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text("额度低于阈值自动切号")
+                                .font(.system(size: 13, weight: .medium))
+                            Text("默认等当前生成空闲后再切换，避免打断运行中的任务")
+                                .font(.system(size: 11))
+                                .foregroundColor(.secondary)
+                        }
                     }
+                    .padding(.trailing, 2)
                     .disabled(isSavingAutoSwitch || AppSettings.shared.isDemoMode)
 
-                    if let toEmail = st?.lastToEmail, !toEmail.isEmpty, let ts = st?.lastSwitchAt, ts > 0 {
-                        let d = Date(timeIntervalSince1970: Double(ts) / 1000.0)
-                        Text("最近切号：\(d.formatted(date: .omitted, time: .shortened)) → \(isMasked ? Self.maskEmailForDisplay(toEmail) : toEmail)")
-                            .font(.system(size: 11))
-                            .foregroundColor(.secondary)
+                    if let cfg {
+                        Divider()
+                        HStack {
+                            Text("监控池窗")
+                                .font(.system(size: 12.5))
+                                .foregroundColor(.secondary)
+                            Spacer()
+                            Picker("监控池窗", selection: Binding(
+                                get: { cfg.targetBucket },
+                                set: { val in Task { await updateAutoSwitch(["target_bucket": val]) } }
+                            )) {
+                                Text("Gemini · 5h").tag("gemini_5h")
+                                Text("Gemini · Weekly").tag("gemini_weekly")
+                                Text("Claude · 5h").tag("claude_5h")
+                                Text("Claude · Weekly").tag("claude_weekly")
+                            }
+                            .pickerStyle(.menu)
+                            .disabled(isSavingAutoSwitch || AppSettings.shared.isDemoMode)
+                        }
+
+                        HStack {
+                            Text("触发阈值")
+                                .font(.system(size: 12.5))
+                                .foregroundColor(.secondary)
+                            Spacer()
+                            Text("≤ \(Int(cfg.thresholdPercent.rounded()))%")
+                                .font(.system(size: 12.5, weight: .semibold, design: .monospaced))
+                                .monospacedDigit()
+                            Stepper("", value: Binding(
+                                get: { Int(cfg.thresholdPercent.rounded()) },
+                                set: { val in Task { await updateAutoSwitch(["threshold_percent": Double(val)]) } }
+                            ), in: 5...30, step: 5)
+                            .labelsHidden()
+                            .disabled(isSavingAutoSwitch || AppSettings.shared.isDemoMode)
+                        }
+
+                        Toggle(isOn: Binding(
+                            get: { cfg.waitUntilIdle },
+                            set: { val in Task { await updateAutoSwitch(["wait_until_idle": val]) } }
+                        )) {
+                            Text("等本轮生成空闲再切")
+                                .font(.system(size: 12.5))
+                        }
+                        .padding(.trailing, 2)
+                        .disabled(isSavingAutoSwitch || AppSettings.shared.isDemoMode)
+
+                        if let toEmail = st?.lastToEmail, !toEmail.isEmpty, let ts = st?.lastSwitchAt, ts > 0 {
+                            let d = Date(timeIntervalSince1970: Double(ts) / 1000.0)
+                            Text("最近切号：\(d.formatted(date: .omitted, time: .shortened)) → \(isMasked ? Self.maskEmailForDisplay(toEmail) : toEmail)")
+                                .font(.system(size: 11))
+                                .foregroundColor(.secondary)
+                        }
                     }
                 }
-            }
-            .padding(.top, 10)
-        } label: {
-            HStack(spacing: 8) {
-                Image(systemName: "arrow.triangle.2.circlepath")
-                    .font(.system(size: 13, weight: .semibold))
-                    .foregroundColor(isEnabled ? .blue : .secondary)
-                Text("阈值自动切号")
-                    .font(.system(size: 13.5, weight: .semibold))
-                    .foregroundColor(.primary)
-                Spacer()
-                Text(statusLabel)
-                    .font(.system(size: 11, weight: .medium))
-                    .foregroundColor(isEnabled ? .blue : .secondary)
-                    .padding(.horizontal, 7)
-                    .padding(.vertical, 2)
-                    .background((isEnabled ? Color.blue : Color.secondary).opacity(0.12))
-                    .clipShape(Capsule())
+                .padding(.top, 12)
+                .transition(.opacity)
             }
         }
         .padding(14)
