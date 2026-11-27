@@ -2,9 +2,11 @@ package proxy
 
 import (
 	"bytes"
+	"compress/gzip"
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"log/slog"
 	"net/http"
 	"os"
@@ -13,6 +15,11 @@ import (
 	"sync"
 	"time"
 )
+
+// stitchPostStartDelay adds a brief, human-paced delay between StartCascade and the subsequent
+// SendUserCascadeMessage during account-switch rollover so the two RPCs are not fired 1ms apart.
+// Overridable in tests.
+var stitchPostStartDelay = 300 * time.Millisecond
 
 const (
 	stitchPromptHeaderMarker       = "<!-- CONTEXT_HANDOVER_SUMMARY -->"
@@ -87,6 +94,124 @@ func stitchStateFilePath() string {
 		return ""
 	}
 	return filepath.Join(home, ".multigravity", "cascade_stitches.json")
+}
+
+func stitchSegmentCacheDir() string {
+	statePath := stitchStateFilePath()
+	if statePath == "" {
+		return ""
+	}
+	return filepath.Join(filepath.Dir(statePath), "stitch_cache")
+}
+
+// IsSealedHistoricalStitchSegment reports whether cascadeID is a completed non-leaf historical
+// segment in a stitched chain (i.e. an older account's segment that must not be eagerly probed
+// via LoadTrajectory on subsequent accounts).
+func IsSealedHistoricalStitchSegment(cascadeID string) bool {
+	cascadeID = strings.TrimSpace(cascadeID)
+	if cascadeID == "" {
+		return false
+	}
+	segs := GetStitchChainSegments(cascadeID)
+	if len(segs) <= 1 {
+		return false
+	}
+	activeLeaf := segs[len(segs)-1].CascadeID
+	return cascadeID != activeLeaf
+}
+
+// loadSealedSegmentFromDisk reads a previously persisted immutable historical segment snapshot
+// from ~/.multigravity/stitch_cache/<cascadeID>.json.gz so gateway restarts do not need to call
+// LoadTrajectory / GetCascadeTrajectory on a new account's language_server for old-account segments.
+func loadSealedSegmentFromDisk(cascadeID string) *upstreamTrajectoryResp {
+	if cascadeID == "" || !cascadeIDRe.MatchString(cascadeID) {
+		return nil
+	}
+	dir := stitchSegmentCacheDir()
+	if dir == "" {
+		return nil
+	}
+	p := filepath.Join(dir, cascadeID+".json.gz")
+	f, err := os.Open(p)
+	if err != nil {
+		return nil
+	}
+	defer f.Close()
+	gz, err := gzip.NewReader(f)
+	if err != nil {
+		return nil
+	}
+	defer gz.Close()
+	const maxSealedBytes = 64 * 1024 * 1024
+	raw, err := io.ReadAll(io.LimitReader(gz, maxSealedBytes))
+	if err != nil || len(raw) == 0 {
+		return nil
+	}
+	var resp upstreamTrajectoryResp
+	if json.Unmarshal(raw, &resp) != nil {
+		return nil
+	}
+	if len(resp.Trajectory.Steps) == 0 || resp.Status == "CASCADE_RUN_STATUS_RUNNING" {
+		return nil
+	}
+	return &resp
+}
+
+// saveSealedSegmentToDisk persists an immutable non-empty historical segment snapshot locally.
+// No-op if the snapshot already exists on disk.
+func saveSealedSegmentToDisk(cascadeID string, data *upstreamTrajectoryResp) {
+	if cascadeID == "" || !cascadeIDRe.MatchString(cascadeID) || data == nil {
+		return
+	}
+	if len(data.Trajectory.Steps) == 0 || data.Status == "CASCADE_RUN_STATUS_RUNNING" {
+		return
+	}
+	dir := stitchSegmentCacheDir()
+	if dir == "" {
+		return
+	}
+	target := filepath.Join(dir, cascadeID+".json.gz")
+	if info, err := os.Stat(target); err == nil && info.Size() > 0 {
+		return
+	}
+	raw, err := json.Marshal(data)
+	if err != nil || len(raw) == 0 {
+		return
+	}
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		return
+	}
+	var buf bytes.Buffer
+	gz, err := gzip.NewWriterLevel(&buf, gzip.BestSpeed)
+	if err != nil {
+		return
+	}
+	if _, err := gz.Write(raw); err != nil {
+		_ = gz.Close()
+		return
+	}
+	if err := gz.Close(); err != nil {
+		return
+	}
+	tmp := fmt.Sprintf("%s.%d.tmp", target, time.Now().UnixNano())
+	if err := os.WriteFile(tmp, buf.Bytes(), 0o600); err == nil {
+		if renameErr := os.Rename(tmp, target); renameErr != nil {
+			_ = os.Remove(tmp)
+		}
+	}
+}
+
+// removeSealedSegmentDiskCaches deletes any persisted local sealed-segment snapshots for ids.
+func removeSealedSegmentDiskCaches(ids []string) {
+	dir := stitchSegmentCacheDir()
+	if dir == "" {
+		return
+	}
+	for _, cid := range ids {
+		if cid != "" && cascadeIDRe.MatchString(cid) {
+			_ = os.Remove(filepath.Join(dir, cid+".json.gz"))
+		}
+	}
 }
 
 func (s *cascadeStitchStore) ensureLoadedLocked() {
@@ -732,6 +857,18 @@ func (p *Proxy) EnsureCascadeTargetForSend(ctx context.Context, clientCascadeID 
 
 	defaultStitchStore.appendSegment(rootID, prevActiveID, newChildID, accountID)
 	p.agentStateHub.OnCascadeTargetRolledOver(p, rootID)
+	if stitchPostStartDelay > 0 {
+		if ctx != nil {
+			timer := time.NewTimer(stitchPostStartDelay)
+			select {
+			case <-timer.C:
+			case <-ctx.Done():
+				timer.Stop()
+			}
+		} else {
+			time.Sleep(stitchPostStartDelay)
+		}
+	}
 	slog.Info("[Stitch] 🔄 Compact handover created continuation cascade",
 		"root", shortCascadeID(rootID), "prev", shortCascadeID(prevActiveID), "new", shortCascadeID(newChildID), "account", accountID)
 	return newChildID, true, nil

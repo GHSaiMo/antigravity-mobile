@@ -317,6 +317,10 @@ func (p *Proxy) SyncHistoricalTrajectories(port int, token string) error {
 		if defaultTrajCache.loadedCascades[cascadeID] || IsDeletedCascade(cascadeID) {
 			continue
 		}
+		if IsSealedHistoricalStitchSegment(cascadeID) {
+			defaultTrajCache.loadedCascades[cascadeID] = true
+			continue
+		}
 
 		info, err := entry.Info()
 		if err != nil {
@@ -491,11 +495,27 @@ func (p *Proxy) fetchHistoricalSegmentTrajectory(ctx context.Context, cascadeID 
 	if cached, ok := defaultTrajCache.trajCache[cascadeID]; ok && cached != nil && cached.data != nil {
 		staleData = cached.data
 		if len(cached.data.Trajectory.Steps) > 0 && cached.data.Status != "CASCADE_RUN_STATUS_RUNNING" {
+			data := cached.data
 			defaultTrajCache.trajCacheMu.RUnlock()
-			return cached.data, nil
+			saveSealedSegmentToDisk(cascadeID, data)
+			return data, nil
 		}
 	}
 	defaultTrajCache.trajCacheMu.RUnlock()
+
+	// Second tier: local persisted snapshot on disk (~/.multigravity/stitch_cache/<id>.json.gz).
+	// Avoids calling GetCascadeTrajectory / LoadTrajectory across accounts after a gateway restart.
+	if diskData := loadSealedSegmentFromDisk(cascadeID); diskData != nil {
+		defaultTrajCache.trajCacheMu.Lock()
+		defaultTrajCache.trajCache[cascadeID] = &trajectoryCacheEntry{
+			fetchedAt: time.Now(),
+			port:      port,
+			data:      diskData,
+		}
+		defaultTrajCache.evictTrajCacheLocked()
+		defaultTrajCache.trajCacheMu.Unlock()
+		return diskData, nil
+	}
 
 	segResp, err := p.fetchSingleSegmentTrajectory(ctx, cascadeID, port, token, 5*time.Second)
 	if (err != nil || (segResp != nil && len(segResp.Trajectory.Steps) == 0)) && port > 0 && (ctx == nil || ctx.Err() == nil) {
@@ -521,6 +541,10 @@ func (p *Proxy) fetchHistoricalSegmentTrajectory(ctx context.Context, cascadeID 
 				}
 			}
 		}
+	}
+	if err == nil && segResp != nil && len(segResp.Trajectory.Steps) > 0 && segResp.Status != "CASCADE_RUN_STATUS_RUNNING" {
+		saveSealedSegmentToDisk(cascadeID, segResp)
+		return segResp, nil
 	}
 	if (err != nil || segResp == nil || len(segResp.Trajectory.Steps) == 0) && staleData != nil && len(staleData.Trajectory.Steps) > 0 {
 		return staleData, nil

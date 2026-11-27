@@ -762,7 +762,8 @@ func (p *Proxy) handleDeleteCascadeTrajectory(w http.ResponseWriter, r *http.Req
 					}
 				}
 			}
-			// Clean up local files only after upstream confirms deletion.
+			// Clean up local files and sealed-segment disk snapshots only after upstream confirms deletion.
+			removeSealedSegmentDiskCaches(allToClean)
 			for _, cid := range allToClean {
 				cockpit.ArchiveConversationTokens(cid)
 				for _, agDir := range antigravityHomeCandidates() {
