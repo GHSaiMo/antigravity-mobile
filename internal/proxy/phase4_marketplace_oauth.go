@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log/slog"
 	"net"
 	"net/http"
 	"net/url"
@@ -57,91 +58,203 @@ func isLoopbackOAuthURL(rawAuthURL string) bool {
 	return false
 }
 
+func hasNonNullJSON(raw json.RawMessage) bool {
+	s := strings.TrimSpace(string(raw))
+	return s != "" && s != "null"
+}
+
+func extractMarketplaceAuthor(raw json.RawMessage) string {
+	if !hasNonNullJSON(raw) {
+		return ""
+	}
+	var s string
+	if json.Unmarshal(raw, &s) == nil {
+		return strings.TrimSpace(s)
+	}
+	var obj struct {
+		Name        string `json:"name"`
+		DisplayName string `json:"displayName"`
+		URL         string `json:"url"`
+	}
+	if json.Unmarshal(raw, &obj) == nil {
+		return firstNonEmpty(strings.TrimSpace(obj.Name), strings.TrimSpace(obj.DisplayName), strings.TrimSpace(obj.URL))
+	}
+	return ""
+}
+
+func parseFlexibleInt64(raw json.RawMessage) int64 {
+	if !hasNonNullJSON(raw) {
+		return 0
+	}
+	var n int64
+	if json.Unmarshal(raw, &n) == nil {
+		return n
+	}
+	var s string
+	if json.Unmarshal(raw, &s) == nil {
+		if parsed, err := strconv.ParseInt(strings.TrimSpace(s), 10, 64); err == nil {
+			return parsed
+		}
+	}
+	return 0
+}
+
+func detectMarketplaceKind(id, rawKind string, pluginRaw, skillRaw, bundleRaw json.RawMessage) string {
+	if k := strings.ToLower(strings.TrimPrefix(strings.TrimSpace(rawKind), "CUSTOMIZATION_KIND_")); k != "" {
+		return k
+	}
+	switch {
+	case hasNonNullJSON(skillRaw):
+		return "skill"
+	case hasNonNullJSON(bundleRaw):
+		return "bundle"
+	case hasNonNullJSON(pluginRaw):
+		return "plugin"
+	case strings.Contains(id, "/skill/"):
+		return "skill"
+	case strings.Contains(id, "/bundle/"):
+		return "bundle"
+	default:
+		return "plugin"
+	}
+}
+
 func parseMarketplaceCustomizations(raw []byte, installedIDs map[string]bool) ([]MarketplaceItem, string) {
 	var doc struct {
 		Customizations []struct {
-			ID           string `json:"id"`
-			DisplayName  string `json:"displayName"`
-			Name         string `json:"name"`
-			Description  string `json:"description"`
-			Author       string `json:"author"`
-			Version      string `json:"version"`
-			Kind         string `json:"kind"`
-			InstallCount int64  `json:"installCount"`
-			UserCount    int64  `json:"userCount"`
-			Homepage     string `json:"homepage"`
-			Repository   string `json:"repository"`
-			Logo         string `json:"logo"`
-			Marketplace  string `json:"marketplace"`
+			ID           string          `json:"id"`
+			DisplayName  string          `json:"displayName"`
+			Name         string          `json:"name"`
+			Description  string          `json:"description"`
+			Author       json.RawMessage `json:"author"`
+			Version      string          `json:"version"`
+			Kind         string          `json:"kind"`
+			Plugin       json.RawMessage `json:"plugin"`
+			Skill        json.RawMessage `json:"skill"`
+			Bundle       json.RawMessage `json:"bundle"`
+			InstallCount json.RawMessage `json:"installCount"`
+			UserCount    json.RawMessage `json:"userCount"`
+			Homepage     string          `json:"homepage"`
+			Repository   string          `json:"repository"`
+			Logo         string          `json:"logo"`
+			Marketplace  string          `json:"marketplace"`
 		} `json:"customizations"`
 		Featured []struct {
-			ID          string `json:"id"`
-			DisplayName string `json:"displayName"`
-			Description string `json:"description"`
-			Author      string `json:"author"`
-			Version     string `json:"version"`
-			Kind        string `json:"kind"`
-			Homepage    string `json:"homepage"`
-			Repository  string `json:"repository"`
-			Logo        string `json:"logo"`
+			ID          string          `json:"id"`
+			MemberIDs   []string        `json:"memberIds"`
+			DisplayName string          `json:"displayName"`
+			Name        string          `json:"name"`
+			Description string          `json:"description"`
+			Author      json.RawMessage `json:"author"`
+			Version     string          `json:"version"`
+			Kind        string          `json:"kind"`
+			Plugin      json.RawMessage `json:"plugin"`
+			Skill       json.RawMessage `json:"skill"`
+			Bundle      json.RawMessage `json:"bundle"`
+			Homepage    string          `json:"homepage"`
+			Repository  string          `json:"repository"`
+			Logo        string          `json:"logo"`
+			Marketplace string          `json:"marketplace"`
 		} `json:"featured"`
 		NextPageToken string `json:"nextPageToken"`
 	}
-	if json.Unmarshal(raw, &doc) != nil {
+	if err := json.Unmarshal(raw, &doc); err != nil {
+		slog.Warn("[Marketplace] failed to decode upstream response", "err", err)
 		return nil, ""
 	}
-	out := make([]MarketplaceItem, 0, len(doc.Customizations)+len(doc.Featured))
-	seen := make(map[string]bool)
+
+	byID := make(map[string]MarketplaceItem, len(doc.Customizations))
+	customOrder := make([]string, 0, len(doc.Customizations))
 	for _, c := range doc.Customizations {
 		id := strings.TrimSpace(c.ID)
-		if id == "" || seen[id] {
+		if id == "" {
 			continue
 		}
-		seen[id] = true
-		name := firstNonEmpty(strings.TrimSpace(c.DisplayName), strings.TrimSpace(c.Name), id)
-		kind := strings.ToLower(strings.TrimPrefix(strings.TrimSpace(c.Kind), "CUSTOMIZATION_KIND_"))
-		if kind == "" {
-			kind = "plugin"
+		if _, exists := byID[id]; exists {
+			continue
 		}
-		out = append(out, MarketplaceItem{
+		name := firstNonEmpty(strings.TrimSpace(c.DisplayName), strings.TrimSpace(c.Name), id)
+		kind := detectMarketplaceKind(id, c.Kind, c.Plugin, c.Skill, c.Bundle)
+		byID[id] = MarketplaceItem{
 			ID:           id,
 			Name:         name,
 			Description:  strings.TrimSpace(c.Description),
-			Author:       strings.TrimSpace(c.Author),
+			Author:       extractMarketplaceAuthor(c.Author),
 			Version:      strings.TrimSpace(c.Version),
 			Kind:         kind,
-			InstallCount: c.InstallCount,
-			UserCount:    c.UserCount,
+			InstallCount: parseFlexibleInt64(c.InstallCount),
+			UserCount:    parseFlexibleInt64(c.UserCount),
 			Homepage:     strings.TrimSpace(c.Homepage),
 			Repository:   strings.TrimSpace(c.Repository),
 			Logo:         strings.TrimSpace(c.Logo),
 			Marketplace:  strings.TrimSpace(c.Marketplace),
 			Installed:    installedIDs[id] || installedIDs[name],
-		})
+		}
+		customOrder = append(customOrder, id)
 	}
+
+	// Upstream GetMarketplaceFeatured encodes `featured` as shelf descriptors
+	// (`{"id":"featured","memberIds":[...]}`) alongside full entries in `customizations`.
+	// Respect memberIds ordering without turning shelf headers into bogus plugin items,
+	// while retaining fallback support for legacy flat featured item payloads.
+	featuredOrder := make([]string, 0, len(doc.Customizations))
+	legacyFeatured := make([]MarketplaceItem, 0)
 	for _, f := range doc.Featured {
-		id := strings.TrimSpace(f.ID)
-		if id == "" || seen[id] {
+		if len(f.MemberIDs) > 0 {
+			for _, mid := range f.MemberIDs {
+				if mid = strings.TrimSpace(mid); mid != "" {
+					featuredOrder = append(featuredOrder, mid)
+				}
+			}
 			continue
 		}
-		seen[id] = true
-		name := firstNonEmpty(strings.TrimSpace(f.DisplayName), id)
-		kind := strings.ToLower(strings.TrimPrefix(strings.TrimSpace(f.Kind), "CUSTOMIZATION_KIND_"))
-		if kind == "" {
-			kind = "plugin"
+		id := strings.TrimSpace(f.ID)
+		disp := firstNonEmpty(strings.TrimSpace(f.DisplayName), strings.TrimSpace(f.Name))
+		desc := strings.TrimSpace(f.Description)
+		if id == "" || (disp == "" && desc == "") {
+			continue
 		}
-		out = append(out, MarketplaceItem{
+		name := firstNonEmpty(disp, id)
+		kind := detectMarketplaceKind(id, f.Kind, f.Plugin, f.Skill, f.Bundle)
+		legacyFeatured = append(legacyFeatured, MarketplaceItem{
 			ID:          id,
 			Name:        name,
-			Description: strings.TrimSpace(f.Description),
-			Author:      strings.TrimSpace(f.Author),
+			Description: desc,
+			Author:      extractMarketplaceAuthor(f.Author),
 			Version:     strings.TrimSpace(f.Version),
 			Kind:        kind,
 			Homepage:    strings.TrimSpace(f.Homepage),
 			Repository:  strings.TrimSpace(f.Repository),
 			Logo:        strings.TrimSpace(f.Logo),
+			Marketplace: strings.TrimSpace(f.Marketplace),
 			Installed:   installedIDs[id] || installedIDs[name],
 		})
+	}
+
+	out := make([]MarketplaceItem, 0, len(byID)+len(legacyFeatured))
+	seen := make(map[string]bool, len(byID)+len(legacyFeatured))
+	for _, id := range featuredOrder {
+		if seen[id] {
+			continue
+		}
+		if item, ok := byID[id]; ok {
+			seen[id] = true
+			out = append(out, item)
+		}
+	}
+	for _, id := range customOrder {
+		if seen[id] {
+			continue
+		}
+		seen[id] = true
+		out = append(out, byID[id])
+	}
+	for _, item := range legacyFeatured {
+		if seen[item.ID] {
+			continue
+		}
+		seen[item.ID] = true
+		out = append(out, item)
 	}
 	return out, strings.TrimSpace(doc.NextPageToken)
 }
@@ -155,20 +268,17 @@ func (p *Proxy) fetchInstalledPluginIDSet(ctx context.Context) map[string]bool {
 	var raw struct {
 		Plugins []struct {
 			ID          string `json:"id"`
+			CatalogID   string `json:"catalogId"`
 			Name        string `json:"name"`
 			DisplayName string `json:"displayName"`
 		} `json:"plugins"`
 	}
 	if json.Unmarshal(body, &raw) == nil {
 		for _, pl := range raw.Plugins {
-			if s := strings.TrimSpace(pl.ID); s != "" {
-				res[s] = true
-			}
-			if s := strings.TrimSpace(pl.Name); s != "" {
-				res[s] = true
-			}
-			if s := strings.TrimSpace(pl.DisplayName); s != "" {
-				res[s] = true
+			for _, candidate := range []string{pl.ID, pl.CatalogID, pl.Name, pl.DisplayName} {
+				if s := strings.TrimSpace(candidate); s != "" {
+					res[s] = true
+				}
 			}
 		}
 	}

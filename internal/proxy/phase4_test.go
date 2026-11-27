@@ -288,8 +288,10 @@ func TestPhase4MarketplaceUpdateSearchSnapshotsStar(t *testing.T) {
 		switch r.URL.Path {
 		case "/exa.language_server_pb.LanguageServerService/GetAllPlugins":
 			_, _ = w.Write([]byte(`{"plugins":[{"id":"p-installed","name":"Installed"}]}`))
+		case "/exa.language_server_pb.LanguageServerService/GetMarketplaceFeatured":
+			_, _ = w.Write([]byte(`{"featured":[{"id":"featured","memberIds":["antigravity-plugins-partners/plugin/notion","antigravity-plugins-official/plugin/firebase"]}],"customizations":[{"marketplace":"antigravity-plugins-official","id":"antigravity-plugins-official/plugin/firebase","displayName":"Firebase","description":"Build apps with Firebase.","plugin":{},"version":"1.0.3","author":{"name":"Firebase","url":"https://firebase.google.com"}},{"marketplace":"antigravity-plugins-partners","id":"antigravity-plugins-partners/plugin/notion","displayName":"Notion","description":"Connect Notion.","plugin":{},"version":"0.1.0","author":{"name":"Notion Labs","url":"https://www.notion.com"}}]}`))
 		case "/exa.language_server_pb.LanguageServerService/SearchMarketplace":
-			_, _ = w.Write([]byte(`{"customizations":[{"id":"p-new","displayName":"Linear","description":"Track issues","kind":"CUSTOMIZATION_KIND_PLUGIN"}]}`))
+			_, _ = w.Write([]byte(`{"customizations":[{"id":"p-new","displayName":"Linear","description":"Track issues","author":{"name":"Linear","url":"https://linear.app"},"installCount":"42","kind":"CUSTOMIZATION_KIND_PLUGIN"},{"id":"antigravity-plugins-official/skill/docs","displayName":"Docs Skill","description":"Read docs","author":"Google","skill":{}}]}`))
 		case "/exa.language_server_pb.LanguageServerService/DeletePlugin":
 			_, _ = w.Write([]byte(`{"success":true,"message":"deleted"}`))
 		case "/exa.language_server_pb.LanguageServerService/StartPluginAuthSignIn":
@@ -315,11 +317,47 @@ func TestPhase4MarketplaceUpdateSearchSnapshotsStar(t *testing.T) {
 		}
 	})
 
-	// Marketplace search
+	// Marketplace featured (real upstream schema: featured shelf + object author)
 	rec := httptest.NewRecorder()
+	p.HandleMarketplace(rec, httptest.NewRequest(http.MethodGet, "/gateway/marketplace/featured", nil))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("marketplace featured failed: %d %s", rec.Code, rec.Body.String())
+	}
+	var featResp struct {
+		OK    bool              `json:"ok"`
+		Items []MarketplaceItem `json:"items"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &featResp); err != nil {
+		t.Fatalf("decode featured response: %v", err)
+	}
+	if !featResp.OK || len(featResp.Items) != 2 {
+		t.Fatalf("expected 2 featured items (without shelf header), got %d: %s", len(featResp.Items), rec.Body.String())
+	}
+	if featResp.Items[0].Name != "Notion" || featResp.Items[0].Author != "Notion Labs" || featResp.Items[0].Kind != "plugin" {
+		t.Fatalf("unexpected first featured item (expected memberIds order): %+v", featResp.Items[0])
+	}
+	if featResp.Items[1].Name != "Firebase" || featResp.Items[1].Author != "Firebase" {
+		t.Fatalf("unexpected second featured item: %+v", featResp.Items[1])
+	}
+
+	// Marketplace search (object author + string author + string int64 + skill oneof)
+	rec = httptest.NewRecorder()
 	p.HandleMarketplace(rec, httptest.NewRequest(http.MethodGet, "/gateway/marketplace/search?q=linear", nil))
-	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), `"Linear"`) {
+	if rec.Code != http.StatusOK {
 		t.Fatalf("marketplace search failed: %d %s", rec.Code, rec.Body.String())
+	}
+	var searchResp struct {
+		OK    bool              `json:"ok"`
+		Items []MarketplaceItem `json:"items"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &searchResp); err != nil || len(searchResp.Items) != 2 {
+		t.Fatalf("unexpected search response: err=%v body=%s", err, rec.Body.String())
+	}
+	if searchResp.Items[0].Name != "Linear" || searchResp.Items[0].Author != "Linear" || searchResp.Items[0].InstallCount != 42 {
+		t.Fatalf("unexpected first search item: %+v", searchResp.Items[0])
+	}
+	if searchResp.Items[1].Kind != "skill" || searchResp.Items[1].Author != "Google" {
+		t.Fatalf("unexpected second search item: %+v", searchResp.Items[1])
 	}
 
 	// Plugin auth start detects loopback redirect_uri
