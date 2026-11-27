@@ -93,8 +93,10 @@ func (p *Proxy) fetchUpstreamTrajectoryWithContext(ctx context.Context, cascadeI
 	tc.trajCacheMu.RUnlock()
 
 	resp, err := p.fetchUpstreamTrajectoryWithMaxAgeContext(ctx, cascadeID, port, token, maxAge)
-	// Fallback: If not found or empty steps, try loading from disk via LoadTrajectory and retry once
-	if (err != nil || (resp != nil && len(resp.Trajectory.Steps) == 0)) && port > 0 {
+	// Fallback: If not found or empty steps, try loading from disk via LoadTrajectory and retry once.
+	// Skip for stitched conversations because per-segment LoadTrajectory is already handled inside
+	// fetchUpstreamTrajectoryWithMaxAgeContext, and deleting tc.trajCache[rootID] here would wipe sealed Segment 0.
+	if (err != nil || (resp != nil && len(resp.Trajectory.Steps) == 0)) && port > 0 && len(GetStitchChainSegments(cascadeID)) <= 1 {
 		if ctx != nil && ctx.Err() != nil {
 			return nil, ctx.Err()
 		}
@@ -495,15 +497,28 @@ func (p *Proxy) fetchHistoricalSegmentTrajectory(ctx context.Context, cascadeID 
 	}
 	defaultTrajCache.trajCacheMu.RUnlock()
 
-	segResp, err := p.fetchSingleSegmentTrajectory(ctx, cascadeID, port, token, 24*time.Hour)
+	segResp, err := p.fetchSingleSegmentTrajectory(ctx, cascadeID, port, token, 5*time.Second)
 	if (err != nil || (segResp != nil && len(segResp.Trajectory.Steps) == 0)) && port > 0 && (ctx == nil || ctx.Err() == nil) {
-		if loadErr := p.LoadTrajectory(cascadeID, port, token); loadErr == nil {
-			defaultTrajCache.trajCacheMu.Lock()
-			delete(defaultTrajCache.trajCache, cascadeID)
-			defaultTrajCache.trajCacheMu.Unlock()
-			trajFlights.forget(cascadeID)
-			if retryResp, retryErr := p.fetchSingleSegmentTrajectory(ctx, cascadeID, port, token, 0); retryErr == nil && retryResp != nil {
-				segResp, err = retryResp, nil
+		loadKey := fmt.Sprintf("hist:%d:%s", port, cascadeID)
+		defaultTrajCache.loadedCascadesMu.RLock()
+		alreadyLoadedEmpty := err == nil && defaultTrajCache.loadedCascades[loadKey]
+		defaultTrajCache.loadedCascadesMu.RUnlock()
+		if !alreadyLoadedEmpty {
+			if loadErr := p.LoadTrajectory(cascadeID, port, token); loadErr == nil {
+				defaultTrajCache.loadedCascadesMu.Lock()
+				if defaultTrajCache.loadedCascades == nil {
+					defaultTrajCache.loadedCascades = make(map[string]bool)
+				}
+				defaultTrajCache.loadedCascades[loadKey] = true
+				defaultTrajCache.loadedCascadesMu.Unlock()
+
+				defaultTrajCache.trajCacheMu.Lock()
+				delete(defaultTrajCache.trajCache, cascadeID)
+				defaultTrajCache.trajCacheMu.Unlock()
+				trajFlights.forget(cascadeID)
+				if retryResp, retryErr := p.fetchSingleSegmentTrajectory(ctx, cascadeID, port, token, 0); retryErr == nil && retryResp != nil {
+					segResp, err = retryResp, nil
+				}
 			}
 		}
 	}
@@ -811,7 +826,7 @@ func (p *Proxy) ParseTrajectoryDetailsCached(rawResp *upstreamTrajectoryResp) Tr
 			cached.parsedSig = sig
 			cached.parsed = &stored
 		} else if stitchedKey != "" {
-			if cached, ok := defaultTrajCache.trajCache[stitchedKey]; ok && cached != nil {
+			if cached, ok := defaultTrajCache.trajCache[stitchedKey]; ok && cached != nil && cached.data == rawResp {
 				cached.parsedSig = sig
 				cached.parsed = &stored
 			}

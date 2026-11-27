@@ -26,6 +26,7 @@ type CascadeStitchSegment struct {
 	CascadeID string `json:"cascadeId"`
 	AccountID string `json:"accountId,omitempty"`
 	CreatedAt string `json:"createdAt,omitempty"`
+	Epoch     uint64 `json:"epoch,omitempty"`
 }
 
 // CascadeStitchChain tracks the transparent mapping from a visible root cascade ID (A)
@@ -126,10 +127,17 @@ func (s *cascadeStitchStore) ensureLoadedLocked() {
 				s.rootByChild[seg.CascadeID] = rootID
 			}
 		}
-		// Mark currently active leaf with current epoch so existing chains don't immediately re-roll on load
-		leaf := ch.Segments[len(ch.Segments)-1].CascadeID
-		s.cascadeEpoch[rootID] = s.switchEpoch
-		s.cascadeEpoch[leaf] = s.switchEpoch
+		// Restore active leaf's epoch: use persisted segment epoch when present so a gateway restart
+		// between NotifyAccountSwitched and the next send still triggers handover rollover;
+		// fall back to s.switchEpoch for legacy chains saved before Epoch was persisted.
+		leafSeg := ch.Segments[len(ch.Segments)-1]
+		leaf := leafSeg.CascadeID
+		leafEpoch := leafSeg.Epoch
+		if leafEpoch == 0 {
+			leafEpoch = s.switchEpoch
+		}
+		s.cascadeEpoch[rootID] = leafEpoch
+		s.cascadeEpoch[leaf] = leafEpoch
 	}
 }
 
@@ -250,6 +258,22 @@ func GetStitchChainSegments(cascadeID string) []CascadeStitchSegment {
 	return out
 }
 
+// GetStitchChainSegmentIDs returns all segment cascade IDs in the stitch chain containing cascadeID
+// without modifying the store. Returns nil if cascadeID is not part of a stitched chain.
+func GetStitchChainSegmentIDs(cascadeID string) []string {
+	segs := GetStitchChainSegments(cascadeID)
+	if len(segs) == 0 {
+		return nil
+	}
+	ids := make([]string, 0, len(segs))
+	for _, seg := range segs {
+		if seg.CascadeID != "" {
+			ids = append(ids, seg.CascadeID)
+		}
+	}
+	return ids
+}
+
 // RecordCascadeCreatedAtCurrentEpoch marks a newly started cascade as already belonging to the current account epoch.
 func RecordCascadeCreatedAtCurrentEpoch(cascadeID string) {
 	cascadeID = strings.TrimSpace(cascadeID)
@@ -337,6 +361,7 @@ func (s *cascadeStitchStore) appendSegment(rootID, prevActiveID, newChildID, acc
 		CascadeID: newChildID,
 		AccountID: accountID,
 		CreatedAt: nowStr,
+		Epoch:     s.switchEpoch,
 	})
 	ch.UpdatedAt = nowStr
 	s.rootByChild[newChildID] = rootID
@@ -349,38 +374,40 @@ func (s *cascadeStitchStore) appendSegment(rootID, prevActiveID, newChildID, acc
 // BuildOfflineCompactSummary constructs a concise, zero-LLM-token Markdown handover summary
 // from the existing steps of a conversation (across all prior segments or on-disk transcript.jsonl).
 func (p *Proxy) BuildOfflineCompactSummary(ctx context.Context, rootCascadeID string, port int, token string) (string, []string) {
+	summary, wsURIs, _ := p.buildOfflineCompactSummaryDetailed(ctx, rootCascadeID, port, token)
+	return summary, wsURIs
+}
+
+func (p *Proxy) buildOfflineCompactSummaryDetailed(ctx context.Context, rootCascadeID string, port int, token string) (string, []string, bool) {
 	var allSteps []TrajectoryStep
 	var workspaceURIs []string
+	hadFetchErr := false
 
-	// 1. Gather steps from existing trajectory segments (upstream or local cache)
+	// 1. Gather steps from existing trajectory segments (cross-port cache first, then upstream/LoadTrajectory)
 	segments := GetStitchChainSegments(rootCascadeID)
 	if len(segments) == 0 {
 		segments = []CascadeStitchSegment{{CascadeID: rootCascadeID}}
 	}
-	for i, seg := range segments {
+	for _, seg := range segments {
 		if port > 0 {
-			var raw *upstreamTrajectoryResp
-			var err error
-			if i < len(segments)-1 {
-				raw, err = p.fetchHistoricalSegmentTrajectory(ctx, seg.CascadeID, port, token)
-			} else {
-				raw, err = p.fetchSingleSegmentTrajectory(ctx, seg.CascadeID, port, token, 5*time.Second)
-			}
+			raw, err := p.fetchHistoricalSegmentTrajectory(ctx, seg.CascadeID, port, token)
 			if err == nil && raw != nil {
 				if len(workspaceURIs) == 0 && len(raw.Trajectory.WorkspaceUris) > 0 {
 					workspaceURIs = append([]string(nil), raw.Trajectory.WorkspaceUris...)
 				}
 				allSteps = append(allSteps, raw.Trajectory.Steps...)
+			} else {
+				hadFetchErr = true
 			}
 		}
 	}
 
 	// 2. If upstream steps were unavailable, fall back to on-disk brain/<id>/.system_generated/logs/transcript.jsonl
 	if len(allSteps) == 0 {
-		if diskSummary := buildCompactSummaryFromTranscriptJSONL(rootCascadeID); diskSummary != "" {
-			return diskSummary, workspaceURIs
+		if diskSummary := buildCompactSummaryFromTranscriptJSONLs(segments); diskSummary != "" {
+			return diskSummary, workspaceURIs, false
 		}
-		return "", workspaceURIs
+		return "", workspaceURIs, hadFetchErr
 	}
 
 	var userPrompts []string
@@ -422,10 +449,10 @@ func (p *Proxy) BuildOfflineCompactSummary(ctx context.Context, rootCascadeID st
 	}
 
 	if len(userPrompts) == 0 && len(agentReplies) == 0 {
-		if diskSummary := buildCompactSummaryFromTranscriptJSONL(rootCascadeID); diskSummary != "" {
-			return diskSummary, workspaceURIs
+		if diskSummary := buildCompactSummaryFromTranscriptJSONLs(segments); diskSummary != "" {
+			return diskSummary, workspaceURIs, false
 		}
-		return "", workspaceURIs
+		return "", workspaceURIs, hadFetchErr
 	}
 
 	var sb strings.Builder
@@ -468,7 +495,7 @@ func (p *Proxy) BuildOfflineCompactSummary(ctx context.Context, rootCascadeID st
 		}
 	}
 	sb.WriteString("\nPlease continue seamlessly from the state above and respond to the user's new message below.")
-	return sb.String(), workspaceURIs
+	return sb.String(), workspaceURIs, false
 }
 
 func extractCodeActionURIs(s TrajectoryStep) []string {
@@ -495,42 +522,45 @@ func extractCodeActionURIs(s TrajectoryStep) []string {
 	return out
 }
 
-func buildCompactSummaryFromTranscriptJSONL(cascadeID string) string {
-	if cascadeID == "" || !cascadeIDRe.MatchString(cascadeID) {
-		return ""
-	}
-	p := resolveAntigravitySubPath("brain", cascadeID, ".system_generated", "logs", "transcript.jsonl")
-	if p == "" {
-		return ""
-	}
-	raw, err := os.ReadFile(p)
-	if err != nil || len(raw) == 0 {
-		return ""
-	}
+func buildCompactSummaryFromTranscriptJSONLs(segments []CascadeStitchSegment) string {
 	var userInputs []string
 	var agentReplies []string
-	for _, line := range bytes.Split(raw, []byte("\n")) {
-		line = bytes.TrimSpace(line)
-		if len(line) == 0 {
+	for _, seg := range segments {
+		cascadeID := seg.CascadeID
+		if cascadeID == "" || !cascadeIDRe.MatchString(cascadeID) {
 			continue
 		}
-		var entry struct {
-			Type    string `json:"type"`
-			Content string `json:"content"`
-		}
-		if json.Unmarshal(line, &entry) != nil {
+		p := resolveAntigravitySubPath("brain", cascadeID, ".system_generated", "logs", "transcript.jsonl")
+		if p == "" {
 			continue
 		}
-		c := strings.TrimSpace(CleanInternalSystemMessage(entry.Content))
-		c = StripCompactHandoverPrefix(c)
-		if c == "" {
+		raw, err := os.ReadFile(p)
+		if err != nil || len(raw) == 0 {
 			continue
 		}
-		switch entry.Type {
-		case "USER_INPUT":
-			userInputs = append(userInputs, truncateRunes(c, 360))
-		case "PLANNER_RESPONSE":
-			agentReplies = append(agentReplies, truncateRunes(c, 500))
+		for _, line := range bytes.Split(raw, []byte("\n")) {
+			line = bytes.TrimSpace(line)
+			if len(line) == 0 {
+				continue
+			}
+			var entry struct {
+				Type    string `json:"type"`
+				Content string `json:"content"`
+			}
+			if json.Unmarshal(line, &entry) != nil {
+				continue
+			}
+			c := strings.TrimSpace(CleanInternalSystemMessage(entry.Content))
+			c = StripCompactHandoverPrefix(c)
+			if c == "" {
+				continue
+			}
+			switch entry.Type {
+			case "USER_INPUT":
+				userInputs = append(userInputs, truncateRunes(c, 360))
+			case "PLANNER_RESPONSE":
+				agentReplies = append(agentReplies, truncateRunes(c, 500))
+			}
 		}
 	}
 	if len(userInputs) == 0 && len(agentReplies) == 0 {
@@ -561,6 +591,10 @@ func buildCompactSummaryFromTranscriptJSONL(cascadeID string) string {
 	}
 	sb.WriteString("\nPlease continue seamlessly from the state above and respond to the user's new message below.")
 	return sb.String()
+}
+
+func buildCompactSummaryFromTranscriptJSONL(cascadeID string) string {
+	return buildCompactSummaryFromTranscriptJSONLs([]CascadeStitchSegment{{CascadeID: cascadeID}})
 }
 
 // WrapUserPromptWithCompactHandover embeds the offline compact handover summary inside markers
@@ -597,15 +631,17 @@ func StripCompactHandoverPrefix(text string) string {
 // EnsureCascadeTargetForSend resolves the active underlying cascade ID for a user send request,
 // transparently rolling over to a newly started continuation cascade with an offline compact summary
 // if an account switch occurred since the conversation last ran.
-func (p *Proxy) EnsureCascadeTargetForSend(ctx context.Context, clientCascadeID string, rawMap map[string]interface{}, port int, token string) (targetCascadeID string, rolledOver bool) {
+// If handover rollover is required but StartCascade fails after retries, an error is returned
+// so the caller aborts instead of falling back to the prior account's cascade ID.
+func (p *Proxy) EnsureCascadeTargetForSend(ctx context.Context, clientCascadeID string, rawMap map[string]interface{}, port int, token string) (targetCascadeID string, rolledOver bool, err error) {
 	rootID := ResolveVisibleRootCascadeID(clientCascadeID)
 	if !IsSwitchCompactHandoverEnabled() || port <= 0 || rootID == "" {
-		return ResolveActiveCascadeID(rootID), false
+		return ResolveActiveCascadeID(rootID), false, nil
 	}
 
 	needsRollover, prevActiveID, accountID := defaultStitchStore.needsHandoverRollover(rootID)
 	if !needsRollover {
-		return prevActiveID, false
+		return prevActiveID, false, nil
 	}
 
 	defaultStitchStore.creatingMu.Lock()
@@ -614,14 +650,19 @@ func (p *Proxy) EnsureCascadeTargetForSend(ctx context.Context, clientCascadeID 
 	// Double-check after acquiring creation lock
 	needsRollover, prevActiveID, accountID = defaultStitchStore.needsHandoverRollover(rootID)
 	if !needsRollover {
-		return prevActiveID, false
+		return prevActiveID, false, nil
 	}
 
-	summary, wsURIs := p.BuildOfflineCompactSummary(ctx, rootID, port, token)
+	summary, wsURIs, hadFetchErr := p.buildOfflineCompactSummaryDetailed(ctx, rootID, port, token)
 	if summary == "" {
-		// Conversation has no prior history at all (e.g. brand new draft); no need to create a child cascade.
-		RecordCascadeCreatedAtCurrentEpoch(prevActiveID)
-		return prevActiveID, false
+		if !hadFetchErr && len(GetStitchChainSegments(rootID)) <= 1 {
+			// Conversation genuinely has no prior history at all (e.g. brand new empty draft).
+			RecordCascadeCreatedAtCurrentEpoch(prevActiveID)
+			return prevActiveID, false, nil
+		}
+		// Prior segments exist or could not be read transiently; still roll over onto a fresh
+		// cascade under the current account rather than sending cross-account on prevActiveID.
+		summary = "[Context Handover Summary]\nContinuing the previous conversation after an account switch. Please respond to the user's request below."
 	}
 
 	startPayload := map[string]interface{}{
@@ -630,20 +671,48 @@ func (p *Proxy) EnsureCascadeTargetForSend(ctx context.Context, clientCascadeID 
 	if len(wsURIs) > 0 {
 		startPayload["workspaceUris"] = wsURIs
 	}
-	cBody, cStatus, cErr := p.callUpstreamRPC(ctx, "StartCascade", startPayload)
-	if (cErr != nil || cStatus != http.StatusOK) && (ctx == nil || ctx.Err() == nil) {
-		time.Sleep(300 * time.Millisecond)
+
+	retryDelays := []time.Duration{300 * time.Millisecond, 600 * time.Millisecond}
+	var (
+		cBody   []byte
+		cStatus int
+		cErr    error
+	)
+	for attempt := 0; attempt <= len(retryDelays); attempt++ {
+		if attempt > 0 {
+			if ctx != nil {
+				timer := time.NewTimer(retryDelays[attempt-1])
+				select {
+				case <-timer.C:
+				case <-ctx.Done():
+					timer.Stop()
+					return "", false, ctx.Err()
+				}
+			} else {
+				time.Sleep(retryDelays[attempt-1])
+			}
+		}
 		cBody, cStatus, cErr = p.callUpstreamRPC(ctx, "StartCascade", startPayload)
+		if cErr == nil && cStatus == http.StatusOK {
+			break
+		}
+		if ctx != nil && ctx.Err() != nil {
+			break
+		}
 	}
 	if cErr != nil || cStatus != http.StatusOK {
-		slog.Warn("[Stitch] StartCascade for compact handover failed; will retry on next send", "root", shortCascadeID(rootID), "err", cErr, "status", cStatus)
-		return prevActiveID, false
+		slog.Warn("[Stitch] StartCascade for compact handover failed after retries; refusing cross-account fallback",
+			"root", shortCascadeID(rootID), "err", cErr, "status", cStatus)
+		if cErr != nil {
+			return "", false, fmt.Errorf("StartCascade handover failed: %w", cErr)
+		}
+		return "", false, fmt.Errorf("StartCascade handover returned HTTP %d", cStatus)
 	}
 	var started struct {
 		CascadeID string `json:"cascadeId"`
 	}
 	if json.Unmarshal(cBody, &started) != nil || strings.TrimSpace(started.CascadeID) == "" {
-		return prevActiveID, false
+		return "", false, fmt.Errorf("StartCascade handover returned empty cascadeId")
 	}
 	newChildID := strings.TrimSpace(started.CascadeID)
 
@@ -665,7 +734,7 @@ func (p *Proxy) EnsureCascadeTargetForSend(ctx context.Context, clientCascadeID 
 	p.agentStateHub.OnCascadeTargetRolledOver(p, rootID)
 	slog.Info("[Stitch] 🔄 Compact handover created continuation cascade",
 		"root", shortCascadeID(rootID), "prev", shortCascadeID(prevActiveID), "new", shortCascadeID(newChildID), "account", accountID)
-	return newChildID, true
+	return newChildID, true, nil
 }
 
 func injectCompactSummaryIntoRawSendMap(rawMap map[string]interface{}, summary string) {

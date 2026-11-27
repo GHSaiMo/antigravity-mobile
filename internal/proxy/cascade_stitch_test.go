@@ -6,10 +6,12 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 
 	"antigravity-mobile/internal/inspector"
@@ -333,4 +335,410 @@ func TestCascadeStitch_AccountSwitchHandoverAndTrajectoryMerge(t *testing.T) {
 		t.Fatalf("expected CancelCascadeInvocation to target active child %s, got %v", childID, canceledTargets)
 	}
 	mu.Unlock()
+}
+
+func TestStripCompactHandoverPrefix_CurrentAndLegacyMarkers(t *testing.T) {
+	wrapped := WrapUserPromptWithCompactHandover("[Summary]\nline 1", "hello world")
+	if strings.Contains(wrapped, "MGY_COMPACT_HANDOVER") {
+		t.Fatalf("WrapUserPromptWithCompactHandover should not emit legacy tool fingerprint: %s", wrapped)
+	}
+	if !strings.Contains(wrapped, stitchPromptHeaderMarker) {
+		t.Fatalf("expected neutral header marker %q in wrapped prompt: %s", stitchPromptHeaderMarker, wrapped)
+	}
+	if got := StripCompactHandoverPrefix(wrapped); got != "hello world" {
+		t.Fatalf("StripCompactHandoverPrefix(current) = %q, want %q", got, "hello world")
+	}
+
+	legacy := legacyStitchPromptHeaderMarker + "\n[Old Summary]\n" + legacyStitchPromptEndMarker + "\n\nlegacy prompt"
+	if got := StripCompactHandoverPrefix(legacy); got != "legacy prompt" {
+		t.Fatalf("StripCompactHandoverPrefix(legacy) = %q, want %q", got, "legacy prompt")
+	}
+}
+
+func TestCascadeStitch_SealedHistoricalCachePreservedAcrossClearAndPortSwitch(t *testing.T) {
+	tmpDir := t.TempDir()
+	t.Setenv("MGY_STITCH_STATE_PATH", filepath.Join(tmpDir, "stitches.json"))
+	t.Setenv("MGY_SWITCH_COMPACT_HANDOVER", "true")
+	ResetCascadeStitchStoreForTest()
+	t.Cleanup(ResetCascadeStitchStoreForTest)
+
+	const (
+		rootID  = "33333333-3333-3333-3333-333333333333"
+		childID = "44444444-4444-4444-4444-444444444444"
+	)
+	ClearStitchedSegmentCaches(rootID, []string{rootID, childID})
+	t.Cleanup(func() { ClearStitchedSegmentCaches(rootID, []string{rootID, childID}) })
+
+	var rootFetchesPort1 atomic.Int32
+	var rootFetchesPort2 atomic.Int32
+	var childFetchesPort2 atomic.Int32
+
+	makeServer := func(isPort2 bool) *httptest.Server {
+		return httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.Header().Set("Content-Type", "application/json")
+			if !strings.HasSuffix(r.URL.Path, "/GetCascadeTrajectory") {
+				w.Write([]byte(`{}`))
+				return
+			}
+			var req struct {
+				CascadeID string `json:"cascadeId"`
+			}
+			_ = json.NewDecoder(r.Body).Decode(&req)
+			switch req.CascadeID {
+			case rootID:
+				if isPort2 {
+					rootFetchesPort2.Add(1)
+					w.WriteHeader(http.StatusNotFound)
+					return
+				}
+				rootFetchesPort1.Add(1)
+				_ = json.NewEncoder(w).Encode(map[string]interface{}{
+					"status": "CASCADE_RUN_STATUS_IDLE",
+					"trajectory": map[string]interface{}{
+						"trajectoryId": "traj-root",
+						"cascadeId":    rootID,
+						"steps": []map[string]interface{}{
+							{
+								"type":      "CORTEX_STEP_TYPE_USER_INPUT",
+								"status":    "CORTEX_STEP_STATUS_DONE",
+								"userInput": map[string]interface{}{"userResponse": "sealed root turn"},
+							},
+						},
+					},
+				})
+			case childID:
+				if isPort2 {
+					childFetchesPort2.Add(1)
+				}
+				_ = json.NewEncoder(w).Encode(map[string]interface{}{
+					"status": "CASCADE_RUN_STATUS_IDLE",
+					"trajectory": map[string]interface{}{
+						"trajectoryId": "traj-child",
+						"cascadeId":    childID,
+						"steps": []map[string]interface{}{
+							{
+								"type":      "CORTEX_STEP_TYPE_USER_INPUT",
+								"status":    "CORTEX_STEP_STATUS_DONE",
+								"userInput": map[string]interface{}{"userResponse": "active leaf turn"},
+							},
+						},
+					},
+				})
+			default:
+				w.WriteHeader(http.StatusNotFound)
+			}
+		}))
+	}
+
+	srv1 := makeServer(false)
+	defer srv1.Close()
+	srv2 := makeServer(true)
+	defer srv2.Close()
+
+	p := NewProxy(&inspector.Inspector{})
+	p.SetTestUpstream(extractTestPort(t, srv1.URL), "tok1")
+	p.NotifyAccountSwitched("acc-b")
+	defaultStitchStore.appendSegment(rootID, rootID, childID, "acc-b")
+
+	// Initial fetch on port 1 populates sealed rootID and active childID.
+	req1 := httptest.NewRequest(http.MethodGet, "/gateway/cascade/messages?cascadeId="+rootID+"&limit=50", nil)
+	rec1 := httptest.NewRecorder()
+	p.ServeHTTP(rec1, req1)
+	if rec1.Code != http.StatusOK {
+		t.Fatalf("initial fetch returned %d: %s", rec1.Code, rec1.Body.String())
+	}
+	if rootFetchesPort1.Load() != 1 {
+		t.Fatalf("expected 1 root fetch on port 1, got %d", rootFetchesPort1.Load())
+	}
+
+	// Simulate send invalidation + account/port switch to port 2 (where rootID would 404).
+	ClearTrajectoryCache(rootID)
+	p.SetTestUpstream(extractTestPort(t, srv2.URL), "tok2")
+
+	req2 := httptest.NewRequest(http.MethodGet, "/gateway/cascade/messages?cascadeId="+rootID+"&limit=50", nil)
+	rec2 := httptest.NewRecorder()
+	p.ServeHTTP(rec2, req2)
+	if rec2.Code != http.StatusOK {
+		t.Fatalf("post-clear port2 fetch returned %d: %s", rec2.Code, rec2.Body.String())
+	}
+	if rootFetchesPort2.Load() != 0 {
+		t.Fatalf("expected sealed historical segment %s to be reused across ClearTrajectoryCache & port switch, got %d upstream fetches", rootID, rootFetchesPort2.Load())
+	}
+	if childFetchesPort2.Load() == 0 {
+		t.Fatalf("expected active leaf %s to be refetched after ClearTrajectoryCache", childID)
+	}
+	if !strings.Contains(rec2.Body.String(), "sealed root turn") || !strings.Contains(rec2.Body.String(), "active leaf turn") {
+		t.Fatalf("expected both sealed root and active leaf content in merged response: %s", rec2.Body.String())
+	}
+}
+
+func TestCascadeStitch_StartCascadeRetryAndNoCrossAccountFallback(t *testing.T) {
+	tmpDir := t.TempDir()
+	t.Setenv("MGY_STITCH_STATE_PATH", filepath.Join(tmpDir, "stitches.json"))
+	t.Setenv("MGY_SWITCH_COMPACT_HANDOVER", "true")
+	ResetCascadeStitchStoreForTest()
+	t.Cleanup(ResetCascadeStitchStoreForTest)
+
+	const (
+		rootID  = "55555555-5555-5555-5555-555555555555"
+		childID = "66666666-6666-6666-6666-666666666666"
+	)
+	ClearStitchedSegmentCaches(rootID, []string{rootID, childID})
+	t.Cleanup(func() { ClearStitchedSegmentCaches(rootID, []string{rootID, childID}) })
+
+	var (
+		mu             sync.Mutex
+		failStartCount int // fail the first N StartCascade calls
+		startCalls     int
+		sentTargets    []string
+	)
+
+	srv := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch {
+		case strings.HasSuffix(r.URL.Path, "/GetCascadeTrajectory"):
+			_ = json.NewEncoder(w).Encode(map[string]interface{}{
+				"status": "CASCADE_RUN_STATUS_IDLE",
+				"trajectory": map[string]interface{}{
+					"cascadeId": rootID,
+					"steps": []map[string]interface{}{
+						{
+							"type":      "CORTEX_STEP_TYPE_USER_INPUT",
+							"status":    "CORTEX_STEP_STATUS_DONE",
+							"userInput": map[string]interface{}{"userResponse": "initial work on account A"},
+						},
+					},
+				},
+			})
+		case strings.HasSuffix(r.URL.Path, "/StartCascade"):
+			mu.Lock()
+			startCalls++
+			shouldFail := startCalls <= failStartCount
+			mu.Unlock()
+			if shouldFail {
+				w.WriteHeader(http.StatusServiceUnavailable)
+				w.Write([]byte(`{"code":"unavailable"}`))
+				return
+			}
+			_ = json.NewEncoder(w).Encode(map[string]interface{}{"cascadeId": childID})
+		case strings.HasSuffix(r.URL.Path, "/SendUserCascadeMessage"):
+			var req map[string]interface{}
+			_ = json.NewDecoder(r.Body).Decode(&req)
+			mu.Lock()
+			cid, _ := req["cascadeId"].(string)
+			sentTargets = append(sentTargets, cid)
+			mu.Unlock()
+			w.Write([]byte(`{}`))
+		default:
+			w.Write([]byte(`{}`))
+		}
+	}))
+	defer srv.Close()
+
+	p := NewProxy(&inspector.Inspector{})
+	p.SetTestUpstream(extractTestPort(t, srv.URL), "tok")
+	p.NotifyAccountSwitched("acc-b")
+
+	// Case 1: All 3 StartCascade attempts fail -> must return 503 and NEVER forward to old rootID.
+	mu.Lock()
+	failStartCount = 3
+	mu.Unlock()
+	body1, _ := json.Marshal(map[string]interface{}{
+		"cascadeId": rootID,
+		"items":     []interface{}{map[string]interface{}{"text": "first attempt during LS warmup"}},
+	})
+	rec1 := httptest.NewRecorder()
+	p.ServeHTTP(rec1, httptest.NewRequest(http.MethodPost, "/api/exa.language_server_pb.LanguageServerService/SendUserCascadeMessage", bytes.NewReader(body1)))
+	if rec1.Code != http.StatusServiceUnavailable {
+		t.Fatalf("expected 503 when StartCascade fails all retries, got %d: %s", rec1.Code, rec1.Body.String())
+	}
+	mu.Lock()
+	if len(sentTargets) != 0 {
+		t.Fatalf("expected ZERO SendUserCascadeMessage calls on handover failure (no cross-account fallback), got %v", sentTargets)
+	}
+	if startCalls != 3 {
+		t.Fatalf("expected 3 StartCascade attempts (initial + 2 retries), got %d", startCalls)
+	}
+	// Case 2: Next send fails StartCascade once (call #4) then succeeds on retry (call #5).
+	failStartCount = 4
+	mu.Unlock()
+
+	body2, _ := json.Marshal(map[string]interface{}{
+		"cascadeId": rootID,
+		"items":     []interface{}{map[string]interface{}{"text": "retry after LS ready"}},
+	})
+	rec2 := httptest.NewRecorder()
+	p.ServeHTTP(rec2, httptest.NewRequest(http.MethodPost, "/api/exa.language_server_pb.LanguageServerService/SendUserCascadeMessage", bytes.NewReader(body2)))
+	if rec2.Code != http.StatusOK {
+		t.Fatalf("expected 200 after StartCascade retry succeeded, got %d: %s", rec2.Code, rec2.Body.String())
+	}
+	mu.Lock()
+	defer mu.Unlock()
+	if len(sentTargets) != 1 || sentTargets[0] != childID {
+		t.Fatalf("expected SendUserCascadeMessage to route to %s after retry, got %v", childID, sentTargets)
+	}
+	if startCalls != 5 {
+		t.Fatalf("expected 5 total StartCascade calls, got %d", startCalls)
+	}
+}
+
+func TestCascadeStitch_DeleteCleansStitchedChildrenAndPreservesChainOnFailure(t *testing.T) {
+	tmpHome := t.TempDir()
+	t.Setenv("HOME", tmpHome)
+	t.Setenv("MGY_STITCH_STATE_PATH", filepath.Join(tmpHome, ".multigravity", "stitches.json"))
+	t.Setenv("MGY_SWITCH_COMPACT_HANDOVER", "true")
+	ResetCascadeStitchStoreForTest()
+	t.Cleanup(ResetCascadeStitchStoreForTest)
+
+	const (
+		rootID  = "77777777-7777-7777-7777-777777777777"
+		childID = "88888888-8888-8888-8888-888888888888"
+	)
+	t.Cleanup(func() {
+		RemoveDeletedCascadeTombstone(rootID)
+		RemoveDeletedCascadeTombstone(childID)
+		ClearStitchedSegmentCaches(rootID, []string{rootID, childID})
+	})
+
+	// Create fake local files for both rootID and childID under ~/.gemini/antigravity-cli
+	agRoot := filepath.Join(tmpHome, ".gemini", "antigravity-cli")
+	for _, cid := range []string{rootID, childID} {
+		for _, pth := range []string{
+			filepath.Join(agRoot, "conversations", cid+".db"),
+			filepath.Join(agRoot, "conversations", cid+".db-wal"),
+			filepath.Join(agRoot, "annotations", cid+".pbtxt"),
+			filepath.Join(agRoot, "brain", cid, "artifact.md"),
+		} {
+			if err := os.MkdirAll(filepath.Dir(pth), 0o700); err != nil {
+				t.Fatalf("mkdir %s: %v", pth, err)
+			}
+			if err := os.WriteFile(pth, []byte("test"), 0o600); err != nil {
+				t.Fatalf("write %s: %v", pth, err)
+			}
+		}
+	}
+
+	var (
+		mu             sync.Mutex
+		deleteFailMode bool
+		deletedIDs     []string
+	)
+	srv := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		if strings.HasSuffix(r.URL.Path, "/DeleteCascadeTrajectory") {
+			var req struct {
+				CascadeID string `json:"cascadeId"`
+			}
+			_ = json.NewDecoder(r.Body).Decode(&req)
+			mu.Lock()
+			fail := deleteFailMode
+			if !fail {
+				deletedIDs = append(deletedIDs, req.CascadeID)
+			}
+			mu.Unlock()
+			if fail {
+				w.WriteHeader(http.StatusInternalServerError)
+				w.Write([]byte(`{"error":"upstream busy"}`))
+				return
+			}
+			w.Write([]byte(`{}`))
+			return
+		}
+		w.Write([]byte(`{}`))
+	}))
+	defer srv.Close()
+
+	p := NewProxy(&inspector.Inspector{})
+	p.SetTestUpstream(extractTestPort(t, srv.URL), "tok")
+	p.NotifyAccountSwitched("acc-b")
+	defaultStitchStore.appendSegment(rootID, rootID, childID, "acc-b")
+
+	// Case A: Upstream delete fails (500) -> stitch chain and local files MUST remain intact, tombstones cleared.
+	mu.Lock()
+	deleteFailMode = true
+	mu.Unlock()
+	delBody, _ := json.Marshal(map[string]string{"cascadeId": rootID})
+	recFail := httptest.NewRecorder()
+	p.ServeHTTP(recFail, httptest.NewRequest(http.MethodPost, "/api/exa.language_server_pb.LanguageServerService/DeleteCascadeTrajectory", bytes.NewReader(delBody)))
+	if recFail.Code != http.StatusInternalServerError {
+		t.Fatalf("expected 500 on failed delete, got %d", recFail.Code)
+	}
+	if segs := GetStitchChainSegmentIDs(rootID); len(segs) != 2 {
+		t.Fatalf("expected stitch chain to be preserved after failed upstream delete, got %v", segs)
+	}
+	if IsDeletedCascade(rootID) || IsDeletedCascade(childID) {
+		t.Fatalf("expected tombstones to be released after failed delete")
+	}
+	if _, err := os.Stat(filepath.Join(agRoot, "conversations", childID+".db")); err != nil {
+		t.Fatalf("expected child .db to remain on disk after failed delete: %v", err)
+	}
+
+	// Case B: Upstream delete succeeds (200) -> chain removed, child deleted upstream, all local files purged.
+	mu.Lock()
+	deleteFailMode = false
+	mu.Unlock()
+	recOK := httptest.NewRecorder()
+	p.ServeHTTP(recOK, httptest.NewRequest(http.MethodPost, "/api/exa.language_server_pb.LanguageServerService/DeleteCascadeTrajectory", bytes.NewReader(delBody)))
+	if recOK.Code != http.StatusOK {
+		t.Fatalf("expected 200 on successful delete, got %d: %s", recOK.Code, recOK.Body.String())
+	}
+	if segs := GetStitchChainSegmentIDs(rootID); len(segs) != 0 {
+		t.Fatalf("expected stitch chain to be removed after successful delete, got %v", segs)
+	}
+	mu.Lock()
+	gotDeleted := append([]string(nil), deletedIDs...)
+	mu.Unlock()
+	joinedDeleted := strings.Join(gotDeleted, ",")
+	if !strings.Contains(joinedDeleted, rootID) || !strings.Contains(joinedDeleted, childID) {
+		t.Fatalf("expected upstream DeleteCascadeTrajectory for both root and child, got %v", gotDeleted)
+	}
+	for _, cid := range []string{rootID, childID} {
+		for _, pth := range []string{
+			filepath.Join(agRoot, "conversations", cid+".db"),
+			filepath.Join(agRoot, "conversations", cid+".db-wal"),
+			filepath.Join(agRoot, "annotations", cid+".pbtxt"),
+			filepath.Join(agRoot, "brain", cid),
+		} {
+			if _, err := os.Stat(pth); !os.IsNotExist(err) {
+				t.Fatalf("expected local path %s to be cleaned up after delete, err=%v", pth, err)
+			}
+		}
+	}
+}
+
+func TestCascadeStitch_ReloadPersistedSegmentEpochStillTriggersRollover(t *testing.T) {
+	tmpDir := t.TempDir()
+	t.Setenv("MGY_STITCH_STATE_PATH", filepath.Join(tmpDir, "stitches.json"))
+	t.Setenv("MGY_SWITCH_COMPACT_HANDOVER", "true")
+	ResetCascadeStitchStoreForTest()
+	t.Cleanup(ResetCascadeStitchStoreForTest)
+
+	const (
+		rootID  = "99999999-9999-9999-9999-999999999999"
+		childID = "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"
+	)
+
+	p := NewProxy(&inspector.Inspector{})
+	// Epoch 1: switch to acc-b and roll over to childID (persisted with Epoch=1)
+	p.NotifyAccountSwitched("acc-b")
+	defaultStitchStore.appendSegment(rootID, rootID, childID, "acc-b")
+	// Epoch 2: switch back to acc-a, then simulate a gateway restart BEFORE user sends next message
+	p.NotifyAccountSwitched("acc-a")
+
+	defaultStitchStore.mu.Lock()
+	defaultStitchStore.loaded = false
+	defaultStitchStore.switchEpoch = 0
+	defaultStitchStore.lastAccount = ""
+	defaultStitchStore.chainsByRoot = make(map[string]*CascadeStitchChain)
+	defaultStitchStore.rootByChild = make(map[string]string)
+	defaultStitchStore.cascadeEpoch = make(map[string]uint64)
+	defaultStitchStore.mu.Unlock()
+
+	needsRollover, prevActive, account := defaultStitchStore.needsHandoverRollover(rootID)
+	if !needsRollover {
+		t.Fatalf("expected needsHandoverRollover=true after reload when switchEpoch(2) > child.Epoch(1)")
+	}
+	if prevActive != childID || account != "acc-a" {
+		t.Fatalf("unexpected rollover state after reload: prevActive=%s account=%s", prevActive, account)
+	}
 }

@@ -260,7 +260,18 @@ func (p *Proxy) handleSendUserCascadeMessage(w http.ResponseWriter, r *http.Requ
 		// Account-switch compact handover & transparent virtual cascade stitching:
 		// Route to the active continuation leaf cascade, or lazily create a new continuation
 		// cascade with an offline compact summary if an account switch occurred.
-		activeTargetID, rolledOver := p.EnsureCascadeTargetForSend(r.Context(), cascadeID, rawMap, port, token)
+		activeTargetID, rolledOver, handoverErr := p.EnsureCascadeTargetForSend(r.Context(), cascadeID, rawMap, port, token)
+		if handoverErr != nil {
+			slog.Warn("[Stitch] Aborting SendUserCascadeMessage to avoid cross-account fallback",
+				"cascadeId", shortCascadeID(cascadeID), "err", handoverErr)
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusServiceUnavailable)
+			_ = json.NewEncoder(w).Encode(map[string]interface{}{
+				"code":    "unavailable",
+				"message": "Account switch handover could not start a new session yet; please retry sending.",
+			})
+			return
+		}
 		targetRewritten := false
 		if activeTargetID != "" && activeTargetID != cascadeID {
 			rawMap["cascadeId"] = activeTargetID
@@ -673,9 +684,10 @@ func (p *Proxy) handleDeleteCascadeTrajectory(w http.ResponseWriter, r *http.Req
 	isSafeCascadeID := cascadeIDRe.MatchString(reqData.CascadeID)
 
 	// S3 fix: only set the in-memory tombstone pre-emptively (so stream/list filters
-	// hide the cascade immediately). File deletion is deferred to the success branch
-	// below — doing it here would permanently destroy local files if upstream rejects.
-	stitchedIDs := RemoveStitchChain(reqData.CascadeID)
+	// hide the cascade immediately). Removing the stitch chain and local files is deferred
+	// to the success branch below — doing either here would break/decouple stitched segments
+	// or destroy local files if upstream rejects the delete.
+	stitchedIDs := GetStitchChainSegmentIDs(reqData.CascadeID)
 	if isSafeCascadeID {
 		RecordDeletedCascade(reqData.CascadeID)
 		for _, sid := range stitchedIDs {
@@ -719,6 +731,18 @@ func (p *Proxy) handleDeleteCascadeTrajectory(w http.ResponseWriter, r *http.Req
 
 	if rec.statusCode >= 200 && rec.statusCode < 300 {
 		if isSafeCascadeID {
+			if removed := RemoveStitchChain(reqData.CascadeID); len(removed) > 0 {
+				seen := make(map[string]bool, len(stitchedIDs)+len(removed))
+				for _, id := range stitchedIDs {
+					seen[id] = true
+				}
+				for _, id := range removed {
+					if !seen[id] {
+						stitchedIDs = append(stitchedIDs, id)
+						seen[id] = true
+					}
+				}
+			}
 			RecordDeletedCascade(reqData.CascadeID)
 			ClearTrajectoryCache(reqData.CascadeID)
 			ClearStitchedSegmentCaches(reqData.CascadeID, stitchedIDs)
@@ -728,7 +752,14 @@ func (p *Proxy) handleDeleteCascadeTrajectory(w http.ResponseWriter, r *http.Req
 				if sid != "" && sid != reqData.CascadeID && cascadeIDRe.MatchString(sid) {
 					allToClean = append(allToClean, sid)
 					RecordDeletedCascade(sid)
-					_, _, _ = p.callUpstreamRPC(r.Context(), "DeleteCascadeTrajectory", map[string]interface{}{"cascadeId": sid})
+					childBody, childStatus, _ := p.callUpstreamRPC(r.Context(), "DeleteCascadeTrajectory", map[string]interface{}{"cascadeId": sid})
+					if childStatus >= 500 && isBrainDirNotEmptyDeleteError(childBody, sid) {
+						if brainDir := resolveAntigravitySubPath("brain", sid); brainDir != "" {
+							if rmErr := os.RemoveAll(brainDir); rmErr == nil {
+								_, _, _ = p.callUpstreamRPC(r.Context(), "DeleteCascadeTrajectory", map[string]interface{}{"cascadeId": sid})
+							}
+						}
+					}
 				}
 			}
 			// Clean up local files only after upstream confirms deletion.
