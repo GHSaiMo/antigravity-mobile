@@ -20,6 +20,7 @@ public struct ConversationListView: View {
     @State private var pendingChatLaunchActions: [String: HomeScreenQuickAction.ChatLaunchAction] = [:]
     @State private var showQuickActionUnpairedAlert = false
     @State private var showAccountQuota = false
+    @State private var accountQuotaInitialTab = 0
     @State private var showBackgroundTasksSheet = false
     @State private var navigationPath: [ConversationItem] = []
     @State private var shareInbox = ShareInbox.shared
@@ -90,6 +91,10 @@ public struct ConversationListView: View {
         applyLifecycleAndRoutingModifiers(
             applySheetAndAlertModifiers(rootLayoutContent)
         )
+        .onReceive(NotificationCenter.default.publisher(for: .openAccountQuotaSheet)) { notif in
+            let tab = (notif.userInfo?["tab"] as? Int) ?? 0
+            openAccountQuotaSheet(initialTab: tab)
+        }
     }
 
     private var rootLayoutContent: some View {
@@ -236,7 +241,8 @@ public struct ConversationListView: View {
                     await viewModel.fetchQuotas(force: true)
                 },
                 enableSwitchButton: true,
-                linkMonitor: viewModel.linkMonitor
+                linkMonitor: viewModel.linkMonitor,
+                initialTab: accountQuotaInitialTab
             )
             .presentationDragIndicator(.visible)
         }
@@ -670,12 +676,16 @@ public struct ConversationListView: View {
         }
     }
 
-    private func openAccountQuotaSheet() {
+    private func openAccountQuotaSheet(initialTab: Int = 0) {
         guard settings.isPaired else { return }
+        accountQuotaInitialTab = initialTab
         PushNotificationManager.shared.clearPendingRouteIfMatching(.quota())
         if showAccountQuota {
             Task {
                 await viewModel.fetchQuotas(force: true)
+                if initialTab == 1 {
+                    await viewModel.fetchTokenHistory(force: false)
+                }
             }
             return
         }
@@ -690,6 +700,9 @@ public struct ConversationListView: View {
         }
         Task {
             await viewModel.fetchQuotas(force: true)
+            if initialTab == 1 {
+                await viewModel.fetchTokenHistory(force: false)
+            }
         }
     }
 

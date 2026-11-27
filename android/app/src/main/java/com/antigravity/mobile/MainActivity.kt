@@ -18,6 +18,9 @@ import androidx.compose.animation.core.spring
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.core.content.ContextCompat
 import androidx.navigation.NavHostController
 import androidx.navigation.NavType
@@ -51,6 +54,7 @@ import java.net.URLDecoder
 import java.net.URLEncoder
 import com.antigravity.mobile.ui.viewmodel.prepareSession
 import com.antigravity.mobile.ui.viewmodel.refresh
+import com.antigravity.mobile.ui.viewmodel.switchDraftProject
 import com.antigravity.mobile.ui.viewmodel.addAttachmentsFromUris
 import com.antigravity.mobile.data.service.ShareInbox
 import com.antigravity.mobile.data.model.ConversationStatus
@@ -305,6 +309,8 @@ class MainActivity : ComponentActivity() {
                 }
 
                 val startDestination = if (prefs.isPaired()) "conversations" else "pair"
+                var chatQuotaSheetTab by remember { mutableStateOf<Int?>(null) }
+                var showChatWorkspaceSwitcher by remember { mutableStateOf(false) }
 
                 androidx.compose.foundation.layout.Box(androidx.compose.ui.Modifier.fillMaxSize()) {
                 NavHost(
@@ -549,11 +555,68 @@ class MainActivity : ComponentActivity() {
                                     popUpTo("conversations")
                                 }
                             },
+                            onOpenAccountQuota = { tab ->
+                                chatQuotaSheetTab = tab
+                                conversationListViewModel.refreshQuotas()
+                                if (tab == 1) {
+                                    conversationListViewModel.loadTokenHistory(false)
+                                }
+                            },
+                            onSwitchDraftWorkspace = {
+                                showChatWorkspaceSwitcher = true
+                                conversationListViewModel.loadProjects()
+                            },
+                            onPrefetchTokenHistory = {
+                                conversationListViewModel.loadTokenHistory(false)
+                            },
                             dismissModalsTrigger = dismissModalsTrigger
                         )
                     }
                 }
                 ShareOverlay(navController)
+
+                chatQuotaSheetTab?.let { initialTab ->
+                    val quotaData by conversationListViewModel.quotaData.collectAsState()
+                    val isRefreshingQuota by conversationListViewModel.isRefreshingQuota.collectAsState()
+                    val tokenHistory by conversationListViewModel.tokenHistory.collectAsState()
+                    val isLoadingTokenHistory by conversationListViewModel.isLoadingTokenHistory.collectAsState()
+                    val showWeeklyPaceCursor by prefs.weeklyPaceCursorFlow.collectAsState()
+                    val selectedQuotaBucket by prefs.selectedQuotaBucketFlow.collectAsState()
+                    val isEmailMasked by prefs.cockpitEmailMaskedFlow.collectAsState()
+                    com.antigravity.mobile.ui.components.AccountQuotaSheet(
+                        quotaData = quotaData,
+                        isRefreshing = isRefreshingQuota,
+                        showWeeklyPaceCursor = showWeeklyPaceCursor,
+                        selectedQuotaBucket = selectedQuotaBucket,
+                        onSelectQuotaBucket = { prefs.selectedQuotaBucket = it },
+                        isMasked = isEmailMasked,
+                        onToggleMask = { prefs.cockpitEmailMasked = !isEmailMasked },
+                        tokenHistory = tokenHistory,
+                        isLoadingTokenHistory = isLoadingTokenHistory,
+                        onLoadTokenHistory = { force -> conversationListViewModel.loadTokenHistory(force) },
+                        onRefresh = { conversationListViewModel.refreshQuotas() },
+                        onSwitchAccount = { conversationListViewModel.switchCockpitAccount(it) },
+                        onDismiss = { chatQuotaSheetTab = null },
+                        initialTab = initialTab
+                    )
+                }
+
+                if (showChatWorkspaceSwitcher) {
+                    val projects by conversationListViewModel.projects.collectAsState()
+                    val isLoadingProjects by conversationListViewModel.isLoadingProjects.collectAsState()
+                    val projectsError by conversationListViewModel.projectsError.collectAsState()
+                    com.antigravity.mobile.ui.components.NewConversationSheet(
+                        projects = projects,
+                        isLoading = isLoadingProjects,
+                        errorMessage = projectsError,
+                        onRefreshProjects = { conversationListViewModel.loadProjects() },
+                        onSelectProject = { project ->
+                            showChatWorkspaceSwitcher = false
+                            chatViewModel.switchDraftProject(project)
+                        },
+                        onDismiss = { showChatWorkspaceSwitcher = false }
+                    )
+                }
 
                 if (showAddGatewayManualSheet) {
                     ManualPairingBottomSheet(

@@ -209,7 +209,8 @@ type GitCommitResponse struct {
 }
 
 type gitCascadeRequest struct {
-	CascadeID string `json:"cascadeId"`
+	CascadeID    string `json:"cascadeId"`
+	WorkspaceURI string `json:"workspaceUri,omitempty"`
 }
 
 // ---------------------------------------------------------------------------
@@ -942,27 +943,103 @@ func gitErrorStatus(err error) int {
 	return http.StatusInternalServerError
 }
 
+// resolveDraftWorkspaceRepo resolves a validated local workspace URI to its git repository root
+// for read-only status checks (e.g. mobile New Chat Launchpad before the first message creates a cascadeId).
+func (p *Proxy) resolveDraftWorkspaceRepo(ctx context.Context, rawURI string) (string, error) {
+	wsURI := strings.TrimSpace(rawURI)
+	if wsURI == "" || wsURI == "file://" || isRemoteURI(wsURI) {
+		return "", errNotGitRepo
+	}
+	resolvedWS, wsErr := validateWorkspaceDir(wsURI, false)
+	if wsErr != nil && !hasExplicitAllowedWorkspaceRoots() {
+		if projects, err := p.GetProjects(); err == nil && len(projects) > 0 {
+			paths := make([]string, 0, len(projects))
+			for _, prj := range projects {
+				if isRemoteURI(prj.URI) {
+					continue
+				}
+				if prj.Path != "" {
+					paths = append(paths, prj.Path)
+				} else if prj.URI != "" {
+					paths = append(paths, prj.URI)
+				}
+			}
+			syncDiscoveredWorkspaceRoots(paths)
+		}
+		resolvedWS, wsErr = validateWorkspaceDir(wsURI, false)
+	}
+	if wsErr != nil {
+		return "", wsErr
+	}
+	root, err := gitRepoRoot(ctx, resolvedWS)
+	if err != nil {
+		return "", errNotGitRepo
+	}
+	return root, nil
+}
+
 // HandleGitStatus handles POST /gateway/git/status.
 func (p *Proxy) HandleGitStatus(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
 	var req gitCascadeRequest
-	cascadeID, port, token, ok := p.decodeGitCascadeRequest(w, r, &req)
-	if !ok {
+	if err := json.NewDecoder(io.LimitReader(r.Body, 256*1024)).Decode(&req); err != nil {
+		writeJSONError(w, "Invalid request body", http.StatusBadRequest)
 		return
 	}
-	repo, err := p.resolveCascadeRepo(r.Context(), cascadeID, port, token)
-	if err != nil {
-		writeJSONError(w, err.Error(), gitErrorStatus(err))
+	cascadeID := strings.TrimSpace(req.CascadeID)
+	workspaceURI := strings.TrimSpace(req.WorkspaceURI)
+
+	var (
+		repo  string
+		err   error
+		port  int
+		token string
+	)
+	if cascadeID != "" {
+		if !cascadeIDRe.MatchString(cascadeID) {
+			writeJSONError(w, "cascadeId is invalid", http.StatusBadRequest)
+			return
+		}
+		port, token = p.ActiveUpstream()
+		if port == 0 {
+			writeJSONError(w, "No active Antigravity upstream", http.StatusServiceUnavailable)
+			return
+		}
+		repo, err = p.resolveCascadeRepo(r.Context(), cascadeID, port, token)
+		if err != nil {
+			writeJSONError(w, err.Error(), gitErrorStatus(err))
+			return
+		}
+	} else if workspaceURI != "" {
+		port, token = p.ActiveUpstream()
+		repo, err = p.resolveDraftWorkspaceRepo(r.Context(), workspaceURI)
+		if err != nil {
+			status := gitErrorStatus(err)
+			if !errors.Is(err, errNotGitRepo) {
+				status = http.StatusForbidden
+			}
+			writeJSONError(w, err.Error(), status)
+			return
+		}
+	} else {
+		writeJSONError(w, "cascadeId is required", http.StatusBadRequest)
 		return
 	}
+
 	forceRefresh := r.URL.Query().Get("refresh") == "1"
 	st, err := gitStatusCached(r.Context(), repo, forceRefresh)
 	if err != nil {
 		writeJSONError(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
-	if target, prs := p.fetchWorkspaceGitHubPullRequests(r.Context(), repo, st.Branch, port, token); target != nil || len(prs) > 0 {
-		st.GitHubTarget = target
-		st.PullRequests = prs
+	if port != 0 {
+		if target, prs := p.fetchWorkspaceGitHubPullRequests(r.Context(), repo, st.Branch, port, token); target != nil || len(prs) > 0 {
+			st.GitHubTarget = target
+			st.PullRequests = prs
+		}
 	}
 	writeGitJSON(w, st)
 }

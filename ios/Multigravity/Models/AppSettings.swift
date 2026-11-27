@@ -83,6 +83,7 @@ public final class AppSettings {
     private let compactCollapseToolsKey = "antigravity.compact_collapse_tools"
     private let compactCollapseTasksKey = "antigravity.compact_collapse_tasks"
     private let compactHideHealthyContextKey = "antigravity.compact_hide_healthy_context"
+    private let newChatLaunchpadEnabledKey = "antigravity.new_chat_launchpad_enabled"
     private let gatewayPlatformKey = "antigravity.gateway_platform"
     private let demoModeKey = "antigravity.demo_mode"
     private let workspaceNotesKey = "antigravity.workspace_notes"
@@ -337,6 +338,13 @@ public final class AppSettings {
     public var modelPickerQuotaWeekly: Bool {
         didSet {
             UserDefaults.standard.set(modelPickerQuotaWeekly, forKey: modelPickerQuotaWeeklyKey)
+        }
+    }
+
+    /// 新建对话页是否展示快捷启动台（默认开启；关闭后切回纯空白态并自动拉起键盘）
+    public var newChatLaunchpadEnabled: Bool {
+        didSet {
+            UserDefaults.standard.set(newChatLaunchpadEnabled, forKey: newChatLaunchpadEnabledKey)
         }
     }
 
@@ -1033,6 +1041,11 @@ public final class AppSettings {
             self.modelPickerQuotaEnabled = UserDefaults.standard.bool(forKey: modelPickerQuotaEnabledKey)
         }
         self.modelPickerQuotaWeekly = UserDefaults.standard.bool(forKey: modelPickerQuotaWeeklyKey)
+        if UserDefaults.standard.object(forKey: newChatLaunchpadEnabledKey) == nil {
+            self.newChatLaunchpadEnabled = true
+        } else {
+            self.newChatLaunchpadEnabled = UserDefaults.standard.bool(forKey: newChatLaunchpadEnabledKey)
+        }
         let savedQuotaBucket = UserDefaults.standard.string(forKey: selectedQuotaBucketKey) ?? QuotaBucketKind.gemini5h.rawValue
         self.selectedQuotaBucket = QuotaBucketKind(rawValue: savedQuotaBucket) ?? .gemini5h
         let rawThemeMode = UserDefaults.standard.string(forKey: themeModeKey) ?? "system"

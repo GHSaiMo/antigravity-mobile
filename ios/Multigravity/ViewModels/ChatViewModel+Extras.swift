@@ -37,6 +37,8 @@ extension ChatViewModel {
         guard let url = settings.serverURL else {
             hasGitChanges = false
             hasUncommittedFiles = false
+            gitBranch = nil
+            uncommittedFileCount = 0
             hasSessionChanges = false
             globalBackgroundTasks = []
             return
@@ -46,8 +48,26 @@ extension ChatViewModel {
             hasGitChanges = false
             hasUncommittedFiles = false
             hasSessionChanges = false
-            if let tasks = await bgTasks {
-                globalBackgroundTasks = tasks
+            if !isPureChat, let wsUri = draftProject?.uri, !wsUri.isEmpty {
+                let targetUri = wsUri
+                async let draftGit = try? apiClient.fetchGitStatus(workspaceUri: targetUri, baseURL: url)
+                let (g, tasks) = await (draftGit, bgTasks)
+                if let tasks {
+                    globalBackgroundTasks = tasks
+                }
+                if draftProject?.uri == targetUri {
+                    let branch = g?.branch.trimmingCharacters(in: .whitespacesAndNewlines)
+                    gitBranch = (branch?.isEmpty == false) ? branch : nil
+                    let count = g?.files.count ?? 0
+                    uncommittedFileCount = count
+                    hasUncommittedFiles = count > 0
+                }
+            } else {
+                gitBranch = nil
+                uncommittedFileCount = 0
+                if let tasks = await bgTasks {
+                    globalBackgroundTasks = tasks
+                }
             }
             return
         }
@@ -61,7 +81,10 @@ extension ChatViewModel {
         if let tasks {
             globalBackgroundTasks = tasks
         }
-        let hasFiles = !(g?.files.isEmpty ?? true)
+        let branch = g?.branch.trimmingCharacters(in: .whitespacesAndNewlines)
+        gitBranch = (branch?.isEmpty == false) ? branch : nil
+        uncommittedFileCount = g?.files.count ?? 0
+        let hasFiles = uncommittedFileCount > 0
         let prs = g?.pullRequests ?? []
         hasGitChanges = hasFiles || !prs.isEmpty
         hasUncommittedFiles = hasFiles
@@ -71,6 +94,51 @@ extension ChatViewModel {
             gitChipLabel = "Commit"
         }
         hasSessionChanges = c?.hasChanges ?? false
+    }
+
+    /// 本地草稿态（首条消息发送前）就地切换绑定的工作区或纯 Chat，零网关开销。
+    @MainActor
+    public func switchDraftProject(_ project: ProjectItem) {
+        guard isDraftConversation, messages.isEmpty else { return }
+        let isPure = project.isPureChat
+        self.draftProject = project
+        self.workspaceName = isPure ? "Chat" : project.name
+        self.currentTitle = isPure ? String(localized: "新对话") : project.displayName
+        self.gitBranch = nil
+        self.uncommittedFileCount = 0
+        self.hasUncommittedFiles = false
+        self.hasGitChanges = false
+        self.trustStatus = nil
+
+        if let session = self.draftSession {
+            let updated = LocalDraftSession(
+                id: session.id,
+                project: project,
+                draftText: inputText.isEmpty ? session.draftText : inputText,
+                draftImages: session.draftImages,
+                draftSlashCommands: selectedSlashCommands.isEmpty ? session.draftSlashCommands : selectedSlashCommands,
+                createdAt: session.createdAt,
+                updatedAt: Date()
+            )
+            self.draftSession = updated
+            cacheManager.saveLocalDraftSession(updated)
+        } else if cascadeId.hasPrefix("local_draft_") {
+            let created = LocalDraftSession(
+                id: cascadeId,
+                project: project,
+                draftText: inputText,
+                draftImages: [],
+                draftSlashCommands: selectedSlashCommands
+            )
+            self.draftSession = created
+            cacheManager.saveLocalDraftSession(created)
+        }
+
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            await self.refreshActionAvailability()
+            await self.refreshProjectTrust()
+        }
     }
 
     // MARK: - 会话章节目录 TOC (Antigravity 2.30.0 GetChapterTitles)

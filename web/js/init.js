@@ -305,8 +305,19 @@ function initApp() {
   const toolsCheckbox = document.getElementById("settings-compact-collapse-tools");
   const tasksCheckbox = document.getElementById("settings-compact-collapse-tasks");
   const ctxCheckbox = document.getElementById("settings-compact-hide-healthy-ctx");
+  const launchpadCheckbox = document.getElementById("settings-new-chat-launchpad");
 
   const kmSummary = document.getElementById("settings-compact-summary");
+
+  if (launchpadCheckbox) {
+    launchpadCheckbox.checked = localStorage.getItem("agy_new_chat_launchpad") !== "false";
+    launchpadCheckbox.addEventListener("change", () => {
+      localStorage.setItem("agy_new_chat_launchpad", launchpadCheckbox.checked ? "true" : "false");
+      if (typeof window.refreshNewChatLaunchpad === "function") {
+        window.refreshNewChatLaunchpad();
+      }
+    });
+  }
 
   const syncCompactUI = () => {
     const enabled = window.CompactModePrefs.isEnabled();

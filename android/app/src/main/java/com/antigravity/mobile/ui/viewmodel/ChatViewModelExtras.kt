@@ -36,9 +36,17 @@ suspend fun ChatViewModel.refreshActionAvailability(changesSupported: Boolean) {
     val cascadeId = _uiState.value.cascadeId
     val bgTasks = apiClient.fetchGlobalBackgroundTasks().getOrNull()
     if (cascadeId.isLocalDraft()) {
+        val draftProj = currentDraftProject
+        val draftUri = draftProj?.takeIf { !it.isPureChat }?.uri?.takeIf { it.isNotBlank() }
+        val draftGit = if (draftUri != null) apiClient.getGitStatusByWorkspace(draftUri).getOrNull() else null
+        if (_uiState.value.cascadeId != cascadeId) return
+        val draftBranch = draftGit?.branch?.trim()?.takeIf { it.isNotEmpty() }
+        val draftDirty = draftGit?.files?.size ?: 0
         _uiState.value = _uiState.value.copy(
             hasGitChanges = false,
-            hasUncommittedFiles = false,
+            hasUncommittedFiles = draftDirty > 0,
+            gitBranch = draftBranch,
+            uncommittedFileCount = draftDirty,
             hasSessionChanges = false,
             globalBackgroundTasks = bgTasks ?: _uiState.value.globalBackgroundTasks
         )
@@ -47,7 +55,8 @@ suspend fun ChatViewModel.refreshActionAvailability(changesSupported: Boolean) {
     val git = apiClient.getGitStatus(cascadeId).getOrNull()
     val changes = if (changesSupported) apiClient.getCascadeChanges(cascadeId).getOrNull() else null
     if (_uiState.value.cascadeId != cascadeId) return
-    val hasFiles = git?.files?.isNotEmpty() == true
+    val dirtyCount = git?.files?.size ?: 0
+    val hasFiles = dirtyCount > 0
     val prs = git?.pullRequests.orEmpty()
     val firstPrNum = prs.firstOrNull()?.number ?: 0
     val chipLabel = when {
@@ -58,10 +67,49 @@ suspend fun ChatViewModel.refreshActionAvailability(changesSupported: Boolean) {
     _uiState.value = _uiState.value.copy(
         hasGitChanges = hasFiles || prs.isNotEmpty(),
         hasUncommittedFiles = hasFiles,
+        gitBranch = git?.branch?.trim()?.takeIf { it.isNotEmpty() },
+        uncommittedFileCount = dirtyCount,
         gitChipLabel = chipLabel,
         hasSessionChanges = changes?.hasChanges == true,
         globalBackgroundTasks = bgTasks ?: _uiState.value.globalBackgroundTasks
     )
+}
+
+/** 本地草稿态（首条消息发送前）就地切换绑定的工作区或纯 Chat，零网关开销。 */
+fun ChatViewModel.switchDraftProject(project: com.antigravity.mobile.data.model.ProjectItem) {
+    val state = _uiState.value
+    if (!state.cascadeId.isLocalDraft() || state.messages.isNotEmpty()) return
+    val isPure = project.isPureChat
+    val nextTitle = if (isPure) "新对话".loc else project.displayName
+    val nextWs = if (isPure) "Chat" else project.name
+    currentDraftProject = project
+    _uiState.value = state.copy(
+        title = nextTitle,
+        workspaceName = nextWs,
+        workspaceFolder = if (isPure) null else project.path.takeIf { it.isNotBlank() },
+        gitBranch = null,
+        uncommittedFileCount = 0,
+        hasUncommittedFiles = false,
+        hasGitChanges = false,
+        trustStatus = null
+    )
+    prefs?.let { p ->
+        val existing = p.getLocalDraftSession(state.cascadeId)
+        val updated = if (existing != null) {
+            existing.copy(project = project, updatedAtEpochMs = System.currentTimeMillis())
+        } else {
+            com.antigravity.mobile.data.model.LocalDraftSession(
+                id = state.cascadeId,
+                project = project,
+                draftText = _inputText.value
+            )
+        }
+        p.saveLocalDraftSession(updated)
+    }
+    viewModelScope.launch {
+        refreshActionAvailability(changesSupported = false)
+        refreshProjectTrust()
+    }
 }
 
 fun ChatViewModel.updateGlobalBackgroundTasks(tasks: List<com.antigravity.mobile.data.model.GlobalBackgroundTaskItem>) {

@@ -2,6 +2,9 @@ package proxy
 
 import (
 	"context"
+	"encoding/json"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -308,5 +311,65 @@ func TestFileURIToLocalPath(t *testing.T) {
 	}
 	if !strings.HasSuffix(filepath.ToSlash(got), "/Users/me/my proj") {
 		t.Errorf("got %q", got)
+	}
+}
+
+func TestHandleGitStatusByWorkspaceURI(t *testing.T) {
+	requireGit(t)
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("GIT_CONFIG_NOSYSTEM", "1")
+	t.Setenv("GIT_CONFIG_GLOBAL", filepath.Join(home, ".gitconfig"))
+
+	root := filepath.Join(home, "demo-repo")
+	if err := os.MkdirAll(root, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	ctx := context.Background()
+	for _, args := range [][]string{
+		{"init", "-q", "-b", "main"},
+		{"config", "user.name", "Test"},
+		{"config", "user.email", "test@example.com"},
+	} {
+		if out, err := runGit(ctx, root, gitStatusTimeout, args...); err != nil {
+			t.Fatalf("git %v: %v %s", args, err, out)
+		}
+	}
+	writeTestFile(t, root, "a.txt", "hello\n")
+	if out, err := runGit(ctx, root, gitCommitTimeout, "add", "a.txt"); err != nil {
+		t.Fatalf("git add: %v %s", err, out)
+	}
+	if out, err := runGit(ctx, root, gitCommitTimeout, "commit", "-qm", "init"); err != nil {
+		t.Fatalf("git commit: %v %s", err, out)
+	}
+	writeTestFile(t, root, "dirty.txt", "changed\n")
+
+	p := &Proxy{}
+	body := `{"cascadeId":"","workspaceUri":"` + filePathToURI(root) + `"}`
+	req := httptest.NewRequest(http.MethodPost, "/gateway/git/status?refresh=1", strings.NewReader(body))
+	rec := httptest.NewRecorder()
+	p.HandleGitStatus(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("HandleGitStatus(workspaceUri) status=%d body=%s (home=%s)", rec.Code, rec.Body.String(), home)
+	}
+	var st GitStatusResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &st); err != nil {
+		t.Fatalf("unmarshal response: %v", err)
+	}
+	if st.Branch != "main" {
+		t.Errorf("branch = %q, want main", st.Branch)
+	}
+	if len(st.Files) != 1 || st.Files[0].Path != "dirty.txt" {
+		t.Errorf("files = %+v, want [dirty.txt]", st.Files)
+	}
+
+	// Unregistered / forbidden path outside allowed root ($HOME) must be rejected.
+	outside := t.TempDir()
+	badBody := `{"cascadeId":"","workspaceUri":"` + filePathToURI(outside) + `"}`
+	badReq := httptest.NewRequest(http.MethodPost, "/gateway/git/status", strings.NewReader(badBody))
+	badRec := httptest.NewRecorder()
+	p.HandleGitStatus(badRec, badReq)
+	if badRec.Code != http.StatusForbidden {
+		t.Errorf("outside workspace status=%d, want 403", badRec.Code)
 	}
 }

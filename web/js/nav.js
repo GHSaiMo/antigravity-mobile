@@ -232,17 +232,21 @@ function renderRoute() {
     const streamEl = document.getElementById("messages-stream");
     if (streamEl) {
       streamEl.__currentCascadeId = null;
-      streamEl.innerHTML = `
-        <div class="chat-empty-state">
-          <div class="chat-empty-icon">
-            <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
-              <path d="m12 3-1.912 5.813a2 2 0 0 1-1.275 1.275L3 12l5.813 1.912a2 2 0 0 1 1.275 1.275L12 21l1.912-5.813a2 2 0 0 1 1.275-1.275L21 12l-5.813-1.912a2 2 0 0 1-1.275-1.275L12 3Z"></path>
-            </svg>
+      if (typeof window.renderNewChatLaunchpad === "function") {
+        window.renderNewChatLaunchpad(streamEl, activeDraftSession);
+      } else {
+        streamEl.innerHTML = `
+          <div class="chat-empty-state">
+            <div class="chat-empty-icon">
+              <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="m12 3-1.912 5.813a2 2 0 0 1-1.275 1.275L3 12l5.813 1.912a2 2 0 0 1 1.275 1.275L12 21l1.912-5.813a2 2 0 0 1 1.275-1.275L21 12l-5.813-1.912a2 2 0 0 1-1.275-1.275L12 3Z"></path>
+              </svg>
+            </div>
+            <div class="chat-empty-title">${activeDraftSession.isPure ? "新对话" : escapeHtml(activeDraftSession.name)}</div>
+            <div class="chat-empty-desc">${activeDraftSession.isPure ? "新对话模式，在下方输入指令开启对话" : "已连接工作区，在下方输入指令开启对话"}</div>
           </div>
-          <div class="chat-empty-title">${activeDraftSession.isPure ? "新对话" : escapeHtml(activeDraftSession.name)}</div>
-          <div class="chat-empty-desc">${activeDraftSession.isPure ? "新对话模式，在下方输入指令开启对话" : "已连接工作区，在下方输入指令开启对话"}</div>
-        </div>
-      `;
+        `;
+      }
     }
 
     if (chatInput) {
@@ -253,9 +257,9 @@ function renderRoute() {
       if (prefillText) {
         chatInput.style.height = Math.min(chatInput.scrollHeight, 120) + "px";
       }
-      // iOS WebKit rejects asynchronous setTimeout(.focus()) keyboard summons, leaving a
-      // blinking caret without opening the software keyboard; only auto-focus on desktop pointers.
-      if (window.matchMedia && window.matchMedia("(pointer: fine)").matches) {
+      const launchpadEnabled = !(window.NewChatLaunchpadPrefs && !window.NewChatLaunchpadPrefs.isEnabled());
+      // 默认开启快捷启动台时不自动聚焦拉起软键盘；仅在关闭启动台或已有预填文本时聚焦。
+      if ((!launchpadEnabled || prefillText) && window.matchMedia && window.matchMedia("(pointer: fine)").matches) {
         setTimeout(() => {
           chatInput.focus();
           if (prefillText && typeof chatInput.setSelectionRange === "function") {
@@ -2132,3 +2136,407 @@ function initBottomStackObserver() {
   new ResizeObserver(update).observe(stack);
   update();
 }
+
+// ==========================================================================
+// 新建对话轻启动台 (方案 A · 与 iOS / Android 统一规范)
+// ==========================================================================
+
+window.NewChatLaunchpadPrefs = {
+  isEnabled() {
+    return localStorage.getItem("agy_new_chat_launchpad") !== "false";
+  }
+};
+
+const _launchpadDraftGitCache = {};
+let _launchpadKeyboardFocused = false;
+let _launchpadListenersBound = false;
+
+function _bindLaunchpadKeyboardListeners() {
+  if (_launchpadListenersBound) return;
+  _launchpadListenersBound = true;
+  const inputEl = document.getElementById("chat-input");
+  if (!inputEl) return;
+  inputEl.addEventListener("focus", () => {
+    if (window.innerWidth <= 820) {
+      _launchpadKeyboardFocused = true;
+      window.refreshNewChatLaunchpad?.();
+    }
+  });
+  inputEl.addEventListener("blur", () => {
+    if (_launchpadKeyboardFocused) {
+      _launchpadKeyboardFocused = false;
+      window.refreshNewChatLaunchpad?.();
+    }
+  });
+}
+
+function _launchpadGreeting(accountName, compact) {
+  const hour = new Date().getHours();
+  const isEnLang = typeof isEn === "function" && isEn();
+  const isJaLang = typeof isJa === "function" && isJa();
+  const period = hour >= 5 && hour < 12
+    ? (isEnLang ? "Good morning" : (isJaLang ? "おはようございます" : "上午好"))
+    : (hour >= 12 && hour < 18
+      ? (isEnLang ? "Good afternoon" : (isJaLang ? "こんにちは" : "下午好"))
+      : (isEnLang ? "Good evening" : (isJaLang ? "こんばんは" : "晚上好")));
+  const raw = (accountName || "").trim();
+  const shortName = raw ? raw.split(/\s+/)[0] : "";
+  if (compact) {
+    return shortName ? `${period}, ${shortName}` : period;
+  }
+  if (isEnLang) return shortName ? `${period}, what's next, ${shortName}?` : `${period}, what's next?`;
+  if (isJaLang) return shortName ? `${period}、${shortName}さん。次は何をしますか？` : `${period}、次は何をしますか？`;
+  return shortName ? `${period}，接下来做什么，${shortName}？` : `${period}，接下来做什么？`;
+}
+
+function _buildLaunchpadCards(isPure, dirtyCount) {
+  const tr = (s) => (typeof t === "function" ? t(s) : s);
+  const isEnLang = typeof isEn === "function" && isEn();
+  const isJaLang = typeof isJa === "function" && isJa();
+  const cards = [];
+
+  if (!isPure) {
+    if (dirtyCount > 0) {
+      cards.push({
+        icon: "🔍",
+        title: isEnLang ? `Review ${dirtyCount} changes` : (isJaLang ? `変更 ${dirtyCount} 件をレビュー` : `审查当前 ${dirtyCount} 个改动`),
+        sub: isEnLang ? "Inspect git diff & suggestions" : (isJaLang ? "git diff のリスクと改善確認" : "检查 git diff 风险与优化"),
+        prompt: isEnLang
+          ? "Please review the current uncommitted changes, highlight potential risks, and suggest improvements"
+          : (isJaLang ? "未コミットの変更点を確認し、潜在リスクと改善案を教えてください" : "请先检查当前未提交的改动，指出潜在风险并给出优化建议")
+      });
+    } else {
+      cards.push({
+        icon: "🧭",
+        title: isEnLang ? "Map Project Structure" : (isJaLang ? "プロジェクト構造を把握" : "梳理项目结构"),
+        sub: isEnLang ? "Find core modules & entry points" : (isJaLang ? "主要モジュールと入口を整理" : "快速定位核心模块与入口"),
+        prompt: isEnLang
+          ? "Please map out the core modules and key entry points of this workspace"
+          : (isJaLang ? "このワークスペースの主要モジュールとエントリポイントを整理してください" : "请先梳理这个工作区的核心模块与关键入口文件")
+      });
+    }
+  }
+
+  // 优先承接用户放入快捷菜单的自定义 Workflow 模板
+  const defaultIds = new Set(["code_review", "test_and_fix", "research", "custom"]);
+  const maxPinned = isPure ? 1 : 2;
+  const templates = (typeof workflowState !== "undefined" && Array.isArray(workflowState.templates))
+    ? workflowState.templates
+    : (typeof loadCachedWorkflowTemplates === "function" ? loadCachedWorkflowTemplates() : []);
+  templates
+    .filter((tpl) => tpl && tpl.inQuickMenu && !defaultIds.has(tpl.id))
+    .slice(0, maxPinned)
+    .forEach((tpl) => {
+      cards.push({
+        icon: "📌",
+        title: tpl.title || tr("置顶模板"),
+        sub: tpl.subtitle || tr("置顶模板"),
+        prompt: tpl.templatePrompt || ""
+      });
+    });
+
+  const fallback = isPure ? [
+    {
+      icon: "💬",
+      title: isEnLang ? "/grill-me Discuss" : (isJaLang ? "/grill-me 壁打ち" : "/grill-me 探讨"),
+      sub: isEnLang ? "Unpack ideas step by step" : (isJaLang ? "アイデアを段階的に深掘り" : "逐项拆解模糊想法"),
+      prompt: "/grill-me "
+    },
+    {
+      icon: "🌐",
+      title: isEnLang ? "Web Fact-Check" : (isJaLang ? "最新情報を調査" : "联网核查资讯"),
+      sub: isEnLang ? "Verify latest updates online" : (isJaLang ? "Web で事実関係を確認" : "交叉验证最新进展"),
+      prompt: isEnLang ? "Please verify the latest updates and reliable sources for: " : (isJaLang ? "以下の件の最新状況と信頼できる情報源を調べてください：" : "请帮我联网核查以下消息的最新进展与可靠来源：")
+    },
+    {
+      icon: "✍️",
+      title: isEnLang ? "Draft & Polish" : (isJaLang ? "文章の下書き・推敲" : "起草与润色"),
+      sub: isEnLang ? "Articles, notes, or outlines" : (isJaLang ? "記事・お知らせ・構成案" : "文章 / 公告 / 提纲"),
+      prompt: isEnLang ? "Help me draft a clear and concise write-up for: " : (isJaLang ? "次の内容について分かりやすい説明文を作成してください：" : "帮我起草一份清晰自然的说明：")
+    },
+    {
+      icon: "⚖️",
+      title: isEnLang ? "Compare Options" : (isJaLang ? "案を比較検討" : "多维方案对比"),
+      sub: isEnLang ? "Weigh pros, cons & tradeoffs" : (isJaLang ? "利点・コスト・リスクを比較" : "权衡利弊与取舍"),
+      prompt: isEnLang ? "Please compare these options across pros, cons, cost, and risk: " : (isJaLang ? "以下の案をメリット・コスト・リスクの観点から比較してください：" : "请从利弊、成本与风险角度对比以下方案：")
+    }
+  ] : [
+    {
+      icon: "🗺️",
+      title: isEnLang ? "/plan Architect" : (isJaLang ? "/plan 計画設計" : "/plan 方案规划"),
+      sub: isEnLang ? "Align steps before coding" : (isJaLang ? "手順を固めてから実装" : "先对齐步骤再动手"),
+      prompt: "/plan "
+    },
+    {
+      icon: "💬",
+      title: isEnLang ? "/grill-me Discuss" : (isJaLang ? "/grill-me 壁打ち" : "/grill-me 探讨"),
+      sub: isEnLang ? "Walk through design choices" : (isJaLang ? "要件と設計を一つずつ整理" : "逐项拆解需求决策"),
+      prompt: "/grill-me "
+    },
+    {
+      icon: "🐛",
+      title: isEnLang ? "Debug an Issue" : (isJaLang ? "バグ原因を調査" : "定位排查 Bug"),
+      sub: isEnLang ? "Trace root cause from logs" : (isJaLang ? "ログとコードから原因特定" : "结合上下文与日志定位"),
+      prompt: isEnLang ? "Please help investigate and find the root cause of this issue: " : (isJaLang ? "以下の問題の根本原因を調査してください：" : "请帮我排查并定位以下问题的根因：")
+    },
+    {
+      icon: "✨",
+      title: isEnLang ? "Refactor & Polish" : (isJaLang ? "改善とリファクタ" : "优化与重构"),
+      sub: isEnLang ? "Improve clarity & stability" : (isJaLang ? "可読性と安定性を向上" : "提升可读性与稳定性"),
+      prompt: isEnLang ? "Please identify improvements in the current module and propose a lightweight refactor: " : (isJaLang ? "現在のモジュールの改善点を分析し、軽量なリファクタ案を提案してください：" : "请分析当前模块可优化的设计点并给出轻量重构方案：")
+    }
+  ];
+
+  for (const item of fallback) {
+    if (cards.length >= 4) break;
+    cards.push(item);
+  }
+  return cards.slice(0, 4);
+}
+
+function _fetchDraftGitStatusIfNeeded(uri) {
+  if (!uri || _launchpadDraftGitCache[uri]?.pending) return;
+  const cached = _launchpadDraftGitCache[uri];
+  if (cached && Date.now() - cached.fetchedAt < 15000) return;
+  _launchpadDraftGitCache[uri] = { ...(cached || {}), pending: true };
+  const fetcher = typeof postGatewayJson === "function"
+    ? postGatewayJson("/gateway/git/status", { cascadeId: "", workspaceUri: uri })
+    : fetch("/gateway/git/status", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ cascadeId: "", workspaceUri: uri })
+      }).then((r) => (r.ok ? r.json() : null));
+  Promise.resolve(fetcher)
+    .then((st) => {
+      _launchpadDraftGitCache[uri] = {
+        branch: st && st.branch ? String(st.branch).trim() : "",
+        dirtyCount: st && Array.isArray(st.files) ? st.files.length : 0,
+        fetchedAt: Date.now(),
+        pending: false
+      };
+      window.refreshNewChatLaunchpad?.();
+    })
+    .catch(() => {
+      _launchpadDraftGitCache[uri] = { branch: "", dirtyCount: 0, fetchedAt: Date.now(), pending: false };
+    });
+}
+
+window.renderNewChatLaunchpad = function (streamEl, draft) {
+  if (!streamEl || !draft) return;
+  _bindLaunchpadKeyboardListeners();
+  const isPure = !!draft.isPure;
+  const enabled = window.NewChatLaunchpadPrefs.isEnabled();
+
+  if (!enabled) {
+    streamEl.innerHTML = `
+      <div class="chat-empty-state">
+        <div class="chat-empty-icon">
+          <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="m12 3-1.912 5.813a2 2 0 0 1-1.275 1.275L3 12l5.813 1.912a2 2 0 0 1 1.275 1.275L12 21l1.912-5.813a2 2 0 0 1 1.275-1.275L21 12l-5.813-1.912a2 2 0 0 1-1.275-1.275L12 3Z"></path>
+          </svg>
+        </div>
+        <div class="chat-empty-title">${isPure ? (typeof t === "function" ? t("新对话") : "新对话") : escapeHtml(draft.name)}</div>
+        <div class="chat-empty-desc">${isPure ? (typeof t === "function" ? t("新对话模式，在下方输入指令开启对话") : "新对话模式，在下方输入指令开启对话") : (typeof t === "function" ? t("已连接工作区，在下方输入指令开启对话") : "已连接工作区，在下方输入指令开启对话")}</div>
+      </div>
+    `;
+    return;
+  }
+
+  // 静默预热 Token 历史与草稿 Git 状态（零闪烁）
+  if (typeof refreshTokenHistoryIfStale === "function" && (typeof currentTokenHistory === "undefined" || !currentTokenHistory)) {
+    try { refreshTokenHistoryIfStale(); } catch {}
+  }
+  if (!isPure && draft.uri) {
+    _fetchDraftGitStatusIfNeeded(draft.uri);
+  }
+
+  const quotaData = typeof currentCockpitQuotas !== "undefined" ? currentCockpitQuotas : null;
+  const currentAcc = quotaData && (quotaData.current_account || (quotaData.accounts && quotaData.accounts[0]));
+  const resolvedQuota = (currentAcc && typeof resolveAccountQuotaDisplay === "function")
+    ? resolveAccountQuotaDisplay(currentAcc, typeof selectedQuotaBucket !== "undefined" ? selectedQuotaBucket : "gemini_5h")
+    : null;
+  const quotaPct = resolvedQuota && resolvedQuota.bucket ? Math.max(0, Math.min(100, Math.round(resolvedQuota.bucket.remaining_percent))) : null;
+  const quotaClass = quotaPct == null ? "" : (quotaPct >= 50 ? "good" : (quotaPct >= 20 ? "warn" : "danger"));
+  const quotaShortLabel = resolvedQuota
+    ? (resolvedQuota.key === "gemini_5h" ? "Gemini 5h"
+      : resolvedQuota.key === "gemini_weekly" ? "Gemini"
+      : resolvedQuota.key === "claude_5h" ? "Claude 5h"
+      : resolvedQuota.key === "claude_weekly" ? "Claude" : "")
+    : "";
+
+  const tokenData = typeof currentTokenHistory !== "undefined" ? currentTokenHistory : null;
+  const todayTokens = tokenData?.summary?.today_tokens > 0 && typeof formatTokensCompact === "function"
+    ? formatTokensCompact(tokenData.summary.today_tokens) : "";
+  const cacheHit = tokenData && typeof computeTokenCacheHitRate === "function"
+    ? computeTokenCacheHitRate(tokenData) : null;
+  const bookEq = tokenData && typeof resolveTokenBookEquivalent === "function"
+    ? resolveTokenBookEquivalent(tokenData) : null;
+
+  const gitInfo = (!isPure && draft.uri) ? (_launchpadDraftGitCache[draft.uri] || {}) : {};
+  const gitBranch = gitInfo.branch || "";
+  const dirtyCount = gitInfo.dirtyCount || 0;
+  const compact = _launchpadKeyboardFocused && window.innerWidth <= 820;
+
+  const isEnLang = typeof isEn === "function" && isEn();
+  const isJaLang = typeof isJa === "function" && isJa();
+  const todayLabel = isEnLang ? "Today" : (isJaLang ? "今日" : "今日");
+  const cacheLabel = isEnLang ? "Cache" : (isJaLang ? "キャッシュ" : "缓存");
+  const quickLabel = isEnLang ? "Quick Start" : (isJaLang ? "クイック開始" : "快捷发起");
+  const switchLabel = isEnLang ? "Switch" : (isJaLang ? "切替" : "切换");
+  const pickWsLabel = isEnLang ? "Workspace" : (isJaLang ? "選択" : "选工作区");
+  const cleanLabel = isEnLang ? "Clean" : (isJaLang ? "クリーン" : "干净");
+  const pureDesc = isEnLang ? "Pure chat · No workspace linked" : (isJaLang ? "チャット専用 · ワークスペース未連携" : "纯对话模式 · 不关联代码工作区");
+  const dirtyLabel = isEnLang ? `${dirtyCount} dirty` : (isJaLang ? `${dirtyCount} 変更` : `${dirtyCount} 改动`);
+
+  const hasStatus = quotaPct !== null || !!todayTokens || cacheHit !== null;
+  const cards = _buildLaunchpadCards(isPure, dirtyCount);
+  const greeting = _launchpadGreeting(currentAcc?.name, compact);
+
+  if (compact) {
+    streamEl.innerHTML = `
+      <div class="launchpad-root launchpad-compact">
+        <div class="launchpad-compact-head">
+          <div class="launchpad-header">
+            <span class="launchpad-brand">✦</span>
+            <span class="launchpad-greeting">${escapeHtml(greeting)}</span>
+          </div>
+          ${hasStatus ? `
+            <button type="button" class="launchpad-mini-pill" data-lp-action="quota">
+              ${quotaPct !== null ? `<span class="lp-q-val ${quotaClass}">⚡${quotaPct}%</span>` : ""}
+              ${todayTokens ? `<span class="lp-muted">${quotaPct !== null ? "· " : ""}${escapeHtml(todayTokens)}</span>` : ""}
+            </button>
+          ` : ""}
+        </div>
+        <div class="launchpad-compact-strip">
+          ${cards.map((c, idx) => `
+            <button type="button" class="launchpad-compact-chip" data-lp-card="${idx}">
+              <span>${c.icon}</span>
+              <span>${escapeHtml(c.title)}</span>
+            </button>
+          `).join("")}
+        </div>
+      </div>
+    `;
+  } else {
+    const rightParts = [];
+    if (todayTokens) rightParts.push(`${todayLabel} ${todayTokens}`);
+    if (cacheHit !== null) rightParts.push(`${cacheLabel} ${cacheHit}%`);
+
+    streamEl.innerHTML = `
+      <div class="launchpad-root">
+        <div class="launchpad-header">
+          <span class="launchpad-brand">✦</span>
+          <span class="launchpad-greeting">${escapeHtml(greeting)}</span>
+        </div>
+
+        ${hasStatus ? `
+          <button type="button" class="launchpad-status-strip" data-lp-action="quota">
+            <div class="lp-status-left">
+              ${quotaPct !== null ? `
+                <span class="lp-q-bolt ${quotaClass}">⚡</span>
+                ${quotaShortLabel ? `<span class="lp-q-name">${escapeHtml(quotaShortLabel)}</span>` : ""}
+                <span class="lp-q-val ${quotaClass}">${quotaPct}%</span>
+                <span class="lp-q-bar"><span class="lp-q-fill ${quotaClass}" style="width:${Math.max(4, quotaPct)}%"></span></span>
+              ` : ""}
+              ${rightParts.length ? `<span class="lp-status-meta">${escapeHtml(rightParts.join(" · "))}</span>` : ""}
+            </div>
+            <span class="lp-chevron">›</span>
+          </button>
+        ` : ""}
+
+        <div class="launchpad-ws-bar">
+          ${isPure ? `
+            <span class="lp-ws-icon">💬</span>
+            <span class="lp-ws-pure">${escapeHtml(pureDesc)}</span>
+            <button type="button" class="lp-ws-switch" data-lp-action="switch-ws">${escapeHtml(pickWsLabel)}</button>
+          ` : `
+            <span class="lp-ws-icon">📁</span>
+            <span class="lp-ws-name">${escapeHtml(draft.name || "")}</span>
+            ${gitBranch ? `<span class="lp-ws-branch">${escapeHtml(gitBranch)}</span>` : ""}
+            ${dirtyCount > 0
+              ? `<button type="button" class="lp-ws-dirty" data-lp-action="dirty">${escapeHtml(dirtyLabel)}</button>`
+              : (gitBranch ? `<span class="lp-ws-clean">${escapeHtml(cleanLabel)}</span>` : "")}
+            <span class="lp-spacer"></span>
+            <button type="button" class="lp-ws-switch" data-lp-action="switch-ws">${escapeHtml(switchLabel)}</button>
+          `}
+        </div>
+
+        <div class="launchpad-section">
+          <div class="launchpad-section-title">${escapeHtml(quickLabel)}</div>
+          <div class="launchpad-grid">
+            ${cards.map((c, idx) => `
+              <button type="button" class="launchpad-card" data-lp-card="${idx}">
+                <div class="launchpad-card-title"><span>${c.icon}</span><span>${escapeHtml(c.title)}</span></div>
+                <div class="launchpad-card-sub">${escapeHtml(c.sub)}</div>
+              </button>
+            `).join("")}
+          </div>
+        </div>
+
+        ${bookEq ? `
+          <button type="button" class="launchpad-book-btn" data-lp-action="history">
+            <span>✨</span>
+            <span>${escapeHtml(bookEq.sentence)}</span>
+            <span class="lp-chevron">›</span>
+          </button>
+        ` : ""}
+      </div>
+    `;
+  }
+
+  streamEl.querySelectorAll("[data-lp-card]").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const idx = parseInt(btn.getAttribute("data-lp-card"), 10);
+      const card = cards[idx];
+      if (!card) return;
+      const inputEl = document.getElementById("chat-input");
+      if (inputEl) {
+        inputEl.value = card.prompt;
+        inputEl.style.height = "auto";
+        inputEl.style.height = Math.min(inputEl.scrollHeight, 120) + "px";
+        inputEl.focus();
+        if (typeof inputEl.setSelectionRange === "function") {
+          const openIdx = card.prompt.indexOf("[");
+          const closeIdx = openIdx >= 0 ? card.prompt.indexOf("]", openIdx) : -1;
+          if (openIdx >= 0 && closeIdx > openIdx) {
+            inputEl.setSelectionRange(openIdx, closeIdx + 1);
+          } else {
+            const len = card.prompt.length;
+            inputEl.setSelectionRange(len, len);
+          }
+        }
+      }
+    });
+  });
+
+  streamEl.querySelector('[data-lp-action="quota"]')?.addEventListener("click", () => {
+    if (typeof openQuotaSheet === "function") openQuotaSheet("realtime");
+  });
+  streamEl.querySelector('[data-lp-action="history"]')?.addEventListener("click", () => {
+    if (typeof openQuotaSheet === "function") openQuotaSheet("history");
+  });
+  streamEl.querySelector('[data-lp-action="switch-ws"]')?.addEventListener("click", () => {
+    if (typeof openNewSheet === "function") openNewSheet();
+  });
+  streamEl.querySelector('[data-lp-action="dirty"]')?.addEventListener("click", () => {
+    const reviewPrompt = isEnLang
+      ? "Please review the current uncommitted changes, highlight potential risks, and suggest improvements"
+      : (isJaLang ? "未コミットの変更点を確認し、潜在リスクと改善案を教えてください" : "请先检查当前未提交的改动，指出潜在风险并给出优化建议");
+    const inputEl = document.getElementById("chat-input");
+    if (inputEl) {
+      inputEl.value = reviewPrompt;
+      inputEl.style.height = "auto";
+      inputEl.style.height = Math.min(inputEl.scrollHeight, 120) + "px";
+      inputEl.focus();
+    }
+  });
+};
+
+window.refreshNewChatLaunchpad = function () {
+  if (typeof activeDraftSession === "undefined" || !activeDraftSession || activeCascadeId) return;
+  const streamEl = document.getElementById("messages-stream");
+  if (!streamEl) return;
+  if (streamEl.querySelector(".launchpad-root") || streamEl.querySelector(".chat-empty-state")) {
+    window.renderNewChatLaunchpad(streamEl, activeDraftSession);
+  }
+};

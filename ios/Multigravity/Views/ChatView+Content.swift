@@ -147,6 +147,13 @@ extension ChatView {
                 isInputFocused = true
             }
         }
+        .sheet(isPresented: $showDraftWorkspaceSwitcher) {
+            NewConversationSheet(onSelectProject: { project in
+                viewModel.switchDraftProject(project)
+                showDraftWorkspaceSwitcher = false
+            })
+            .presentationDragIndicator(.visible)
+        }
     }
     
     @ViewBuilder
@@ -1011,34 +1018,78 @@ extension ChatView {
     }
     
 
+    @ViewBuilder
     var emptyStateView: some View {
-        VStack(spacing: 16) {
-            Spacer(minLength: 60)
-            
-            ZStack {
-                Circle()
-                    .fill(Color.accentColor.opacity(0.12))
-                    .frame(width: 58, height: 58)
-                Image(systemName: "sparkles")
-                    .font(.system(size: 24, weight: .medium))
-                    .foregroundColor(.accentColor)
-            }
-            
-            VStack(spacing: 6) {
-                Text(viewModel.currentTitle)
-                    .font(.system(size: 16.5, weight: .semibold))
-                    .foregroundColor(.primary)
-                    .lineLimit(1)
+        if AppSettings.shared.newChatLaunchpadEnabled && viewModel.branchOrigin == nil {
+            NewChatLaunchpadView(
+                viewModel: viewModel,
+                isKeyboardVisible: isInputFocused,
+                onFillPrompt: { prompt in
+                    viewModel.inputText = prompt
+                    if prompt.contains("[") && prompt.contains("]") {
+                        viewModel.pendingSelectFirstPlaceholder = true
+                    }
+                    isInputFocused = true
+                },
+                onSwitchWorkspace: {
+                    isInputFocused = false
+                    showDraftWorkspaceSwitcher = true
+                },
+                onOpenQuota: {
+                    isInputFocused = false
+                    NotificationCenter.default.post(
+                        name: .openAccountQuotaSheet,
+                        object: nil,
+                        userInfo: ["tab": 0]
+                    )
+                },
+                onOpenTokenHistory: {
+                    isInputFocused = false
+                    NotificationCenter.default.post(
+                        name: .openAccountQuotaSheet,
+                        object: nil,
+                        userInfo: ["tab": 1]
+                    )
+                },
+                onTapDirtyFiles: {
+                    if !viewModel.isDraftConversation {
+                        isInputFocused = false
+                        viewModel.openGitSheet()
+                    } else {
+                        viewModel.inputText = String(localized: "请先检查当前未提交的改动，指出潜在风险并给出优化建议")
+                        isInputFocused = true
+                    }
+                }
+            )
+        } else {
+            VStack(spacing: 16) {
+                Spacer(minLength: 60)
                 
-                Text((viewModel.isPureChat || viewModel.currentTitle == String(localized: "新对话") || viewModel.currentTitle == "新对话") ? String(localized: "新对话模式，在下方输入指令开启对话") : String(localized: "已连接工作区，在下方输入指令开启对话"))
-                    .font(.system(size: 13))
-                    .foregroundColor(.secondary)
+                ZStack {
+                    Circle()
+                        .fill(Color.accentColor.opacity(0.12))
+                        .frame(width: 58, height: 58)
+                    Image(systemName: "sparkles")
+                        .font(.system(size: 24, weight: .medium))
+                        .foregroundColor(.accentColor)
+                }
+                
+                VStack(spacing: 6) {
+                    Text(viewModel.currentTitle)
+                        .font(.system(size: 16.5, weight: .semibold))
+                        .foregroundColor(.primary)
+                        .lineLimit(1)
+                    
+                    Text((viewModel.isPureChat || viewModel.currentTitle == String(localized: "新对话") || viewModel.currentTitle == "新对话") ? String(localized: "新对话模式，在下方输入指令开启对话") : String(localized: "已连接工作区，在下方输入指令开启对话"))
+                        .font(.system(size: 13))
+                        .foregroundColor(.secondary)
+                }
+                
+                Spacer(minLength: 60)
             }
-            
-            Spacer(minLength: 60)
+            .frame(maxWidth: .infinity)
+            .padding(.horizontal, 32)
         }
-        .frame(maxWidth: .infinity)
-        .padding(.horizontal, 32)
     }
     
     // MARK: - Prompt Jump Stepper Helpers

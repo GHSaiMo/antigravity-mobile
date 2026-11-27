@@ -311,6 +311,17 @@ class PreferencesManager(context: Context) {
     private val _selectedQuotaBucketFlow = MutableStateFlow(selectedQuotaBucket)
     val selectedQuotaBucketFlow: StateFlow<QuotaBucketKind> = _selectedQuotaBucketFlow.asStateFlow()
 
+    /** 新建对话页是否展示快捷启动台（默认开启；关闭后切回纯空白态并自动拉起键盘） */
+    var newChatLaunchpadEnabled: Boolean
+        get() = prefs.getBoolean(KEY_NEW_CHAT_LAUNCHPAD_ENABLED, true)
+        set(value) {
+            prefs.edit().putBoolean(KEY_NEW_CHAT_LAUNCHPAD_ENABLED, value).apply()
+            _newChatLaunchpadEnabledFlow.value = value
+        }
+
+    private val _newChatLaunchpadEnabledFlow = MutableStateFlow(newChatLaunchpadEnabled)
+    val newChatLaunchpadEnabledFlow: StateFlow<Boolean> = _newChatLaunchpadEnabledFlow.asStateFlow()
+
     var cockpitEmailMasked: Boolean
         get() = prefs.getBoolean(KEY_COCKPIT_EMAIL_MASKED, false)
         set(value) {
@@ -1317,6 +1328,7 @@ class PreferencesManager(context: Context) {
         private const val KEY_COMPACT_COLLAPSE_TOOLS = "compact_collapse_tools"
         private const val KEY_COMPACT_COLLAPSE_TASKS = "compact_collapse_tasks"
         private const val KEY_COMPACT_HIDE_HEALTHY_CONTEXT = "compact_hide_healthy_context"
+        private const val KEY_NEW_CHAT_LAUNCHPAD_ENABLED = "new_chat_launchpad_enabled"
         private const val KEY_FAVORITE_MODEL_1 = "favorite_model_1"
         private const val KEY_FAVORITE_MODEL_2 = "favorite_model_2"
         private const val KEY_DEFAULT_GEMINI_MODEL = "default_gemini_model"

@@ -144,6 +144,16 @@ extension APIClient {
         )
     }
 
+    public func fetchGitStatus(workspaceUri: String, baseURL: URL) async throws -> GitStatusResponse {
+        try await gatewayPost(
+            path: "gateway/git/status",
+            body: GitCascadeRequest(cascadeId: "", workspaceUri: workspaceUri),
+            baseURL: baseURL,
+            timeout: 8,
+            failurePrefix: String(localized: "获取 Git 状态失败")
+        )
+    }
+
     public func gitCommit(cascadeId: String, message: String, paths: [String], push: Bool, baseURL: URL) async throws -> GitCommitResponse {
         try await gatewayPost(
             path: "gateway/git/commit",

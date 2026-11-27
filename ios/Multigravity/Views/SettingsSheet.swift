@@ -401,6 +401,11 @@ public struct SettingsSheet: View {
                                 .foregroundColor(.secondary)
                         }
                     }
+
+                    Toggle("新建对话启动台", isOn: $settings.newChatLaunchpadEnabled)
+                        .onChange(of: settings.newChatLaunchpadEnabled) { _, _ in
+                            UIImpactFeedbackGenerator(style: .light).impactOccurred()
+                        }
                 }
 
                 // MARK: - 6. 手势与使用技巧

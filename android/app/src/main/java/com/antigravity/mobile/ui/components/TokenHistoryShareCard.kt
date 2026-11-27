@@ -13,6 +13,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.BarChart
 import androidx.compose.material.icons.filled.FileDownload
+import androidx.compose.material.icons.filled.MenuBook
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
@@ -109,6 +110,55 @@ fun TokenHistoryShareCard(
 
             // 2. KPI 4-grid
             KpiGridSection(summary = summary, colors = cardColors)
+
+            // 2b. Global Classic Book Equivalent Easter Egg
+            val bookEq = remember(tokenHistory) {
+                com.antigravity.mobile.data.model.TokenBookEquivalent.resolve(tokenHistory)
+            }
+            if (bookEq != null) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(10.dp))
+                        .background(cardColors.surface)
+                        .border(0.8.dp, cardColors.accentBlue.copy(alpha = 0.28f), RoundedCornerShape(10.dp))
+                        .padding(horizontal = 12.dp, vertical = 8.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .size(28.dp)
+                            .clip(RoundedCornerShape(8.dp))
+                            .background(cardColors.accentBlue.copy(alpha = 0.14f)),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        androidx.compose.material3.Icon(
+                            imageVector = androidx.compose.material.icons.Icons.Default.MenuBook,
+                            contentDescription = null,
+                            tint = cardColors.accentBlue,
+                            modifier = Modifier.size(14.dp)
+                        )
+                    }
+                    Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                        Text(
+                            text = bookEq.sentence,
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            color = cardColors.textPrimary,
+                            maxLines = 2,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                        Text(
+                            text = bookEq.authorOrigin,
+                            fontSize = 10.sp,
+                            color = cardColors.textSecondary,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                    }
+                }
+            }
 
             // 3. Source ratio bar
             SourceRatioSection(summary = summary, chartType = chartType, colors = cardColors)

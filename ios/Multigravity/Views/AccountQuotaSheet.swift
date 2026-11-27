@@ -50,7 +50,8 @@ public struct AccountQuotaSheet: View {
         onRefresh: (() async throws -> Void)? = nil,
         onAppearFetch: (() async -> Void)? = nil,
         enableSwitchButton: Bool = true,
-        linkMonitor: ConversationEventsClient? = nil
+        linkMonitor: ConversationEventsClient? = nil,
+        initialTab: Int = 0
     ) {
         self.linkMonitor = linkMonitor
         self._quotaResponse = quotaResponse
@@ -61,6 +62,7 @@ public struct AccountQuotaSheet: View {
         self.onRefresh = onRefresh
         self.onAppearFetch = onAppearFetch
         self.enableSwitchButton = enableSwitchButton
+        self._selectedTab = State(initialValue: initialTab)
         if let history = tokenHistory {
             let resolved = TokenHistoryChartType.resolveDefault(
                 savedRawValue: AppSettings.shared.tokenHistoryChartType,
@@ -1342,6 +1344,38 @@ extension AccountQuotaSheet {
                         return Self.formatSecondaryCost(cny: s.estimatedCostCny)
                     }()
                     tokenKpiCard(title: String(localized: "API 折算"), value: Self.formatUSD(s.estimatedCostUsd), sub: costSubtitle)
+                }
+
+                if let eq = TokenBookEquivalent.resolve(from: history) {
+                    HStack(spacing: 10) {
+                        ZStack {
+                            RoundedRectangle(cornerRadius: 9, style: .continuous)
+                                .fill(Color.indigo.opacity(0.14))
+                                .frame(width: 32, height: 32)
+                            Image(systemName: "books.vertical.fill")
+                                .font(.system(size: 13.5, weight: .semibold))
+                                .foregroundColor(.indigo)
+                        }
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(eq.sentence)
+                                .font(.system(size: 13, weight: .semibold))
+                                .foregroundColor(.primary)
+                                .lineLimit(2)
+                            Text(eq.authorOrigin)
+                                .font(.system(size: 11))
+                                .foregroundColor(.secondary)
+                                .lineLimit(1)
+                        }
+                        Spacer(minLength: 4)
+                    }
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 10)
+                    .background(Color.indigo.opacity(0.08))
+                    .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 12, style: .continuous)
+                            .stroke(Color.indigo.opacity(0.18), lineWidth: 0.8)
+                    )
                 }
 
                 let totalSrc = max(Int64(1), s.desktopTokens + s.cliTokens)

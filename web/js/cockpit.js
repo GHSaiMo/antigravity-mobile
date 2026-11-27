@@ -220,6 +220,9 @@ function renderQuotaStatusBar(data) {
     }
     descEl.textContent = displayText;
   }
+  if (typeof window.refreshNewChatLaunchpad === "function") {
+    window.refreshNewChatLaunchpad();
+  }
 }
 
 let isCockpitEmailMasked = localStorage.getItem("cockpit_email_masked") === "true";
@@ -718,10 +721,35 @@ function renderAutoSwitchCard(container, state) {
   });
 }
 
-function openQuotaSheet() {
+function switchQuotaSheetTab(targetTab) {
+  const bar = document.getElementById("quota-segmented-bar");
+  const realtimeContent = document.getElementById("quota-tab-realtime");
+  const historyContent = document.getElementById("quota-tab-history");
+  if (bar) {
+    bar.querySelectorAll(".sheet-segment-btn").forEach((b) => {
+      b.classList.toggle("active", b.getAttribute("data-tab") === targetTab);
+    });
+  }
+  if (targetTab === "history") {
+    if (realtimeContent) realtimeContent.classList.add("hidden");
+    if (historyContent) historyContent.classList.remove("hidden");
+    if (currentTokenHistory) {
+      renderTokenHistory(currentTokenHistory);
+    }
+    refreshTokenHistoryIfStale();
+  } else {
+    if (historyContent) historyContent.classList.add("hidden");
+    if (realtimeContent) realtimeContent.classList.remove("hidden");
+  }
+}
+
+function openQuotaSheet(initialTab) {
   const sheet = document.getElementById("sheet-quota");
   if (sheet) {
     sheet.classList.remove("hidden");
+    if (initialTab === "history" || initialTab === "realtime") {
+      switchQuotaSheetTab(initialTab);
+    }
     if (currentCockpitQuotas) {
       renderQuotaSheet(currentCockpitQuotas);
     } else {
@@ -899,23 +927,7 @@ function initQuotaTabs() {
   btns.forEach((btn) => {
     btn.addEventListener("click", () => {
       const targetTab = btn.getAttribute("data-tab");
-      btns.forEach((b) => b.classList.remove("active"));
-      btn.classList.add("active");
-
-      const realtimeContent = document.getElementById("quota-tab-realtime");
-      const historyContent = document.getElementById("quota-tab-history");
-
-      if (targetTab === "history") {
-        if (realtimeContent) realtimeContent.classList.add("hidden");
-        if (historyContent) historyContent.classList.remove("hidden");
-        if (currentTokenHistory) {
-          renderTokenHistory(currentTokenHistory);
-        }
-        refreshTokenHistoryIfStale();
-      } else {
-        if (historyContent) historyContent.classList.add("hidden");
-        if (realtimeContent) realtimeContent.classList.remove("hidden");
-      }
+      switchQuotaSheetTab(targetTab);
     });
   });
 }
@@ -949,6 +961,127 @@ async function fetchTokenHistory(force = false) {
   }
 }
 
+// 全球经典文学书目阶梯折算库（与 iOS / Android 共享统一常数与阶梯）
+const GLOBAL_BOOK_TIERS = [
+  {
+    maxTokens: 150000,
+    books: [
+      { tokens: 25000, zh: "《小王子》", en: "The Little Prince", ja: "『星の王子さま』", uZh: "本", uEn1: "copy of", uEnN: "copies of", uJa: "冊", oZh: "法国 · 圣埃克苏佩里", oEn: "France · Antoine de Saint-Exupéry", oJa: "フランス · サン＝テグジュペリ" },
+      { tokens: 30000, zh: "《变形记》", en: "The Metamorphosis", ja: "『変身』", uZh: "本", uEn1: "copy of", uEnN: "copies of", uJa: "冊", oZh: "捷克/奥地利 · 卡夫卡", oEn: "Bohemia · Franz Kafka", oJa: "チェコ · フランツ・カフカ" },
+      { tokens: 35000, zh: "《老人与海》", en: "The Old Man and the Sea", ja: "『老人と海』", uZh: "本", uEn1: "copy of", uEnN: "copies of", uJa: "冊", oZh: "美国 · 海明威", oEn: "USA · Ernest Hemingway", oJa: "アメリカ · ヘミングウェイ" }
+    ]
+  },
+  {
+    maxTokens: 1500000,
+    books: [
+      { tokens: 40000, zh: "《动物农场》", en: "Animal Farm", ja: "『動物農場』", uZh: "本", uEn1: "copy of", uEnN: "copies of", uJa: "冊", oZh: "英国 · 乔治·奥威尔", oEn: "UK · George Orwell", oJa: "イギリス · ジョージ・オーウェル" },
+      { tokens: 55000, zh: "《牧羊少年奇幻之旅》", en: "The Alchemist", ja: "『アルケミスト』", uZh: "本", uEn1: "copy of", uEnN: "copies of", uJa: "冊", oZh: "巴西 · 保罗·柯艾略", oEn: "Brazil · Paulo Coelho", oJa: "ブラジル · パウロ・コエーリョ" },
+      { tokens: 65000, zh: "《了不起的盖茨比》", en: "The Great Gatsby", ja: "『グレート・ギャツビー』", uZh: "本", uEn1: "copy of", uEnN: "copies of", uJa: "冊", oZh: "美国 · 菲茨杰拉德", oEn: "USA · F. Scott Fitzgerald", oJa: "アメリカ · フィッツジェラルド" }
+    ]
+  },
+  {
+    maxTokens: 15000000,
+    books: [
+      { tokens: 130000, zh: "《一九八四》", en: "1984", ja: "『1984年』", uZh: "本", uEn1: "copy of", uEnN: "copies of", uJa: "冊", oZh: "英国 · 乔治·奥威尔", oEn: "UK · George Orwell", oJa: "イギリス · ジョージ・オーウェル" },
+      { tokens: 190000, zh: "《百年孤独》", en: "One Hundred Years of Solitude", ja: "『百年の孤独』", uZh: "本", uEn1: "copy of", uEnN: "copies of", uJa: "冊", oZh: "哥伦比亚 · 加西亚·马尔克斯", oEn: "Colombia · Gabriel García Márquez", oJa: "コロンビア · ガルシア＝マルケス" },
+      { tokens: 250000, zh: "《沙丘》", en: "Dune", ja: "『デューン』", uZh: "本", uEn1: "copy of", uEnN: "copies of", uJa: "冊", oZh: "美国 · 弗兰克·赫伯特", oEn: "USA · Frank Herbert", oJa: "アメリカ · フランク・ハーバート" }
+    ]
+  },
+  {
+    maxTokens: 80000000,
+    books: [
+      { tokens: 520000, zh: "《堂吉诃德》", en: "Don Quixote", ja: "『ドン・キホーテ』", uZh: "部", uEn1: "copy of", uEnN: "copies of", uJa: "部", oZh: "西班牙 · 塞万提斯", oEn: "Spain · Miguel de Cervantes", oJa: "スペイン · セルバンテス" },
+      { tokens: 620000, zh: "《指环王》全套", en: "The Lord of the Rings", ja: "『指輪物語』全巻", uZh: "套", uEn1: "set of", uEnN: "sets of", uJa: "セット", oZh: "英国 · 托尔金", oEn: "UK · J.R.R. Tolkien", oJa: "イギリス · トールキン" },
+      { tokens: 730000, zh: "《悲惨世界》", en: "Les Misérables", ja: "『レ・ミゼラブル』", uZh: "部", uEn1: "copy of", uEnN: "copies of", uJa: "部", oZh: "法国 · 维克多·雨果", oEn: "France · Victor Hugo", oJa: "フランス · ヴィクトル・ユーゴー" }
+    ]
+  },
+  {
+    maxTokens: 300000000,
+    books: [
+      { tokens: 780000, zh: "《战争与和平》", en: "War and Peace", ja: "『戦争と平和』", uZh: "部", uEn1: "copy of", uEnN: "copies of", uJa: "部", oZh: "俄国 · 列夫·托尔斯泰", oEn: "Russia · Leo Tolstoy", oJa: "ロシア · レフ・トルストイ" },
+      { tokens: 850000, zh: "《三体》全套", en: "The Three-Body Trilogy", ja: "『三体』三部作", uZh: "套", uEn1: "set of", uEnN: "sets of", uJa: "セット", oZh: "中国 · 刘慈欣", oEn: "China · Liu Cixin", oJa: "中国 · 劉慈欣" }
+    ]
+  },
+  {
+    maxTokens: Infinity,
+    books: [
+      { tokens: 1700000, zh: "《追忆似水年华》全套", en: "In Search of Lost Time", ja: "『失われた時を求めて』全巻", uZh: "套", uEn1: "set of", uEnN: "sets of", uJa: "セット", oZh: "法国 · 马塞尔·普鲁斯特", oEn: "France · Marcel Proust", oJa: "フランス · マルセル・プルースト" },
+      { tokens: 55000000, zh: "《大英百科全书》", en: "Encyclopædia Britannica", ja: "『ブリタニカ百科事典』", uZh: "套", uEn1: "set of", uEnN: "sets of", uJa: "セット", oZh: "全球经典参考全书", oEn: "Global Reference Classic", oJa: "世界定番の百科事典" }
+    ]
+  }
+];
+
+function resolveTokenBookEquivalent(history) {
+  if (!history || !history.summary) return null;
+  const s = history.summary;
+  const useLast7d = (Number(s.last_7d_tokens) || 0) >= 3000;
+  const tokens = useLast7d ? Number(s.last_7d_tokens) : (Number(s.total_tokens) || 0);
+  if (tokens < 3000) return null;
+
+  const matched = GLOBAL_BOOK_TIERS.find((tier) => tokens < tier.maxTokens) || GLOBAL_BOOK_TIERS[GLOBAL_BOOK_TIERS.length - 1];
+  const books = (matched.maxTokens === Infinity && tokens < 600000000) ? [matched.books[0]] : matched.books;
+  const daySeed = Math.max(0, Math.floor(Date.now() / 86400000));
+  const book = books[daySeed % books.length];
+
+  const rawCount = tokens / book.tokens;
+  let formattedCount;
+  if (rawCount < 10) {
+    const rounded = Math.round(rawCount * 10) / 10;
+    formattedCount = Math.abs(rounded - Math.round(rounded)) < 0.05
+      ? String(Math.max(1, Math.round(rounded)))
+      : Math.max(0.1, rounded).toFixed(1);
+  } else {
+    formattedCount = String(Math.round(rawCount));
+  }
+
+  const isSingle = rawCount < 1.05;
+  if (typeof isEn === "function" && isEn()) {
+    const period = useLast7d ? "Last 7d" : "Total";
+    const unit = isSingle ? book.uEn1 : book.uEnN;
+    return {
+      sentence: `${period} tokens ≈ ${formattedCount} ${unit} ${book.en}`,
+      authorOrigin: book.oEn
+    };
+  }
+  if (typeof isJa === "function" && isJa()) {
+    const period = useLast7d ? "直近7日間の" : "累計";
+    return {
+      sentence: `${period}トークン消費は${book.ja} ${formattedCount} ${book.uJa}分に相当`,
+      authorOrigin: book.oJa
+    };
+  }
+  const period = useLast7d ? "近 7 日" : "累计";
+  return {
+    sentence: `${period}用量相当于 ${formattedCount} ${book.uZh}${book.zh}`,
+    authorOrigin: book.oZh
+  };
+}
+
+function computeTokenCacheHitRate(history) {
+  if (!history || !Array.isArray(history.daily_matrix) || history.daily_matrix.length === 0) return null;
+  const matrix = history.daily_matrix;
+  const now = new Date();
+  const todayKey = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
+
+  for (let i = matrix.length - 1; i >= 0; i--) {
+    if (matrix[i].date === todayKey) {
+      const inp = Number(matrix[i].input) || 0;
+      const cache = Number(matrix[i].cache_read) || 0;
+      if (inp + cache > 0) return Math.round((cache / (inp + cache)) * 100);
+      break;
+    }
+  }
+  const recent = matrix.slice(-7);
+  let rInp = 0, rCache = 0;
+  recent.forEach((r) => { rInp += Number(r.input) || 0; rCache += Number(r.cache_read) || 0; });
+  if (rInp + rCache > 0) return Math.round((rCache / (rInp + rCache)) * 100);
+
+  let aInp = 0, aCache = 0;
+  matrix.forEach((r) => { aInp += Number(r.input) || 0; aCache += Number(r.cache_read) || 0; });
+  if (aInp + aCache > 0) return Math.round((aCache / (aInp + aCache)) * 100);
+  return null;
+}
+
 function renderTokenHistory(data) {
   if (!data || !data.summary) return;
   const s = data.summary;
@@ -972,12 +1105,37 @@ function renderTokenHistory(data) {
     costCnyEl.textContent = "≈ ¥" + (s.estimated_cost_cny || 0).toFixed(2) + roiPart;
   }
 
+  const bookEl = document.getElementById("token-book-easter-egg");
+  if (bookEl) {
+    const eq = resolveTokenBookEquivalent(data);
+    if (eq) {
+      bookEl.innerHTML = `
+        <div class="token-book-icon" aria-hidden="true">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M4 19.5v-15A2.5 2.5 0 0 1 6.5 2H20v20H6.5a2.5 2.5 0 0 1 0-5H20"></path>
+          </svg>
+        </div>
+        <div class="token-book-body">
+          <div class="token-book-sentence">${escapeHtml(eq.sentence)}</div>
+          <div class="token-book-origin">${escapeHtml(eq.authorOrigin)}</div>
+        </div>
+      `;
+      bookEl.classList.remove("hidden");
+    } else {
+      bookEl.classList.add("hidden");
+      bookEl.innerHTML = "";
+    }
+  }
+
   const deskPct = s.total_tokens > 0 ? Math.round((s.desktop_tokens / s.total_tokens) * 100) : 0;
   const cliPct = s.total_tokens > 0 ? Math.round((s.cli_tokens / s.total_tokens) * 100) : 0;
   if (desktopEl) desktopEl.textContent = `桌面端: ${formatTokensCompact(s.desktop_tokens)} (${deskPct}%)`;
   if (cliEl) cliEl.textContent = `CLI 端: ${formatTokensCompact(s.cli_tokens)} (${cliPct}%)`;
 
   renderHeatmap(data.daily_matrix || []);
+  if (typeof window.refreshNewChatLaunchpad === "function") {
+    window.refreshNewChatLaunchpad();
+  }
 }
 
 function renderHeatmap(matrix) {

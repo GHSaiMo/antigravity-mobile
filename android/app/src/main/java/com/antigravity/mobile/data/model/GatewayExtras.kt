@@ -221,7 +221,10 @@ data class GitCommitResponse(
 )
 
 @Serializable
-data class GitCascadeRequest(val cascadeId: String = "")
+data class GitCascadeRequest(
+    val cascadeId: String = "",
+    val workspaceUri: String? = null
+)
 
 /** 会话内容搜索（language_server SearchConversations）。偏移量按 Unicode 码点计，不是 UTF-16 单元。 */
 @Serializable

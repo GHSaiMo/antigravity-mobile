@@ -1627,6 +1627,13 @@ class ApiClient(
             "获取 Git 状态失败".loc
         ).mapCatching { json.decodeFromString<GitStatusResponse>(it) }
 
+    suspend fun getGitStatusByWorkspace(workspaceUri: String): Result<GitStatusResponse> =
+        postGatewayJson(
+            "/gateway/git/status",
+            json.encodeToString(GitCascadeRequest(cascadeId = "", workspaceUri = workspaceUri)),
+            "获取 Git 状态失败".loc
+        ).mapCatching { json.decodeFromString<GitStatusResponse>(it) }
+
     suspend fun gitCommit(
         cascadeId: String,
         message: String,

@@ -88,9 +88,10 @@ fun AccountQuotaSheet(
     onRefresh: () -> Unit,
     onSwitchAccount: (String) -> Unit,
     onDismiss: () -> Unit,
+    initialTab: Int = 0,
     modifier: Modifier = Modifier
 ) {
-    var selectedTab by remember { mutableIntStateOf(0) }
+    var selectedTab by remember(initialTab) { mutableIntStateOf(initialTab) }
     var isSavingTokenHistory by remember { mutableStateOf(false) }
     var isSharingTokenHistory by remember { mutableStateOf(false) }
     var showTokenHistoryShareSheet by remember { mutableStateOf(false) }

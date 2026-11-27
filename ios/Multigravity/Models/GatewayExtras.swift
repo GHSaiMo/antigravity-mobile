@@ -289,6 +289,7 @@ public struct CascadeChaptersResponse: Codable, Sendable {
 
 struct GitCascadeRequest: Encodable {
     let cascadeId: String
+    var workspaceUri: String? = nil
 }
 
 struct GitCommitRequest: Encodable {
@@ -809,6 +810,7 @@ public extension Notification.Name {
     static let openConversationFromTaskCenter = Notification.Name("openConversationFromTaskCenter")
     static let startNewSessionForWorkspace = Notification.Name("startNewSessionForWorkspace")
     static let startAutomationPromptSession = Notification.Name("startAutomationPromptSession")
+    static let openAccountQuotaSheet = Notification.Name("openAccountQuotaSheet")
 }
 
 public struct GlobalBackgroundTaskItem: Codable, Sendable, Identifiable, Equatable {

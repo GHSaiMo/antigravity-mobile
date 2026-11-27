@@ -12344,3 +12344,263 @@ dialog::backdrop {
   flex-shrink: 0;
   font-size: 12px;
 }
+
+/* New Chat Launchpad (Scheme A · Unified across iOS / Android / Web) */
+.launchpad-root {
+  max-width: 520px;
+  width: 100%;
+  margin: 0 auto;
+  padding: 28px 16px 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  user-select: none;
+  -webkit-user-select: none;
+}
+.launchpad-root.launchpad-compact {
+  padding: 16px 16px 12px;
+  gap: 10px;
+}
+.launchpad-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+.launchpad-brand {
+  width: 32px;
+  height: 32px;
+  border-radius: 10px;
+  background: rgba(99, 102, 241, 0.14);
+  color: var(--ios-indigo, #6366f1);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 16px;
+  font-weight: 700;
+  flex-shrink: 0;
+}
+.launchpad-compact .launchpad-brand {
+  width: 26px;
+  height: 26px;
+  border-radius: 8px;
+  font-size: 13px;
+}
+.launchpad-greeting {
+  font-size: 18px;
+  font-weight: 600;
+  color: var(--ios-label);
+  line-height: 1.3;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.launchpad-compact .launchpad-greeting {
+  font-size: 15px;
+  white-space: nowrap;
+}
+.launchpad-compact-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+.launchpad-mini-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 5px 10px;
+  border-radius: 999px;
+  background: var(--ios-secondary-bg);
+  border: 0.8px solid var(--ios-separator-subtle);
+  font-size: 12px;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+.launchpad-compact-strip {
+  display: flex;
+  gap: 8px;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+.launchpad-compact-strip::-webkit-scrollbar { display: none; }
+.launchpad-compact-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 11px;
+  border-radius: 11px;
+  background: var(--ios-secondary-bg);
+  border: 0.8px solid var(--ios-separator-subtle);
+  color: var(--ios-label);
+  font-size: 12.5px;
+  font-weight: 500;
+  white-space: nowrap;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+.launchpad-status-strip,
+.launchpad-ws-bar {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 12px;
+  border-radius: 13px;
+  background: var(--ios-secondary-bg);
+  border: 0.8px solid var(--ios-separator-subtle);
+  color: var(--ios-label);
+  font-size: 12.5px;
+  box-sizing: border-box;
+}
+.launchpad-status-strip {
+  justify-content: space-between;
+  cursor: pointer;
+  text-align: left;
+}
+.lp-status-left {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  flex: 1;
+}
+.lp-q-bolt, .lp-q-val { font-weight: 700; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+.lp-q-bolt.good, .lp-q-val.good { color: #22c55e; }
+.lp-q-bolt.warn, .lp-q-val.warn { color: #f59e0b; }
+.lp-q-bolt.danger, .lp-q-val.danger { color: #ef4444; }
+.lp-q-name { font-weight: 500; white-space: nowrap; }
+.lp-q-bar {
+  width: 34px;
+  height: 5px;
+  border-radius: 99px;
+  background: rgba(128, 128, 128, 0.18);
+  overflow: hidden;
+  flex-shrink: 0;
+}
+.lp-q-fill { display: block; height: 100%; border-radius: 99px; }
+.lp-q-fill.good { background: #22c55e; }
+.lp-q-fill.warn { background: #f59e0b; }
+.lp-q-fill.danger { background: #ef4444; }
+.lp-status-meta, .lp-muted {
+  color: var(--ios-secondary-label);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.lp-chevron { color: var(--ios-tertiary-label); font-size: 14px; font-weight: 600; flex-shrink: 0; }
+.lp-ws-icon { font-size: 13px; flex-shrink: 0; }
+.lp-ws-name { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.lp-ws-pure { color: var(--ios-secondary-label); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1; }
+.lp-ws-branch {
+  font-size: 11px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  color: var(--ios-secondary-label);
+  background: rgba(128, 128, 128, 0.12);
+  padding: 2px 6px;
+  border-radius: 5px;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+.lp-ws-dirty {
+  font-size: 11px;
+  font-weight: 600;
+  color: #f59e0b;
+  background: rgba(245, 158, 11, 0.15);
+  border: none;
+  padding: 2px 6px;
+  border-radius: 5px;
+  white-space: nowrap;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+.lp-ws-clean { font-size: 11px; color: var(--ios-secondary-label); white-space: nowrap; flex-shrink: 0; }
+.lp-spacer { flex: 1; }
+.lp-ws-switch {
+  border: none;
+  background: transparent;
+  color: var(--ios-indigo, #6366f1);
+  font-size: 12.5px;
+  font-weight: 600;
+  cursor: pointer;
+  padding: 2px 4px;
+  flex-shrink: 0;
+}
+.launchpad-section { display: flex; flex-direction: column; gap: 8px; }
+.launchpad-section-title { font-size: 12px; font-weight: 500; color: var(--ios-secondary-label); padding-left: 2px; }
+.launchpad-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 9px; }
+.launchpad-card {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
+  padding: 11px 12px;
+  border-radius: 13px;
+  background: var(--ios-secondary-bg);
+  border: 0.8px solid var(--ios-separator-subtle);
+  text-align: left;
+  cursor: pointer;
+  transition: border-color 0.15s ease;
+}
+.launchpad-card:hover { border-color: var(--ios-indigo, #6366f1); }
+.launchpad-card-title {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--ios-label);
+  width: 100%;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.launchpad-card-sub {
+  font-size: 11.5px;
+  color: var(--ios-secondary-label);
+  width: 100%;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.launchpad-book-btn {
+  width: 100%;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  padding: 8px 10px;
+  border: none;
+  border-radius: 10px;
+  background: transparent;
+  color: var(--ios-secondary-label);
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+}
+.launchpad-book-btn:hover { background: var(--ios-secondary-bg); color: var(--ios-label); }
+
+/* Global Classic Book Equivalent Banner inside Token History Sheet */
+.token-book-banner {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  margin-bottom: 10px;
+  border-radius: 12px;
+  background: rgba(99, 102, 241, 0.08);
+  border: 0.8px solid rgba(99, 102, 241, 0.22);
+}
+.token-book-icon {
+  width: 32px;
+  height: 32px;
+  border-radius: 9px;
+  background: rgba(99, 102, 241, 0.14);
+  color: var(--ios-indigo, #6366f1);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+.token-book-body { min-width: 0; flex: 1; }
+.token-book-sentence { font-size: 13px; font-weight: 600; color: var(--ios-label); line-height: 1.35; }
+.token-book-origin { font-size: 11px; color: var(--ios-secondary-label); margin-top: 2px; }

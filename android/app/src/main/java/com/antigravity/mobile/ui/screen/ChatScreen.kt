@@ -195,6 +195,9 @@ fun ChatScreen(
     onOpenConversation: (cascadeId: String, title: String) -> Unit = { _, _ -> },
     onStartNewSession: () -> Unit = {},
     onCreateAutomationWithPrompt: () -> Unit = {},
+    onOpenAccountQuota: (Int) -> Unit = {},
+    onSwitchDraftWorkspace: () -> Unit = {},
+    onPrefetchTokenHistory: () -> Unit = {},
     dismissModalsTrigger: Int = 0
 ) {
     val context = LocalContext.current
@@ -729,6 +732,8 @@ fun ChatScreen(
     val compactCollapseTools by voicePrefs.compactCollapseToolsFlow.collectAsState()
     val compactCollapseTasks by voicePrefs.compactCollapseTasksFlow.collectAsState()
     val compactHideHealthyContext by voicePrefs.compactHideHealthyContextFlow.collectAsState()
+    val newChatLaunchpadEnabled by voicePrefs.newChatLaunchpadEnabledFlow.collectAsState()
+    val selectedQuotaBucket by voicePrefs.selectedQuotaBucketFlow.collectAsState()
     val modelCatalog by voicePrefs.modelCatalogFlow.collectAsState()
 
     val shouldCollapseTools = isKnowledgeModeEnabled && compactCollapseTools
@@ -1013,8 +1018,8 @@ fun ChatScreen(
         enterSession()
         viewModel.refreshPermissionSettings()
         viewModel.refreshProjectTrust()
-        // Automatically focus the input field and pop up soft keyboard ONLY on new conversation creation without pending options
-        if (isNewConversation && uiState.pendingInteraction == null) {
+        // Automatically focus the input field and pop up soft keyboard ONLY when launchpad is disabled
+        if (isNewConversation && uiState.pendingInteraction == null && !voicePrefs.newChatLaunchpadEnabled) {
             delay(250)
             try {
                 focusRequester.requestFocus()
@@ -1641,7 +1646,58 @@ fun ChatScreen(
                         )
                     }
                     uiState.messages.isEmpty() && !shouldShowThinkingBubble -> {
-                        ChatEmptyStateView(title = uiState.title)
+                        if (newChatLaunchpadEnabled && uiState.branchOrigin == null) {
+                            val isDraft = uiState.cascadeId.isBlank() || uiState.cascadeId.startsWith("local_draft_")
+                            val isPure = uiState.workspaceName.isBlank() || uiState.workspaceName == "Chat"
+                            NewChatLaunchpadView(
+                                title = uiState.title,
+                                workspaceName = uiState.workspaceName,
+                                isPureChat = isPure,
+                                isDraftConversation = isDraft,
+                                gitBranch = uiState.gitBranch,
+                                uncommittedFileCount = uiState.uncommittedFileCount,
+                                selectedQuotaBucket = selectedQuotaBucket,
+                                workflowTemplates = workflowTemplates,
+                                isKeyboardVisible = isImeVisible || isInputFocused,
+                                onFillPrompt = { prompt ->
+                                    viewModel.onInputTextChanged(prompt)
+                                    if (prompt.contains("[") && prompt.contains("]")) {
+                                        pendingSelectFirstPlaceholder = true
+                                    }
+                                    try {
+                                        focusRequester.requestFocus()
+                                        keyboardController?.show()
+                                    } catch (_: Exception) {}
+                                },
+                                onSwitchWorkspace = {
+                                    dismissKeyboard()
+                                    onSwitchDraftWorkspace()
+                                },
+                                onOpenQuota = {
+                                    dismissKeyboard()
+                                    onOpenAccountQuota(0)
+                                },
+                                onOpenTokenHistory = {
+                                    dismissKeyboard()
+                                    onOpenAccountQuota(1)
+                                },
+                                onTapDirtyFiles = {
+                                    if (!isDraft) {
+                                        dismissKeyboard()
+                                        viewModel.openGitSheet()
+                                    } else {
+                                        viewModel.onInputTextChanged("请先检查当前未提交的改动，指出潜在风险并给出优化建议".loc)
+                                        try {
+                                            focusRequester.requestFocus()
+                                            keyboardController?.show()
+                                        } catch (_: Exception) {}
+                                    }
+                                },
+                                onPrefetchTokenHistory = onPrefetchTokenHistory
+                            )
+                        } else {
+                            ChatEmptyStateView(title = uiState.title)
+                        }
                     }
                     else -> {
                         PullToRefreshBox(

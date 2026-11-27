@@ -777,6 +777,7 @@ public final class ConversationListViewModel {
         isLoading = false
         quotaResponse = nil
         tokenHistory = nil
+        TokenHistoryCache.shared.clear()
         isLoadingTokenHistory = false
         globalBackgroundTasks = []
         lastCompatRefresh = .distantPast
@@ -1039,7 +1040,9 @@ public final class ConversationListViewModel {
         isLoadingTokenHistory = true
         defer { isLoadingTokenHistory = false }
         do {
-            self.tokenHistory = try await apiClient.fetchTokenHistory(baseURL: url, force: force)
+            let fetched = try await apiClient.fetchTokenHistory(baseURL: url, force: force)
+            self.tokenHistory = fetched
+            TokenHistoryCache.shared.update(fetched, sessionKey: url.absoluteString)
             self.lastTokenHistoryFetchTime = Date()
             self.lastTokenHistorySessionKey = sessionKey
         } catch {

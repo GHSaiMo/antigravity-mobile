@@ -88,6 +88,7 @@ public struct TokenHistoryShareCardView: View {
         VStack(spacing: 14) {
             header
             kpiGrid
+            bookEquivalentBanner
             sourceRatioBar
             chartCard
             if let record = selectedRecord {
@@ -178,6 +179,39 @@ public struct TokenHistoryShareCardView: View {
         .background(cardBackground)
         .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
         .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous).stroke(cardBorderColor, lineWidth: 0.8))
+    }
+
+    // MARK: - Book Equivalent Banner
+    @ViewBuilder
+    private var bookEquivalentBanner: some View {
+        if let eq = TokenBookEquivalent.resolve(from: history) {
+            HStack(spacing: 10) {
+                ZStack {
+                    RoundedRectangle(cornerRadius: 8, style: .continuous)
+                        .fill(accentBlue.opacity(0.14))
+                        .frame(width: 28, height: 28)
+                    Image(systemName: "books.vertical.fill")
+                        .font(.system(size: 12, weight: .semibold))
+                        .foregroundColor(accentBlue)
+                }
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(eq.sentence)
+                        .font(.system(size: 12, weight: .semibold))
+                        .foregroundColor(primaryTextColor)
+                        .lineLimit(2)
+                    Text(eq.authorOrigin)
+                        .font(.system(size: 10))
+                        .foregroundColor(secondaryTextColor)
+                        .lineLimit(1)
+                }
+                Spacer(minLength: 4)
+            }
+            .padding(.horizontal, 12)
+            .padding(.vertical, 8)
+            .background(cardBackground)
+            .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+            .overlay(RoundedRectangle(cornerRadius: 10, style: .continuous).stroke(accentBlue.opacity(0.25), lineWidth: 0.8))
+        }
     }
 
     // MARK: - Source Ratio Bar

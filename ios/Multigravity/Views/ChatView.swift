@@ -38,6 +38,7 @@ public struct ChatView: View {
     @State var showSwarmSheet = false
     @State var showContextAuditSheet = false
     @State var showWorkflowTemplateSheet = false
+    @State var showDraftWorkspaceSwitcher = false
     @State var showAutoPermissionConfirm = false
     @State var workflowSheetStartInEditMode = false
     @State var modelPickerState = ModelSlidePickerState()
@@ -104,7 +105,7 @@ public struct ChatView: View {
         self.restoredFromSessionStore = false
         _scrollHUD = State(initialValue: ChatScrollHUDState())
         if conversation.isDraft {
-            self.shouldAutoFocus = true
+            self.shouldAutoFocus = !AppSettings.shared.newChatLaunchpadEnabled || initialLaunchAction != nil
             if var draftSession = CacheManager.shared.getLocalDraftSession(id: conversation.id) {
                 if draftSession.draftImages.isEmpty {
                     draftSession.draftImages = CacheManager.shared.getDraftImages(for: conversation.id)
@@ -134,7 +135,7 @@ public struct ChatView: View {
             }
         } else {
             let isNewOrEmpty = isNewConversation || conversation.stepCount == 0
-            self.shouldAutoFocus = isNewOrEmpty
+            self.shouldAutoFocus = isNewOrEmpty && (!AppSettings.shared.newChatLaunchpadEnabled || initialLaunchAction != nil)
             let seededBranchOrigin: SideQuestionOrigin? = {
                 guard let parentId = conversation.branchParentId, !parentId.isEmpty else { return nil }
                 return SideQuestionOrigin(
@@ -196,7 +197,7 @@ public struct ChatView: View {
             _hasInitiallyAligned = State(initialValue: !retained.viewModel.messages.isEmpty || retained.scrollHUD.lastKnownVisibleMessageId != nil)
         } else {
             self.restoredFromSessionStore = false
-            self.shouldAutoFocus = true
+            self.shouldAutoFocus = !AppSettings.shared.newChatLaunchpadEnabled
             _scrollHUD = State(initialValue: ChatScrollHUDState())
             _viewModel = State(initialValue: ChatViewModel(
                 draftSession: draftSession
@@ -214,7 +215,7 @@ public struct ChatView: View {
         self.restoredFromSessionStore = false
         self.initialLaunchAction = nil
         self.onConsumeLaunchAction = nil
-        self.shouldAutoFocus = true
+        self.shouldAutoFocus = !AppSettings.shared.newChatLaunchpadEnabled
         _scrollHUD = State(initialValue: ChatScrollHUDState())
         _viewModel = State(initialValue: ChatViewModel(
             draftProject: draftProject

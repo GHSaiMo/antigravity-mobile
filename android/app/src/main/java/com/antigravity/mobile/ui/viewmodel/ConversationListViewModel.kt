@@ -462,6 +462,7 @@ class ConversationListViewModel(
         _hiddenPendingApprovalCount.value = 0
         _quotaData.value = null
         _tokenHistory.value = null
+        com.antigravity.mobile.data.model.TokenHistoryCache.history.value = null
         _isLoadingTokenHistory.value = false
         _globalBackgroundTasks.value = emptyList()
         _projects.value = loadInitialProjects()
@@ -853,6 +854,7 @@ class ConversationListViewModel(
                 }
                 result.onSuccess {
                     _tokenHistory.value = it
+                    com.antigravity.mobile.data.model.TokenHistoryCache.history.value = it
                     lastTokenHistoryFetchAtMs = System.currentTimeMillis()
                     lastTokenHistorySessionKey = sessionKey
                 }
@@ -1463,6 +1465,7 @@ class ConversationListViewModel(
             _projectsError.value = null
             _quotaData.value = null
             _tokenHistory.value = null
+        com.antigravity.mobile.data.model.TokenHistoryCache.history.value = null
             lastTokenHistoryFetchAtMs = 0L
             lastTokenHistorySessionKey = null
             lastModelCatalogFetchAtMs = 0L
@@ -1501,6 +1504,7 @@ class ConversationListViewModel(
         _projectsError.value = null
         _quotaData.value = null
         _tokenHistory.value = null
+        com.antigravity.mobile.data.model.TokenHistoryCache.history.value = null
         lastTokenHistoryFetchAtMs = 0L
         lastTokenHistorySessionKey = null
         lastModelCatalogFetchAtMs = 0L
