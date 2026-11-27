@@ -201,14 +201,22 @@ public struct SubagentReadOnlyBar: View {
     public let role: String?
     public let isRunning: Bool
     public let canStop: Bool
+    public let bottomPadding: CGFloat
     public let onStop: @MainActor @Sendable () -> Void
 
     @State private var confirmStop = false
 
-    public init(role: String?, isRunning: Bool, canStop: Bool, onStop: @escaping @MainActor @Sendable () -> Void) {
+    public init(
+        role: String?,
+        isRunning: Bool,
+        canStop: Bool,
+        bottomPadding: CGFloat = 12,
+        onStop: @escaping @MainActor @Sendable () -> Void
+    ) {
         self.role = role
         self.isRunning = isRunning
         self.canStop = canStop
+        self.bottomPadding = bottomPadding
         self.onStop = onStop
     }
 
@@ -234,7 +242,8 @@ public struct SubagentReadOnlyBar: View {
             }
         }
         .padding(.horizontal, 16)
-        .padding(.vertical, 12)
+        .padding(.top, 12)
+        .padding(.bottom, max(12, bottomPadding))
         .frame(maxWidth: .infinity)
         .background(Color(uiColor: .secondarySystemGroupedBackground))
         .confirmationDialog("关停这个子代理？", isPresented: $confirmStop, titleVisibility: .visible) {

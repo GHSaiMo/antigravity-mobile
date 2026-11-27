@@ -1172,6 +1172,7 @@ public struct ConversationListView: View {
             .modifier(ConversationSearch(
                 text: $viewModel.searchQuery,
                 usesBottomCapsule: usesSplitLayout,
+                bottomSafeArea: layoutGeometry.bottomSafeArea,
                 filterName: viewModel.selectedWorkspaceFilter?.displayName
             ))
             .onChange(of: viewModel.searchQuery) { _, _ in
@@ -3837,11 +3838,13 @@ private struct NavigationBarTapHelper: UIViewRepresentable {
 private nonisolated struct AdaptiveLayoutGeometry: Equatable, Sendable {
     var width: CGFloat = 0
     var height: CGFloat = 0
+    var bottomSafeArea: CGFloat = 0
     var verticalDivision: CGRect? = nil
 
     static func measure(from proxy: GeometryProxy) -> AdaptiveLayoutGeometry {
         let w = proxy.size.width.rounded()
         let h = proxy.size.height.rounded()
+        let bottomSafe = proxy.safeAreaInsets.bottom.rounded()
         let divisionRect: CGRect?
         #if compiler(>=6.4.1)
         if #available(iOS 27.1, *),
@@ -3864,7 +3867,7 @@ private nonisolated struct AdaptiveLayoutGeometry: Equatable, Sendable {
         #else
         divisionRect = nil
         #endif
-        return AdaptiveLayoutGeometry(width: w, height: h, verticalDivision: divisionRect)
+        return AdaptiveLayoutGeometry(width: w, height: h, bottomSafeArea: bottomSafe, verticalDivision: divisionRect)
     }
 }
 
@@ -4016,7 +4019,9 @@ private struct SidebarToggleToolbarItem: ToolbarContent {
 private struct ConversationSearch: ViewModifier {
     @Binding var text: String
     let usesBottomCapsule: Bool
+    let bottomSafeArea: CGFloat
     var filterName: String? = nil
+    @State private var isDockedKeyboardVisible: Bool = false
 
     private var prompt: String {
         if let filterName, !filterName.isEmpty {
@@ -4024,30 +4029,50 @@ private struct ConversationSearch: ViewModifier {
         }
         return String(localized: "搜索会话或工作区...")
     }
+
+    private var capsuleBottomPadding: CGFloat {
+        ChatBottomBarLayout.bottomPadding(
+            outerBottomSafeArea: bottomSafeArea,
+            isDockedKeyboardVisible: isDockedKeyboardVisible
+        )
+    }
     
     func body(content: Content) -> some View {
         if usesBottomCapsule {
-            content.safeAreaInset(edge: .bottom, spacing: 0) {
-                HStack(spacing: 8) {
-                    Image(systemName: "magnifyingglass")
-                        .foregroundStyle(.secondary)
-                    TextField(prompt, text: $text)
-                        .textFieldStyle(.plain)
-                        .submitLabel(.search)
-                        .autocorrectionDisabled()
-                    if !text.isEmpty {
-                        Button { text = "" } label: {
-                            Image(systemName: "xmark.circle.fill").foregroundStyle(.secondary)
+            content
+                .safeAreaInset(edge: .bottom, spacing: 0) {
+                    HStack(spacing: 8) {
+                        Image(systemName: "magnifyingglass")
+                            .foregroundStyle(.secondary)
+                        TextField(prompt, text: $text)
+                            .textFieldStyle(.plain)
+                            .submitLabel(.search)
+                            .autocorrectionDisabled()
+                        if !text.isEmpty {
+                            Button { text = "" } label: {
+                                Image(systemName: "xmark.circle.fill").foregroundStyle(.secondary)
+                            }
+                            .buttonStyle(.plain)
                         }
-                        .buttonStyle(.plain)
+                    }
+                    .padding(.horizontal, 16)
+                    .frame(height: 48)
+                    .glassEffect(.regular.interactive(), in: .capsule)
+                    .padding(.horizontal, 16)
+                    .padding(.bottom, capsuleBottomPadding)
+                }
+                .ignoresSafeArea(.container, edges: .bottom)
+                .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillChangeFrameNotification)) { notif in
+                    let docked = ChatBottomBarLayout.isKeyboardDocked(from: notif)
+                    if isDockedKeyboardVisible != docked {
+                        isDockedKeyboardVisible = docked
                     }
                 }
-                .padding(.horizontal, 16)
-                .frame(height: 48)
-                .glassEffect(.regular.interactive(), in: .capsule)
-                .padding(.horizontal, 16)
-                .padding(.bottom, 8)
-            }
+                .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillHideNotification)) { _ in
+                    if isDockedKeyboardVisible {
+                        isDockedKeyboardVisible = false
+                    }
+                }
         } else {
             content.searchable(text: $text, prompt: prompt)
         }

@@ -335,6 +335,7 @@ extension ChatView {
                 dictationManager: dictationManager,
                 isInputFocused: $isInputFocused,
                 isSlashPickerDismissed: $isSlashPickerDismissed,
+                bottomPadding: chatBottomPadding,
                 onSend: handleSend,
                 onCancel: handleCancel,
                 onStartVoiceCall: handleStartVoiceCall,
@@ -446,6 +447,7 @@ private struct ChatInputTextAndSendRow: View {
     let dictationManager: AudioDictationManager
     @Binding var isInputFocused: Bool
     @Binding var isSlashPickerDismissed: Bool
+    let bottomPadding: CGFloat
     let onSend: () -> Void
     let onCancel: () -> Void
     let onStartVoiceCall: () -> Void
@@ -562,7 +564,7 @@ private struct ChatInputTextAndSendRow: View {
             }
         }
         .padding(.horizontal, 16)
-        .padding(.bottom, 12)
+        .padding(.bottom, bottomPadding)
         .animation(.easeInOut(duration: 0.2), value: viewModel.isActivelyRunning)
         .animation(.easeInOut(duration: 0.2), value: voiceCall.isInCall)
         .animation(.easeInOut(duration: 0.18), value: hasSendableDraft)

@@ -56,6 +56,8 @@ public struct ChatView: View {
     @State var activeTurnJumpTask: Task<Void, Never>? = nil
     @State var chatAreaHeight: CGFloat = 0
     @State var inputBarRowWidth: CGFloat = 0
+    @State var outerBottomSafeArea: CGFloat = 0
+    @State var isDockedKeyboardVisible: Bool = false
     let shouldAutoFocus: Bool
     let initialConversation: ConversationItem?
     let initialIsUnread: Bool
@@ -228,85 +230,117 @@ public struct ChatView: View {
         )
     }
 
+    var chatBottomPadding: CGFloat {
+        ChatBottomBarLayout.bottomPadding(
+            outerBottomSafeArea: outerBottomSafeArea,
+            isDockedKeyboardVisible: isDockedKeyboardVisible
+        )
+    }
+
     @ViewBuilder
     private var rootChatLayout: some View {
-        VStack(spacing: 0) {
-            ZStack(alignment: .bottom) {
-                VStack(spacing: 0) {
-                    if let brief = viewModel.swarmBrief, brief.active {
-                        SwarmBannerView(brief: brief) {
-                            showSwarmSheet = true
-                        }
-                        .padding(.horizontal, 16)
-                        .padding(.vertical, 6)
+        ZStack(alignment: .top) {
+            Color.clear
+                .allowsHitTesting(false)
+                .onGeometryChange(for: CGFloat.self) { proxy in
+                    proxy.safeAreaInsets.bottom.rounded()
+                } action: { newInset in
+                    if abs(outerBottomSafeArea - newInset) > 0.5 {
+                        outerBottomSafeArea = newInset
                     }
-                    contentArea
-                    errorBanner
-                    floatingCards
+                }
+
+            VStack(spacing: 0) {
+                ZStack(alignment: .bottom) {
+                    VStack(spacing: 0) {
+                        if let brief = viewModel.swarmBrief, brief.active {
+                            SwarmBannerView(brief: brief) {
+                                showSwarmSheet = true
+                            }
+                            .padding(.horizontal, 16)
+                            .padding(.vertical, 6)
+                        }
+                        contentArea
+                        errorBanner
+                        floatingCards
+                            .readableChatWidth(horizontalSizeClass == .regular)
+                    }
+                    
+                    floatingSlashCommandPopup
+                        .readableChatWidth(horizontalSizeClass == .regular)
+                    
+                    floatingMentionPopup
                         .readableChatWidth(horizontalSizeClass == .regular)
                 }
-                
-                floatingSlashCommandPopup
-                    .readableChatWidth(horizontalSizeClass == .regular)
-                
-                floatingMentionPopup
-                    .readableChatWidth(horizontalSizeClass == .regular)
-            }
-            .onGeometryChange(for: CGFloat.self) { proxy in
-                proxy.size.height
-            } action: { newHeight in
-                if newHeight > 0, abs(chatAreaHeight - newHeight) > 1 {
-                    chatAreaHeight = newHeight
+                .onGeometryChange(for: CGFloat.self) { proxy in
+                    proxy.size.height
+                } action: { newHeight in
+                    if newHeight > 0, abs(chatAreaHeight - newHeight) > 1 {
+                        chatAreaHeight = newHeight
+                    }
+                }
+                if viewModel.isSubagentSession || initialConversation?.isSubagent == true {
+                    SubagentReadOnlyBar(
+                        role: viewModel.subagentRole,
+                        isRunning: viewModel.isRunning,
+                        canStop: GatewayCompatStore.shared.isAvailable(GatewayFeature.subagents),
+                        bottomPadding: chatBottomPadding,
+                        onStop: {
+                            let me = SubagentItem(conversationId: viewModel.cascadeId, status: "running")
+                            Task { await viewModel.stopSubagent(me) }
+                        }
+                    )
+                } else {
+                    inputBar
                 }
             }
-            if viewModel.isSubagentSession || initialConversation?.isSubagent == true {
-                SubagentReadOnlyBar(
-                    role: viewModel.subagentRole,
-                    isRunning: viewModel.isRunning,
-                    canStop: GatewayCompatStore.shared.isAvailable(GatewayFeature.subagents),
-                    onStop: {
-                        let me = SubagentItem(conversationId: viewModel.cascadeId, status: "running")
-                        Task { await viewModel.stopSubagent(me) }
+            .ignoresSafeArea(.container, edges: .bottom)
+            .coordinateSpace(name: "chatRoot")
+            .onGeometryChange(for: CGSize.self) { proxy in
+                proxy.size
+            } action: { newSize in
+                modelPickerState.containerSize = newSize
+                workflowPickerState.containerSize = newSize
+                commitPickerState.containerSize = newSize
+            }
+            .overlay {
+                ModelSlidePickerOverlay(state: modelPickerState, isRunning: viewModel.isRunning) { modelId in
+                    withAnimation(.easeInOut(duration: 0.15)) {
+                        viewModel.selectModel(modelId)
+                    }
+                }
+                WorkflowSlidePickerOverlay(
+                    state: workflowPickerState,
+                    onSelectTemplate: { templatePrompt in
+                        viewModel.inputText = templatePrompt
+                        viewModel.pendingSelectFirstPlaceholder = true
+                        isInputFocused = true
+                    },
+                    onOpenSetup: {
+                        isInputFocused = false
+                        workflowSheetStartInEditMode = true
+                        showWorkflowTemplateSheet = true
                     }
                 )
-            } else {
-                inputBar
+                CommitSlidePickerOverlay(
+                    state: commitPickerState,
+                    onSelect: { action in
+                        viewModel.inputText = action
+                        isInputFocused = true
+                    }
+                )
             }
         }
-        .coordinateSpace(name: "chatRoot")
-        .onGeometryChange(for: CGSize.self) { proxy in
-            proxy.size
-        } action: { newSize in
-            modelPickerState.containerSize = newSize
-            workflowPickerState.containerSize = newSize
-            commitPickerState.containerSize = newSize
-        }
-        .overlay {
-            ModelSlidePickerOverlay(state: modelPickerState, isRunning: viewModel.isRunning) { modelId in
-                withAnimation(.easeInOut(duration: 0.15)) {
-                    viewModel.selectModel(modelId)
-                }
+        .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillChangeFrameNotification)) { notif in
+            let docked = ChatBottomBarLayout.isKeyboardDocked(from: notif)
+            if isDockedKeyboardVisible != docked {
+                isDockedKeyboardVisible = docked
             }
-            WorkflowSlidePickerOverlay(
-                state: workflowPickerState,
-                onSelectTemplate: { templatePrompt in
-                    viewModel.inputText = templatePrompt
-                    viewModel.pendingSelectFirstPlaceholder = true
-                    isInputFocused = true
-                },
-                onOpenSetup: {
-                    isInputFocused = false
-                    workflowSheetStartInEditMode = true
-                    showWorkflowTemplateSheet = true
-                }
-            )
-            CommitSlidePickerOverlay(
-                state: commitPickerState,
-                onSelect: { action in
-                    viewModel.inputText = action
-                    isInputFocused = true
-                }
-            )
+        }
+        .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillHideNotification)) { _ in
+            if isDockedKeyboardVisible {
+                isDockedKeyboardVisible = false
+            }
         }
         .onChange(of: modelPickerState.isPresented) { _, presented in
             if presented {
@@ -1121,6 +1155,41 @@ extension View {
         } else {
             self
         }
+    }
+}
+
+/// Shared bottom bar spacing rules aligned with native iOS 27 Messages (~22pt on curved/home-indicator
+/// edges when resting, tightening to 12pt above a docked keyboard or on flat zero-safe-area windows).
+enum ChatBottomBarLayout {
+    static let restingSafeAreaPadding: CGFloat = 22
+    static let compactPadding: CGFloat = 12
+
+    static func bottomPadding(outerBottomSafeArea: CGFloat, isDockedKeyboardVisible: Bool) -> CGFloat {
+        if isDockedKeyboardVisible {
+            return compactPadding
+        }
+        return (outerBottomSafeArea > 0 && outerBottomSafeArea < 50)
+            ? restingSafeAreaPadding
+            : compactPadding
+    }
+
+    @MainActor
+    static func isKeyboardDocked(from notification: Notification) -> Bool {
+        guard let endFrame = notification.userInfo?[UIResponder.keyboardFrameEndUserInfoKey] as? CGRect,
+              endFrame.height > 1 else {
+            return false
+        }
+        let windows = UIApplication.shared.connectedScenes
+            .compactMap { $0 as? UIWindowScene }
+            .flatMap(\.windows)
+        guard let window = windows.first(where: \.isKeyWindow) ?? windows.first else {
+            return endFrame.height > 20
+        }
+        let frameInWindow = window.convert(endFrame, from: nil)
+        let overlap = window.bounds.intersection(frameInWindow)
+        return overlap.height > 20
+            && abs(overlap.maxY - window.bounds.maxY) < 4
+            && overlap.width >= window.bounds.width * 0.5
     }
 }
 
