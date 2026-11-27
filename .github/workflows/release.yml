@@ -9,7 +9,7 @@ on:
       tag:
         description: 'Release Tag (e.g. v1.2.8 or v1.2.8-beta.1)'
         required: false
-        default: 'v1.2.7'
+        default: 'v1.2.8'
       prerelease:
         description: 'Mark as Pre-release (auto-enabled when tag contains "-")'
         type: boolean
@@ -105,7 +105,7 @@ jobs:
           if [ "$REF_TYPE" = "tag" ] && [ -n "$REF_NAME" ]; then
             TAG_NAME="$REF_NAME"
           else
-            TAG_NAME="${INPUT_TAG:-v1.2.7}"
+            TAG_NAME="${INPUT_TAG:-v1.2.8}"
           fi
           APK_PATH=$(find android/app/build/outputs/apk/direct/release -name "*.apk" | head -n 1)
           if [ -z "$APK_PATH" ]; then
@@ -156,7 +156,7 @@ jobs:
           if [ "$REF_TYPE" = "tag" ] && [ -n "$REF_NAME" ]; then
             TAG_NAME="$REF_NAME"
           else
-            TAG_NAME="${INPUT_TAG:-v1.2.7}"
+            TAG_NAME="${INPUT_TAG:-v1.2.8}"
           fi
           VERSION_NUM="${TAG_NAME#v}"
 
@@ -209,7 +209,7 @@ jobs:
           if [ "$REF_TYPE" = "tag" ] && [ -n "$REF_NAME" ]; then
             TAG_NAME="$REF_NAME"
           else
-            TAG_NAME="${INPUT_TAG:-v1.2.7}"
+            TAG_NAME="${INPUT_TAG:-v1.2.8}"
           fi
           VERSION_NUM="${TAG_NAME#v}"
 
@@ -248,7 +248,7 @@ jobs:
           if [ "$REF_TYPE" = "tag" ] && [ -n "$REF_NAME" ]; then
             TAG_NAME="$REF_NAME"
           else
-            TAG_NAME="${INPUT_TAG:-v1.2.7}"
+            TAG_NAME="${INPUT_TAG:-v1.2.8}"
           fi
           VERSION_NUM="${TAG_NAME#v}"
 
@@ -317,7 +317,7 @@ jobs:
           if [ "$REF_TYPE" = "tag" ] && [ -n "$REF_NAME" ]; then
             TAG_NAME="$REF_NAME"
           else
-            TAG_NAME="${INPUT_TAG:-v1.2.7}"
+            TAG_NAME="${INPUT_TAG:-v1.2.8}"
           fi
 
           # Any tag containing "-" (e.g. v1.2.8-beta.1, v1.2.8-rc.1, v1.2.8-alpha.1)

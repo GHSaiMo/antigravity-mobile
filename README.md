@@ -27,7 +27,7 @@
 </p>
 
 <p align="center">
-  🌐 <b>官网</b>：<a href="https://mgy.jiuge.space/zh.html">mgy.jiuge.space/zh.html</a> &nbsp;·&nbsp; 🍎 <b>App Store</b>：<a href="https://apps.apple.com/app/id6835508934">iOS 正式版下载</a> &nbsp;·&nbsp; 🧪 <b>TestFlight</b>：<a href="https://testflight.apple.com/join/YM7f4aSK">公开测试通道</a> &nbsp;·&nbsp; 📦 <a href="https://github.com/GHSaiMo/antigravity-mobile/releases/latest">最新版 v1.2.7</a> &nbsp;·&nbsp; 𝕏 <a href="https://x.com/MultigravityApp">@MultigravityApp</a> &nbsp;·&nbsp; 💬 <a href="#wechat-group">微信用户群</a> &nbsp;·&nbsp; ☕ <a href="#sponsor">赞助支持</a>
+  🌐 <b>官网</b>：<a href="https://mgy.jiuge.space/zh.html">mgy.jiuge.space/zh.html</a> &nbsp;·&nbsp; 🍎 <b>App Store</b>：<a href="https://apps.apple.com/app/id6835508934">iOS 正式版下载</a> &nbsp;·&nbsp; 🧪 <b>TestFlight</b>：<a href="https://testflight.apple.com/join/YM7f4aSK">公开测试通道</a> &nbsp;·&nbsp; 📦 <a href="https://github.com/GHSaiMo/antigravity-mobile/releases/latest">最新版 v1.2.8</a> &nbsp;·&nbsp; 𝕏 <a href="https://x.com/MultigravityApp">@MultigravityApp</a> &nbsp;·&nbsp; 💬 <a href="#wechat-group">微信用户群</a> &nbsp;·&nbsp; ☕ <a href="#sponsor">赞助支持</a>
 </p>
 
 > 🎉 **反重力智能体移动伴侣 iOS 版现已正式上架 Apple App Store！**  
@@ -69,7 +69,7 @@ irm https://raw.githubusercontent.com/GHSaiMo/antigravity-mobile/main/scripts/in
 
 ### 2. 安装或打开移动端
 - **iOS**：🎉 现已正式上架 Apple App Store，直接前往 **[App Store 下载 Multigravity](https://apps.apple.com/app/id6835508934)** 一键安装（中文系统自动优先展示中文介绍与演示截图），也可通过 **[TestFlight 公开测试](https://testflight.apple.com/join/YM7f4aSK)** 抢先体验最新构建（如需自行源码编译调试，仍可参考 [iOS 本地构建与真机调试指南](docs/ios_build_guide.md)）。
-- **Android**：前往 [GitHub Releases](https://github.com/GHSaiMo/antigravity-mobile/releases/latest) 直接下载安装 `Multigravity-v1.2.7.apk`（自 `v1.2.7` 起启用全新独立私有签名并内置 SHA-256 校验应用内检查更新，支持「设置 → 关于 → 版本」一键覆盖升级及 [Obtainium](https://github.com/ImranR98/Obtainium) 订阅；`v1.2.6` 及更早老版本首次升级请先卸载旧版再安装一次）。
+- **Android**：前往 [GitHub Releases](https://github.com/GHSaiMo/antigravity-mobile/releases/latest) 直接下载安装 `Multigravity-v1.2.8.apk`（启用独立私有签名并内置 SHA-256 校验应用内检查更新，支持「设置 → 关于 → 版本」一键覆盖升级及 [Obtainium](https://github.com/ImranR98/Obtainium) 订阅；仅 `v1.2.6` 及更早老版本首次升级需先卸载旧版再安装一次）。
 - **PWA / Web**：无需安装 App，手机浏览器直接访问网关地址（或 `/?view=pwa`）即可添加到主屏幕。
 
 ### 3. 启动并扫码配对
@@ -125,28 +125,28 @@ mgy
 
 ## ✨ 重点特性
 
-### 1. 全端一致的实时流式体验
-- **四端全覆盖与原生三语自适应**：原生 **iOS**（SwiftUI / Swift 6，含 **iPhone Duo** 折叠屏与主屏快捷操作）、原生 **Android**（Jetpack Compose Material 3）、零构建嵌入式 **PWA Web** 与**桌面工作台（`/`）**，全端支持**简体中文 / English / 日本語**自动协商与手动切换，提供「跟随系统 / 浅色 / 深色」原生外观与独立「精简模式」二级降噪开关。
-- **桌面级步骤计划卡片、可展开 `Working` 行与实时计时器**：四端原生复刻 Antigravity 步骤计划卡片（Step Plan Card）、默认折叠思考过程的 `Working` 进度行与实时焦点计时器，同步透出至 iOS 灵动岛与锁屏实时活动；内置**全量会话轮次大纲（Turn Outline）、按需轮次跳转、尾部窗口磁盘缓存**与 iOS 原子化滚动防闪烁引擎，超长会话秒开且任意回溯丝滑流畅。
-- **专业级富媒体排版与交互**：180+ 语言离线语法高亮（含 `R / R Markdown`）、单列行号槽 + 词级行内代码 Diff、LaTeX 公式、Mermaid 容错渲染、**双级高清图片预览**、全主题 Token 注入的 **MCP Apps (`ui://`) / Generative UI 交互式组件桥接**、**文档与 HTML 页内查找（Find in Page）**及高密度 PDF 懒加载预览。
+### 1. 全端一致的实时流式体验与智能辅助套件
+- **四端全覆盖、原生多语自适应与一机多主机**：原生 **iOS**（SwiftUI / Swift 6，含 **iPhone Duo** 折叠屏与主屏快捷操作）、原生 **Android**（Jetpack Compose Material 3）、零构建嵌入式 **PWA Web** 与**桌面工作台（`/`）**，全端支持**简体中文 / English / 日本語**及非中日英系统干净降级英文，支持**解耦多主机自由切换**（聊天标题左右轻扫切机、居中主机滑选器与后台主机审批微提醒）及「设置 → 关于 → 宿主机更新」远程一键自更新 `mgy` 网关。
+- **智能辅助套件（AI Assist）**：通过本机 Antigravity 原生接口无状态执行（零额外会话、跨设备同步）：支持**智能翻译**（会话标题、步骤清单、实时状态与灵动岛，英文端默认关闭并按设备抑制，支持中/日及法/韩/德/西等母语动态目标语言）、**下一步提示词建议胶囊**（短按填入、长按 1.5 秒进度条防呆直发）与**长会话防失忆**（`/compact` 后原生 `PreInvocation` Hook 自动单次回灌上下文）。
+- **桌面级步骤计划卡片、可展开 `Working` 行与富媒体交互**：四端原生复刻步骤计划卡片（Step Plan Card）、默认折叠思考过程的 `Working` 进度行、**全量会话轮次大纲、尾部窗口磁盘缓存**与 iOS 防闪烁滚动；支持 180+ 语言离线高亮、词级行内代码 Diff、LaTeX、Mermaid、**双级高清图**、**可交互 HTML 产物预览卡片**、全主题 Token 注入的 **MCP Apps (`ui://`) / Generative UI** 及高密度 PDF 懒加载预览。
 
-### 2. 关键决策、分级权限与模型协同
-- **原生交互卡片、高危 Diff 预检与收件箱置顶**：完整支持多选与多题决策（`ask_question`）、带摘要头与紧凑可折叠 Diff 预览的高危命令审批、**Agent Inbox 审批置顶**、限定范围写入审批、三档权限模式、插件权限撤销以及未信任工作区告警横幅一键授信。
-- **全面对齐 Antigravity 2.35.0 模型代际**：原生支持 **Gemini 4 Neon**（含 Extra 思考档）、收入子菜单的 **Orchestrator (Neon / Carbon / Argon)**、Hydrogen / Carbon / Claude 5.5 全系模型，模型选择器内直览池配额；支持首选/次选模型与桌面同步、短按快切与长按全选。
-- **方案放行、重构 `/btw` 旁问与会话归档**：支持预览方案一键 `Proceed` 推进、**会话归档/取消归档**、对话 Fork/Worktree 分叉、代码回滚与带阻塞状态提示的排队追问；支持全新独立 **`/btw` 旁问分支**并一键回插主对话；点击对话内 `/skill` 徽章可直达 `SKILL.md` 定义预览。
+### 2. 关键决策、Antigravity 2.35.2 原生能力与模型协同
+- **原生交互卡片、四档权限与高危 Diff 预检**：完整支持多选与多题决策（`ask_question`）、带摘要头与可折叠 Diff 预览的高危命令审批、**Agent Inbox 审批置顶**、限定范围写入审批、**四档权限模式**、插件权限撤销以及未信任工作区一键授信。
+- **全面对齐 Antigravity 2.35.2 原生生态**：原生支持 **Gemini 4 Neon**（含 `XHigh` 思考档）、收入子菜单的 **Orchestrator (Neon / Carbon / Argon)**、Hydrogen / Carbon / Claude 5.5 全系模型与选择器内直览池配额；完整支持 **浏览器实时预览（Live View）与触控接管**、**远程 SSH 主机管理**、**插件市场检索安装与 Plugin/MCP OAuth 闭环**、工作区代码/文件搜索、产物历史快照、Worktree PR 与会话标星。
+- **方案放行、`/btw` 内收抽屉、多斜杠指令与会话归档**：支持一键 `Proceed` 推进、**会话归档/取消归档**、Fork/Worktree 分叉、代码回滚、单条消息组合**多条有序 `/slash` 指令**；重构 **`/btw` 旁路内收抽屉与完整树形连线**并支持一键回插主对话；点击 `/skill` 徽章直达 `SKILL.md` 预览。
 
 ### 3. 多智能体工作流、蜂群看板、终端与自动化
 - **动态工作流全生命周期 (`run_workflow`)**：内置常用模板快捷发起，精准拦截 Python 编排脚本并弹出安全审批卡，实时展示阶段流水线、按分组呈现且解析**真实运行模型**的并发子智能体网格、终端日志与 JSON 产物；单子代理运行时点击浮条即可一步直达详情。
-- **蜂群看板与实时终端**：桌面级复刻蜂群协作板（`/swarm`），支持协作板分页与**运行中 Swarm 蜂群置顶 + 像素蜜蜂动态标识**；原生接入 PTY 终端 WebSocket 实时交互流、MCP Server 开关热刷新、Agent Memories 增删改查与浏览器子智能体跳过/加白控制。
-- **定时任务与后台任务中心**：三端支持创建、详情查看、完整编辑与启停 Automations（含离线本地扫描双保险与「立即运行 Run Now」），跨会话监控全局后台任务并实时查看/刷新终端日志 Tail。
+- **蜂群看板与实时终端**：桌面级复刻蜂群协作板（`/swarm`），支持协作板分页、**完整 Markdown 嵌套列表与悬浮回底按钮**、**运行中 Swarm 蜂群置顶 + 像素蜜蜂动态标识**；原生接入 PTY 终端 WebSocket 实时交互流、MCP Server 开关热刷新、Agent Memories 增删改查与浏览器子智能体跳过/加白控制。
+- **桌面级定时任务与后台任务中心**：三端支持**用 Prompt 创建定时任务**、详情查看、完整编辑、立即运行与启停 Automations（触发提示词气泡默认折叠且支持点按展开），跨会话监控全局后台任务并实时查看终端日志 Tail。
 
 ### 4. 全双工实时语音与多模态交互
 - **实时语音通话、听写与朗读**：四端支持 Antigravity 全双工实时语音协议（iOS 启用硬件级回声消除 AEC），支持原生流式语音听写（Dictation）、回答语音朗读（Narration）、实时字幕、打断与倍速播放。
 - **多模态输入与产出**：支持 `@` 上下文提及、微信式相册切换器与跨相册全量多选、音视频（`≤200MB`，含 `.amr` 语音）与常规文件（`≤50MB`）的 **E2EE `req-bin2` 流式进度上传与幂等重试**、**微信聊天记录 ZIP 智能识别、离线归档缓存与原生排版预览**、双端统一长按自由选词浮层、iOS 文稿扫描、AI 生图与 7 款精选皮肤（含 Solarized Light、Nord 等桌面配色）长图海报分享。
 
-### 5. 上下文水位、速率监控与配额仪表盘
-- **实时上下文水位、Token 汇总与速率**：聊天顶栏实时展示上下文占用圆环、**会话 Token 汇总与压缩阈值提示**及 `TTFT / TPS` 吐字速率，遇到上下文溢出自动升级为带「一键压缩 `/compact`」和「开启新会话」的救援卡片。
-- **配额匀速刻度与可滑动 Token 三视图图表**：实时监控 Claude / Gemini（5h & Weekly）及 Argon 额度，叠加均速消耗刻度针与节奏分析；内置支持满 1 小时自动刷新的可滑动 **Token 历史三视图轮播**（近 14 天每日柱状图、模型累计占比与 20 周热力图，含智能冷启动默认与偏好记忆）、成本统计与所见即所得多皮肤报告海报一键保存/分享，配合 **Cockpit Tools v1.4+ SQLite 索引**与 **ULTRA 优先分级排序**支持多账号无感热切。
+### 5. 上下文水位拆解、阈值自动切号与配额仪表盘
+- **实时上下文水位拆解、Token 汇总与速率**：聊天顶栏实时展示上下文占用圆环、**上下文占用分布拆解（Context Breakdown）与 Top 3 步骤直跳定位**、会话 Token 汇总、压缩阈值提示及 `TTFT / TPS` 吐字速率，遇到上下文溢出自动升级为带「一键压缩 `/compact`」和「开启新会话」的救援卡片。
+- **阈值自动切号、配额匀速刻度与可滑动 Token 三视图图表**：实时监控 Claude / Gemini（5h & Weekly）及 Argon 额度，支持**空闲安全阈值自动切号**（默认等当前轮次空闲再切账号）、动态模型定价与配额预估；内置支持满 1 小时自动刷新的可滑动 **Token 历史三视图轮播**（近 14 天每日柱状图、模型累计占比与 20 周热力图）、成本统计与多皮肤报告海报分享，配合 **Cockpit Tools v1.4+ SQLite 索引**与 **ULTRA 优先分级排序**支持多账号无感热切。
 - **全尺寸额度与活跃对话小组件 & CarPlay 实时步骤（iOS）**：内置全套尺寸锁屏与桌面额度小组件（`Inline` / `Circular` / `Rectangular` / `Small`～`ExtraLarge`）及 **`AgentStatusWidget` 活跃对话监控小组件**（`Small`～`Large`），覆盖 iPhone、iPad、StandBy、iOS 26 CarPlay 与 Mac 桌面，支持 5h/7d 双窗走秒倒计时、一键轻刷与多会话审批总览；CarPlay 仪表盘与 Apple Watch 智能叠放同步支持两段式高对比实时步骤卡片。
 
 ### 6. 移动端工程闭环与外设生态
@@ -154,9 +154,9 @@ mgy
 - **跨端游标与物理外设**：Follow-Me 游标引擎智能仲裁桌面与移动端活跃会话；支持 `integrations/yoooclaw/` 随身硬件按键语音直连注入活跃会话。
 
 ### 7. 零知识端到端加密、多地域中继池与安全推送
-- **多通道并发测速与多地域中继池**：支持零知识多节点 VPS 中继池（并发 RTT 测速、滞回钉选、故障自动切换）、Cloudflare Tunnel 专属 HTTPS 域名自动回退、局域网 Wi-Fi 与 Tailscale 并发探活，自动择优切换最低延迟链路。
-- **按设备语言三语推送、停滞告警、锁屏快批与全 5 池额度守护**：iOS 原生支持 **APNs 推送、锁屏快捷审批与远程 Live Activity 灵动岛状态更新**，Android 支持 `dataSync` 前台保活与 FCM 推送；全量通知按**各配对设备语言**原生输出 **简中 / English / 日本語**，支持可定制通知偏好子页、任务停滞告警、高危审批独立标题与桌面端已审批横幅静默撤回，覆盖全 5 池低水位、官方提前回满喜报及异常骤降告警；网关内置跨平台**任务期动态防休眠守卫**（仅活跃任务期持锁、允许熄屏、空闲 2 分钟自动释放）。
-- **零知识 E2EE 与本地优先安全架构**：全端内置 **`mgy-e2ee-v1` 端到端加密协议**（ECDH P-256 + HKDF-SHA256 + AES-256-GCM），中继路径强制拒绝明文（HTTP 426）确保中转节点零知识不可见；支持老设备双轨静默升级，设备凭据存入系统 Keychain / EncryptedSharedPreferences，集成敏感路径黑名单与 WS 限流防刷。
+- **多通道并发测速与丢包感知中继池**：支持零知识多节点 VPS 中继池（丢包感知多样本测速、滞回钉选、运行时 Ping 逃逸、故障自动切换）与**自建中继（BYO-Relay）**、Cloudflare Tunnel 专属 HTTPS 域名自动回退、局域网 Wi-Fi 与 Tailscale 并发探活，自动择优切换最低延迟链路。
+- **按设备语言三语推送、推送脱敏、锁屏快批与全 5 池额度守护**：iOS 原生支持 **APNs 推送、锁屏快捷审批与远程 Live Activity 灵动岛状态更新**，Android 支持 `dataSync` 前台保活与 FCM 推送；全量通知按**各配对设备语言**原生输出 **简中 / English / 日本語**（非中日英自动降级英文），支持**推送正文脱敏（`MGY_PUSH_REDACT`）**、可定制通知偏好子页、任务停滞告警、高危审批独立标题与桌面端已审批横幅静默撤回，覆盖全 5 池低水位、官方提前回满喜报及异常骤降告警；网关内置跨平台**任务期动态防休眠守卫**（仅活跃任务期持锁、允许熄屏、空闲 2 分钟自动释放）。
+- **零知识 E2EE v2 与本地优先安全架构**：全端内置 **E2EE v2 端到端加密协议**（ECDH P-256 + HKDF-SHA256 + AES-256-GCM + 防重放与 WS 序号保护），支持强制 E2EE 与中继明文直拒（HTTP 426）确保中转节点零知识不可见；支持老设备双轨静默升级，设备凭据存入系统 Keychain / EncryptedSharedPreferences，集成敏感路径黑名单与 WS 限流防刷。
 
 ---
 
@@ -180,7 +180,8 @@ mgy
 mgy                  # 前台启动网关并打印配对二维码
 mgy service install  # 注册开机自动接管后台守护 (Windows 任务计划 / macOS launchd / Linux systemd)
 mgy service status   # 查看后台自启服务状态与日志 (支持 start / stop / restart / logs -f / uninstall)
-mgy pair             # 申请新的 5 分钟有效配对二维码 (加 -hub 可签发 6 位 Hub 接入码)
+mgy update           # 检查并一键自更新 mgy 网关 (支持指定版本，如 mgy update v1.2.8)
+mgy pair             # 申请新的 5 分钟有效配对二维码 (支持 -copy / -uri / -hub 签发 6 位 Hub 接入码)
 mgy hub              # 启动多机聚合 Hub（启动自动扫描局域网 mgy，支持 -headless）
 mgy hub pair <名>    # 通过 6 位确认码热接入局域网普通 mgy（亦可用 mgy hub scan 扫描）
 mgy cockpit          # 配置 Cockpit 报表服务与 Token
