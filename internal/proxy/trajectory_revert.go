@@ -71,16 +71,29 @@ func (p *Proxy) GetRevertPreview(cascadeID string, messageStepIndex int, targetI
 	}
 
 	upstreamCascadeID := cascadeID
-	if targetIndex < 0 {
-		if activeID := ResolveActiveCascadeID(cascadeID); activeID != "" {
-			upstreamCascadeID = activeID
+	upstreamTargetIndex := targetIndex
+	if segs := GetStitchChainSegments(cascadeID); len(segs) > 1 {
+		activeID := ResolveActiveCascadeID(cascadeID)
+		if targetIndex < 0 {
+			if activeID != "" {
+				upstreamCascadeID = activeID
+			}
+		} else {
+			segID, localIdx := p.ResolveGlobalStepToSegment(context.Background(), cascadeID, targetIndex, port, token)
+			if segID != "" && segID != activeID {
+				return nil, fmt.Errorf("cannot preview revert into a sealed pre-switch segment")
+			}
+			if activeID != "" {
+				upstreamCascadeID = activeID
+			}
+			upstreamTargetIndex = localIdx
 		}
 	}
 
 	apiURL := fmt.Sprintf("https://127.0.0.1:%d/exa.language_server_pb.LanguageServerService/GetRevertPreview", port)
 	reqPayload, _ := json.Marshal(map[string]interface{}{
 		"cascadeId": upstreamCascadeID,
-		"stepIndex": targetIndex,
+		"stepIndex": upstreamTargetIndex,
 	})
 
 	req, err := http.NewRequest(http.MethodPost, apiURL, bytes.NewReader(reqPayload))
@@ -214,6 +227,26 @@ func (p *Proxy) ExecuteRevert(cascadeID string, messageStepIndex int, targetInde
 		targetIndex = *targetIndexOverride
 	}
 
+	upstreamCascadeID := cascadeID
+	upstreamTargetIndex := targetIndex
+	if segs := GetStitchChainSegments(cascadeID); len(segs) > 1 {
+		activeID := ResolveActiveCascadeID(cascadeID)
+		if targetIndex < 0 {
+			if activeID != "" {
+				upstreamCascadeID = activeID
+			}
+		} else {
+			segID, localIdx := p.ResolveGlobalStepToSegment(context.Background(), cascadeID, targetIndex, port, token)
+			if segID != "" && segID != activeID {
+				return targetIndex, fmt.Errorf("cannot revert into a sealed pre-switch segment")
+			}
+			if activeID != "" {
+				upstreamCascadeID = activeID
+			}
+			upstreamTargetIndex = localIdx
+		}
+	}
+
 	client := p.mediumClient
 	if client == nil {
 		client = &http.Client{
@@ -226,7 +259,7 @@ func (p *Proxy) ExecuteRevert(cascadeID string, messageStepIndex int, targetInde
 	}
 
 	// Stop any active invocation first so reverting a just-sent / RUNNING turn is not rejected upstream.
-	p.cancelBeforeRevert(client, cascadeID, port, token)
+	p.cancelBeforeRevert(client, upstreamCascadeID, port, token)
 
 	apiURL := fmt.Sprintf("https://127.0.0.1:%d/exa.language_server_pb.LanguageServerService/RevertToCascadeStep", port)
 
@@ -234,13 +267,19 @@ func (p *Proxy) ExecuteRevert(cascadeID string, messageStepIndex int, targetInde
 	// which upstream RevertToCascadeStep strictly requires, without clobbering an existing model
 	// when the in-memory cascade model cache is empty (e.g. after gateway restart or desktop-initiated sessions).
 	var cfgObj interface{}
-	configBytes := p.GetCascadeConfig(cascadeID, port, token)
+	configBytes := p.GetCascadeConfig(upstreamCascadeID, port, token)
 	if len(configBytes) > 0 {
 		_ = json.Unmarshal(configBytes, &cfgObj)
 	}
-	if lastModel, _ := GetCascadeModel(cascadeID); lastModel != "" {
+	if lastModel, _ := GetCascadeModel(upstreamCascadeID); lastModel != "" {
 		if enum := resolveModelEnum(lastModel); enum != "" {
 			cfgObj = applyModelToCascadeConfig(cfgObj, enum, canonicalModelName(lastModel))
+		}
+	} else if upstreamCascadeID != cascadeID {
+		if lastModel, _ := GetCascadeModel(cascadeID); lastModel != "" {
+			if enum := resolveModelEnum(lastModel); enum != "" {
+				cfgObj = applyModelToCascadeConfig(cfgObj, enum, canonicalModelName(lastModel))
+			}
 		}
 	}
 	if !hasValidPlanModel(cfgObj) {
@@ -255,8 +294,8 @@ func (p *Proxy) ExecuteRevert(cascadeID string, messageStepIndex int, targetInde
 	}
 
 	reqPayload, _ := json.Marshal(map[string]interface{}{
-		"cascadeId":        cascadeID,
-		"stepIndex":        targetIndex,
+		"cascadeId":        upstreamCascadeID,
+		"stepIndex":        upstreamTargetIndex,
 		"conversationOnly": conversationOnly,
 		"overrideConfig":   cfgObj,
 	})

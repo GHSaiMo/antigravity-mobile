@@ -815,17 +815,40 @@ func (p *Proxy) handleDeleteAgentMessage(w http.ResponseWriter, r *http.Request,
 	_ = json.Unmarshal(bodyBytes, &reqData)
 
 	cascadeID := reqData.Recipient
+	activeCascadeID := ResolveActiveCascadeID(cascadeID)
+	if activeCascadeID == "" {
+		activeCascadeID = cascadeID
+	}
 	messageID := reqData.MessageID
+
+	if activeCascadeID != cascadeID {
+		var rawMap map[string]interface{}
+		if json.Unmarshal(bodyBytes, &rawMap) == nil && rawMap != nil {
+			rawMap["recipient"] = activeCascadeID
+			if patched, err := json.Marshal(rawMap); err == nil {
+				bodyBytes = patched
+			}
+		}
+	}
 
 	if messageID != "" {
 		RecordDeletedMessage(cascadeID, messageID)
 		RemovePendingMessageFromCache(cascadeID, messageID)
+		if activeCascadeID != cascadeID {
+			RecordDeletedMessage(activeCascadeID, messageID)
+			RemovePendingMessageFromCache(activeCascadeID, messageID)
+		}
 	}
 	ClearPendingMessagesCache(cascadeID)
+	if activeCascadeID != cascadeID {
+		ClearPendingMessagesCache(activeCascadeID)
+	}
 
 	fwdReq := r.Clone(r.Context())
 	fwdReq.URL.Path = reqPath
 	fwdReq.Body = io.NopCloser(bytes.NewReader(bodyBytes))
+	fwdReq.ContentLength = int64(len(bodyBytes))
+	fwdReq.Header.Set("Content-Length", strconv.Itoa(len(bodyBytes)))
 
 	rec := newBufferedResponseWriter()
 	defer rec.release()
@@ -834,11 +857,20 @@ func (p *Proxy) handleDeleteAgentMessage(w http.ResponseWriter, r *http.Request,
 	if rec.statusCode >= 200 && rec.statusCode < 300 {
 		if messageID != "" {
 			RemovePendingMessageFromCache(cascadeID, messageID)
+			if activeCascadeID != cascadeID {
+				RemovePendingMessageFromCache(activeCascadeID, messageID)
+			}
 		}
 		ClearPendingMessagesCache(cascadeID)
+		if activeCascadeID != cascadeID {
+			ClearPendingMessagesCache(activeCascadeID)
+		}
 	} else if rec.statusCode >= 400 {
 		if messageID != "" {
 			RemoveDeletedMessageTombstone(cascadeID, messageID)
+			if activeCascadeID != cascadeID {
+				RemoveDeletedMessageTombstone(activeCascadeID, messageID)
+			}
 		}
 	}
 
@@ -1079,9 +1111,13 @@ func (p *Proxy) HandleCascadeInteraction(w http.ResponseWriter, r *http.Request)
 		Interaction userInteractionPayload `json:"interaction"`
 	}
 
-	targetCascadeID, localStepIdx := p.ResolveGlobalStepToSegment(r.Context(), req.CascadeID, req.StepIndex, port, token)
+	targetCascadeID, localStepIdx, segTrajectoryID := p.ResolveGlobalStepToSegmentWithTrajectory(r.Context(), req.CascadeID, req.StepIndex, port, token)
+	trajID := req.TrajectoryID
+	if segTrajectoryID != "" {
+		trajID = segTrajectoryID
+	}
 	interaction := userInteractionPayload{
-		TrajectoryID: req.TrajectoryID,
+		TrajectoryID: trajID,
 		StepIndex:    localStepIdx,
 	}
 

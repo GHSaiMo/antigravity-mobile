@@ -402,8 +402,15 @@ func (p *Proxy) handleCancelCascadeInvocation(w http.ResponseWriter, r *http.Req
 			if _, hasKill := rawMap["killBackgroundTasks"]; !hasKill {
 				hasDaemon := false
 				if targetID != "" {
+					daemonLookupID := ResolveActiveCascadeID(targetID)
+					if daemonLookupID == "" {
+						daemonLookupID = targetID
+					}
 					defaultTrajCache.trajCacheMu.RLock()
-					entry := defaultTrajCache.trajCache[targetID]
+					entry := defaultTrajCache.trajCache[daemonLookupID]
+					if entry == nil && daemonLookupID != targetID {
+						entry = defaultTrajCache.trajCache[targetID]
+					}
 					defaultTrajCache.trajCacheMu.RUnlock()
 					if entry != nil && entry.data != nil {
 						for _, t := range buildRunningTasks(entry.data.Trajectory.Steps) {
@@ -790,6 +797,31 @@ func (p *Proxy) handleGetAllCascadeTrajectories(w http.ResponseWriter, r *http.R
 					if sc, ok := s["stepCount"].(float64); ok && sc > 0 {
 						rootSC, _ := rootSum["stepCount"].(float64)
 						rootSum["stepCount"] = rootSC + sc
+					}
+				} else {
+					// Root was not returned by upstream (e.g. sealed historical segment skipped from
+					// eager LoadTrajectory on the new account). Synthesize a root summary entry from
+					// the active child so the stitched conversation never vanishes from the sidebar.
+					promoted := make(map[string]interface{}, len(s))
+					for k, v := range s {
+						promoted[k] = v
+					}
+					if rootTitle := readAnnotationTitle(rootID); rootTitle != "" {
+						promoted["summary"] = rootTitle
+						if ann, ok := promoted["annotations"].(map[string]interface{}); ok && ann != nil {
+							annCopy := make(map[string]interface{}, len(ann))
+							for k, v := range ann {
+								annCopy[k] = v
+							}
+							annCopy["title"] = rootTitle
+							promoted["annotations"] = annCopy
+						} else {
+							promoted["annotations"] = map[string]interface{}{"title": rootTitle}
+						}
+					}
+					summaries[rootID] = promoted
+					if modT, ok := rawModTimes[id]; ok && !modT.IsZero() {
+						rawModTimes[rootID] = modT
 					}
 				}
 			}

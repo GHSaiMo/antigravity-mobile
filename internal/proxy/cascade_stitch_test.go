@@ -918,3 +918,217 @@ func TestCascadeStitch_DiskSealedSnapshotAndSyncSkipsSealedSegments(t *testing.T
 		t.Fatalf("expected sealed disk snapshot %s to be deleted on conversation delete, err=%v", diskCachePath, err)
 	}
 }
+
+func TestCascadeStitch_InteractionRevertDeleteQueuedAndListPromotion(t *testing.T) {
+	tmpHome := t.TempDir()
+	t.Setenv("HOME", tmpHome)
+	t.Setenv("MGY_STITCH_STATE_PATH", filepath.Join(tmpHome, ".multigravity", "stitches.json"))
+	t.Setenv("MGY_SWITCH_COMPACT_HANDOVER", "true")
+	ResetCascadeStitchStoreForTest()
+	t.Cleanup(ResetCascadeStitchStoreForTest)
+
+	const (
+		rootID  = "dddddddd-dddd-dddd-dddd-dddddddddddd"
+		childID = "eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee"
+	)
+	ClearStitchedSegmentCaches(rootID, []string{rootID, childID})
+	t.Cleanup(func() { ClearStitchedSegmentCaches(rootID, []string{rootID, childID}) })
+
+	var (
+		mu                   sync.Mutex
+		gotInteractionCID    string
+		gotInteractionTrajID string
+		gotInteractionStep   int
+		gotRevertPreviewCID  string
+		gotRevertPreviewStep int
+		gotRevertExecCID     string
+		gotRevertExecStep    int
+		gotDeleteQueuedRecip string
+	)
+
+	srv := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch {
+		case strings.HasSuffix(r.URL.Path, "/GetCascadeTrajectory"):
+			var req struct {
+				CascadeID string `json:"cascadeId"`
+			}
+			_ = json.NewDecoder(r.Body).Decode(&req)
+			trajID := "traj-root"
+			if req.CascadeID == childID {
+				trajID = "traj-child"
+			}
+			_ = json.NewEncoder(w).Encode(map[string]interface{}{
+				"status": "CASCADE_RUN_STATUS_IDLE",
+				"trajectory": map[string]interface{}{
+					"trajectoryId": trajID,
+					"cascadeId":    req.CascadeID,
+					"steps": []map[string]interface{}{
+						{
+							"type":      "CORTEX_STEP_TYPE_USER_INPUT",
+							"status":    "CORTEX_STEP_STATUS_DONE",
+							"userInput": map[string]interface{}{"userResponse": "u1 " + req.CascadeID},
+						},
+						{
+							"type":            "CORTEX_STEP_TYPE_PLANNER_RESPONSE",
+							"status":          "CORTEX_STEP_STATUS_DONE",
+							"plannerResponse": map[string]interface{}{"response": "a1 " + req.CascadeID},
+						},
+					},
+				},
+			})
+
+		case strings.HasSuffix(r.URL.Path, "/HandleCascadeUserInteraction"):
+			var req struct {
+				CascadeID   string `json:"cascadeId"`
+				Interaction struct {
+					TrajectoryID string `json:"trajectoryId"`
+					StepIndex    int    `json:"stepIndex"`
+				} `json:"interaction"`
+			}
+			_ = json.NewDecoder(r.Body).Decode(&req)
+			mu.Lock()
+			gotInteractionCID = req.CascadeID
+			gotInteractionTrajID = req.Interaction.TrajectoryID
+			gotInteractionStep = req.Interaction.StepIndex
+			mu.Unlock()
+			w.Write([]byte(`{}`))
+
+		case strings.HasSuffix(r.URL.Path, "/GetRevertPreview"):
+			var req struct {
+				CascadeID string `json:"cascadeId"`
+				StepIndex int    `json:"stepIndex"`
+			}
+			_ = json.NewDecoder(r.Body).Decode(&req)
+			mu.Lock()
+			gotRevertPreviewCID = req.CascadeID
+			gotRevertPreviewStep = req.StepIndex
+			mu.Unlock()
+			w.Write([]byte(`{"codeEditPreviews":[]}`))
+
+		case strings.HasSuffix(r.URL.Path, "/RevertToCascadeStep"):
+			var req struct {
+				CascadeID string `json:"cascadeId"`
+				StepIndex int    `json:"stepIndex"`
+			}
+			_ = json.NewDecoder(r.Body).Decode(&req)
+			mu.Lock()
+			gotRevertExecCID = req.CascadeID
+			gotRevertExecStep = req.StepIndex
+			mu.Unlock()
+			w.Write([]byte(`{}`))
+
+		case strings.HasSuffix(r.URL.Path, "/DeleteAgentMessage"):
+			var req struct {
+				Recipient string `json:"recipient"`
+			}
+			_ = json.NewDecoder(r.Body).Decode(&req)
+			mu.Lock()
+			gotDeleteQueuedRecip = req.Recipient
+			mu.Unlock()
+			w.Write([]byte(`{}`))
+
+		case strings.HasSuffix(r.URL.Path, "/GetAllCascadeTrajectories"):
+			// Upstream only returns childID (rootID was not eagerly loaded on new account)
+			_ = json.NewEncoder(w).Encode(map[string]interface{}{
+				"trajectorySummaries": map[string]interface{}{
+					childID: map[string]interface{}{
+						"summary":          "Child Continuation",
+						"status":           "CASCADE_RUN_STATUS_IDLE",
+						"stepCount":        2,
+						"lastModifiedTime": "2026-11-27T10:00:00Z",
+					},
+				},
+			})
+
+		default:
+			w.Write([]byte(`{}`))
+		}
+	}))
+	defer srv.Close()
+
+	port := extractTestPort(t, srv.URL)
+	p := NewProxy(&inspector.Inspector{})
+	p.SetTestUpstream(port, "tok")
+	p.NotifyAccountSwitched("acc-b")
+	defaultStitchStore.appendSegment(rootID, rootID, childID, "acc-b")
+
+	// 1. Interaction on global step 4 (child local step 1): must rewrite cascadeId, stepIndex AND trajectoryId!
+	intBody, _ := json.Marshal(map[string]interface{}{
+		"cascadeId":    rootID,
+		"trajectoryId": "traj-root",
+		"stepIndex":    4,
+		"type":         "approval",
+		"allow":        true,
+	})
+	recInt := httptest.NewRecorder()
+	p.ServeHTTP(recInt, httptest.NewRequest(http.MethodPost, "/gateway/cascade/interaction", bytes.NewReader(intBody)))
+	if recInt.Code != http.StatusOK {
+		t.Fatalf("HandleCascadeInteraction failed: %d %s", recInt.Code, recInt.Body.String())
+	}
+	mu.Lock()
+	if gotInteractionCID != childID || gotInteractionStep != 1 || gotInteractionTrajID != "traj-child" {
+		t.Fatalf("HandleCascadeInteraction mismatch: cid=%s step=%d trajId=%s (want %s, 1, traj-child)",
+			gotInteractionCID, gotInteractionStep, gotInteractionTrajID, childID)
+	}
+	mu.Unlock()
+
+	// 2a. Revert preview & execute on active leaf (messageStepIndex=4 -> targetIndex=3 -> child local 0)
+	if _, err := p.GetRevertPreview(rootID, 4, nil, port, "tok"); err != nil {
+		t.Fatalf("GetRevertPreview on active leaf failed: %v", err)
+	}
+	if _, err := p.ExecuteRevert(rootID, 4, nil, true, port, "tok"); err != nil {
+		t.Fatalf("ExecuteRevert on active leaf failed: %v", err)
+	}
+	mu.Lock()
+	if gotRevertPreviewCID != childID || gotRevertPreviewStep != 0 {
+		t.Fatalf("GetRevertPreview mismatch: cid=%s step=%d (want %s, 0)", gotRevertPreviewCID, gotRevertPreviewStep, childID)
+	}
+	if gotRevertExecCID != childID || gotRevertExecStep != 0 {
+		t.Fatalf("ExecuteRevert mismatch: cid=%s step=%d (want %s, 0)", gotRevertExecCID, gotRevertExecStep, childID)
+	}
+	mu.Unlock()
+
+	// 2b. Revert targeting sealed historical segment (messageStepIndex=1 -> targetIndex=0 in rootID) must be rejected
+	if _, err := p.GetRevertPreview(rootID, 1, nil, port, "tok"); err == nil {
+		t.Fatalf("expected GetRevertPreview into sealed pre-switch segment to return error")
+	}
+	if _, err := p.ExecuteRevert(rootID, 1, nil, true, port, "tok"); err == nil {
+		t.Fatalf("expected ExecuteRevert into sealed pre-switch segment to return error")
+	}
+
+	// 3. DeleteAgentMessage (queued message) must rewrite recipient rootID -> childID
+	delQBody, _ := json.Marshal(map[string]string{
+		"messageId": "queued-msg-1",
+		"recipient": rootID,
+	})
+	recDelQ := httptest.NewRecorder()
+	p.ServeHTTP(recDelQ, httptest.NewRequest(http.MethodPost, "/api/exa.language_server_pb.LanguageServerService/DeleteAgentMessage", bytes.NewReader(delQBody)))
+	if recDelQ.Code != http.StatusOK {
+		t.Fatalf("DeleteAgentMessage failed: %d", recDelQ.Code)
+	}
+	mu.Lock()
+	if gotDeleteQueuedRecip != childID {
+		t.Fatalf("expected DeleteAgentMessage recipient=%s, got %s", childID, gotDeleteQueuedRecip)
+	}
+	mu.Unlock()
+
+	// 4. GetAllCascadeTrajectories when upstream only returns childID must promote rootID instead of hiding conversation
+	listRec := httptest.NewRecorder()
+	p.ServeHTTP(listRec, httptest.NewRequest(http.MethodPost, "/api/exa.language_server_pb.LanguageServerService/GetAllCascadeTrajectories", strings.NewReader(`{}`)))
+	if listRec.Code != http.StatusOK {
+		t.Fatalf("GetAllCascadeTrajectories failed: %d", listRec.Code)
+	}
+	var listResp struct {
+		TrajectorySummaries map[string]map[string]interface{} `json:"trajectorySummaries"`
+	}
+	if err := json.Unmarshal(listRec.Body.Bytes(), &listResp); err != nil {
+		t.Fatalf("unmarshal listResp: %v", err)
+	}
+	if _, hasChild := listResp.TrajectorySummaries[childID]; hasChild {
+		t.Fatalf("expected childID %s to remain hidden", childID)
+	}
+	if listResp.TrajectorySummaries[rootID] == nil {
+		t.Fatalf("expected rootID %s to be synthesized/promoted when absent from upstream", rootID)
+	}
+}

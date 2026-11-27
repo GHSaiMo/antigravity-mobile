@@ -636,6 +636,9 @@ func (p *Proxy) fetchUpstreamTrajectoryWithMaxAgeContext(ctx context.Context, ca
 		if i == len(segments)-1 {
 			combined.Status = segResp.Status
 			combined.PendingAgentMessages = segResp.PendingAgentMessages
+			if segResp.Trajectory.TrajectoryID != "" {
+				combined.Trajectory.TrajectoryID = segResp.Trajectory.TrajectoryID
+			}
 			if len(segResp.Trajectory.ExecutorMetadatas) > 0 {
 				combined.Trajectory.ExecutorMetadatas = segResp.Trajectory.ExecutorMetadatas
 			}

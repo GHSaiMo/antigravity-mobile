@@ -922,20 +922,35 @@ func makeAccountSwitchMarkerStep(accountID, createdAt string) TrajectoryStep {
 // ResolveGlobalStepToSegment maps a stitched global stepIndex on rootCascadeID to the owning
 // underlying (segmentCascadeID, localStepIndex).
 func (p *Proxy) ResolveGlobalStepToSegment(ctx context.Context, cascadeID string, globalStepIndex int, port int, token string) (string, int) {
+	segID, localIdx, _ := p.ResolveGlobalStepToSegmentWithTrajectory(ctx, cascadeID, globalStepIndex, port, token)
+	return segID, localIdx
+}
+
+// ResolveGlobalStepToSegmentWithTrajectory maps a stitched global stepIndex on rootCascadeID to
+// the owning underlying (segmentCascadeID, localStepIndex, segmentTrajectoryID), using cached /
+// persisted sealed historical segments so historical segments are never probed upstream.
+func (p *Proxy) ResolveGlobalStepToSegmentWithTrajectory(ctx context.Context, cascadeID string, globalStepIndex int, port int, token string) (string, int, string) {
 	segments := GetStitchChainSegments(cascadeID)
 	if len(segments) <= 1 || globalStepIndex < 0 {
-		return ResolveActiveCascadeID(cascadeID), globalStepIndex
+		activeID := ResolveActiveCascadeID(cascadeID)
+		return activeID, globalStepIndex, ""
 	}
 	offset := 0
 	for i, seg := range segments {
 		if i > 0 {
 			// Account for the 1 synthetic divider step inserted before each child segment
 			if globalStepIndex == offset {
-				return seg.CascadeID, 0
+				return seg.CascadeID, 0, ""
 			}
 			offset++
 		}
-		raw, err := p.fetchSingleSegmentTrajectory(ctx, seg.CascadeID, port, token, 5*time.Second)
+		var raw *upstreamTrajectoryResp
+		var err error
+		if i < len(segments)-1 {
+			raw, err = p.fetchHistoricalSegmentTrajectory(ctx, seg.CascadeID, port, token)
+		} else {
+			raw, err = p.fetchSingleSegmentTrajectory(ctx, seg.CascadeID, port, token, 5*time.Second)
+		}
 		if err != nil || raw == nil {
 			continue
 		}
@@ -945,9 +960,9 @@ func (p *Proxy) ResolveGlobalStepToSegment(ctx context.Context, cascadeID string
 			if local < 0 {
 				local = 0
 			}
-			return seg.CascadeID, local
+			return seg.CascadeID, local, raw.Trajectory.TrajectoryID
 		}
 		offset += n
 	}
-	return ResolveActiveCascadeID(cascadeID), globalStepIndex
+	return ResolveActiveCascadeID(cascadeID), globalStepIndex, ""
 }
