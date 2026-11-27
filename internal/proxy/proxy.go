@@ -934,6 +934,7 @@ func (p *Proxy) registerStreamTouchListener(cascadeID string) (<-chan struct{}, 
 }
 
 func (p *Proxy) notifyStreamTouch(cascadeID string) {
+	rootID := ResolveVisibleRootCascadeID(cascadeID)
 	p.streamListenersMu.Lock()
 	defer p.streamListenersMu.Unlock()
 	if p.streamListeners == nil {
@@ -943,6 +944,14 @@ func (p *Proxy) notifyStreamTouch(cascadeID string) {
 		select {
 		case ch <- struct{}{}:
 		default:
+		}
+	}
+	if rootID != "" && rootID != cascadeID {
+		for _, ch := range p.streamListeners[rootID] {
+			select {
+			case ch <- struct{}{}:
+			default:
+			}
 		}
 	}
 }

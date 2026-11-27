@@ -378,6 +378,20 @@ func (p *Proxy) handleCancelCascadeInvocation(w http.ResponseWriter, r *http.Req
 				targetID = strings.TrimSpace(cid)
 			}
 		}
+		if targetID != "" {
+			activeID := ResolveActiveCascadeID(targetID)
+			if activeID != "" && activeID != targetID {
+				if _, has := rawMap["cascadeId"]; has {
+					rawMap["cascadeId"] = activeID
+				}
+				if _, has := rawMap["conversationId"]; has {
+					rawMap["conversationId"] = activeID
+				}
+				if patched, err := json.Marshal(rawMap); err == nil {
+					bodyBytes = patched
+				}
+			}
+		}
 		// Antigravity 2.30+ supports killBackgroundTasks on CancelCascadeInvocation.
 		// Default to true when the caller did not specify it, unless the session has a standing daemon (IsDaemon=true).
 		if strings.HasSuffix(reqPath, "/CancelCascadeInvocation") {
@@ -750,6 +764,31 @@ func (p *Proxy) handleGetAllCascadeTrajectories(w http.ResponseWriter, r *http.R
 	for id, s := range summaries {
 		// Filter out recently deleted sessions (tombstone protection against upstream sync delays)
 		if IsDeletedCascade(id) {
+			delete(summaries, id)
+			continue
+		}
+
+		// Filter out internal stitched continuation child cascades while propagating their
+		// running status, step count, and latest modification timestamp up to their visible root conversation.
+		if IsStitchedChildCascade(id) {
+			rootID := ResolveVisibleRootCascadeID(id)
+			if rootID != "" && rootID != id && !IsDeletedCascade(rootID) {
+				status, _ := s["status"].(string)
+				if status == "CASCADE_RUN_STATUS_RUNNING" {
+					runningSubagentParents[rootID] = true
+				}
+				if modT, ok := rawModTimes[id]; ok && !modT.IsZero() {
+					if prev, exists := subagentLatestModTime[rootID]; !exists || modT.After(prev) {
+						subagentLatestModTime[rootID] = modT
+					}
+				}
+				if rootSum, exists := summaries[rootID]; exists && rootSum != nil {
+					if sc, ok := s["stepCount"].(float64); ok && sc > 0 {
+						rootSC, _ := rootSum["stepCount"].(float64)
+						rootSum["stepCount"] = rootSC + sc
+					}
+				}
+			}
 			delete(summaries, id)
 			continue
 		}

@@ -257,6 +257,17 @@ func (p *Proxy) handleSendUserCascadeMessage(w http.ResponseWriter, r *http.Requ
 			}
 		}
 
+		// Account-switch compact handover & transparent virtual cascade stitching:
+		// Route to the active continuation leaf cascade, or lazily create a new continuation
+		// cascade with an offline compact summary if an account switch occurred.
+		activeTargetID, rolledOver := p.EnsureCascadeTargetForSend(r.Context(), cascadeID, rawMap, port, token)
+		targetRewritten := false
+		if activeTargetID != "" && activeTargetID != cascadeID {
+			rawMap["cascadeId"] = activeTargetID
+			cascadeID = activeTargetID
+			targetRewritten = true
+		}
+
 		targetModel := strings.TrimSpace(r.Header.Get("X-Antigravity-Model"))
 		if targetModel == "" {
 			targetModel = strings.TrimSpace(r.Header.Get("X-Model"))
@@ -273,7 +284,7 @@ func (p *Proxy) handleSendUserCascadeMessage(w http.ResponseWriter, r *http.Requ
 		_, hasModel := rawMap["model"]
 		_, hasCfgRaw := rawMap["cascadeConfigRaw"]
 		_, hasText := rawMap["text"]
-		needsModification := targetModel != "" || hasModel || hasCfgRaw || hasText || attachmentsApplied || slashApplied || clientIDApplied || tagApplied || imagesDropped
+		needsModification := targetModel != "" || hasModel || hasCfgRaw || hasText || attachmentsApplied || slashApplied || clientIDApplied || tagApplied || imagesDropped || rolledOver || targetRewritten
 
 		if !needsModification {
 			// No changes required — forward original bytes as-is.
@@ -612,7 +623,22 @@ func (p *Proxy) handleStartCascadeProxy(w http.ResponseWriter, r *http.Request, 
 	r.Header.Set("Content-Length", strconv.Itoa(len(bodyBytes)))
 	r.URL.Path = reqPath
 
-	rp.ServeHTTP(w, r)
+	rec := newBufferedResponseWriter()
+	defer rec.release()
+	rp.ServeHTTP(rec, r)
+	if rec.statusCode >= 200 && rec.statusCode < 300 {
+		var started struct {
+			CascadeID string `json:"cascadeId"`
+		}
+		if json.Unmarshal(rec.body.Bytes(), &started) == nil && strings.TrimSpace(started.CascadeID) != "" {
+			RecordCascadeCreatedAtCurrentEpoch(started.CascadeID)
+		}
+	}
+	for k, v := range rec.header {
+		w.Header()[k] = v
+	}
+	w.WriteHeader(rec.statusCode)
+	w.Write(rec.body.Bytes())
 }
 
 func isBrainDirNotEmptyDeleteError(respBody []byte, cascadeID string) bool {
@@ -645,8 +671,14 @@ func (p *Proxy) handleDeleteCascadeTrajectory(w http.ResponseWriter, r *http.Req
 	// S3 fix: only set the in-memory tombstone pre-emptively (so stream/list filters
 	// hide the cascade immediately). File deletion is deferred to the success branch
 	// below — doing it here would permanently destroy local files if upstream rejects.
+	stitchedIDs := RemoveStitchChain(reqData.CascadeID)
 	if isSafeCascadeID {
 		RecordDeletedCascade(reqData.CascadeID)
+		for _, sid := range stitchedIDs {
+			if cascadeIDRe.MatchString(sid) {
+				RecordDeletedCascade(sid)
+			}
+		}
 	}
 
 	fwdReq := r.Clone(r.Context())
@@ -995,9 +1027,10 @@ func (p *Proxy) HandleCascadeInteraction(w http.ResponseWriter, r *http.Request)
 		Interaction userInteractionPayload `json:"interaction"`
 	}
 
+	targetCascadeID, localStepIdx := p.ResolveGlobalStepToSegment(r.Context(), req.CascadeID, req.StepIndex, port, token)
 	interaction := userInteractionPayload{
 		TrajectoryID: req.TrajectoryID,
-		StepIndex:    req.StepIndex,
+		StepIndex:    localStepIdx,
 	}
 
 	switch req.Type {
@@ -1138,7 +1171,7 @@ func (p *Proxy) HandleCascadeInteraction(w http.ResponseWriter, r *http.Request)
 	}
 
 	rpcReq := rpcRequest{
-		CascadeID:   req.CascadeID,
+		CascadeID:   targetCascadeID,
 		Interaction: interaction,
 	}
 
@@ -1268,7 +1301,8 @@ func (p *Proxy) handleCascadeTaskStop(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := p.CancelCascadeStep(cascadeID, stepIndex, port, token); err != nil {
+	targetCascadeID, localStepIdx := p.ResolveGlobalStepToSegment(r.Context(), cascadeID, stepIndex, port, token)
+	if err := p.CancelCascadeStep(targetCascadeID, localStepIdx, port, token); err != nil {
 		slog.Warn(fmt.Sprintf("[Proxy] CancelCascadeStep failed (cascade: %s, step: %d)", cascadeID, stepIndex), "err", err)
 		writeJSONError(w, "cancel step failed: "+err.Error(), http.StatusInternalServerError)
 		return

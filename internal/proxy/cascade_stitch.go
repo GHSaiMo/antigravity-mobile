@@ -1,0 +1,730 @@
+package proxy
+
+import (
+	"bytes"
+	"context"
+	"encoding/json"
+	"fmt"
+	"log/slog"
+	"net/http"
+	"os"
+	"path/filepath"
+	"strings"
+	"sync"
+	"time"
+)
+
+const (
+	stitchPromptHeaderMarker = "<!-- MGY_COMPACT_HANDOVER_V1 -->"
+	stitchPromptEndMarker    = "<!-- /MGY_COMPACT_HANDOVER_V1 -->"
+)
+
+// CascadeStitchSegment represents one stitched underlying cascade segment in a virtual conversation chain.
+type CascadeStitchSegment struct {
+	CascadeID string `json:"cascadeId"`
+	AccountID string `json:"accountId,omitempty"`
+	CreatedAt string `json:"createdAt,omitempty"`
+}
+
+// CascadeStitchChain tracks the transparent mapping from a visible root cascade ID (A)
+// to one or more underlying continuation cascade IDs ([A, B, C...]) created across account switches.
+type CascadeStitchChain struct {
+	RootCascadeID string                 `json:"rootCascadeId"`
+	Segments      []CascadeStitchSegment `json:"segments"`
+	UpdatedAt     string                 `json:"updatedAt"`
+}
+
+type cascadeStitchStore struct {
+	mu           sync.RWMutex
+	loaded       bool
+	switchEpoch  uint64
+	lastAccount  string
+	chainsByRoot map[string]*CascadeStitchChain
+	rootByChild  map[string]string
+	cascadeEpoch map[string]uint64
+	creatingMu   sync.Mutex
+}
+
+var defaultStitchStore = &cascadeStitchStore{
+	chainsByRoot: make(map[string]*CascadeStitchChain),
+	rootByChild:  make(map[string]string),
+	cascadeEpoch: make(map[string]uint64),
+}
+
+// ResetCascadeStitchStoreForTest resets the in-memory stitch store for isolated unit tests.
+func ResetCascadeStitchStoreForTest() {
+	defaultStitchStore.mu.Lock()
+	defaultStitchStore.loaded = true
+	defaultStitchStore.switchEpoch = 0
+	defaultStitchStore.lastAccount = ""
+	defaultStitchStore.chainsByRoot = make(map[string]*CascadeStitchChain)
+	defaultStitchStore.rootByChild = make(map[string]string)
+	defaultStitchStore.cascadeEpoch = make(map[string]uint64)
+	defaultStitchStore.mu.Unlock()
+}
+
+// IsSwitchCompactHandoverEnabled reports whether account-switch compact handover stitching is enabled.
+// Enabled by default; set MGY_SWITCH_COMPACT_HANDOVER=off/false/0 to disable.
+func IsSwitchCompactHandoverEnabled() bool {
+	v := strings.ToLower(strings.TrimSpace(os.Getenv("MGY_SWITCH_COMPACT_HANDOVER")))
+	switch v {
+	case "0", "false", "off", "no", "disabled":
+		return false
+	default:
+		return true
+	}
+}
+
+func stitchStateFilePath() string {
+	if custom := strings.TrimSpace(os.Getenv("MGY_STITCH_STATE_PATH")); custom != "" {
+		return filepath.Clean(custom)
+	}
+	home, err := os.UserHomeDir()
+	if err != nil || home == "" {
+		return ""
+	}
+	return filepath.Join(home, ".multigravity", "cascade_stitches.json")
+}
+
+func (s *cascadeStitchStore) ensureLoadedLocked() {
+	if s.loaded {
+		return
+	}
+	s.loaded = true
+	p := stitchStateFilePath()
+	if p == "" {
+		return
+	}
+	raw, err := os.ReadFile(p)
+	if err != nil || len(raw) == 0 {
+		return
+	}
+	var doc struct {
+		SwitchEpoch  uint64                         `json:"switchEpoch"`
+		LastAccount  string                         `json:"lastAccount,omitempty"`
+		ChainsByRoot map[string]*CascadeStitchChain `json:"chains"`
+	}
+	if json.Unmarshal(raw, &doc) != nil {
+		return
+	}
+	if doc.SwitchEpoch > s.switchEpoch {
+		s.switchEpoch = doc.SwitchEpoch
+	}
+	if doc.LastAccount != "" {
+		s.lastAccount = doc.LastAccount
+	}
+	for rootID, ch := range doc.ChainsByRoot {
+		if ch == nil || len(ch.Segments) == 0 || !cascadeIDRe.MatchString(rootID) {
+			continue
+		}
+		ch.RootCascadeID = rootID
+		s.chainsByRoot[rootID] = ch
+		for _, seg := range ch.Segments {
+			if seg.CascadeID != "" && seg.CascadeID != rootID {
+				s.rootByChild[seg.CascadeID] = rootID
+			}
+		}
+		// Mark currently active leaf with current epoch so existing chains don't immediately re-roll on load
+		leaf := ch.Segments[len(ch.Segments)-1].CascadeID
+		s.cascadeEpoch[rootID] = s.switchEpoch
+		s.cascadeEpoch[leaf] = s.switchEpoch
+	}
+}
+
+func (s *cascadeStitchStore) saveLocked() {
+	p := stitchStateFilePath()
+	if p == "" {
+		return
+	}
+	_ = os.MkdirAll(filepath.Dir(p), 0o700)
+	doc := struct {
+		SwitchEpoch  uint64                         `json:"switchEpoch"`
+		LastAccount  string                         `json:"lastAccount,omitempty"`
+		ChainsByRoot map[string]*CascadeStitchChain `json:"chains"`
+	}{
+		SwitchEpoch:  s.switchEpoch,
+		LastAccount:  s.lastAccount,
+		ChainsByRoot: s.chainsByRoot,
+	}
+	raw, err := json.MarshalIndent(doc, "", "  ")
+	if err != nil {
+		return
+	}
+	tmp := p + ".tmp"
+	if err := os.WriteFile(tmp, raw, 0o600); err == nil {
+		_ = os.Rename(tmp, p)
+	}
+}
+
+// NotifyAccountSwitched increments the account-switch generation epoch so any subsequent message
+// sent to a pre-existing conversation automatically compacts its prior context and rolls over
+// to a fresh underlying cascadeId under the new account while keeping the client view unified.
+func (p *Proxy) NotifyAccountSwitched(accountID string) {
+	defaultStitchStore.mu.Lock()
+	defaultStitchStore.ensureLoadedLocked()
+	defaultStitchStore.switchEpoch++
+	defaultStitchStore.lastAccount = strings.TrimSpace(accountID)
+	epoch := defaultStitchStore.switchEpoch
+	defaultStitchStore.saveLocked()
+	defaultStitchStore.mu.Unlock()
+	slog.Info("[Stitch] Recorded account switch for compact handover", "account", accountID, "epoch", epoch)
+}
+
+// ResolveVisibleRootCascadeID maps any underlying child continuation cascade ID back to its
+// client-facing root cascade ID. If cascadeID is not a stitched child, it returns cascadeID unchanged.
+func ResolveVisibleRootCascadeID(cascadeID string) string {
+	cascadeID = strings.TrimSpace(cascadeID)
+	if cascadeID == "" {
+		return ""
+	}
+	defaultStitchStore.mu.Lock()
+	defaultStitchStore.ensureLoadedLocked()
+	root, ok := defaultStitchStore.rootByChild[cascadeID]
+	defaultStitchStore.mu.Unlock()
+	if ok && root != "" {
+		return root
+	}
+	return cascadeID
+}
+
+// IsStitchedChildCascade reports whether cascadeID is an internal continuation child cascade
+// that should be hidden as a standalone row in GetAllCascadeTrajectories.
+func IsStitchedChildCascade(cascadeID string) bool {
+	cascadeID = strings.TrimSpace(cascadeID)
+	if cascadeID == "" {
+		return false
+	}
+	defaultStitchStore.mu.Lock()
+	defaultStitchStore.ensureLoadedLocked()
+	_, isChild := defaultStitchStore.rootByChild[cascadeID]
+	defaultStitchStore.mu.Unlock()
+	return isChild
+}
+
+// ResolveActiveCascadeID returns the currently active underlying leaf cascade ID for a visible root cascade ID.
+func ResolveActiveCascadeID(cascadeID string) string {
+	cascadeID = strings.TrimSpace(cascadeID)
+	if cascadeID == "" {
+		return ""
+	}
+	defaultStitchStore.mu.Lock()
+	defaultStitchStore.ensureLoadedLocked()
+	rootID := cascadeID
+	if r, ok := defaultStitchStore.rootByChild[cascadeID]; ok && r != "" {
+		rootID = r
+	}
+	if ch, ok := defaultStitchStore.chainsByRoot[rootID]; ok && ch != nil && len(ch.Segments) > 0 {
+		leaf := ch.Segments[len(ch.Segments)-1].CascadeID
+		defaultStitchStore.mu.Unlock()
+		if leaf != "" {
+			return leaf
+		}
+	}
+	defaultStitchStore.mu.Unlock()
+	return cascadeID
+}
+
+// GetStitchChainSegments returns all segment cascade IDs [root, child1, child2...] for rootCascadeID.
+// Returns nil if rootCascadeID has no stitched continuations.
+func GetStitchChainSegments(cascadeID string) []CascadeStitchSegment {
+	cascadeID = strings.TrimSpace(cascadeID)
+	if cascadeID == "" {
+		return nil
+	}
+	defaultStitchStore.mu.Lock()
+	defaultStitchStore.ensureLoadedLocked()
+	rootID := cascadeID
+	if r, ok := defaultStitchStore.rootByChild[cascadeID]; ok && r != "" {
+		rootID = r
+	}
+	ch := defaultStitchStore.chainsByRoot[rootID]
+	if ch == nil || len(ch.Segments) <= 1 {
+		defaultStitchStore.mu.Unlock()
+		return nil
+	}
+	out := make([]CascadeStitchSegment, len(ch.Segments))
+	copy(out, ch.Segments)
+	defaultStitchStore.mu.Unlock()
+	return out
+}
+
+// RecordCascadeCreatedAtCurrentEpoch marks a newly started cascade as already belonging to the current account epoch.
+func RecordCascadeCreatedAtCurrentEpoch(cascadeID string) {
+	cascadeID = strings.TrimSpace(cascadeID)
+	if cascadeID == "" {
+		return
+	}
+	defaultStitchStore.mu.Lock()
+	defaultStitchStore.ensureLoadedLocked()
+	defaultStitchStore.cascadeEpoch[cascadeID] = defaultStitchStore.switchEpoch
+	defaultStitchStore.mu.Unlock()
+}
+
+// RemoveStitchChain removes any stitch mappings associated with rootOrChildID (e.g. on conversation delete).
+func RemoveStitchChain(cascadeID string) []string {
+	cascadeID = strings.TrimSpace(cascadeID)
+	if cascadeID == "" {
+		return nil
+	}
+	defaultStitchStore.mu.Lock()
+	defaultStitchStore.ensureLoadedLocked()
+	rootID := cascadeID
+	if r, ok := defaultStitchStore.rootByChild[cascadeID]; ok && r != "" {
+		rootID = r
+	}
+	ch := defaultStitchStore.chainsByRoot[rootID]
+	if ch == nil {
+		delete(defaultStitchStore.cascadeEpoch, cascadeID)
+		defaultStitchStore.mu.Unlock()
+		return nil
+	}
+	var allIDs []string
+	for _, seg := range ch.Segments {
+		if seg.CascadeID != "" {
+			allIDs = append(allIDs, seg.CascadeID)
+			delete(defaultStitchStore.rootByChild, seg.CascadeID)
+			delete(defaultStitchStore.cascadeEpoch, seg.CascadeID)
+		}
+	}
+	delete(defaultStitchStore.chainsByRoot, rootID)
+	delete(defaultStitchStore.cascadeEpoch, rootID)
+	defaultStitchStore.saveLocked()
+	defaultStitchStore.mu.Unlock()
+	return allIDs
+}
+
+func (s *cascadeStitchStore) needsHandoverRollover(rootID string) (bool, string, string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.ensureLoadedLocked()
+	if s.switchEpoch == 0 {
+		return false, rootID, ""
+	}
+	if r, ok := s.rootByChild[rootID]; ok && r != "" {
+		rootID = r
+	}
+	activeID := rootID
+	if ch, ok := s.chainsByRoot[rootID]; ok && ch != nil && len(ch.Segments) > 0 {
+		activeID = ch.Segments[len(ch.Segments)-1].CascadeID
+	}
+	if ep, ok := s.cascadeEpoch[activeID]; ok && ep >= s.switchEpoch {
+		return false, activeID, s.lastAccount
+	}
+	if ep, ok := s.cascadeEpoch[rootID]; ok && ep >= s.switchEpoch && activeID == rootID {
+		return false, activeID, s.lastAccount
+	}
+	return true, activeID, s.lastAccount
+}
+
+func (s *cascadeStitchStore) appendSegment(rootID, prevActiveID, newChildID, accountID string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.ensureLoadedLocked()
+	nowStr := time.Now().UTC().Format(time.RFC3339)
+	ch, ok := s.chainsByRoot[rootID]
+	if !ok || ch == nil || len(ch.Segments) == 0 {
+		ch = &CascadeStitchChain{
+			RootCascadeID: rootID,
+			Segments: []CascadeStitchSegment{
+				{CascadeID: rootID},
+			},
+		}
+		s.chainsByRoot[rootID] = ch
+	}
+	ch.Segments = append(ch.Segments, CascadeStitchSegment{
+		CascadeID: newChildID,
+		AccountID: accountID,
+		CreatedAt: nowStr,
+	})
+	ch.UpdatedAt = nowStr
+	s.rootByChild[newChildID] = rootID
+	s.cascadeEpoch[rootID] = s.switchEpoch
+	s.cascadeEpoch[prevActiveID] = s.switchEpoch
+	s.cascadeEpoch[newChildID] = s.switchEpoch
+	s.saveLocked()
+}
+
+// BuildOfflineCompactSummary constructs a concise, zero-LLM-token Markdown handover summary
+// from the existing steps of a conversation (across all prior segments or on-disk transcript.jsonl).
+func (p *Proxy) BuildOfflineCompactSummary(ctx context.Context, rootCascadeID string, port int, token string) (string, []string) {
+	var allSteps []TrajectoryStep
+	var workspaceURIs []string
+
+	// 1. Gather steps from existing trajectory segments (upstream or local cache)
+	segments := GetStitchChainSegments(rootCascadeID)
+	if len(segments) == 0 {
+		segments = []CascadeStitchSegment{{CascadeID: rootCascadeID}}
+	}
+	for _, seg := range segments {
+		if port > 0 {
+			if raw, err := p.fetchSingleSegmentTrajectory(ctx, seg.CascadeID, port, token, 5*time.Second); err == nil && raw != nil {
+				if len(workspaceURIs) == 0 && len(raw.Trajectory.WorkspaceUris) > 0 {
+					workspaceURIs = append([]string(nil), raw.Trajectory.WorkspaceUris...)
+				}
+				allSteps = append(allSteps, raw.Trajectory.Steps...)
+			}
+		}
+	}
+
+	// 2. If upstream steps were unavailable, fall back to on-disk brain/<id>/.system_generated/logs/transcript.jsonl
+	if len(allSteps) == 0 {
+		if diskSummary := buildCompactSummaryFromTranscriptJSONL(rootCascadeID); diskSummary != "" {
+			return diskSummary, workspaceURIs
+		}
+		return "", workspaceURIs
+	}
+
+	var userPrompts []string
+	var agentReplies []string
+	var touchedFiles []string
+	seenFiles := make(map[string]bool)
+	var latestPlan *StepPlanItem
+
+	for idx, st := range allSteps {
+		switch st.Type {
+		case "CORTEX_STEP_TYPE_USER_INPUT":
+			txt, _ := st.UserInput.ExtractTextAndSlashCommands()
+			txt = StripCompactHandoverPrefix(strings.TrimSpace(txt))
+			if txt != "" {
+				userPrompts = append(userPrompts, truncateRunes(txt, 360))
+			}
+		case "CORTEX_STEP_TYPE_PLANNER_RESPONSE":
+			if st.PlannerResponse != nil {
+				resp := strings.TrimSpace(CleanInternalSystemMessage(st.PlannerResponse.Response))
+				if resp != "" {
+					agentReplies = append(agentReplies, truncateRunes(resp, 500))
+				}
+			}
+		}
+		if isUpdateStepsStep(st) {
+			if plan := extractStepPlanFromStep(st, idx); plan != nil && len(plan.Items) > 0 {
+				latestPlan = plan
+			}
+		}
+		if st.CodeAction != nil {
+			for _, uri := range extractCodeActionURIs(st) {
+				clean := strings.TrimPrefix(strings.TrimSpace(uri), "file://")
+				if clean != "" && !seenFiles[clean] {
+					seenFiles[clean] = true
+					touchedFiles = append(touchedFiles, clean)
+				}
+			}
+		}
+	}
+
+	if len(userPrompts) == 0 && len(agentReplies) == 0 {
+		if diskSummary := buildCompactSummaryFromTranscriptJSONL(rootCascadeID); diskSummary != "" {
+			return diskSummary, workspaceURIs
+		}
+		return "", workspaceURIs
+	}
+
+	var sb strings.Builder
+	sb.WriteString("[Context Handover Summary (Compacted from prior turns)]\n")
+	if len(userPrompts) > 0 {
+		sb.WriteString("\n### User Goals & Recent Requests\n")
+		sb.WriteString("- Initial Goal: " + strings.ReplaceAll(userPrompts[0], "\n", " ") + "\n")
+		start := len(userPrompts) - 3
+		if start < 1 {
+			start = 1
+		}
+		for i := start; i < len(userPrompts); i++ {
+			sb.WriteString(fmt.Sprintf("- Follow-up #%d: %s\n", i, strings.ReplaceAll(userPrompts[i], "\n", " ")))
+		}
+	}
+	if latestPlan != nil && len(latestPlan.Items) > 0 {
+		sb.WriteString("\n### Current Step Checklist\n")
+		for _, it := range latestPlan.Items {
+			sb.WriteString(fmt.Sprintf("- [%s] %s\n", it.Status, it.Title))
+		}
+	}
+	if len(touchedFiles) > 0 {
+		sb.WriteString("\n### Modified / Referenced Files\n")
+		start := 0
+		if len(touchedFiles) > 12 {
+			start = len(touchedFiles) - 12
+		}
+		for _, f := range touchedFiles[start:] {
+			sb.WriteString("- " + f + "\n")
+		}
+	}
+	if len(agentReplies) > 0 {
+		sb.WriteString("\n### Latest Progress & State\n")
+		start := len(agentReplies) - 2
+		if start < 0 {
+			start = 0
+		}
+		for _, r := range agentReplies[start:] {
+			sb.WriteString("- " + strings.ReplaceAll(r, "\n", " ") + "\n")
+		}
+	}
+	sb.WriteString("\nPlease continue seamlessly from the state above and respond to the user's new message below.")
+	return sb.String(), workspaceURIs
+}
+
+func extractCodeActionURIs(s TrajectoryStep) []string {
+	if s.CodeAction == nil {
+		return nil
+	}
+	var out []string
+	if ar := s.CodeAction.ActionResult; ar != nil {
+		if ar.AbsoluteURI != "" {
+			out = append(out, ar.AbsoluteURI)
+		}
+		if ar.Edit != nil && ar.Edit.AbsoluteURI != "" {
+			out = append(out, ar.Edit.AbsoluteURI)
+		}
+	}
+	if as := s.CodeAction.ActionSpec; as != nil {
+		if as.CreateFile != nil && as.CreateFile.Path != nil && as.CreateFile.Path.AbsoluteURI != "" {
+			out = append(out, as.CreateFile.Path.AbsoluteURI)
+		}
+		if as.EditFile != nil && as.EditFile.Path != nil && as.EditFile.Path.AbsoluteURI != "" {
+			out = append(out, as.EditFile.Path.AbsoluteURI)
+		}
+	}
+	return out
+}
+
+func buildCompactSummaryFromTranscriptJSONL(cascadeID string) string {
+	if cascadeID == "" || !cascadeIDRe.MatchString(cascadeID) {
+		return ""
+	}
+	p := resolveAntigravitySubPath("brain", cascadeID, ".system_generated", "logs", "transcript.jsonl")
+	if p == "" {
+		return ""
+	}
+	raw, err := os.ReadFile(p)
+	if err != nil || len(raw) == 0 {
+		return ""
+	}
+	var userInputs []string
+	var agentReplies []string
+	for _, line := range bytes.Split(raw, []byte("\n")) {
+		line = bytes.TrimSpace(line)
+		if len(line) == 0 {
+			continue
+		}
+		var entry struct {
+			Type    string `json:"type"`
+			Content string `json:"content"`
+		}
+		if json.Unmarshal(line, &entry) != nil {
+			continue
+		}
+		c := strings.TrimSpace(CleanInternalSystemMessage(entry.Content))
+		c = StripCompactHandoverPrefix(c)
+		if c == "" {
+			continue
+		}
+		switch entry.Type {
+		case "USER_INPUT":
+			userInputs = append(userInputs, truncateRunes(c, 360))
+		case "PLANNER_RESPONSE":
+			agentReplies = append(agentReplies, truncateRunes(c, 500))
+		}
+	}
+	if len(userInputs) == 0 && len(agentReplies) == 0 {
+		return ""
+	}
+	var sb strings.Builder
+	sb.WriteString("[Context Handover Summary (Compacted from prior turns)]\n")
+	if len(userInputs) > 0 {
+		sb.WriteString("\n### User Goals & Recent Requests\n")
+		sb.WriteString("- Initial Goal: " + strings.ReplaceAll(userInputs[0], "\n", " ") + "\n")
+		start := len(userInputs) - 3
+		if start < 1 {
+			start = 1
+		}
+		for i := start; i < len(userInputs); i++ {
+			sb.WriteString(fmt.Sprintf("- Follow-up #%d: %s\n", i, strings.ReplaceAll(userInputs[i], "\n", " ")))
+		}
+	}
+	if len(agentReplies) > 0 {
+		sb.WriteString("\n### Latest Progress & State\n")
+		start := len(agentReplies) - 2
+		if start < 0 {
+			start = 0
+		}
+		for _, r := range agentReplies[start:] {
+			sb.WriteString("- " + strings.ReplaceAll(r, "\n", " ") + "\n")
+		}
+	}
+	sb.WriteString("\nPlease continue seamlessly from the state above and respond to the user's new message below.")
+	return sb.String()
+}
+
+// WrapUserPromptWithCompactHandover embeds the offline compact handover summary inside markers
+// so the model receives the full context while the gateway parser can strip the prefix and display
+// only the user's actual message in the unified conversation UI.
+func WrapUserPromptWithCompactHandover(summary, userText string) string {
+	summary = strings.TrimSpace(summary)
+	if summary == "" {
+		return userText
+	}
+	return fmt.Sprintf("%s\n%s\n%s\n\n%s", stitchPromptHeaderMarker, summary, stitchPromptEndMarker, userText)
+}
+
+// StripCompactHandoverPrefix removes the internal compact handover block from a step's user input text
+// so mobile and web clients only render the user's real prompt text.
+func StripCompactHandoverPrefix(text string) string {
+	if !strings.Contains(text, stitchPromptHeaderMarker) {
+		return text
+	}
+	startIdx := strings.Index(text, stitchPromptHeaderMarker)
+	endIdx := strings.Index(text, stitchPromptEndMarker)
+	if startIdx >= 0 && endIdx > startIdx {
+		after := text[endIdx+len(stitchPromptEndMarker):]
+		return strings.TrimLeft(after, "\r\n ")
+	}
+	return text
+}
+
+// EnsureCascadeTargetForSend resolves the active underlying cascade ID for a user send request,
+// transparently rolling over to a newly started continuation cascade with an offline compact summary
+// if an account switch occurred since the conversation last ran.
+func (p *Proxy) EnsureCascadeTargetForSend(ctx context.Context, clientCascadeID string, rawMap map[string]interface{}, port int, token string) (targetCascadeID string, rolledOver bool) {
+	rootID := ResolveVisibleRootCascadeID(clientCascadeID)
+	if !IsSwitchCompactHandoverEnabled() || port <= 0 || rootID == "" {
+		return ResolveActiveCascadeID(rootID), false
+	}
+
+	needsRollover, prevActiveID, accountID := defaultStitchStore.needsHandoverRollover(rootID)
+	if !needsRollover {
+		return prevActiveID, false
+	}
+
+	defaultStitchStore.creatingMu.Lock()
+	defer defaultStitchStore.creatingMu.Unlock()
+
+	// Double-check after acquiring creation lock
+	needsRollover, prevActiveID, accountID = defaultStitchStore.needsHandoverRollover(rootID)
+	if !needsRollover {
+		return prevActiveID, false
+	}
+
+	summary, wsURIs := p.BuildOfflineCompactSummary(ctx, rootID, port, token)
+	if summary == "" {
+		// Conversation has no prior history at all (e.g. brand new draft); no need to create a child cascade.
+		RecordCascadeCreatedAtCurrentEpoch(prevActiveID)
+		return prevActiveID, false
+	}
+
+	startPayload := map[string]interface{}{
+		"source": "CORTEX_TRAJECTORY_SOURCE_INTERACTIVE_CASCADE",
+	}
+	if len(wsURIs) > 0 {
+		startPayload["workspaceUris"] = wsURIs
+	}
+	cBody, cStatus, cErr := p.callUpstreamRPC(ctx, "StartCascade", startPayload)
+	if cErr != nil || cStatus != http.StatusOK {
+		slog.Warn("[Stitch] StartCascade for compact handover failed; continuing on existing cascade", "root", shortCascadeID(rootID), "err", cErr, "status", cStatus)
+		RecordCascadeCreatedAtCurrentEpoch(prevActiveID)
+		return prevActiveID, false
+	}
+	var started struct {
+		CascadeID string `json:"cascadeId"`
+	}
+	if json.Unmarshal(cBody, &started) != nil || strings.TrimSpace(started.CascadeID) == "" {
+		RecordCascadeCreatedAtCurrentEpoch(prevActiveID)
+		return prevActiveID, false
+	}
+	newChildID := strings.TrimSpace(started.CascadeID)
+
+	// Carry over model and planExecute state from the previous active cascade
+	if model, cfg := GetCascadeModel(prevActiveID); model != "" || len(cfg) > 0 {
+		SetCascadeModel(newChildID, model, cfg)
+	} else if model, cfg := GetCascadeModel(rootID); model != "" || len(cfg) > 0 {
+		SetCascadeModel(newChildID, model, cfg)
+	}
+	if IsCascadePlanExecute(prevActiveID) || IsCascadePlanExecute(rootID) {
+		SetCascadePlanExecute(newChildID, true)
+	}
+
+	// Prepend the offline compact summary to the first text item in rawMap
+	injectCompactSummaryIntoRawSendMap(rawMap, summary)
+	rawMap["cascadeId"] = newChildID
+
+	defaultStitchStore.appendSegment(rootID, prevActiveID, newChildID, accountID)
+	slog.Info("[Stitch] 🔄 Compact handover created continuation cascade",
+		"root", shortCascadeID(rootID), "prev", shortCascadeID(prevActiveID), "new", shortCascadeID(newChildID), "account", accountID)
+	return newChildID, true
+}
+
+func injectCompactSummaryIntoRawSendMap(rawMap map[string]interface{}, summary string) {
+	if rawMap == nil || strings.TrimSpace(summary) == "" {
+		return
+	}
+	if items, ok := rawMap["items"].([]interface{}); ok && len(items) > 0 {
+		for _, it := range items {
+			if itemMap, ok := it.(map[string]interface{}); ok {
+				if t, ok := itemMap["text"].(string); ok {
+					itemMap["text"] = WrapUserPromptWithCompactHandover(summary, t)
+					return
+				}
+			}
+		}
+		firstItem := map[string]interface{}{"text": WrapUserPromptWithCompactHandover(summary, "")}
+		rawMap["items"] = append([]interface{}{firstItem}, items...)
+		return
+	}
+	if txt, ok := rawMap["text"].(string); ok {
+		wrapped := WrapUserPromptWithCompactHandover(summary, txt)
+		rawMap["text"] = wrapped
+		rawMap["items"] = []interface{}{map[string]interface{}{"text": wrapped}}
+		return
+	}
+	rawMap["items"] = []interface{}{map[string]interface{}{"text": WrapUserPromptWithCompactHandover(summary, "Continue")}}
+}
+
+func makeAccountSwitchMarkerStep(accountID, createdAt string) TrajectoryStep {
+	label := "🔄 已切换账号并自动压缩历史上下文 (Compact Handover)"
+	if acc := strings.TrimSpace(accountID); acc != "" {
+		label = fmt.Sprintf("🔄 已切换至账号 %s 并自动压缩历史上下文 (Compact Handover)", acc)
+	}
+	if createdAt == "" {
+		createdAt = time.Now().UTC().Format(time.RFC3339)
+	}
+	var s TrajectoryStep
+	s.Type = "CORTEX_STEP_TYPE_PLANNER_RESPONSE"
+	s.Status = "CORTEX_STEP_STATUS_DONE"
+	s.Metadata.CreatedAt = createdAt
+	s.Metadata.CompletedAt = createdAt
+	s.PlannerResponse = &TrajectoryPlannerResponse{
+		Response: ">" + " " + label,
+	}
+	return s
+}
+
+// ResolveGlobalStepToSegment maps a stitched global stepIndex on rootCascadeID to the owning
+// underlying (segmentCascadeID, localStepIndex).
+func (p *Proxy) ResolveGlobalStepToSegment(ctx context.Context, cascadeID string, globalStepIndex int, port int, token string) (string, int) {
+	segments := GetStitchChainSegments(cascadeID)
+	if len(segments) <= 1 || globalStepIndex < 0 {
+		return ResolveActiveCascadeID(cascadeID), globalStepIndex
+	}
+	offset := 0
+	for i, seg := range segments {
+		if i > 0 {
+			// Account for the 1 synthetic divider step inserted before each child segment
+			if globalStepIndex == offset {
+				return seg.CascadeID, 0
+			}
+			offset++
+		}
+		raw, err := p.fetchSingleSegmentTrajectory(ctx, seg.CascadeID, port, token, 5*time.Second)
+		if err != nil || raw == nil {
+			continue
+		}
+		n := len(raw.Trajectory.Steps)
+		if globalStepIndex < offset+n || i == len(segments)-1 {
+			local := globalStepIndex - offset
+			if local < 0 {
+				local = 0
+			}
+			return seg.CascadeID, local
+		}
+		offset += n
+	}
+	return ResolveActiveCascadeID(cascadeID), globalStepIndex
+}

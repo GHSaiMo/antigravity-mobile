@@ -204,6 +204,12 @@ func (p *Proxy) cascadeSummarySignature(cascadeID string, port int, token string
 	if err != nil || idx == nil {
 		return 0, false
 	}
+	activeID := ResolveActiveCascadeID(cascadeID)
+	if activeID != "" && activeID != cascadeID {
+		if sig, ok := idx.sigByID[activeID]; ok {
+			return sig, true
+		}
+	}
 	sig, ok := idx.sigByID[cascadeID]
 	return sig, ok
 }

@@ -327,6 +327,7 @@ func buildTrajectoryMessages(steps []TrajectoryStep) ([]CascadeMessageItem, int)
 			turnArtifacts = nil
 			seenArtifactURIs = make(map[string]bool)
 			text, slashCommands := s.UserInput.ExtractTextAndSlashCommands()
+			text = StripCompactHandoverPrefix(text)
 
 			var mediaList []string
 			var userImageURLs []string

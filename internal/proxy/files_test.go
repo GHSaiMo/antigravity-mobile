@@ -14,13 +14,20 @@ import (
 
 func TestResolveLocalFilePath(t *testing.T) {
 	home, _ := os.UserHomeDir()
+	agRoot := resolveAntigravityHomeDir()
+	if resolved, err := filepath.EvalSymlinks(agRoot); err == nil && resolved != "" {
+		agRoot = resolved
+	}
+	if agRoot == "" {
+		agRoot = filepath.Join(home, ".gemini/antigravity")
+	}
 
 	// 1. Static artifact path
 	p, err := ResolveLocalFilePath("/static/artifacts/test-casc-1/plan.md", "")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	expected := filepath.Join(home, ".gemini/antigravity/brain/test-casc-1/plan.md")
+	expected := filepath.Join(agRoot, "brain/test-casc-1/plan.md")
 	if p != expected {
 		t.Errorf("expected %s, got %s", expected, p)
 	}
@@ -39,7 +46,7 @@ func TestResolveLocalFilePath(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	expected = filepath.Join(home, ".gemini/antigravity/brain/my-casc-42/implementation_plan.md")
+	expected = filepath.Join(agRoot, "brain/my-casc-42/implementation_plan.md")
 	if p != expected {
 		t.Errorf("expected %s, got %s", expected, p)
 	}

@@ -385,12 +385,26 @@ func ClearTrajectoryCache(cascadeID string) {
 	if cascadeID == "" {
 		return
 	}
+	rootID := ResolveVisibleRootCascadeID(cascadeID)
+	idsToClear := []string{cascadeID}
+	if rootID != "" && rootID != cascadeID {
+		idsToClear = append(idsToClear, rootID)
+	}
+	for _, seg := range GetStitchChainSegments(rootID) {
+		if seg.CascadeID != "" && seg.CascadeID != cascadeID && seg.CascadeID != rootID {
+			idsToClear = append(idsToClear, seg.CascadeID)
+		}
+	}
 	defaultTrajCache.trajCacheMu.Lock()
-	delete(defaultTrajCache.trajCache, cascadeID)
-	defaultTrajCache.bumpCascadeGenLocked(cascadeID)
+	for _, id := range idsToClear {
+		delete(defaultTrajCache.trajCache, id)
+		defaultTrajCache.bumpCascadeGenLocked(id)
+	}
 	defaultTrajCache.trajCacheMu.Unlock()
 	// Callers arriving after the invalidation must not join a fetch that may predate it.
-	trajFlights.forget(cascadeID)
+	for _, id := range idsToClear {
+		trajFlights.forget(id)
+	}
 
 	defaultTrajCache.cascadeTitlesMu.Lock()
 	delete(defaultTrajCache.cascadeTitles, cascadeID)

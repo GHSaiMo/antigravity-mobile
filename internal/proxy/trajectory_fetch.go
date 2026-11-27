@@ -445,7 +445,7 @@ func (p *Proxy) fetchUpstreamTrajectoryWithMaxAge(cascadeID string, port int, to
 	return p.fetchUpstreamTrajectoryWithMaxAgeContext(context.Background(), cascadeID, port, token, maxAge)
 }
 
-func (p *Proxy) fetchUpstreamTrajectoryWithMaxAgeContext(ctx context.Context, cascadeID string, port int, token string, maxAge time.Duration) (*upstreamTrajectoryResp, error) {
+func (p *Proxy) fetchSingleSegmentTrajectory(ctx context.Context, cascadeID string, port int, token string, maxAge time.Duration) (*upstreamTrajectoryResp, error) {
 	if IsDeletedCascade(cascadeID) {
 		return nil, fmt.Errorf("cascade trajectory %s has been deleted", cascadeID)
 	}
@@ -459,12 +459,81 @@ func (p *Proxy) fetchUpstreamTrajectoryWithMaxAgeContext(ctx context.Context, ca
 	}
 	defaultTrajCache.trajCacheMu.RUnlock()
 
-	// Coalesce concurrent cache misses for the same cascade into one upstream request,
-	// using a detached 10s upstream context so a short-deadline caller (e.g. 500ms probe)
-	// cannot cancel a shared in-flight fetch for stream subscribers.
 	return trajFlights.doCtx(ctx, cascadeID, func(upCtx context.Context) (*upstreamTrajectoryResp, error) {
 		return p.fetchUpstreamTrajectoryUncached(upCtx, cascadeID, port, token)
 	})
+}
+
+func (p *Proxy) fetchUpstreamTrajectoryWithMaxAgeContext(ctx context.Context, cascadeID string, port int, token string, maxAge time.Duration) (*upstreamTrajectoryResp, error) {
+	if IsDeletedCascade(cascadeID) {
+		return nil, fmt.Errorf("cascade trajectory %s has been deleted", cascadeID)
+	}
+
+	segments := GetStitchChainSegments(cascadeID)
+	if len(segments) <= 1 {
+		return p.fetchSingleSegmentTrajectory(ctx, cascadeID, port, token, maxAge)
+	}
+
+	rootID := ResolveVisibleRootCascadeID(cascadeID)
+	var combined *upstreamTrajectoryResp
+	var allSteps []TrajectoryStep
+
+	for i, seg := range segments {
+		segMaxAge := maxAge
+		// Historical completed segments before the active leaf rarely change; use a longer cache TTL.
+		if i < len(segments)-1 && segMaxAge < 15*time.Second {
+			segMaxAge = 15 * time.Second
+		}
+		segResp, err := p.fetchSingleSegmentTrajectory(ctx, seg.CascadeID, port, token, segMaxAge)
+		if (err != nil || (segResp != nil && len(segResp.Trajectory.Steps) == 0)) && port > 0 && (ctx == nil || ctx.Err() == nil) {
+			if loadErr := p.LoadTrajectory(seg.CascadeID, port, token); loadErr == nil {
+				defaultTrajCache.trajCacheMu.Lock()
+				delete(defaultTrajCache.trajCache, seg.CascadeID)
+				defaultTrajCache.trajCacheMu.Unlock()
+				trajFlights.forget(seg.CascadeID)
+				if retryResp, retryErr := p.fetchSingleSegmentTrajectory(ctx, seg.CascadeID, port, token, 0); retryErr == nil && retryResp != nil {
+					segResp, err = retryResp, nil
+				}
+			}
+		}
+		if err != nil || segResp == nil {
+			if i == 0 && len(allSteps) == 0 {
+				return nil, err
+			}
+			continue
+		}
+		if combined == nil {
+			cp := *segResp
+			combined = &cp
+		}
+		if i > 0 {
+			allSteps = append(allSteps, makeAccountSwitchMarkerStep(seg.AccountID, seg.CreatedAt))
+		}
+		allSteps = append(allSteps, segResp.Trajectory.Steps...)
+		if i == len(segments)-1 {
+			combined.Status = segResp.Status
+			combined.PendingAgentMessages = segResp.PendingAgentMessages
+			if len(segResp.Trajectory.ExecutorMetadatas) > 0 {
+				combined.Trajectory.ExecutorMetadatas = segResp.Trajectory.ExecutorMetadatas
+			}
+		}
+	}
+	if combined == nil {
+		return p.fetchSingleSegmentTrajectory(ctx, cascadeID, port, token, maxAge)
+	}
+	combined.Trajectory.CascadeID = rootID
+	combined.Trajectory.Steps = allSteps
+
+	defaultTrajCache.trajCacheMu.Lock()
+	defaultTrajCache.trajCache[rootID] = &trajectoryCacheEntry{
+		fetchedAt: time.Now(),
+		port:      port,
+		data:      combined,
+	}
+	defaultTrajCache.evictTrajCacheLocked()
+	defaultTrajCache.trajCacheMu.Unlock()
+
+	return combined, nil
 }
 
 // trajFlightGroup is a minimal singleflight keyed by cascade ID.
@@ -738,7 +807,13 @@ func (p *Proxy) FetchRawCascadeSummariesWithMaxAge(maxAge time.Duration) (map[st
 	runningSubagents := make(map[string]bool)
 	// Filter out internal subagent sessions while tracking parents of actively running subagents
 	for id, s := range summaries {
-		if IsDeletedCascade(id) {
+		if IsDeletedCascade(id) || IsStitchedChildCascade(id) {
+			if IsStitchedChildCascade(id) {
+				rootID := ResolveVisibleRootCascadeID(id)
+				if status, _ := s["status"].(string); status == "CASCADE_RUN_STATUS_RUNNING" && rootID != "" {
+					runningSubagents[rootID] = true
+				}
+			}
 			delete(summaries, id)
 			continue
 		}
@@ -927,6 +1002,7 @@ func (p *Proxy) fetchUpstreamGeneratorMetadata(cascadeID string, port int, token
 	if port <= 0 || cascadeID == "" {
 		return nil
 	}
+	cascadeID = ResolveActiveCascadeID(cascadeID)
 
 	reqOffset := 0
 	var prevItem *ContextMeterItem

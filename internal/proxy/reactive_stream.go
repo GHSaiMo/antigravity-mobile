@@ -274,9 +274,13 @@ func (h *reactiveAgentStateHub) streamOnce(
 	port int,
 	token string,
 ) (frames int, supported bool) {
+	upstreamCascadeID := ResolveActiveCascadeID(cascadeID)
+	if upstreamCascadeID == "" {
+		upstreamCascadeID = cascadeID
+	}
 	reqPayload := map[string]interface{}{
-		"conversationId":                      cascadeID,
-		"subscriberId":                        fmt.Sprintf("mgy-live-%s-%d", shortCascadeID(cascadeID), time.Now().UnixNano()),
+		"conversationId":                      upstreamCascadeID,
+		"subscriberId":                        fmt.Sprintf("mgy-live-%s-%d", shortCascadeID(upstreamCascadeID), time.Now().UnixNano()),
 		"initialStepsPageBounds":              map[string]int{"startIndex": 0, "endIndexExclusive": 0},
 		"initialGeneratorMetadatasPageBounds": map[string]int{"startIndex": 0, "endIndexExclusive": 0},
 		"initialExecutorMetadatasPageBounds":  map[string]int{"startIndex": 0, "endIndexExclusive": 0},

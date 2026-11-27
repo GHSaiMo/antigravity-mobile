@@ -38,9 +38,11 @@ type jetskiOAuthFile struct {
 		TokenType    string `json:"token_type"`
 		RefreshToken string `json:"refresh_token"`
 		Expiry       string `json:"expiry"`
+		ExpiresIn    int64  `json:"expires_in,omitempty"`
 	} `json:"token"`
-	AuthMethod string `json:"auth_method"`
-	IDToken    string `json:"id_token,omitempty"`
+	AuthMethod   string `json:"auth_method"`
+	IDToken      string `json:"id_token,omitempty"`
+	IDTokenEmail string `json:"id_token_email,omitempty"`
 }
 
 type parsedOAuth struct {
@@ -60,6 +62,17 @@ func jetskiOAuthPath() string {
 		return ""
 	}
 	return filepath.Join(home, ".gemini", "jetski-standalone-oauth-token")
+}
+
+func antigravityCLIOAuthPaths() []string {
+	home, err := os.UserHomeDir()
+	if err != nil || home == "" {
+		return nil
+	}
+	return []string{
+		filepath.Join(home, ".gemini", "antigravity-cli", "antigravity-oauth-token"),
+		filepath.Join(home, ".gemini", "antigravity", "antigravity-oauth-token"),
+	}
 }
 
 func googleAccountsPath() string {
@@ -248,6 +261,13 @@ func launchAntigravityWithCockpitProxy() error {
 	}
 
 	if runtime.GOOS == "linux" {
+		if runCmdRunTimeout(3*time.Second, "systemctl", "--user", "cat", "antigravity-cli-daemon.service") == nil {
+			slog.Info("[Cockpit] restarting systemd service antigravity-cli-daemon")
+			if err := runCmdRunTimeout(8*time.Second, "systemctl", "--user", "restart", "antigravity-cli-daemon"); err != nil {
+				return fmt.Errorf("restart antigravity-cli-daemon: %w", err)
+			}
+			return nil
+		}
 		if runCmdRunTimeout(3*time.Second, "systemctl", "--user", "cat", "antigravity-ls.service") == nil {
 			slog.Info("[Cockpit] starting systemd service antigravity-ls")
 			if err := runCmdRunTimeout(5*time.Second, "systemctl", "--user", "start", "antigravity-ls"); err != nil {
@@ -496,11 +516,16 @@ func writeJetskiOAuthFile(tok *parsedOAuth) error {
 	if err := os.MkdirAll(filepath.Dir(path), 0700); err != nil {
 		return err
 	}
-	doc := jetskiOAuthFile{AuthMethod: "consumer", IDToken: tok.IDToken}
+	doc := jetskiOAuthFile{AuthMethod: "consumer", IDToken: tok.IDToken, IDTokenEmail: tok.Email}
 	doc.Token.AccessToken = tok.AccessToken
 	doc.Token.TokenType = "Bearer"
 	doc.Token.RefreshToken = tok.RefreshToken
 	doc.Token.Expiry = tok.Expiry.In(time.Local).Format(time.RFC3339Nano)
+	if secs := int64(time.Until(tok.Expiry).Seconds()); secs > 0 {
+		doc.Token.ExpiresIn = secs
+	} else {
+		doc.Token.ExpiresIn = 3599
+	}
 	raw, err := json.Marshal(doc)
 	if err != nil {
 		return err
@@ -508,7 +533,21 @@ func writeJetskiOAuthFile(tok *parsedOAuth) error {
 	if err := writeFileAtomic0600(path, raw); err != nil {
 		return err
 	}
-	slog.Info(fmt.Sprintf("[Cockpit] wrote jetski-standalone-oauth-token for %s", tok.Email))
+	seenReal := make(map[string]bool)
+	for _, cliPath := range antigravityCLIOAuthPaths() {
+		dir := filepath.Dir(cliPath)
+		if st, err := os.Stat(dir); err == nil && st.IsDir() {
+			realDir := dir
+			if r, rErr := filepath.EvalSymlinks(dir); rErr == nil && r != "" {
+				realDir = r
+			}
+			if !seenReal[realDir] {
+				seenReal[realDir] = true
+				_ = writeFileAtomic0600(filepath.Join(realDir, "antigravity-oauth-token"), raw)
+			}
+		}
+	}
+	slog.Info(fmt.Sprintf("[Cockpit] wrote jetski-standalone-oauth-token and antigravity-oauth-token for %s", tok.Email))
 	return nil
 }
 
