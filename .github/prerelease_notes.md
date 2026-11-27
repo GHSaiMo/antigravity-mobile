@@ -1,16 +1,16 @@
 > 🧪 **预发布测试版 / Pre-release Build (`v1.2.8-beta.3`)**
 >
 > - 此版本仅供灰度内测与尝鲜体验，**不会推送给正式版用户**（`mgy update`、Android 应用内自动更新及一键安装脚本均自动跳过预发布版，`v1.2.7` 仍保持为 `Latest` 正式版）。
-> - **网关更新至本测试版**：运行 `mgy update v1.2.8-beta.3`；测试完毕后运行 `mgy update` 即可切回最新正式版。
+> - **网关更新至本测试版**：运行 `mgy update v1.2.8-beta.3`（已安装过旧版 `beta.3` 可加 `-force` 强制覆盖）；测试完毕后运行 `mgy update` 即可切回最新正式版。
 > - **Android 测试安装**：直接下载下方 `Multigravity-v1.2.8-beta.3.apk` 安装即可（`versionCode 44`，与 `v1.2.7` / 早先 `beta` 同私有正式签名，可直接覆盖升级，后续亦可无缝覆盖升级至 `v1.2.8` 正式版）。
-> - **iOS 测试安装**：通过 **[TestFlight 公开测试链接](https://testflight.apple.com/join/YM7f4aSK)** 加入并安装 `1.2.8 (50)`（已对齐 `beta.3` 全量能力）。
+> - **iOS 测试安装**：通过 **[TestFlight 公开测试链接](https://testflight.apple.com/join/YM7f4aSK)** 加入并安装 `1.2.8 (52)`（已对齐 `beta.3` 全量能力）。
 >
 > ---
 >
 > - This is a **Pre-release** build for grayscale testing and **will not be pushed to stable users** (`mgy update`, Android in-app updater, and install scripts ignore pre-releases; `v1.2.7` remains the `Latest` stable release).
-> - **Gateway CLI**: run `mgy update v1.2.8-beta.3` to install this build, or `mgy update` to return to the latest stable release.
+> - **Gateway CLI**: run `mgy update v1.2.8-beta.3` (or add `-force` to refresh an earlier `beta.3` install), and `mgy update` to return to the latest stable release.
 > - **Android**: download and install `Multigravity-v1.2.8-beta.3.apk` below (`versionCode 44`, signed with the same private release key as `v1.2.7` for seamless in-place upgrades).
-> - **iOS**: join via **[TestFlight Public Beta](https://testflight.apple.com/join/YM7f4aSK)** and install `1.2.8 (50)` (aligned with `beta.3`).
+> - **iOS**: join via **[TestFlight Public Beta](https://testflight.apple.com/join/YM7f4aSK)** and install `1.2.8 (52)` (aligned with `beta.3`).
 
 ---
 
@@ -21,7 +21,7 @@
 #### 1. 智能辅助套件（AI Assist）全端上线（Gateway / iOS / Android / Web）
 通过本机 Antigravity 原生接口无状态执行，不产生额外会话，开关跨设备同步：
 - **智能翻译（Smart Translation）**：支持新会话英文标题自动翻译并覆盖，支持步骤清单（Step Plan）与实时执行状态（Live Focus）实时翻译（同步覆盖 iOS 灵动岛与实时活动），并内置输出校验、去截断与回退重试机制。
-- **下一步提示词建议（Next-Prompt Suggestions）**：每轮回复完成后轻量预测 1 条建议胶囊，内联展示在输入栏 `+` 与模型按钮之间并支持多行完整阅读，可在设置中自选「填入输入框 / 直接发送」，出现审批卡片或已有草稿时自动隐藏。
+- **下一步提示词建议（Next-Prompt Suggestions）**：每轮回复完成后轻量预测 1 条建议胶囊，内联展示在输入栏 `+` 右侧（优先首行延伸占满宽度后再折行展示完整文案），采用**短按填入输入框、长按 1.5 秒进度条防呆直发（提前松手自动取消）**交互并在「使用技巧与快捷手势」中补充说明，出现审批卡片或已有草稿时自动隐藏。
 - **长会话防失忆（Post-Compact Rehydration）**：支持在本机 `~/.gemini/config/hooks.json` 注册轻量原生 `PreInvocation` Hook，在 `/compact` 或自动压缩后的下一轮调用前自动单次回灌近期目标、改动文件与未完成要点（自动脱敏凭据）。
 
 #### 2. 远程网关一键自更新 & 统一「宿主机更新」二级页（Gateway / iOS / Android / Web）
@@ -36,7 +36,7 @@
 - **定时任务（Automations）全面对齐桌面端**：支持「用 Prompt 创建定时任务」流程；对话中的定时任务触发提示词气泡默认折叠并支持点按展开；保留独立定时任务工作区名称与闹钟标识。
 - **多条有序斜杠指令**：支持在单条消息中输入并按顺序组合多个 `/command` 斜杠指令。
 - **HTML 产物预览卡片与预览器精简**：自动识别面向用户的 HTML 产物并以可交互预览卡片呈现；保留 HTML 与带标题文档链接的真实文件扩展名；移除各预览页多余的页内搜索按钮。
-- **模型选择器与交互细节修复**：保留经典双列模型选择器与配额窗口显示并升级 `XHigh` 命名与胶囊边框；优化双端主机滑选器居中宽度与卡片外纵向拖拽；统一 `/btw` 旁路图标为问号气泡；修复分支抽屉顶部锚点跳动、Android 交互填写项软键盘弹出及 iOS 移除主机时导航标题闪烁问题。
+- **模型选择器与交互细节修复**：保留经典双列模型选择器与配额窗口显示并升级 `XHigh` 命名与胶囊边框；优化双端主机滑选器居中宽度与卡片外纵向拖拽；统一 `/btw` 旁路图标为问号气泡；修复消息发送后因乱序旧帧与空闲缓存导致新气泡短暂消失及 iOS 顶部轮次/回底按钮闪跳的问题；修复分支抽屉顶部锚点跳动、Android 交互填写项软键盘弹出及 iOS 移除主机时导航标题闪烁问题。
 
 #### 5. 网关跨平台服务、CLI 发现与中继稳定性加固（Gateway）
 - **跨平台后台自启与日志轮转**：新增 `mgy service` 支持 macOS / Linux / Windows 开机自启与按大小轮转日志，Windows 后台子进程默认静默隐藏控制台窗口。
@@ -57,7 +57,7 @@
 #### 1. AI Assist Suite Across All Clients (Gateway / iOS / Android / Web)
 Powered statelessly by Antigravity's native local RPC with zero extra sessions and cross-device synced toggles:
 - **Smart Translation**: Auto-translate new English conversation titles, plus live translation for Step Checklists and Live Focus status lines (including iOS Dynamic Island & Live Activities), with output validation, untruncated titles, and fallback retry.
-- **Next-Prompt Suggestions**: Predicts a concise follow-up chip after each reply, rendered inline as a multi-line chip between `+` and the model button with configurable tap behavior (Fill / Send Immediately) and auto-hiding when approvals or drafts are active.
+- **Next-Prompt Suggestions**: Predicts a concise follow-up chip after each reply, rendered inline beside `+` (expanding along a full first line before wrapping so the full text stays readable) with **tap-to-fill and 1.5s hold-to-send with a live progress bar** (release early to cancel; documented in Tips & Gestures) and auto-hiding when approvals or drafts are active.
 - **Post-Compact Rehydration**: Registers a lightweight local `PreInvocation` hook in `~/.gemini/config/hooks.json` to inject recent user intent and modified files once after `/compact` or auto-compaction (with credential redaction).
 
 #### 2. Remote Gateway Self-Update & Unified Host Updates Subpage (Gateway / iOS / Android / Web)
@@ -72,7 +72,7 @@ Powered statelessly by Antigravity's native local RPC with zero extra sessions a
 - **Desktop-Aligned Automations**: Added Create-with-Prompt flow, collapsed scheduled-task prompt bubbles by default with tap-to-expand, and preserved independent scheduled workspace names with trailing alarm icons.
 - **Multiple Ordered Slash Commands**: Compose and execute multiple ordered `/commands` in a single message across all clients.
 - **HTML Artifact Preview Cards & Cleaner Viewers**: Surfaces user-facing HTML artifacts as interactive preview cards, preserves real file extensions for HTML and titled document links, and removes redundant in-page search buttons from previewers.
-- **Model Picker & Ergonomics**: Restored classic 2-column model picker and quota window while keeping `XHigh` naming and chip border; polished centered host slide picker drag behavior, unified `/btw` question-bubble icons, fixed branch drawer top anchoring, Android write-in keyboard focus, and iOS host-removal title stability.
+- **Model Picker & Ergonomics**: Restored classic 2-column model picker and quota window while keeping `XHigh` naming and chip border; polished centered host slide picker drag behavior, unified `/btw` question-bubble icons, fixed newly sent user bubbles briefly vanishing due to out-of-order stale snapshots/idle caching and iOS turn-counter/jump-to-bottom flickers, and fixed branch drawer top anchoring, Android write-in keyboard focus, and iOS host-removal title stability.
 
 #### 5. Cross-Platform Background Service, CLI Discovery & Relay Hardening (Gateway)
 - **Cross-Platform `mgy service` & Rotating Logs**: Added background auto-start service management across macOS/Linux/Windows, size-based log rotation, and Windows `HideWindow` console suppression.
