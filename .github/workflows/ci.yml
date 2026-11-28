@@ -41,6 +41,9 @@ jobs:
             node --check "$f"
           done
 
+      - name: Test web markdown renderer
+        run: node --test web/media_render_test.mjs
+
   android:
     runs-on: ubuntu-latest
     steps:

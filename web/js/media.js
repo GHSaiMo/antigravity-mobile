@@ -722,6 +722,13 @@ function isPreviewableDocumentResource(url) {
   return docExts.some(ext => clean.endsWith(ext));
 }
 
+function compactHtmlTemplate(html) {
+  return String(html || "")
+    .replace(/>\s+</g, "><")
+    .replace(/\s*\n\s*/g, " ")
+    .trim();
+}
+
 /**
  * Generates the HTML for an image thumbnail card.
  */
@@ -742,7 +749,7 @@ function buildImageThumbnailCard(originalPath, thumbPath, altText) {
   const titleAttr = protectMdAttr(escapeHtml(fileName));
   const altAttr = protectMdAttr(escapeHtml(alt));
 
-  return `
+  return compactHtmlTemplate(`
     <div class="image-thumb-card" 
          data-action="open-lightbox" 
          data-original-url="${origAttr}" 
@@ -791,7 +798,7 @@ function buildImageThumbnailCard(originalPath, thumbPath, altText) {
         </div>
       </div>
     </div>
-  `;
+  `);
 }
 
 let agentEmbedSeq = 0;
@@ -832,7 +839,7 @@ function buildAgentEmbedCard(src) {
   const boundServer = ns && ns.serverName ? ns.serverName : "";
   const boundCascade = (typeof activeCascadeId !== "undefined" && activeCascadeId) ? activeCascadeId : "";
 
-  return `
+  return compactHtmlTemplate(`
     <div class="agent-embed-card" data-src="${protectMdAttr(escapeHtml(clean))}" data-cascade-id="${protectMdAttr(escapeHtml(boundCascade))}" data-mcp-server="${protectMdAttr(escapeHtml(boundServer))}" data-hydrated="false">
       <div class="agent-embed-header">
         <div class="agent-embed-title-wrap">
@@ -868,7 +875,7 @@ function buildAgentEmbedCard(src) {
         <iframe class="agent-embed-frame" sandbox="allow-scripts" src="about:blank"></iframe>
       </div>
     </div>
-  `;
+  `);
 }
 
 function hydrateAllAgentEmbeds(root = document) {
@@ -1160,8 +1167,74 @@ function protectMdAttr(v) {
   return String(v).replace(/[`*_~=]/g, (c) => `&#${c.charCodeAt(0)};`);
 }
 
+function extractInlineCodeSpans(text, onCode) {
+  if (!text || !text.includes("`")) return text;
+  let out = "";
+  let i = 0;
+  const len = text.length;
+  while (i < len) {
+    if (text[i] === "`") {
+      let ticks = 0;
+      while (i + ticks < len && text[i + ticks] === "`") ticks++;
+      let j = i + ticks;
+      let closeIdx = -1;
+      while (j < len) {
+        if (text[j] === "`") {
+          let run = 0;
+          while (j + run < len && text[j + run] === "`") run++;
+          if (run === ticks) {
+            closeIdx = j;
+            break;
+          }
+          j += run;
+        } else {
+          j++;
+        }
+      }
+      if (closeIdx !== -1) {
+        let inner = text.slice(i + ticks, closeIdx);
+        // CommonMark: strip one leading and one trailing space if both present and not all spaces
+        if (inner.length >= 2 && inner.startsWith(" ") && inner.endsWith(" ") && /[^ ]/.test(inner)) {
+          inner = inner.slice(1, -1);
+        }
+        if (inner.length > 0) {
+          out += onCode(inner);
+          i = closeIdx + ticks;
+          continue;
+        }
+      }
+      out += text.slice(i, i + ticks);
+      i += ticks;
+    } else {
+      const nextTick = text.indexOf("`", i);
+      if (nextTick === -1) {
+        out += text.slice(i);
+        break;
+      }
+      out += text.slice(i, nextTick);
+      i = nextTick;
+    }
+  }
+  return out;
+}
+
 function renderInlineMarkdown(text) {
   if (!text) return "";
+  const cleanWxText = (s) => (typeof stripWeChatDisplayPrefix === "function" ? stripWeChatDisplayPrefix(s) : s);
+
+  // Protect inline code spans from the very start so auto-links, HTML normalization,
+  // image/link regexes, emphasis/strike/highlight, and <agent-embed> never mutate code contents.
+  const renderedCodeSpans = [];
+  const stashInlineCode = (rawCode) => {
+    const idx = renderedCodeSpans.length;
+    renderedCodeSpans.push({
+      raw: rawCode,
+      html: `<code class="inline-code">${cleanWxText(escapeHtml(rawCode))}</code>`
+    });
+    return `\uE010CODE${idx}\uE011`;
+  };
+  text = extractInlineCodeSpans(text, stashInlineCode);
+
   if (text.includes("implementation_plan.md") && !text.includes("[implementation_plan.md]") && !text.includes("](implementation_plan.md)")) {
     text = text.replace(/implementation_plan\.md/g, "[implementation_plan.md](implementation_plan.md)");
   }
@@ -1172,7 +1245,7 @@ function renderInlineMarkdown(text) {
     text = text.replace(/task\.md/g, "[task.md](task.md)");
   }
 
-  // Normalize HTML whitespace & common named entities
+  // Normalize HTML whitespace & common named entities outside of inline code spans
   text = text
     .replace(/&(?:nbsp|#160|ensp|emsp);/gi, "\u00A0")
     .replace(/&(?:mdash|#8212);/gi, "—")
@@ -1201,26 +1274,17 @@ function renderInlineMarkdown(text) {
     .replace(/&(?:trade|#8482);/gi, "™");
 
   // Normalize inline HTML tags outside of inline code spans
-  const codeSpans = [];
-  text = text.replace(/`[^`]+`/g, (m) => {
-    const idx = codeSpans.length;
-    codeSpans.push(m);
-    return `\uE010CODE${idx}\uE011`;
-  });
-
   text = text
     .replace(/[ \t]*<(?:\/br|br\b[^>]*\/?)>[ \t]*\n?/gi, "___HTML_BR___")
     .replace(/<(?:b|strong)\b[^>]*>([\s\S]*?)<\/(?:b|strong)>/gi, "**$1**")
     .replace(/<(?:i|em)\b[^>]*>([\s\S]*?)<\/(?:i|em)>/gi, "*$1*")
     .replace(/<(?:s|del|strike)\b[^>]*>([\s\S]*?)<\/(?:s|del|strike)>/gi, "~~$1~~")
     .replace(/<mark\b[^>]*>([\s\S]*?)<\/mark>/gi, "==$1==")
-    .replace(/<code\b[^>]*>([\s\S]*?)<\/code>/gi, "`$1`")
-    .replace(/<kbd\b[^>]*>([\s\S]*?)<\/kbd>/gi, "`[$1]`")
+    .replace(/<code\b[^>]*>([\s\S]*?)<\/code>/gi, (_, inner) => stashInlineCode(inner))
+    .replace(/<kbd\b[^>]*>([\s\S]*?)<\/kbd>/gi, (_, inner) => stashInlineCode(`[${inner}]`))
     .replace(/<(?:u|ins)\b[^>]*>([\s\S]*?)<\/(?:u|ins)>/gi, "___HTML_U_OPEN___$1___HTML_U_CLOSE___")
     .replace(/<sup\b[^>]*>([\s\S]*?)<\/sup>/gi, "___HTML_SUP_OPEN___$1___HTML_SUP_CLOSE___")
     .replace(/<sub\b[^>]*>([\s\S]*?)<\/sub>/gi, "___HTML_SUB_OPEN___$1___HTML_SUB_CLOSE___");
-
-  text = text.replace(/\uE010CODE(\d+)\uE011/g, (_, idx) => codeSpans[Number(idx)]);
 
   let html = escapeHtml(text);
   html = html
@@ -1232,40 +1296,73 @@ function renderInlineMarkdown(text) {
     .replace(/___HTML_SUB_OPEN___/g, "<sub>")
     .replace(/___HTML_SUB_CLOSE___/g, "</sub>");
 
+  // Protect rendered component HTML blocks (image cards, embed cards) so later markdown
+  // regexes never mutate filenames, URLs, or attributes inside them.
+  const protectedHtmlBlocks = [];
+  const stashHtmlBlock = (markup, plainText = "") => {
+    const idx = protectedHtmlBlocks.length;
+    protectedHtmlBlocks.push({ html: markup, text: plainText });
+    return `\uE014HTML${idx}\uE015`;
+  };
+  const decodeFragmentToRaw = (fragment) => {
+    let raw = htmlUnescape(fragment);
+    if (renderedCodeSpans.length > 0 && raw.includes("\uE010CODE")) {
+      raw = raw.replace(/\uE010CODE(\d+)\uE011/g, (_, idx) => {
+        const entry = renderedCodeSpans[Number(idx)];
+        return entry ? entry.raw : "";
+      });
+    }
+    if (protectedHtmlBlocks.length > 0 && raw.includes("\uE014HTML")) {
+      raw = raw.replace(/\uE014HTML(\d+)\uE015/g, (_, idx) => {
+        const entry = protectedHtmlBlocks[Number(idx)];
+        return entry ? entry.text : "";
+      });
+    }
+    return raw;
+  };
+
   // 1. Linked images: [![alt](thumb)](orig)
   html = html.replace(/\[!\[([^\]]*)\]\(([^)]+)\)\]\(([^)]+)\)/g, (_, alt, thumbUrl, origUrl) => {
-    return buildImageThumbnailCard(origUrl, thumbUrl, alt);
+    const rawAlt = decodeFragmentToRaw(alt);
+    return stashHtmlBlock(
+      buildImageThumbnailCard(decodeFragmentToRaw(origUrl), decodeFragmentToRaw(thumbUrl), rawAlt),
+      rawAlt
+    );
   });
 
   // 2. Standard markdown images: ![alt](url)
   html = html.replace(/!\[([^\]]*)\]\(([^)]+)\)/g, (_, alt, url) => {
-    return buildImageThumbnailCard(url, null, alt);
+    const rawAlt = decodeFragmentToRaw(alt);
+    return stashHtmlBlock(
+      buildImageThumbnailCard(decodeFragmentToRaw(url), null, rawAlt),
+      rawAlt
+    );
   });
 
-  // 3. MEDIA: path anywhere in text
-  html = html.replace(/(?:^|\s|<br\/>)MEDIA:([^\s<"'\n]+)/g, (match, path) => {
-    return buildImageThumbnailCard(path, null, "");
+  // 3. MEDIA: path anywhere in text (preserve leading whitespace or <br/>)
+  html = html.replace(/(^|\s|<br\/>)MEDIA:([^\s<"'`\n]+)/g, (_, lead, path) => {
+    return lead + stashHtmlBlock(buildImageThumbnailCard(decodeFragmentToRaw(path), null, ""));
   });
 
   // 4. Markdown links with file icon support (only allow safe URL protocols)
-  const cleanWxText = (s) => (typeof stripWeChatDisplayPrefix === "function" ? stripWeChatDisplayPrefix(s) : s);
   html = html.replace(/(?<!\!)\[([^\]]+)\]\(([^)]+)\)/g, (_, linkText, url) => {
-    const rawUrl = htmlUnescape(url);
+    const rawUrl = decodeFragmentToRaw(url);
+    const rawLinkText = cleanWxText(decodeFragmentToRaw(linkText));
     const displayLinkText = cleanWxText(linkText);
     if (!isSafeURL(rawUrl)) return `${displayLinkText}`;
     if (isImageResource(rawUrl)) {
-      return buildImageThumbnailCard(rawUrl, null, htmlUnescape(displayLinkText));
+      return stashHtmlBlock(buildImageThumbnailCard(rawUrl, null, rawLinkText), rawLinkText);
     }
-    const icon = resolveFileIcon(htmlUnescape(displayLinkText)) || resolveFileIcon(rawUrl);
+    const icon = resolveFileIcon(rawLinkText) || resolveFileIcon(rawUrl);
     const lower = rawUrl.toLowerCase();
     const lowerPath = lower.split("#")[0].split("?")[0].replace(/:l?\d+(?:[:-]l?\d+)?$/i, "");
     const isDoc = isPreviewableDocumentResource(rawUrl);
     const isMd = !isDoc && (lowerPath.endsWith(".md") || lowerPath.endsWith(".markdown") || lower.includes("/brain/") || lower.includes("implementation_plan") || lower.includes("walkthrough"));
-    const isPlan = !isDoc && (lower.includes("implementation_plan") || displayLinkText.toLowerCase().includes("implementation_plan") || lower.includes("walkthrough") || displayLinkText.toLowerCase().includes("walkthrough"));
+    const isPlan = !isDoc && (lower.includes("implementation_plan") || rawLinkText.toLowerCase().includes("implementation_plan") || lower.includes("walkthrough") || rawLinkText.toLowerCase().includes("walkthrough"));
     const extraClass = isPlan ? " plan-btn-link" : (isMd ? " markdown-file-link" : "");
     const arrowSvg = isPlan ? '<svg class="plan-btn-arrow" width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"></path><polyline points="15 3 21 3 21 9"></polyline><line x1="10" y1="14" x2="21" y2="3"></line></svg>' : '';
     const href = protectMdAttr(escapeHtml(rawUrl));
-    const titleAttr = protectMdAttr(escapeHtml(displayLinkText));
+    const titleAttr = protectMdAttr(escapeHtml(rawLinkText));
     const mdAttrs = isMd ? ` data-md-url="${href}" data-md-title="${titleAttr}"` : "";
     const isExtHttp = !isMd && !isDoc && /^https?:\/\//i.test(rawUrl) && (!location?.host || !lower.includes(location.host.toLowerCase()));
     const extAttrs = isExtHttp ? ` target="_blank" rel="noopener noreferrer"` : ` rel="noopener noreferrer"`;
@@ -1275,13 +1372,11 @@ function renderInlineMarkdown(text) {
     return `<a href="${href}" class="text-link${extraClass}"${mdAttrs}${extAttrs}><span>${displayLinkText}</span>${arrowSvg}</a>`;
   });
 
-  // Inline code (e.g. `foo`) — protect rendered <code> tags so emphasis/strike/highlight regexes never mutate code contents (e.g. `src/**/*`)
-  const renderedCodeTags = [];
-  html = html.replace(/`([^`]+)`/g, (_, code) => {
-    const idx = renderedCodeTags.length;
-    renderedCodeTags.push(`<code class="inline-code">${cleanWxText(code)}</code>`);
-    return `\uE012ICODE${idx}\uE013`;
-  });
+  // 5. Agent embed tag: <agent-embed src="..."></agent-embed> (runs before restoring inline code spans)
+  html = html.replace(
+    /&lt;agent-embed\b(?:(?!&gt;)[\s\S])*?\bsrc=(&quot;|&#039;)((?:(?!\1|&gt;)[\s\S])+?)\1(?:(?!&gt;)[\s\S])*?&gt;(?:\s*&lt;\/agent-embed&gt;)?/gi,
+    (_, _quote, src) => stashHtmlBlock(buildAgentEmbedCard(decodeFragmentToRaw(src)))
+  );
 
   // Strip gateway hash prefix in plain text nodes without touching HTML tag attributes (href, src, data-*)
   if (html.includes("聊天记录") && html.includes("-")) {
@@ -1300,14 +1395,19 @@ function renderInlineMarkdown(text) {
   html = html.replace(/~~((?:[^~]|~(?!~))+?)~~/g, '<del>$1</del>');
   html = html.replace(/==((?:[^=]|=(?!=))+?)==/g, '<mark class="md-highlight" style="background: rgba(255, 214, 10, 0.28); color: inherit; padding: 0 3px; border-radius: 3px;">$1</mark>');
 
-  if (renderedCodeTags.length > 0) {
-    html = html.replace(/\uE012ICODE(\d+)\uE013/g, (_, idx) => renderedCodeTags[Number(idx)]);
+  // Restore protected component HTML blocks first, then inline code spans
+  if (protectedHtmlBlocks.length > 0) {
+    html = html.replace(/\uE014HTML(\d+)\uE015/g, (_, idx) => {
+      const entry = protectedHtmlBlocks[Number(idx)];
+      return entry ? entry.html : "";
+    });
   }
-
-  // 5. Agent embed tag: <agent-embed src="..."></agent-embed>
-  html = html.replace(/&lt;agent-embed\b[^&>]*?\bsrc=[&quot;']([^&quot;']+)&quot;[^&>]*&gt;(?:\s*&lt;\/agent-embed&gt;)?/gi, (_, src) => {
-    return buildAgentEmbedCard(htmlUnescape(src));
-  });
+  if (renderedCodeSpans.length > 0) {
+    html = html.replace(/\uE010CODE(\d+)\uE011/g, (_, idx) => {
+      const entry = renderedCodeSpans[Number(idx)];
+      return entry ? entry.html : "";
+    });
+  }
 
   return html;
 }
@@ -1913,6 +2013,25 @@ function extractDisplayMathBlocks(md) {
   return masked;
 }
 
+function matchStandaloneImageLine(trimmed) {
+  if (!trimmed) return null;
+  if (trimmed.startsWith("MEDIA:")) {
+    return { origUrl: trimmed.slice(6).trim(), thumbUrl: null, alt: "" };
+  }
+  const linkedImg = trimmed.match(/^\[!\[([^\]]*)\]\(([^)]+)\)\]\(([^)]+)\)$/);
+  if (linkedImg) {
+    return { origUrl: linkedImg[3], thumbUrl: linkedImg[2], alt: linkedImg[1] };
+  }
+  const stdImg = trimmed.match(/^!\[([^\]]*)\]\(([^)]+)\)$/);
+  if (stdImg) {
+    return { origUrl: stdImg[2], thumbUrl: null, alt: stdImg[1] };
+  }
+  if (/^(?:https?:\/\/[^\s]+\.(?:png|jpe?g|webp|gif|svg|bmp)|(?:\/|[a-zA-Z]:\\|file:\/\/)[^\s<"']+\.(?:png|jpe?g|webp|gif|svg|bmp))$/i.test(trimmed)) {
+    return { origUrl: trimmed, thumbUrl: null, alt: "" };
+  }
+  return null;
+}
+
 function renderMarkdown(md, options = {}) {
   if (!md) return "";
   const isContinuation = !!options.isContinuation;
@@ -2348,10 +2467,10 @@ function renderMarkdown(md, options = {}) {
       continue;
     }
 
-    // 6.5 Standalone MEDIA: or Image Block
-    if (trimmed.startsWith("MEDIA:") || /^(?:https?:\/\/[^\s]+\.(?:png|jpe?g|webp|gif|svg|bmp)|(?:\/|[a-zA-Z]:\\|file:\/\/)[^\s<"']+\.(?:png|jpe?g|webp|gif|svg|bmp))$/i.test(trimmed)) {
-      const imgPath = trimmed.startsWith("MEDIA:") ? trimmed.slice(6).trim() : trimmed;
-      blocks.push(buildImageThumbnailCard(imgPath, null, ""));
+    // 6.5 Standalone MEDIA:, Markdown Image, or Bare Image Block
+    const standaloneImg = matchStandaloneImageLine(trimmed);
+    if (standaloneImg) {
+      blocks.push(buildImageThumbnailCard(standaloneImg.origUrl, standaloneImg.thumbUrl, standaloneImg.alt));
       i++;
       continue;
     }
@@ -2372,10 +2491,9 @@ function renderMarkdown(md, options = {}) {
       const nTrimmed = nextLine.trim();
       const nPipelessTable = !isPipeTableLine(nTrimmed) && nTrimmed.includes("|") && (i + 1 < lines.length) && isTableSepRow(parseTableRow(lines[i + 1].trim()));
       if (!nTrimmed ||
-          nTrimmed.startsWith("MEDIA:") ||
+          matchStandaloneImageLine(nTrimmed) ||
           /^<agent-embed\b/i.test(nTrimmed) ||
           nTrimmed.toLowerCase().startsWith("<details") ||
-          /^(?:https?:\/\/[^\s]+\.(?:png|jpe?g|webp|gif|svg|bmp)|(?:\/|[a-zA-Z]:\\|file:\/\/)[^\s<"']+\.(?:png|jpe?g|webp|gif|svg|bmp))$/i.test(nTrimmed) ||
           nTrimmed.startsWith("```") ||
           nTrimmed.startsWith("~~~") ||
           nTrimmed.startsWith("#") ||
