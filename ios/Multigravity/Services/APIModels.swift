@@ -149,6 +149,7 @@ public struct PaginatedMessagesResponse: Codable, Sendable {
     public let turnOutline: [TurnOutlineItem]?
     public let cascadeConfigRaw: String?
     public let canProceed: Bool?
+    public let proceedDismissed: Bool?
     public let proceedArtifactUri: String?
     public let pendingInteraction: PendingInteraction?
     public let queuedMessages: [QueuedMessageItem]?
@@ -225,6 +226,7 @@ public struct FetchMessagesResult: Sendable {
     public let cascadeConfigRaw: String?
     public let title: String?
     public let canProceed: Bool
+    public let proceedDismissed: Bool
     public let proceedArtifactUri: String?
     public let pendingInteraction: PendingInteraction?
     public let queuedMessages: [QueuedMessageItem]

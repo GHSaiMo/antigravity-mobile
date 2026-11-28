@@ -87,6 +87,21 @@ extension APIClient {
             additionalHeaders: headers
         )
     }
+
+    // Dismiss recurring Lock Screen / Dynamic Island "Action Needed" reminders for a plan awaiting Proceed
+    public func dismissProceed(cascadeId: String, totalSteps: Int? = nil, baseURL: URL) async {
+        let endpoint = baseURL.appendingPathComponent("gateway/cascade/proceed/dismiss")
+        var request = URLRequest(url: endpoint)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.timeoutInterval = 8
+        var payload: [String: Any] = ["cascadeId": cascadeId]
+        if let steps = totalSteps, steps > 0 {
+            payload["totalSteps"] = steps
+        }
+        request.httpBody = try? JSONSerialization.data(withJSONObject: payload)
+        _ = try? await transport.send(request: request)
+    }
     
     // Submit user decision on a pending interaction
     public func submitInteraction(

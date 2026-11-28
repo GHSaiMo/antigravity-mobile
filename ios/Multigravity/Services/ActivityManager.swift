@@ -15,6 +15,34 @@ public final class ActivityManager {
     private var startingCascadeIds: Set<String> = []
     private var activityStartDates: [String: Date] = [:]
     private var locallyDismissedCascadeIds: Set<String> = []
+    private static let dismissedProceedStepsKey = "mgy.dismissedProceedSteps.v1"
+    private var dismissedProceedSteps: [String: Int] = {
+        (UserDefaults.standard.dictionary(forKey: "mgy.dismissedProceedSteps.v1") as? [String: Int]) ?? [:]
+    }()
+
+    public func markProceedDismissed(cascadeId: String, stepCount: Int) {
+        let cid = cascadeId.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !cid.isEmpty else { return }
+        dismissedProceedSteps[cid] = max(0, stepCount)
+        locallyDismissedCascadeIds.insert(cid)
+        UserDefaults.standard.set(dismissedProceedSteps, forKey: Self.dismissedProceedStepsKey)
+    }
+
+    public func clearProceedDismissed(cascadeId: String) {
+        let cid = cascadeId.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !cid.isEmpty else { return }
+        if dismissedProceedSteps.removeValue(forKey: cid) != nil {
+            UserDefaults.standard.set(dismissedProceedSteps, forKey: Self.dismissedProceedStepsKey)
+        }
+        locallyDismissedCascadeIds.remove(cid)
+    }
+
+    public func isProceedDismissed(cascadeId: String, stepCount: Int) -> Bool {
+        let cid = cascadeId.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let dismissedAt = dismissedProceedSteps[cid] else { return false }
+        if dismissedAt <= 0 { return true }
+        return stepCount <= dismissedAt
+    }
     
     private static let optimisticStartGraceSeconds: TimeInterval = 8.0
     /// Max concurrent session cards (needs-action first, then most recently active).
@@ -419,7 +447,8 @@ public final class ActivityManager {
     public func endActivity(
         for cascadeId: String? = nil,
         finalStatus: String = "COMPLETED",
-        dismissalPolicy: ActivityUIDismissalPolicy = .after(Date().addingTimeInterval(4))
+        dismissalPolicy: ActivityUIDismissalPolicy = .after(Date().addingTimeInterval(4)),
+        suppressAutoRestart: Bool = false
     ) {
         guard let targetCascadeId = cascadeId?.trimmingCharacters(in: .whitespacesAndNewlines),
               !targetCascadeId.isEmpty else {
@@ -432,7 +461,11 @@ public final class ActivityManager {
         }
         activeActivitiesByCascade.removeValue(forKey: targetCascadeId)
         activityStartDates.removeValue(forKey: targetCascadeId)
-        locallyDismissedCascadeIds.remove(targetCascadeId)
+        if suppressAutoRestart {
+            locallyDismissedCascadeIds.insert(targetCascadeId)
+        } else {
+            locallyDismissedCascadeIds.remove(targetCascadeId)
+        }
         PushNotificationManager.shared.clearLiveActivityToken(cascadeId: targetCascadeId)
 
         guard !matching.isEmpty else { return }
@@ -520,15 +553,22 @@ public final class ActivityManager {
         let aliveSnapshot = Array(activeActivitiesByCascade)
         for (cid, activity) in aliveSnapshot {
             if let item = convById[cid] {
-                let isWorking = item.status.isRunning || item.status.needsAction || item.hasRunningSubagents
+                if item.isArchived {
+                    endActivity(for: cid, finalStatus: "COMPLETED", dismissalPolicy: .immediate)
+                    continue
+                }
+                let isProceedSuppressed = !item.status.isRunning && item.status.needsAction && isProceedDismissed(cascadeId: cid, stepCount: item.stepCount)
+                let isWorking = item.status.isRunning || (item.status.needsAction && !isProceedSuppressed) || item.hasRunningSubagents
                 if !isWorking {
-                    locallyDismissedCascadeIds.remove(cid)
+                    if !isProceedSuppressed {
+                        locallyDismissedCascadeIds.remove(cid)
+                    }
                     if let startedAt = activityStartDates[cid],
                        now.timeIntervalSince(startedAt) < Self.optimisticStartGraceSeconds {
                         continue
                     }
                     let finalStatus = item.status.isError ? "FAILED" : "COMPLETED"
-                    endActivity(for: cid, finalStatus: finalStatus)
+                    endActivity(for: cid, finalStatus: finalStatus, dismissalPolicy: isProceedSuppressed ? .immediate : .after(Date().addingTimeInterval(4)), suppressAutoRestart: isProceedSuppressed)
                 } else {
                     let currentTitle = activity.content.state.conversationTitle.trimmingCharacters(in: .whitespacesAndNewlines)
                     let incomingTitle = item.title.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -549,12 +589,15 @@ public final class ActivityManager {
         // 2. Rank working sessions (needs-action first, then most recent) and keep only the top N cards
         var working: [ConversationItem] = []
         for item in conversations {
-            let isWorking = item.status.isRunning || item.status.needsAction || item.hasRunningSubagents
+            guard !item.isSubagent, !item.isDraft, !item.isArchived else { continue }
+            let isProceedSuppressed = !item.status.isRunning && item.status.needsAction && isProceedDismissed(cascadeId: item.id, stepCount: item.stepCount)
+            let isWorking = item.status.isRunning || (item.status.needsAction && !isProceedSuppressed) || item.hasRunningSubagents
             if !isWorking {
-                locallyDismissedCascadeIds.remove(item.id)
+                if !isProceedSuppressed {
+                    locallyDismissedCascadeIds.remove(item.id)
+                }
                 continue
             }
-            guard !item.isSubagent, !item.isDraft else { continue }
             working.append(item)
         }
         working.sort {

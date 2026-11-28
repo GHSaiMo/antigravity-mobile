@@ -247,6 +247,10 @@ class LiveActivityNotificationManager(
             if (item.title.isNotBlank()) {
                 cascadeTitles[cid] = item.title
             }
+            if (item.isArchived) {
+                endActivity(cascadeId = cid, finalStatus = "COMPLETED", title = item.displayTitle)
+                continue
+            }
             if (item.status.isRunning) {
                 observedServerRunningIds.add(cid)
             } else if (!item.status.needsAction) {
@@ -269,7 +273,7 @@ class LiveActivityNotificationManager(
         }
 
         val runningIds = conversations
-            .filter { it.status.isRunning || it.status.needsAction }
+            .filter { !it.isArchived && (it.status.isRunning || it.status.needsAction) }
             .map { it.id }
             .toMutableSet()
         // Keep still-grace-protected active tasks from being silently cancelled before server catches up.

@@ -1107,7 +1107,7 @@ func (p *Proxy) handleGetAllCascadeTrajectories(w http.ResponseWriter, r *http.R
 			if untitledIDs[sn.cid] && applyFallbackSummaryTitle(s, details.Title) {
 				delete(untitledIDs, sn.cid)
 			}
-			if details.PendingInteraction != nil || details.CanProceed {
+			if !isSummaryArchived(s) && (details.PendingInteraction != nil || (details.CanProceed && !details.ProceedDismissed)) {
 				s["needsInput"] = true
 			}
 			if details.HasError {
@@ -1187,7 +1187,7 @@ func (p *Proxy) handleGetAllCascadeTrajectories(w http.ResponseWriter, r *http.R
 		// latest turn (Antigravity never clears requestFeedback in .metadata.json after Proceed).
 		if resolveAntigravityHomeDir() != "" {
 			for cid, s := range summaries {
-				if s["needsInput"] == true || inspectedFresh[cid] {
+				if isSummaryArchived(s) || s["needsInput"] == true || inspectedFresh[cid] {
 					continue
 				}
 				if status, _ := s["status"].(string); status == "CASCADE_RUN_STATUS_RUNNING" {
@@ -1222,7 +1222,7 @@ func (p *Proxy) handleGetAllCascadeTrajectories(w http.ResponseWriter, r *http.R
 		}
 
 		for id, s := range summaries {
-			if s["needsInput"] == true || inspectedFresh[id] {
+			if isSummaryArchived(s) || s["needsInput"] == true || inspectedFresh[id] {
 				continue
 			}
 			status, _ := s["status"].(string)
@@ -1238,7 +1238,7 @@ func (p *Proxy) handleGetAllCascadeTrajectories(w http.ResponseWriter, r *http.R
 		}
 		var recentItems []recentItem
 		for id, s := range summaries {
-			if s["needsInput"] == true || inspectedFresh[id] || candidates[id] {
+			if isSummaryArchived(s) || s["needsInput"] == true || inspectedFresh[id] || candidates[id] {
 				continue
 			}
 			if modStr, ok := s["lastModifiedTime"].(string); ok && modStr != "" {
@@ -1321,7 +1321,7 @@ func (p *Proxy) handleGetAllCascadeTrajectories(w http.ResponseWriter, r *http.R
 						titleMap[cascadeID] = details.Title
 						mu.Unlock()
 					}
-					if details.PendingInteraction != nil || details.CanProceed {
+					if details.PendingInteraction != nil || (details.CanProceed && !details.ProceedDismissed) {
 						mu.Lock()
 						actionMap[cascadeID] = true
 						mu.Unlock()
@@ -1351,7 +1351,7 @@ func (p *Proxy) handleGetAllCascadeTrajectories(w http.ResponseWriter, r *http.R
 
 		mu.Lock()
 		for cid, hasAction := range actionMap {
-			if hasAction && summaries[cid] != nil {
+			if hasAction && summaries[cid] != nil && !isSummaryArchived(summaries[cid]) {
 				summaries[cid]["needsInput"] = true
 			}
 		}

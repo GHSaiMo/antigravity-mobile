@@ -1304,6 +1304,24 @@ func (n *Notifier) OnTrajectoryUpdate(details *proxy.TrajectoryDetails) {
 	// This avoids spurious notifications when users open or view historical/idle conversations.
 }
 
+// OnCascadeAlertCleared implements proxy.CascadeAlertClearSink to immediately dismiss
+// delivered approval banners and end active Live Activities when a conversation is archived
+// or its plan-proceed reminder is explicitly dismissed.
+func (n *Notifier) OnCascadeAlertCleared(cascadeID, dismissKey, finalStatus string) {
+	if n == nil || strings.TrimSpace(cascadeID) == "" {
+		return
+	}
+	if n.IsEnabled() {
+		_ = n.NotifyDismissApproval(cascadeID, dismissKey)
+	}
+	if la := n.LiveActivity(); la != nil && la.HasStateForCascade(cascadeID) {
+		if strings.TrimSpace(finalStatus) == "" {
+			finalStatus = "COMPLETED"
+		}
+		la.EndSessionImmediate(context.Background(), cascadeID, "", finalStatus, 0)
+	}
+}
+
 func truncateString(s string, maxLen int) string {
 	s = strings.TrimSpace(s)
 	runes := []rune(s)

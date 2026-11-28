@@ -296,6 +296,10 @@ func isLiveActivityUntitledTitle(title string) bool {
 		strings.EqualFold(t, "New Chat")
 }
 
+func hasActiveProceed(details *proxy.TrajectoryDetails) bool {
+	return details != nil && details.CanProceed && !details.ProceedDismissed
+}
+
 // BuildContentStateForLang builds a compact (< 1.5 KB) LiveActivityContentState localized for lang ("zh"/"en"/"ja").
 func BuildContentStateForLang(details *proxy.TrajectoryDetails, now time.Time, lang string) LiveActivityContentState {
 	resolvedLang := i18n.ResolveLang(lang)
@@ -312,7 +316,7 @@ func BuildContentStateForLang(details *proxy.TrajectoryDetails, now time.Time, l
 		}
 	}
 
-	hasPending := details.CanProceed || details.PendingInteraction != nil
+	hasPending := hasActiveProceed(details) || details.PendingInteraction != nil
 	isRunning := details.Status == "CASCADE_RUN_STATUS_RUNNING"
 
 	status := "RUNNING"
@@ -332,7 +336,7 @@ func BuildContentStateForLang(details *proxy.TrajectoryDetails, now time.Time, l
 		idx := details.PendingInteraction.StepIndex
 		pendingStep = &idx
 		pendingKind = details.PendingInteraction.Type
-	} else if details.CanProceed {
+	} else if hasActiveProceed(details) {
 		idx := details.TotalSteps
 		pendingStep = &idx
 		pendingKind = "proceed"
@@ -403,7 +407,7 @@ func BuildRedactedContentStateForLang(details *proxy.TrajectoryDetails, now time
 		}
 	}
 
-	hasPending := details.CanProceed || details.PendingInteraction != nil
+	hasPending := hasActiveProceed(details) || details.PendingInteraction != nil
 	isRunning := details.Status == "CASCADE_RUN_STATUS_RUNNING"
 
 	status := "RUNNING"
@@ -423,7 +427,7 @@ func BuildRedactedContentStateForLang(details *proxy.TrajectoryDetails, now time
 		idx := details.PendingInteraction.StepIndex
 		pendingStep = &idx
 		pendingKind = details.PendingInteraction.Type
-	} else if details.CanProceed {
+	} else if hasActiveProceed(details) {
 		idx := details.TotalSteps
 		pendingStep = &idx
 		pendingKind = "proceed"
@@ -457,7 +461,7 @@ func buildRedactedLatestActionForLang(details *proxy.TrajectoryDetails, blocking
 		}
 		return i18n.T3For(resolvedLang, "等待用户审批操作", "Waiting for approval", "承認待ちです")
 	}
-	if details.CanProceed {
+	if hasActiveProceed(details) {
 		return i18n.T3For(resolvedLang, "方案待确认，可点击 Proceed", "Plan ready — tap Proceed", "計画を確認して Proceed")
 	}
 	if details.ActivePlan != nil && details.ActivePlan.TotalCount > 0 {
@@ -485,7 +489,7 @@ func buildLatestActionSummaryForLang(details *proxy.TrajectoryDetails, activeTas
 		}
 		return i18n.Sprintf3For(resolvedLang, "待审批: %s", "Approval: %s", "承認待ち: %s", truncateString(summary, 80))
 	}
-	if details.CanProceed {
+	if hasActiveProceed(details) {
 		return i18n.T3For(resolvedLang, "方案待确认，可点击 Proceed", "Plan ready — tap Proceed", "計画を確認して Proceed")
 	}
 	if activeTaskTitle != "" {
@@ -824,6 +828,32 @@ func (d *LiveActivityDispatcher) EndSession(ctx context.Context, cascadeID, titl
 	d.sendEnd(ctx, cascadeID, title, finalStatus, stepCount, summary, now, false)
 }
 
+// EndSessionImmediate ends an active Live Activity immediately (dismissal_date = now)
+// without showing the cap-eviction message. Used when a conversation is archived or
+// its plan-proceed reminder is explicitly dismissed by the user.
+func (d *LiveActivityDispatcher) EndSessionImmediate(ctx context.Context, cascadeID, title, finalStatus string, stepCount int) {
+	if !d.IsActive() || strings.TrimSpace(cascadeID) == "" {
+		return
+	}
+
+	d.coalesceMu.Lock()
+	delete(d.pendingLatest, cascadeID)
+	d.coalesceMu.Unlock()
+
+	defer d.lockCascade(cascadeID)()
+
+	now := d.nowFunc()
+
+	d.mu.Lock()
+	delete(d.tracks, cascadeID)
+	delete(d.members, cascadeID)
+	d.endedAt[cascadeID] = now
+	d.mu.Unlock()
+
+	d.client.Store().ClearLiveActivityStartedForCascade(cascadeID)
+	d.sendEndWithDismissDelay(ctx, cascadeID, title, finalStatus, stepCount, now, 0, false)
+}
+
 func liveActivityEndSummary(lang, finalStatus string, quiet bool) string {
 	resolved := i18n.ResolveLang(lang)
 	if quiet {
@@ -842,15 +872,19 @@ func liveActivityEndSummary(lang, finalStatus string, quiet bool) string {
 // sendEnd pushes an "end" event to every device holding an update token for cascadeID.
 // quiet=true dismisses immediately (used when a card is evicted by the cap).
 func (d *LiveActivityDispatcher) sendEnd(ctx context.Context, cascadeID, title, finalStatus string, stepCount int, _ string, now time.Time, quiet bool) {
+	dismissDelay := time.Duration(liveActivityEndDismissDelaySec) * time.Second
+	if quiet {
+		dismissDelay = 0
+	}
+	d.sendEndWithDismissDelay(ctx, cascadeID, title, finalStatus, stepCount, now, dismissDelay, quiet)
+}
+
+func (d *LiveActivityDispatcher) sendEndWithDismissDelay(ctx context.Context, cascadeID, title, finalStatus string, stepCount int, now time.Time, dismissDelay time.Duration, quiet bool) {
 	targets := d.client.Store().ListLiveActivityTargetsAt(cascadeID, false, now)
 	if len(targets) == 0 {
 		return
 	}
 
-	dismissDelay := time.Duration(liveActivityEndDismissDelaySec) * time.Second
-	if quiet {
-		dismissDelay = 0
-	}
 	title = SanitizePushText(title)
 	if isLiveActivityUntitledTitle(title) {
 		title = "Multigravity Agent"

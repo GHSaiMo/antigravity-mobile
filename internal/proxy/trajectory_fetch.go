@@ -924,6 +924,7 @@ func (p *Proxy) ParseTrajectoryDetailsCached(rawResp *upstreamTrajectoryResp) Tr
 		if cached, ok := defaultTrajCache.trajCache[cid]; ok && cached.data == rawResp && cached.parsed != nil && cached.parsedSig == sig {
 			cp := *cached.parsed
 			defaultTrajCache.trajCacheMu.RUnlock()
+			cp.ProceedDismissed = cp.CanProceed && IsProceedDismissed(cp.CascadeID, cp.TotalSteps)
 			return cp
 		}
 		defaultTrajCache.trajCacheMu.RUnlock()

@@ -1,3 +1,4 @@
+import ActivityKit
 import Foundation
 import Observation
 import SwiftUI
@@ -1222,6 +1223,10 @@ public final class ConversationListViewModel {
     public func toggleArchive(item: ConversationItem) {
         guard !item.isDraft else { return }
         let willArchive = !item.isArchived
+        if willArchive {
+            ActivityManager.shared.endActivity(for: item.id, finalStatus: "COMPLETED", dismissalPolicy: .immediate)
+            PushNotificationManager.shared.clearDeliveredNotifications(for: item.id, approvalOnly: false)
+        }
         let token = UUID()
         pendingArchiveStates[item.id] = (archived: willArchive, token: token)
         recentlyArchivedStates.removeValue(forKey: item.id)

@@ -1,3 +1,4 @@
+import ActivityKit
 import AppIntents
 import Foundation
 
@@ -164,7 +165,8 @@ nonisolated public struct ApproveAgentActionIntent: LiveActivityIntent {
                     )
                 }
             }
-        } else if snap.canProceed, let uri = snap.proceedArtifactUri, !uri.isEmpty {
+        } else if snap.canProceed {
+            let uri = (snap.proceedArtifactUri?.isEmpty == false) ? snap.proceedArtifactUri! : "implementation_plan.md"
             do {
                 if let targetCtx {
                     try await APIClient.shared.proceedArtifact(
@@ -183,6 +185,7 @@ nonisolated public struct ApproveAgentActionIntent: LiveActivityIntent {
                         baseURL: baseURL
                     )
                 }
+                ActivityManager.shared.clearProceedDismissed(cascadeId: cascadeId)
                 PushNotificationManager.shared.clearDeliveredNotifications(for: cascadeId, approvalOnly: true)
                 if ActivityManager.shared.findActiveActivity(for: cascadeId) != nil {
                     ActivityManager.shared.updateActivity(
@@ -338,6 +341,20 @@ nonisolated public struct RejectAgentActionIntent: LiveActivityIntent {
                     )
                 }
             }
+        } else if snap.canProceed {
+            if let targetCtx {
+                await APIClient.shared.dismissProceed(cascadeId: cascadeId, totalSteps: snap.totalSteps, context: targetCtx)
+            } else if let baseURL = AppSettings.shared.serverURL {
+                await APIClient.shared.dismissProceed(cascadeId: cascadeId, totalSteps: snap.totalSteps, baseURL: baseURL)
+            }
+            PushNotificationManager.shared.clearDeliveredNotifications(for: cascadeId, approvalOnly: true)
+            ActivityManager.shared.markProceedDismissed(cascadeId: cascadeId, stepCount: snap.totalSteps)
+            ActivityManager.shared.endActivity(
+                for: cascadeId,
+                finalStatus: "COMPLETED",
+                dismissalPolicy: .immediate,
+                suppressAutoRestart: true
+            )
         } else {
             reconcileStaleLiveActivity(cascadeId: cascadeId, snap: snap)
         }

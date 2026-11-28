@@ -446,7 +446,7 @@ private enum MermaidHTMLTemplate {
                       return token;
                     });
 
-                    // Subgraph with unquoted sensitive characters
+                    // Subgraph with unquoted sensitive characters: subgraph ID[content]
                     l = l.replace(/^(\\s*subgraph\\s+)([A-Za-z0-9_\\-\\u4e00-\\u9fa5]+)\\s*\\[([^\\[\\]\\r\\n]+)\\](?=[^\\]]|$)/g, function(match, prefix, id, content) {
                       const cTrim = content.trim();
                       if (cTrim.indexOf('___STR_') === 0 && cTrim.slice(-3) === '___') return match;
@@ -455,6 +455,20 @@ private enum MermaidHTMLTemplate {
                         const token = '___STR_' + stashedStrings.length + '___';
                         stashedStrings.push('"' + safe + '"');
                         return prefix + id + '[' + token + ']';
+                      }
+                      return match;
+                    });
+
+                    // Bare subgraph title without brackets containing sensitive characters (e.g. subgraph Container 1: 40ft FCL (4,000 Gallons))
+                    l = l.replace(/^(\\s*subgraph\\s+)([^\\r\\n]+)$/g, function(match, prefix, rest) {
+                      const rTrim = rest.trim();
+                      if (!rTrim || rTrim.indexOf('[') !== -1) return match;
+                      if (rTrim.indexOf('___STR_') === 0 && rTrim.slice(-3) === '___') return match;
+                      if (/[()\\[\\]{}+*#;:,]/.test(rTrim)) {
+                        const safe = rTrim.replace(/"/g, "'");
+                        const token = '___STR_' + stashedStrings.length + '___';
+                        stashedStrings.push('"' + safe + '"');
+                        return prefix + token;
                       }
                       return match;
                     });
@@ -497,6 +511,16 @@ private enum MermaidHTMLTemplate {
                         return prefix + id + '[' + token + ']';
                       }
                       return match;
+                    });
+
+                    // Round parentheses with nested parentheses: ID(outer (inner) tail)
+                    l = l.replace(/(^|[>\\s\\-|&,;])([A-Za-z0-9_\\-\\u4e00-\\u9fa5]+)\\s*\\((?![(\\[])([^()\\r\\n]*\\([^()\\r\\n]*\\)[^()\\r\\n]*)\\)/g, function(match, prefix, id, content) {
+                      const cTrim = content.trim();
+                      if (cTrim.indexOf('___STR_') === 0 && cTrim.slice(-3) === '___') return match;
+                      const safe = cTrim.replace(/"/g, "'");
+                      const token = '___STR_' + stashedStrings.length + '___';
+                      stashedStrings.push('"' + safe + '"');
+                      return prefix + id + '(' + token + ')';
                     });
 
                     // Round parentheses: ID(content)

@@ -181,3 +181,44 @@ test("lone unclosed backtick does not swallow subsequent markdown image", () => 
   assertIntactImageCard(html);
   assert.ok(html.includes("It&#039;s a ` lone backtick "));
 });
+
+test("repairMermaid quotes bare subgraph titles and nested-paren node labels without touching plain IDs", () => {
+  const raw = [
+    "flowchart TD",
+    "  subgraph Container 1: 40ft FCL (4,000 Gallons)",
+    "    A(LT Primer (Base Paint)) --> B[Alcro Primer (4,000 Gal)]",
+    "  end",
+    "  subgraph backend",
+    "    C((Circle Node)) --> D([Stadium])",
+    "  end",
+    '  subgraph "Already Quoted (OK)"',
+    "    E[Plain]",
+    "  end",
+  ].join("\n");
+
+  const repaired = media.repairMermaid(raw);
+  assert.ok(
+    repaired.includes('  subgraph "Container 1: 40ft FCL (4,000 Gallons)"'),
+    `expected bare subgraph title to be quoted, got:\n${repaired}`
+  );
+  assert.ok(
+    repaired.includes('A("LT Primer (Base Paint)")'),
+    `expected nested-paren node label to be quoted, got:\n${repaired}`
+  );
+  assert.ok(
+    repaired.includes('B["Alcro Primer (4,000 Gal)"]'),
+    `expected square-bracket label with parens to be quoted, got:\n${repaired}`
+  );
+  assert.ok(
+    repaired.includes("  subgraph backend\n"),
+    `expected plain single-word subgraph ID to stay unquoted, got:\n${repaired}`
+  );
+  assert.ok(
+    repaired.includes("C((Circle Node)) --> D([Stadium])"),
+    `expected mermaid circle/stadium shapes to stay intact, got:\n${repaired}`
+  );
+  assert.ok(
+    repaired.includes('  subgraph "Already Quoted (OK)"'),
+    `expected already-quoted subgraph to stay intact, got:\n${repaired}`
+  );
+});

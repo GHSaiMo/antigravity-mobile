@@ -423,6 +423,7 @@ type CascadeMessagesResponse struct {
 	CascadeConfig      json.RawMessage        `json:"cascadeConfig,omitempty"`
 	CascadeConfigRaw   string                 `json:"cascadeConfigRaw,omitempty"`
 	CanProceed         bool                   `json:"canProceed"`
+	ProceedDismissed   bool                   `json:"proceedDismissed,omitempty"`
 	ProceedArtifactURI string                 `json:"proceedArtifactUri,omitempty"`
 	PendingInteraction *PendingInteraction    `json:"pendingInteraction,omitempty"`
 	Swarm              *SwarmBrief            `json:"swarm,omitempty"`
@@ -980,6 +981,7 @@ type TrajectoryDetails struct {
 	CascadeConfig      json.RawMessage      `json:"cascadeConfig,omitempty"`
 	CascadeConfigRaw   string               `json:"cascadeConfigRaw,omitempty"`
 	CanProceed         bool                 `json:"canProceed"`
+	ProceedDismissed   bool                 `json:"proceedDismissed,omitempty"`
 	ProceedArtifactURI string               `json:"proceedArtifactUri,omitempty"`
 	PendingInteraction *PendingInteraction  `json:"pendingInteraction,omitempty"`
 	ContextMeter            *ContextMeterItem   `json:"contextMeter,omitempty"`

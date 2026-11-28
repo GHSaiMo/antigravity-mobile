@@ -327,8 +327,10 @@ extension ChatViewModel {
         
         if let cp = payload.canProceed {
             if !self.isRunning && !self.isAwaitingResponse {
+                self.proceedDismissed = (payload.proceedDismissed ?? false) || activityManager.isProceedDismissed(cascadeId: cascadeId, stepCount: self.stepCount)
                 self.updateProceedState(canProceed: cp, artifactUri: payload.proceedArtifactUri)
             } else {
+                self.proceedDismissed = false
                 self.updateProceedState(canProceed: false, artifactUri: nil)
             }
         }
@@ -435,7 +437,7 @@ extension ChatViewModel {
         let convStatus: ConversationItem.ConversationStatus = {
             if self.hasError {
                 return .error
-            } else if self.canProceed || self.pendingInteraction != nil {
+            } else if (self.canProceed && !self.proceedDismissed) || self.pendingInteraction != nil {
                 return .action
             } else if self.isRunning || self.runningTasks.hasBlockingTasks {
                 return .running

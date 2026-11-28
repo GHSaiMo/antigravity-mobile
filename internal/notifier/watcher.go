@@ -361,7 +361,7 @@ func approvalKeyForDetails(details *proxy.TrajectoryDetails) string {
 	if details.PendingInteraction != nil {
 		return fmt.Sprintf("pi:%d:%s", details.PendingInteraction.StepIndex, details.PendingInteraction.Type)
 	}
-	if details.CanProceed {
+	if details.CanProceed && !details.ProceedDismissed {
 		return fmt.Sprintf("proceed:%d", details.TotalSteps)
 	}
 	return ""
@@ -408,16 +408,23 @@ func (w *Watcher) scanOnceWithMaxAge(summaryMaxAge time.Duration) int {
 			}
 
 			// Pre-mark completed sessions in dedup cache
-			if status != "CASCADE_RUN_STATUS_RUNNING" {
+			if status != "CASCADE_RUN_STATUS_RUNNING" || proxy.IsCascadeArchived(id, s) {
 				w.notifier.Dedup().Record(fmt.Sprintf("done:%s:%d", id, steps))
-				// If a session finished while the gateway was restarting, reconcile any leftover Live Activity state.
-				if !runningSubagents[id] {
+				// If a session finished or was archived while the gateway was restarting, reconcile any leftover Live Activity state.
+				if proxy.IsCascadeArchived(id, s) {
+					if la := w.notifier.LiveActivity(); la != nil && la.HasStateForCascade(id) {
+						cid, dTitle, st := id, title, steps
+						deferred = append(deferred, func() {
+							la.EndSessionImmediate(context.Background(), cid, dTitle, "COMPLETED", st)
+						})
+					}
+				} else if !runningSubagents[id] {
 					if la := w.notifier.LiveActivity(); la != nil && la.HasStateForCascade(id) {
 						cid, dTitle, st := id, title, steps
 						deferred = append(deferred, func() {
 							details, err := w.proxy.FetchTrajectoryDetails(cid, 250*time.Millisecond)
 							if err == nil && details != nil {
-								if details.PendingInteraction != nil || details.CanProceed {
+								if details.PendingInteraction != nil || (details.CanProceed && !details.ProceedDismissed) {
 									la.SyncFromDetails(context.Background(), details)
 									return
 								}
@@ -471,6 +478,46 @@ func (w *Watcher) scanOnceWithMaxAge(summaryMaxAge time.Duration) int {
 		steps := extractStepCount(s["stepCount"])
 		title := extractTitle(s)
 		hasSubagent := runningSubagents[id]
+
+		if proxy.IsCascadeArchived(id, s) {
+			w.mu.Lock()
+			prev, exists := w.knownSessions[id]
+			if !exists {
+				prev = &sessionTrackingState{
+					lastStatus:  status,
+					lastSteps:   steps,
+					title:       title,
+					lastUpdated: now,
+				}
+				w.knownSessions[id] = prev
+			}
+			prevPendingKey := prev.pendingApprovalKey
+			prev.pendingApprovalKey = ""
+			prev.pendingApprovalSince = time.Time{}
+			prev.waitingForBackground = false
+			prev.lastStatus = status
+			prev.lastSteps = steps
+			if title != "" && title != MsgUntitledSession {
+				prev.title = title
+			}
+			w.mu.Unlock()
+
+			if prevPendingKey != "" && hasAlert {
+				cid, dismissKey := id, prevPendingKey
+				_ = w.dispatchAlert(func() {
+					_ = w.notifier.NotifyDismissApproval(cid, dismissKey)
+				})
+			}
+			if hasLive {
+				if la := w.notifier.LiveActivity(); la != nil && la.HasStateForCascade(id) {
+					cid, dTitle, st := id, title, steps
+					_ = w.dispatchAlert(func() {
+						la.EndSessionImmediate(context.Background(), cid, dTitle, "COMPLETED", st)
+					})
+				}
+			}
+			continue
+		}
 
 		w.mu.Lock()
 		prev, exists := w.knownSessions[id]
@@ -637,7 +684,7 @@ func (w *Watcher) scanOnceWithMaxAge(summaryMaxAge time.Duration) int {
 							}
 						})
 					}
-					if details.CanProceed {
+					if details.CanProceed && !details.ProceedDismissed {
 						cid, dTitle, totalSteps := id, details.Title, details.TotalSteps
 						pState := prev
 						_ = w.dispatchAlert(func() {
@@ -680,7 +727,7 @@ func (w *Watcher) scanOnceWithMaxAge(summaryMaxAge time.Duration) int {
 				if strings.TrimSpace(details.ParentConversation) == "" {
 					curSig := progressSignatureForDetails(steps, details)
 					resumedFromApproval := curPendingKey == "" && job.prevPendingApprovalKey != ""
-					if details.PendingInteraction != nil || details.CanProceed || resumedFromApproval || nextProgressAt.IsZero() || curSig != nextProgressSig {
+					if details.PendingInteraction != nil || (details.CanProceed && !details.ProceedDismissed) || resumedFromApproval || nextProgressAt.IsZero() || curSig != nextProgressSig {
 						nextProgressAt = now
 						nextProgressSig = curSig
 					} else if hasAlert && w.notifier.AlertPreferences().TaskStall {
@@ -762,7 +809,7 @@ func (w *Watcher) scanOnceWithMaxAge(summaryMaxAge time.Duration) int {
 					if hasLive {
 						w.dispatchLiveUpdate(details)
 					}
-				} else if details.CanProceed {
+				} else if details.CanProceed && !details.ProceedDismissed {
 					setPending(approvalKeyForDetails(details))
 					cid, dTitle, totalSteps := id, details.Title, details.TotalSteps
 					if hasAlert && !w.dispatchAlert(func() { _ = w.notifier.NotifyProceed(cid, dTitle, totalSteps) }) {
@@ -839,7 +886,7 @@ func (w *Watcher) scanOnceWithMaxAge(summaryMaxAge time.Duration) int {
 						if hasLive {
 							w.dispatchLiveUpdate(details)
 						}
-					} else if details.CanProceed {
+					} else if details.CanProceed && !details.ProceedDismissed {
 						setPending(approvalKeyForDetails(details))
 						cid, dTitle, totalSteps := id, details.Title, details.TotalSteps
 						if hasAlert && !w.dispatchAlert(func() { _ = w.notifier.NotifyProceed(cid, dTitle, totalSteps) }) {
@@ -923,7 +970,7 @@ func (w *Watcher) scanOnceWithMaxAge(summaryMaxAge time.Duration) int {
 						if details.PendingInteraction != nil {
 							cid, dTitle, pi := id, details.Title, details.PendingInteraction
 							_ = w.dispatchAlert(func() { _ = w.notifier.NotifyAction(cid, dTitle, pi) })
-						} else if details.CanProceed {
+						} else if details.CanProceed && !details.ProceedDismissed {
 							cid, dTitle, st := id, details.Title, details.TotalSteps
 							_ = w.dispatchAlert(func() { _ = w.notifier.NotifyProceed(cid, dTitle, st) })
 						}

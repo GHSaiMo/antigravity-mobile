@@ -432,6 +432,7 @@ func (p *Proxy) handleSendUserCascadeMessage(w http.ResponseWriter, r *http.Requ
 		// The pre-send invalidation above can race with a stream poll that reads the old state while
 		// upstream is still processing the send; drop that again, keep a short fast-poll window, and
 		// wake the stream so the user message and run start show up immediately instead of on an idle tick.
+		ClearProceedDismissed(cascadeID)
 		ClearTrajectoryCache(cascadeID)
 		MarkCascadeMutated(cascadeID, 4*time.Second)
 		ClearPendingMessagesCache(cascadeID)
@@ -837,6 +838,9 @@ func (p *Proxy) handleUpdateConversationAnnotations(w http.ResponseWriter, r *ht
 			for _, cid := range activeIDs {
 				if cid != "" {
 					writeAnnotationArchived(cid, *payload.Annotations.Archived)
+					if *payload.Annotations.Archived {
+						p.notifyCascadeAlertCleared(cid, "archived", "COMPLETED")
+					}
 				}
 			}
 			p.invalidateAllTrajectories()
@@ -919,6 +923,9 @@ func (p *Proxy) HandleArchiveCascade(w http.ResponseWriter, r *http.Request) {
 
 	p.SuppressDesktopFocus(AntiReflectionDuration)
 	p.invalidateAllTrajectories()
+	if archived {
+		p.notifyCascadeAlertCleared(cascadeID, "archived", "COMPLETED")
+	}
 
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(map[string]interface{}{

@@ -64,6 +64,13 @@ type NotificationSink interface {
 	OnTrajectoryUpdate(details *TrajectoryDetails)
 }
 
+// CascadeAlertClearSink is an optional extension of NotificationSink invoked when
+// a conversation is archived or a plan-proceed reminder is explicitly dismissed,
+// allowing the notifier to clear delivered approval banners and Live Activities.
+type CascadeAlertClearSink interface {
+	OnCascadeAlertCleared(cascadeID, dismissKey, finalStatus string)
+}
+
 type flightCall[T any] struct {
 	done chan struct{}
 	val  T
@@ -867,6 +874,10 @@ func (p *Proxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 	if r.URL.Path == "/gateway/cascade/archive" {
 		p.HandleArchiveCascade(w, r)
+		return
+	}
+	if r.URL.Path == "/gateway/cascade/proceed/dismiss" {
+		p.HandleDismissProceed(w, r)
 		return
 	}
 

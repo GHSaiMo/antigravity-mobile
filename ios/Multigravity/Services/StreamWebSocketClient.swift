@@ -27,6 +27,7 @@ public struct StreamUpdatePayload: Decodable, Sendable {
     public let isFullSnapshot: Bool?
     public let cascadeConfigRaw: String?
     public let canProceed: Bool?
+    public let proceedDismissed: Bool?
     public let proceedArtifactUri: String?
     public let pendingInteraction: PendingInteraction?
     public let queuedMessages: [QueuedMessageItem]?

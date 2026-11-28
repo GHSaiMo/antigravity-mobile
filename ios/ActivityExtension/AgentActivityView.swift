@@ -582,6 +582,8 @@ struct AgentLockScreenView: View {
                     Text("当前第 \(context.state.stepCount) 步")
                         .font(.system(size: 11.5, weight: .bold, design: .monospaced))
                         .foregroundColor(accentColor)
+                        .lineLimit(1)
+                        .fixedSize(horizontal: true, vertical: false)
                     
                     Text("·")
                         .font(.system(size: 11.5))
@@ -590,6 +592,8 @@ struct AgentLockScreenView: View {
                     Text(context.state.lastUpdated, style: .relative)
                         .font(.system(size: 11.5))
                         .foregroundColor(secondaryTextColor)
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.8)
                     
                     if context.state.runningTaskCount > 0 {
                         Text("·")
@@ -598,6 +602,7 @@ struct AgentLockScreenView: View {
                         Text("\(context.state.runningTaskCount) 个任务")
                             .font(.system(size: 11.5, weight: .medium))
                             .foregroundColor(secondaryTextColor)
+                            .lineLimit(1)
                     }
                     
                     Spacer(minLength: 4)
@@ -609,7 +614,10 @@ struct AgentLockScreenView: View {
                                     .font(.system(size: 9.5, weight: .semibold))
                                 Text("进 App 确认")
                                     .font(.system(size: 10.5, weight: .bold))
+                                    .lineLimit(1)
                             }
+                            .fixedSize(horizontal: true, vertical: false)
+                            .layoutPriority(2)
                             .foregroundColor(isDark ? Color.orange : Color(red: 0.78, green: 0.42, blue: 0.0))
                             .padding(.horizontal, 9)
                             .padding(.vertical, 3.5)
@@ -621,6 +629,8 @@ struct AgentLockScreenView: View {
                                 Button(intent: ApproveAgentActionIntent(cascadeId: context.attributes.cascadeId, expectedStepIndex: stepIdx, gatewayId: context.attributes.gatewayId ?? "")) {
                                     Text("允许")
                                         .font(.system(size: 11, weight: .bold))
+                                        .lineLimit(1)
+                                        .fixedSize(horizontal: true, vertical: false)
                                         .foregroundColor(.white)
                                         .padding(.horizontal, 10)
                                         .padding(.vertical, 3.5)
@@ -632,6 +642,8 @@ struct AgentLockScreenView: View {
                                 Button(intent: RejectAgentActionIntent(cascadeId: context.attributes.cascadeId, expectedStepIndex: stepIdx, gatewayId: context.attributes.gatewayId ?? "")) {
                                     Text("拒绝")
                                         .font(.system(size: 11, weight: .bold))
+                                        .lineLimit(1)
+                                        .fixedSize(horizontal: true, vertical: false)
                                         .foregroundColor(isDark ? Color(red: 1.0, green: 0.55, blue: 0.55) : Color(red: 0.78, green: 0.14, blue: 0.14))
                                         .padding(.horizontal, 9)
                                         .padding(.vertical, 3.5)
@@ -640,6 +652,8 @@ struct AgentLockScreenView: View {
                                 }
                                 .buttonStyle(.plain)
                             }
+                            .fixedSize(horizontal: true, vertical: false)
+                            .layoutPriority(2)
                         }
                     } else if context.state.status == "RUNNING" {
                         Button(intent: StopAgentRunIntent(cascadeId: context.attributes.cascadeId, gatewayId: context.attributes.gatewayId ?? "")) {
@@ -648,7 +662,9 @@ struct AgentLockScreenView: View {
                                     .font(.system(size: 8.5))
                                 Text("停止")
                                     .font(.system(size: 10.5, weight: .bold))
+                                    .lineLimit(1)
                             }
+                            .fixedSize(horizontal: true, vertical: false)
                             .foregroundColor(isDark ? Color(red: 1.0, green: 0.55, blue: 0.55) : Color(red: 0.78, green: 0.14, blue: 0.14))
                             .padding(.horizontal, 8)
                             .padding(.vertical, 3)
@@ -656,6 +672,7 @@ struct AgentLockScreenView: View {
                             .clipShape(Capsule())
                         }
                         .buttonStyle(.plain)
+                        .layoutPriority(2)
                     }
                 }
             }

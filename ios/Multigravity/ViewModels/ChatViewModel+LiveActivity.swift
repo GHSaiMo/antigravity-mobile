@@ -16,7 +16,8 @@ extension ChatViewModel {
         // so it can end once the turn completes.
         let blockingTasks = self.runningTasks.blockingTasks
         let hasRunningTasks = !blockingTasks.isEmpty
-        let hasPendingAction = self.canProceed || self.pendingInteraction != nil
+        let activeProceed = self.canProceed && !self.proceedDismissed && !activityManager.isProceedDismissed(cascadeId: cascadeId, stepCount: self.stepCount)
+        let hasPendingAction = activeProceed || self.pendingInteraction != nil
         let shouldBeActive = isAgentBusy || hasRunningTasks || hasPendingAction
         
         if shouldBeActive {
@@ -35,8 +36,8 @@ extension ChatViewModel {
                 status = "RUNNING"
             }
             
-            let pendingStepIndex: Int? = self.pendingInteraction?.stepIndex ?? (self.canProceed ? self.stepCount : nil)
-            let pendingActionKind: String? = self.pendingInteraction?.type ?? (self.canProceed ? "proceed" : nil)
+            let pendingStepIndex: Int? = self.pendingInteraction?.stepIndex ?? (activeProceed ? self.stepCount : nil)
+            let pendingActionKind: String? = self.pendingInteraction?.type ?? (activeProceed ? "proceed" : nil)
 
             var actionText = ""
             if let interaction = self.pendingInteraction {
@@ -44,7 +45,7 @@ extension ChatViewModel {
                 let title = interaction.title.trimmingCharacters(in: .whitespacesAndNewlines)
                 let summary = !target.isEmpty ? target : title
                 actionText = summary.isEmpty ? String(localized: "等待用户审批操作") : String(localized: "待审批: \(summary)")
-            } else if self.canProceed {
+            } else if activeProceed {
                 actionText = String(localized: "方案待确认，可点击 Proceed")
             } else if let title = taskTitle, !title.isEmpty {
                 actionText = title

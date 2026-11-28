@@ -1,3 +1,4 @@
+import ActivityKit
 import AudioToolbox
 import AVFoundation
 import Foundation
@@ -1007,6 +1008,19 @@ public final class PushNotificationManager: NSObject {
                         target: interaction.target,
                         questionResponses: nil,
                         context: targetCtx
+                    )
+                } else if snap.canProceed {
+                    await api.dismissProceed(
+                        cascadeId: cid,
+                        totalSteps: snap.totalSteps,
+                        context: targetCtx
+                    )
+                    ActivityManager.shared.markProceedDismissed(cascadeId: cid, stepCount: snap.totalSteps)
+                    ActivityManager.shared.endActivity(
+                        for: cid,
+                        finalStatus: "COMPLETED",
+                        dismissalPolicy: .immediate,
+                        suppressAutoRestart: true
                     )
                 }
                 await clearDeliveredNotificationsAsync(for: cid, approvalOnly: true)

@@ -80,6 +80,7 @@ func (p *Proxy) ParseTrajectoryDetails(rawResp *upstreamTrajectoryResp) Trajecto
 		CascadeConfig:      activeConfig,
 		CascadeConfigRaw:   activeConfigStr,
 		CanProceed:         canProceed,
+		ProceedDismissed:   canProceed && IsProceedDismissed(rawResp.Trajectory.CascadeID, totalSteps),
 		ProceedArtifactURI: proceedArtifactURI,
 		PendingInteraction: pendingInteraction,
 		SuggestedResponses: suggestedResponses,

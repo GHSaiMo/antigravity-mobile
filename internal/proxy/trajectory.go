@@ -287,6 +287,7 @@ func (p *Proxy) handleCascadeMessages(w http.ResponseWriter, r *http.Request) {
 		CascadeConfig:           details.CascadeConfig,
 		CascadeConfigRaw:        details.CascadeConfigRaw,
 		CanProceed:              details.CanProceed,
+		ProceedDismissed:        details.ProceedDismissed,
 		ProceedArtifactURI:      details.ProceedArtifactURI,
 		PendingInteraction:      details.PendingInteraction,
 		Swarm:                   GetSwarmBrief(cascadeID),

@@ -330,7 +330,9 @@ extension ChatViewModel {
         UIImpactFeedbackGenerator(style: .medium).impactOccurred()
         
         canProceed = false
+        proceedDismissed = false
         proceedArtifactUri = nil
+        activityManager.clearProceedDismissed(cascadeId: cascadeId)
         hasUserManuallySelectedModel = true
         updateCascadeConfigRawModel(activeModelEnum, modelName: activeModel)
         self.isAwaitingResponse = true

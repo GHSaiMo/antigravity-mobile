@@ -49,6 +49,7 @@ type StreamUpdatePayload struct {
 	IsFullSnapshot     bool                   `json:"isFullSnapshot"`
 	CascadeConfigRaw   string               `json:"cascadeConfigRaw,omitempty"`
 	CanProceed         bool                 `json:"canProceed"`
+	ProceedDismissed   bool                 `json:"proceedDismissed,omitempty"`
 	ProceedArtifactURI string               `json:"proceedArtifactUri,omitempty"`
 	PendingInteraction *PendingInteraction  `json:"pendingInteraction,omitempty"`
 	ActiveModel            string               `json:"activeModel,omitempty"`
@@ -191,7 +192,7 @@ func (p *StreamUpdatePayload) Fingerprint() string {
 		tpKey += fmt.Sprintf("|%x", uint64(ph))
 	}
 	if len(p.Steps) == 0 {
-		return fmt.Sprintf("%s:%t:%s:%t:%s:%s:%s:%s:%s:%s:%s:%s:%s:%s", p.Status, p.HasError, msgsKey, p.CanProceed, piKey, queuedKey, tasksKey, p.ActiveModel, p.DesktopActiveModel, p.Title, swarmKey, cmKey, sugKey, tpKey)
+		return fmt.Sprintf("%s:%t:%s:%t:%t:%s:%s:%s:%s:%s:%s:%s:%s:%s:%s", p.Status, p.HasError, msgsKey, p.CanProceed, p.ProceedDismissed, piKey, queuedKey, tasksKey, p.ActiveModel, p.DesktopActiveModel, p.Title, swarmKey, cmKey, sugKey, tpKey)
 	}
 	last := p.Steps[len(p.Steps)-1]
 	lastLen := 0
@@ -214,7 +215,7 @@ func (p *StreamUpdatePayload) Fingerprint() string {
 	} else {
 		contentHash = hashStrings(last.Content)
 	}
-	return fmt.Sprintf("%s:%t:%d:%d:%s:%s:%d:%s:%t:%s:%s:%s:%s:%s:%s:%s:%s:%s:%s:%x", p.Status, p.HasError, p.TotalSteps, p.TotalTools, last.Type, last.Status, lastLen, msgsKey, p.CanProceed, piKey, queuedKey, tasksKey, p.ActiveModel, p.DesktopActiveModel, p.Title, swarmKey, cmKey, sugKey, tpKey, contentHash)
+	return fmt.Sprintf("%s:%t:%d:%d:%s:%s:%d:%s:%t:%t:%s:%s:%s:%s:%s:%s:%s:%s:%s:%s:%x", p.Status, p.HasError, p.TotalSteps, p.TotalTools, last.Type, last.Status, lastLen, msgsKey, p.CanProceed, p.ProceedDismissed, piKey, queuedKey, tasksKey, p.ActiveModel, p.DesktopActiveModel, p.Title, swarmKey, cmKey, sugKey, tpKey, contentHash)
 }
 
 // rawTrajectorySignature computes an O(1) lightweight fingerprint of the raw upstream response
@@ -617,6 +618,7 @@ func (p *Proxy) HandleCascadeStream(w http.ResponseWriter, r *http.Request) {
 			IsFullSnapshot:          !hasMore,
 			CascadeConfigRaw:        details.CascadeConfigRaw,
 			CanProceed:              details.CanProceed,
+			ProceedDismissed:        details.ProceedDismissed,
 			ProceedArtifactURI:      details.ProceedArtifactURI,
 			PendingInteraction:      details.PendingInteraction,
 			ActiveModel:             details.ActiveModel,

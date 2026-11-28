@@ -131,19 +131,26 @@ extension APIClient {
             throw APIError.networkError("No gateway endpoint available")
         }
 
-        var payload: [String: Any] = [
-            "cascadeId": cascadeId,
-            "artifactUri": artifactUri
-        ]
-        if let m = model, !m.isEmpty { payload["model"] = m }
-        if let cfg = cascadeConfigRaw, !cfg.isEmpty { payload["cascadeConfigRaw"] = cfg }
-        let bodyData = try JSONSerialization.data(withJSONObject: payload)
+        let comment = ArtifactCommentPayload(artifactUri: artifactUri, approvalStatus: 1, comment: "")
+        let bodyReq = SendUserCascadeMessageRequest(
+            cascadeId: cascadeId,
+            items: [],
+            model: model,
+            cascadeConfigRaw: cascadeConfigRaw,
+            artifactComments: [comment]
+        )
+        let bodyData = try JSONEncoder().encode(bodyReq)
 
         var lastError: Error = APIError.networkError("Proceed artifact failed")
         for baseURL in candidates {
-            var req = URLRequest(url: baseURL.appendingPathComponent("gateway/cascade/proceed"))
+            let endpoint = baseURL.appendingPathComponent("api/exa.language_server_pb.LanguageServerService/SendUserCascadeMessage")
+            var req = URLRequest(url: endpoint)
             req.httpMethod = "POST"
             req.setValue("application/json", forHTTPHeaderField: "Content-Type")
+            req.setValue("1", forHTTPHeaderField: "Connect-Protocol-Version")
+            if let m = model, !m.isEmpty {
+                req.setValue(m, forHTTPHeaderField: "X-Antigravity-Model")
+            }
             req.httpBody = bodyData
             req.timeoutInterval = NetworkTransport.isLanOnlyHost(baseURL.host ?? "") ? 2.5 : 10.0
 
@@ -159,6 +166,35 @@ extension APIClient {
             }
         }
         throw lastError
+    }
+
+    public func dismissProceed(
+        cascadeId: String,
+        totalSteps: Int? = nil,
+        context: GatewayRequestContext
+    ) async {
+        let isCell = NetworkStatus.shared.isCellular || !NetworkStatus.shared.isWifi
+        let candidates = context.candidateURLs(isCellular: isCell)
+        guard !candidates.isEmpty else { return }
+
+        var payload: [String: Any] = ["cascadeId": cascadeId]
+        if let steps = totalSteps, steps > 0 {
+            payload["totalSteps"] = steps
+        }
+        guard let bodyData = try? JSONSerialization.data(withJSONObject: payload) else { return }
+
+        for baseURL in candidates {
+            var req = URLRequest(url: baseURL.appendingPathComponent("gateway/cascade/proceed/dismiss"))
+            req.httpMethod = "POST"
+            req.setValue("application/json", forHTTPHeaderField: "Content-Type")
+            req.httpBody = bodyData
+            req.timeoutInterval = NetworkTransport.isLanOnlyHost(baseURL.host ?? "") ? 2.5 : 8.0
+            if let (_, resp) = try? await transport.send(request: req, context: context),
+               let http = resp as? HTTPURLResponse,
+               (200...299).contains(http.statusCode) {
+                return
+            }
+        }
     }
 
     public func cancelTask(

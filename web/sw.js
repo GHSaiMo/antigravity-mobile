@@ -1,4 +1,4 @@
-const CACHE_NAME = "antigravity-mobile-v91";
+const CACHE_NAME = "antigravity-mobile-v92";
 const ASSETS = [
   "/",
   "/index.html",
@@ -10,7 +10,7 @@ const ASSETS = [
   "/js/wechat_archive.js?v=1",
   "/js/chat.js?v=50",
   "/js/actions.js?v=44",
-  "/js/media.js?v=40",
+  "/js/media.js?v=41",
   "/js/cockpit.js?v=40",
   "/js/scan.js?v=2",
   "/js/msgmenu.js?v=7",

@@ -247,6 +247,14 @@ class NotificationActionReceiver : BroadcastReceiver() {
                                     baselineStepCount = snap.totalSteps
                                 )
                             }
+                        } else if (snap.canProceed) {
+                            if (targetCtx != null) {
+                                apiClient.dismissProceed(cascadeId, snap.totalSteps, targetCtx)
+                            } else {
+                                apiClient.dismissProceed(cascadeId, snap.totalSteps)
+                            }
+                            AntigravityMessagingService.dismissAlertNotification(appContext, cascadeId, gatewayId)
+                            liveMgr.endActivity(cascadeId = cascadeId, finalStatus = "COMPLETED", title = snap.title)
                         } else {
                             reconcileStaleActivity(appContext, liveMgr, cascadeId, snap)
                         }

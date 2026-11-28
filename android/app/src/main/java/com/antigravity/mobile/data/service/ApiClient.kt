@@ -2182,6 +2182,55 @@ class ApiClient(
         Result.failure(lastErr ?: RuntimeException("proceedArtifact failed"))
     }
 
+    suspend fun dismissProceed(
+        cascadeId: String,
+        totalSteps: Int = 0
+    ): Result<Unit> = withContext(Dispatchers.IO) {
+        val baseUrl = currentBaseUrl ?: return@withContext Result.failure(IllegalStateException("未配置网关地址".loc))
+        val payload = buildJsonObject {
+            put("cascadeId", cascadeId)
+            if (totalSteps > 0) put("totalSteps", totalSteps)
+        }.toString()
+        try {
+            val req = buildAuthorizedRequest("$baseUrl/gateway/cascade/proceed/dismiss")
+                .post(payload.toRequestBody(jsonMediaType))
+                .build()
+            client.newCall(req).await().use { resp ->
+                if (resp.isSuccessful) Result.success(Unit) else Result.failure(RuntimeException("HTTP ${resp.code}"))
+            }
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
+    suspend fun dismissProceed(
+        cascadeId: String,
+        totalSteps: Int = 0,
+        context: GatewayRequestContext
+    ): Result<Unit> = withContext(Dispatchers.IO) {
+        val candidates = context.candidateUrls(isAvoidLanNow())
+        if (candidates.isEmpty()) return@withContext Result.failure(IllegalStateException("未配置网关地址".loc))
+        val payload = buildJsonObject {
+            put("cascadeId", cascadeId)
+            if (totalSteps > 0) put("totalSteps", totalSteps)
+        }.toString()
+        var lastErr: Exception? = null
+        for (base in candidates) {
+            try {
+                val req = buildContextRequest("$base/gateway/cascade/proceed/dismiss", context)
+                    .post(payload.toRequestBody(jsonMediaType))
+                    .build()
+                client.newCall(req).await().use { resp ->
+                    if (resp.isSuccessful) return@withContext Result.success(Unit)
+                    lastErr = RuntimeException("HTTP ${resp.code}")
+                }
+            } catch (e: Exception) {
+                lastErr = e
+            }
+        }
+        Result.failure(lastErr ?: RuntimeException("dismissProceed failed"))
+    }
+
     suspend fun cancelInvocation(
         cascadeId: String,
         killBackgroundTasks: Boolean? = null,
