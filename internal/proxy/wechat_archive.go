@@ -761,11 +761,11 @@ func generateZipVideoThumb(zipPath string, f *zip.File) (string, error) {
 	return thumbPath, nil
 }
 
-func resolveSafeZipPath(uri, cascadeID string) (string, int, error) {
+func (p *Proxy) resolveSafeZipPath(ctx context.Context, uri, cascadeID string) (string, int, error) {
 	if uri == "" && cascadeID == "" {
 		return "", http.StatusBadRequest, errors.New("uri or cascade_id is required")
 	}
-	filePath, err := ResolveLocalFilePath(uri, cascadeID)
+	filePath, err := p.resolveFilePathForRequest(ctx, uri, cascadeID)
 	if err != nil {
 		if errors.Is(err, errAccessRestricted) {
 			return "", http.StatusForbidden, errors.New("access to file is restricted")
@@ -795,7 +795,7 @@ func (p *Proxy) HandleWeChatChatArchive(w http.ResponseWriter, r *http.Request) 
 	uri := strings.TrimSpace(q.Get("uri"))
 	cascadeID := strings.TrimSpace(q.Get("cascade_id"))
 
-	filePath, status, err := resolveSafeZipPath(uri, cascadeID)
+	filePath, status, err := p.resolveSafeZipPath(r.Context(), uri, cascadeID)
 	if err != nil {
 		writeAttachmentError(w, status, "invalid_file", err.Error())
 		return
@@ -835,7 +835,7 @@ func (p *Proxy) HandleZipEntry(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	filePath, status, err := resolveSafeZipPath(uri, cascadeID)
+	filePath, status, err := p.resolveSafeZipPath(r.Context(), uri, cascadeID)
 	if err != nil {
 		http.Error(w, err.Error(), status)
 		return
