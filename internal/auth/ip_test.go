@@ -138,3 +138,15 @@ func TestExtractClientIP_ForwardedHeaderTrust(t *testing.T) {
 		t.Errorf("plain loopback must not be marked as proxied")
 	}
 }
+
+func TestIPv6AddressClassification(t *testing.T) {
+	if !IsLoopbackAddr("[::1]:54321") || !IsLoopbackAddr("[::1]") || !IsLoopbackAddr("::1") {
+		t.Fatalf("expected IPv6 loopback variants to be recognized")
+	}
+	if !IsPrivateLANAddr("[fd7a:115c:a1e0::1]:54321") || !IsPrivateLANAddr("[fd00::10]") || !IsPrivateLANAddr("[fe80::1]:1234") {
+		t.Fatalf("expected private/ULA/Tailscale/link-local IPv6 to be recognized as private LAN")
+	}
+	if IsPrivateLANAddr("[2408:8207::1]:54321") || IsPrivateLANAddr("2408:8207::1") {
+		t.Fatalf("public global unicast IPv6 must NOT be classified as private LAN")
+	}
+}

@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 )
 
@@ -419,6 +420,54 @@ func GetForceE2EE() bool {
 // should be rejected (MGY_E2EE_STRICT_REPLAY=1).
 func GetStrictE2EEReplay() bool {
 	return envBoolAny("MGY_E2EE_STRICT_REPLAY", "MULTIGRAVITY_E2EE_STRICT_REPLAY")
+}
+
+// GetEnableIPv6 reports whether the gateway should bind a dual-stack IPv4/IPv6 TCP socket
+// instead of the default IPv4-only ("tcp4") listener.
+// Controlled via MULTIGRAVITY_ENABLE_IPV6 or MGY_ENABLE_IPV6. Defaults to false.
+func GetEnableIPv6() bool {
+	return envBoolAny("MULTIGRAVITY_ENABLE_IPV6", "MGY_ENABLE_IPV6")
+}
+
+// DefaultTLSPort is the default dedicated HTTPS listen port when native TLS cert/key are configured.
+const DefaultTLSPort = 58943
+
+// TLSConfig holds optional native HTTPS listener settings for direct DDNS / IPv6 access without a reverse proxy.
+type TLSConfig struct {
+	CertFile string
+	KeyFile  string
+	Port     int
+}
+
+// Enabled reports whether both certificate and private key paths are configured.
+func (c TLSConfig) Enabled() bool {
+	return strings.TrimSpace(c.CertFile) != "" && strings.TrimSpace(c.KeyFile) != ""
+}
+
+// GetTLSConfig parses optional native TLS listener settings from environment variables.
+func GetTLSConfig() TLSConfig {
+	certFile := strings.TrimSpace(os.Getenv("MGY_TLS_CERT"))
+	if certFile == "" {
+		certFile = strings.TrimSpace(os.Getenv("MULTIGRAVITY_TLS_CERT"))
+	}
+	keyFile := strings.TrimSpace(os.Getenv("MGY_TLS_KEY"))
+	if keyFile == "" {
+		keyFile = strings.TrimSpace(os.Getenv("MULTIGRAVITY_TLS_KEY"))
+	}
+	port := DefaultTLSPort
+	for _, key := range []string{"MGY_TLS_PORT", "MULTIGRAVITY_TLS_PORT"} {
+		if raw := strings.TrimSpace(os.Getenv(key)); raw != "" {
+			if p, err := strconv.Atoi(raw); err == nil && p > 0 && p <= 65535 {
+				port = p
+				break
+			}
+		}
+	}
+	return TLSConfig{
+		CertFile: certFile,
+		KeyFile:  keyFile,
+		Port:     port,
+	}
 }
 
 

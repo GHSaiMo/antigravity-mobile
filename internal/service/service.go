@@ -46,6 +46,7 @@ type InstallConfig struct {
 	Mode             string // "run" (default), "hub", or "node"
 	Port             int    // 0 means inherit MULTIGRAVITY_PORT / default 58900 dynamically
 	Host             string // empty means inherit MULTIGRAVITY_HOST dynamically
+	EnableIPv6       bool   // Passes -ipv6 for explicit IPv4/IPv6 dual-stack listening
 	Headless         bool   // Hub mode only: passes -headless
 	Name             string // Hub/Node mode: passes -name
 	HubURL           string // Node mode: passes -hub
@@ -175,6 +176,9 @@ func BuildServiceArgs(cfg InstallConfig, includeLogFile bool) ([]string, error) 
 	}
 	if h := strings.TrimSpace(norm.Host); h != "" {
 		args = append(args, "-host", h)
+	}
+	if norm.EnableIPv6 {
+		args = append(args, "-ipv6")
 	}
 	if norm.Mode == "hub" && norm.Headless {
 		args = append(args, "-headless")

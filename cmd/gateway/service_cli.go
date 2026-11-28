@@ -108,6 +108,7 @@ func runServiceInstall(args []string) {
 	modeFlag := fs.String("mode", "run", i18n.T("运行模式: run / hub / node", "Gateway mode: run / hub / node"))
 	portFlag := fs.Int("port", 0, i18n.T("固定监听端口（默认 0，启动时动态读取 ~/.multigravity/.env）", "Fixed listen port (default 0: read dynamically from ~/.multigravity/.env)"))
 	hostFlag := fs.String("host", "", i18n.T("固定监听地址（默认留空动态读取 .env）", "Fixed bind host (default empty: read dynamically from .env)"))
+	ipv6Flag := fs.Bool("ipv6", false, i18n.T("启用 IPv4/IPv6 双栈监听（默认留空由 .env MULTIGRAVITY_ENABLE_IPV6 决定）", "Enable IPv4/IPv6 dual-stack listening (default omitted: read dynamically from .env MULTIGRAVITY_ENABLE_IPV6)"))
 	headlessFlag := fs.Bool("headless", false, i18n.T("无头 Hub 模式（仅 -mode hub 时生效）", "Headless Hub mode (only for -mode hub)"))
 	nameFlag := fs.String("name", "", i18n.T("Hub 或 Node 显示名称", "Hub or Node display name"))
 	hubURLFlag := fs.String("hub", "", i18n.T("Node 模式目标 Hub 地址", "Target Hub URL for node mode"))
@@ -143,6 +144,7 @@ func runServiceInstall(args []string) {
 		Mode:             *modeFlag,
 		Port:             *portFlag,
 		Host:             strings.TrimSpace(*hostFlag),
+		EnableIPv6:       *ipv6Flag,
 		Headless:         *headlessFlag,
 		Name:             strings.TrimSpace(*nameFlag),
 		HubURL:           strings.TrimSpace(*hubURLFlag),
@@ -451,6 +453,7 @@ install 可选参数:
   -mode <run|hub|node>  运行模式 (默认: run)
   -port <端口号>        固定监听端口 (默认留空动态读取 ~/.multigravity/.env)
   -host <主机/IP>       固定监听地址 (默认留空动态读取 .env)
+  -ipv6                 启用 IPv4/IPv6 双栈监听 (默认动态读取 .env)
   -headless             无头 Hub 模式 (仅 -mode hub)
   -name <名称>          Hub / Node 显示名称
   -hub <URL>            Node 模式目标 Hub 地址
@@ -492,6 +495,7 @@ install オプション:
   -mode <run|hub|node>  動作モード (デフォルト: run)
   -port <番号>          待受ポートを固定 (既定では .env から動的読込)
   -host <ホスト/IP>     バインド先を固定 (既定では .env から動的読込)
+  -ipv6                 IPv4/IPv6 デュアルスタック待受を有効化 (既定では .env から動的読込)
   -headless             ヘッドレス Hub モード (-mode hub 用)
   -name <名前>          Hub / Node 表示名
   -hub <URL>            Node モード接続先 Hub URL
@@ -525,6 +529,7 @@ Install Flags:
   -mode <run|hub|node>  Gateway mode (default: run)
   -port <number>        Fixed listen port (default: dynamically loaded from ~/.multigravity/.env)
   -host <host/IP>       Fixed bind host (default: dynamically loaded from .env)
+  -ipv6                 Enable IPv4/IPv6 dual-stack listening (default: dynamically loaded from .env)
   -headless             Headless Hub mode (with -mode hub)
   -name <name>          Hub or Node display name
   -hub <URL>            Target Hub URL (with -mode node)
