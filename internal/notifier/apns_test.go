@@ -274,13 +274,22 @@ func TestLiveActivityDispatcher_StartThrottleCriticalAndEnd(t *testing.T) {
 	}
 	mu.Unlock()
 
-	// 5. Routine update after throttle interval (20s) -> sent with budget-friendly priority 5!
+	// 5. Routine update within 30s throttle interval (20s) -> skipped; after 30s (32s) -> sent with priority 5!
 	curTime = curTime.Add(20 * time.Second)
 	details.PendingInteraction = nil
 	details.TotalSteps = 4
 	disp.SyncFromDetails(context.Background(), details) // status WAITING_APPROVAL -> RUNNING (critical, p=10)
 	curTime = curTime.Add(20 * time.Second)
 	details.TotalSteps = 5
+	disp.SyncFromDetails(context.Background(), details) // routine within 30s window -> throttled
+	mu.Lock()
+	if len(requests) != 3 {
+		mu.Unlock()
+		t.Fatalf("expected routine update at 20s (< 30s window) to be throttled, got %d requests", len(requests))
+	}
+	mu.Unlock()
+
+	curTime = curTime.Add(12 * time.Second) // 32s since last send >= 30s
 	disp.SyncFromDetails(context.Background(), details) // routine step 4 -> 5 (p=5)
 
 	mu.Lock()

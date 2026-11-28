@@ -17,7 +17,7 @@ import (
 )
 
 const (
-	liveActivityMinRoutineInterval  = 18 * time.Second
+	liveActivityMinRoutineInterval  = 30 * time.Second
 	liveActivityFailBaseBackoff     = 15 * time.Second
 	liveActivityFailMaxBackoff      = 5 * time.Minute
 	liveActivityStaleTTL            = 30 * time.Minute
