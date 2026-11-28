@@ -34,6 +34,9 @@ type QuotaMetric struct {
 	EstRemainingTokens int64   `json:"est_remaining_tokens,omitempty"`
 	EstTotalTokens     int64   `json:"est_total_tokens,omitempty"`
 	EstReliable        bool    `json:"est_reliable,omitempty"`
+	// IsPlaceholder marks synthetic UI fallback defaults ("100% 就绪") created when a cache
+	// snapshot omits a bucket; alert evaluation and calibration must ignore it.
+	IsPlaceholder bool `json:"-"`
 }
 
 // AccountQuota represents an Antigravity account and its quota dimensions.
@@ -482,6 +485,15 @@ func makeMetric(fraction *float64, resetTime string) *QuotaMetric {
 	}
 }
 
+func placeholderReadyMetric() *QuotaMetric {
+	return &QuotaMetric{
+		RemainingFraction: 1.0,
+		RemainingPercent:  100,
+		ResetFriendly:     "就绪",
+		IsPlaceholder:     true,
+	}
+}
+
 type quotaCacheEntry struct {
 	data      *CockpitQuotaResponse
 	expiresAt time.Time
@@ -862,17 +874,17 @@ func GetQuotas(activeEmails ...string) (*CockpitQuotaResponse, error) {
 			item.Gemini5h = nil
 		} else {
 			if item.Gemini5h == nil {
-				item.Gemini5h = &QuotaMetric{RemainingPercent: 100, ResetFriendly: "就绪"}
+				item.Gemini5h = placeholderReadyMetric()
 			}
 			if item.Claude5h == nil {
-				item.Claude5h = &QuotaMetric{RemainingPercent: 100, ResetFriendly: "就绪"}
+				item.Claude5h = placeholderReadyMetric()
 			}
 		}
 		if item.GeminiWeekly == nil {
-			item.GeminiWeekly = &QuotaMetric{RemainingPercent: 100, ResetFriendly: "就绪"}
+			item.GeminiWeekly = placeholderReadyMetric()
 		}
 		if item.ClaudeWeekly == nil {
-			item.ClaudeWeekly = &QuotaMetric{RemainingPercent: 100, ResetFriendly: "就绪"}
+			item.ClaudeWeekly = placeholderReadyMetric()
 		}
 
 		if item.IsCurrent {

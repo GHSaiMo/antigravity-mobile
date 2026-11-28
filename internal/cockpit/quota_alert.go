@@ -417,7 +417,7 @@ func (a *quotaAlerter) Observe(q *CockpitQuotaResponse, liveEmail string) {
 
 	for _, spec := range monitoredBuckets {
 		m := spec.get(acc)
-		if m == nil {
+		if m == nil || m.IsPlaceholder {
 			continue
 		}
 		// Upstream folded the standalone Argon bucket into the main Gemini pool.
@@ -428,12 +428,7 @@ func (a *quotaAlerter) Observe(q *CockpitQuotaResponse, liveEmail string) {
 			delete(a.buckets, spec.id)
 			continue
 		}
-		frac := m.RemainingFraction
-		if frac < 0 {
-			frac = 0
-		} else if frac > 1 {
-			frac = 1
-		}
+		frac := effectiveQuotaFraction(m)
 		var reset time.Time
 		if t, err := time.Parse(time.RFC3339, m.ResetTime); err == nil {
 			reset = t
@@ -684,6 +679,23 @@ func recentCyclePeak(samples []quotaSample, capturedAt time.Time, window time.Du
 	return peak, found
 }
 
+func effectiveQuotaFraction(m *QuotaMetric) float64 {
+	if m == nil {
+		return 0
+	}
+	frac := m.RemainingFraction
+	if frac == 0 && m.RemainingPercent > 0 {
+		frac = m.RemainingPercent / 100.0
+	}
+	if frac < 0 {
+		return 0
+	}
+	if frac > 1 {
+		return 1
+	}
+	return frac
+}
+
 func pctInt(fraction float64) int {
 	p := int(math.Floor(fraction*100 + 0.5))
 	if p < 0 {
@@ -745,7 +757,7 @@ func buildLowQuotaAlert(lang string, acc *AccountQuota, hits []lowQuotaHit, now 
 		h := hits[0]
 		return QuotaAlert{
 			Level:    h.level,
-			Title:    lowQuotaSingleTitle(lang, h.spec, h.level, h.metric.RemainingFraction),
+			Title:    lowQuotaSingleTitle(lang, h.spec, h.level, effectiveQuotaFraction(h.metric)),
 			Body:     lowQuotaSingleBody(lang, acc, h.reset, h.eta, h.hasEta, now),
 			StateKey: h.cycleKey,
 		}
@@ -759,7 +771,7 @@ func buildLowQuotaAlert(lang string, acc *AccountQuota, hits []lowQuotaHit, now 
 			level = "critical"
 		}
 		keys = append(keys, h.cycleKey)
-		pct := pctInt(h.metric.RemainingFraction)
+		pct := pctInt(effectiveQuotaFraction(h.metric))
 		items = append(items, fmt.Sprintf(
 			i18n.T3For(lang, "%s %d%%", "%s %d%%", "%s 残り%d%%"),
 			h.spec.label(lang), pct,

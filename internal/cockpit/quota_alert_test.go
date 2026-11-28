@@ -838,3 +838,60 @@ func TestAlertSuppressesMirroredArgonAcrossAllAlertTypes(t *testing.T) {
 		t.Errorf("mirrored Argon must not appear in anomaly alert: title=%q body=%q", sent[2].Title, sent[2].Body)
 	}
 }
+
+func TestAlertIgnoresPlaceholderAndNormalizesMissingFraction(t *testing.T) {
+	p := placeholderReadyMetric()
+	if p.RemainingFraction != 1.0 || p.RemainingPercent != 100 || !p.IsPlaceholder {
+		t.Fatalf("unexpected placeholderReadyMetric: %+v", p)
+	}
+
+	now := t0
+	reset5h := t0.Add(4 * time.Hour)
+	resetWeekly := t0.Add(5 * 24 * time.Hour)
+
+	var sent []QuotaAlert
+	a := newQuotaAlerter(QuotaAlertConfig{
+		WarnFraction:     0.20,
+		CriticalFraction: 0.05,
+		Lang:             func() string { return "zh" },
+		Now:              func() time.Time { return now },
+		Notify:           func(al QuotaAlert) { sent = append(sent, al) },
+	})
+
+	// 1. Real reading at 40% weekly.
+	a.Observe(makeMultiBucketQuota("acc-1", "dev@example.com", now, func(acc *AccountQuota) {
+		acc.Gemini5h = metricAt(0.95, reset5h)
+		acc.GeminiWeekly = metricAt(0.40, resetWeekly)
+		acc.ClaudeWeekly = metricAt(0.50, resetWeekly)
+	}), "")
+
+	// 2. Transient Cockpit fallback omits weekly buckets -> synthetic placeholders must NOT trigger
+	// false critical (0%), false bonus_reset (40% -> 100%), or pollute previous-value tracker.
+	now = now.Add(30 * time.Second)
+	a.Observe(makeMultiBucketQuota("acc-1", "dev@example.com", now, func(acc *AccountQuota) {
+		acc.Gemini5h = metricAt(0.95, reset5h)
+		acc.GeminiWeekly = placeholderReadyMetric()
+		acc.ClaudeWeekly = placeholderReadyMetric()
+	}), "")
+
+	// 3. Next live poll restores real readings -> must NOT trigger false rapid anomaly drop (100% -> 39%).
+	now = now.Add(30 * time.Second)
+	a.Observe(makeMultiBucketQuota("acc-1", "dev@example.com", now, func(acc *AccountQuota) {
+		acc.Gemini5h = metricAt(0.94, reset5h)
+		acc.GeminiWeekly = metricAt(0.39, resetWeekly)
+		acc.ClaudeWeekly = metricAt(0.49, resetWeekly)
+	}), "")
+
+	// 4. Defensive normalization: a non-placeholder metric with RemainingPercent=100 but unset
+	// RemainingFraction=0 must normalize to 1.0 and never fire a false critical exhausted alert.
+	now = now.Add(30 * time.Second)
+	a.Observe(makeMultiBucketQuota("acc-1", "dev@example.com", now, func(acc *AccountQuota) {
+		acc.Gemini5h = &QuotaMetric{RemainingPercent: 100, ResetFriendly: "就绪"}
+		acc.GeminiWeekly = metricAt(0.39, resetWeekly)
+		acc.ClaudeWeekly = metricAt(0.49, resetWeekly)
+	}), "")
+
+	if len(sent) != 0 {
+		t.Fatalf("expected 0 alerts across placeholder & missing-fraction snapshots, got %d: %+v", len(sent), sent)
+	}
+}

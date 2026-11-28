@@ -334,7 +334,7 @@ func ApplyQuotaTokenEstimates(resp *CockpitQuotaResponse, now time.Time) {
 
 	for _, sp := range specs {
 		m := *sp.metric
-		if m == nil {
+		if m == nil || m.IsPlaceholder {
 			continue
 		}
 		// Copy metric so shared cache pointers are never mutated in place.
