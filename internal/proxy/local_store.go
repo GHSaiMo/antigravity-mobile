@@ -69,11 +69,12 @@ var (
 	searchCacheTTL = 3 * time.Second
 	ftsSearchSem   = make(chan struct{}, 2)
 
-	cachedSummariesMap   map[string]map[string]interface{}
-	cachedSummariesAt    time.Time
-	cachedSummariesStamp string
-	summariesCacheTTL    = 3 * time.Second
-	summariesFlights     flightGroup[map[string]map[string]interface{}]
+	cachedSummariesMap    map[string]map[string]interface{}
+	cachedSummariesAt     time.Time
+	cachedSummariesStamp  string
+	cachedSummariesDBPath string
+	summariesCacheTTL     = 3 * time.Second
+	summariesFlights      flightGroup[map[string]map[string]interface{}]
 
 	hierarchyMu    sync.RWMutex
 	hierarchyCache = make(map[string]hierarchyMeta)
@@ -414,28 +415,30 @@ sys.stdout.buffer.write(json.dumps({'results': results}, ensure_ascii=False).enc
 // FetchLocalConversationSummaries retrieves conversation summaries directly from conversation_summaries.db.
 // It returns a map compatible with LanguageServer's GetAllCascadeTrajectories response.
 func FetchLocalConversationSummaries(ctx context.Context) (map[string]map[string]interface{}, error) {
+	dbPath := getAntigravityDBPath()
+
 	localStoreMu.RLock()
-	if cachedSummariesMap != nil && time.Since(cachedSummariesAt) < summariesCacheTTL {
+	if dbPath != "" && cachedSummariesMap != nil && cachedSummariesDBPath == dbPath && time.Since(cachedSummariesAt) < summariesCacheTTL {
 		res := cachedSummariesMap
 		localStoreMu.RUnlock()
 		return res, nil
 	}
-	fallbackCache := cachedSummariesMap
-	prevStamp := cachedSummariesStamp
+	var fallbackCache map[string]map[string]interface{}
+	var prevStamp string
+	if dbPath != "" && cachedSummariesDBPath == dbPath {
+		fallbackCache = cachedSummariesMap
+		prevStamp = cachedSummariesStamp
+	}
 	localStoreMu.RUnlock()
 
-	dbPath := getAntigravityDBPath()
 	if dbPath == "" {
-		if fallbackCache != nil {
-			return fallbackCache, nil
-		}
 		return nil, fmt.Errorf("antigravity conversation database not found")
 	}
 
 	curStamp := sqliteDBStamp(dbPath)
 	if fallbackCache != nil && curStamp != "" && curStamp == prevStamp {
 		localStoreMu.Lock()
-		if cachedSummariesMap != nil && cachedSummariesStamp == curStamp {
+		if cachedSummariesMap != nil && cachedSummariesDBPath == dbPath && cachedSummariesStamp == curStamp {
 			cachedSummariesAt = time.Now()
 		}
 		localStoreMu.Unlock()
@@ -445,12 +448,15 @@ func FetchLocalConversationSummaries(ctx context.Context) (map[string]map[string
 	return summariesFlights.do(dbPath, func() (map[string]map[string]interface{}, error) {
 		stamp := sqliteDBStamp(dbPath)
 		localStoreMu.RLock()
-		if cachedSummariesMap != nil && (time.Since(cachedSummariesAt) < summariesCacheTTL || (stamp != "" && stamp == cachedSummariesStamp)) {
+		if cachedSummariesMap != nil && cachedSummariesDBPath == dbPath && (time.Since(cachedSummariesAt) < summariesCacheTTL || (stamp != "" && stamp == cachedSummariesStamp)) {
 			res := cachedSummariesMap
 			localStoreMu.RUnlock()
 			return res, nil
 		}
-		fb := cachedSummariesMap
+		var fb map[string]map[string]interface{}
+		if cachedSummariesDBPath == dbPath {
+			fb = cachedSummariesMap
+		}
 		localStoreMu.RUnlock()
 
 		if sqliteRes, sqliteErr := fetchSummariesViaSQLiteCLI(ctx, dbPath); sqliteErr == nil && sqliteRes != nil {
@@ -459,6 +465,7 @@ func FetchLocalConversationSummaries(ctx context.Context) (map[string]map[string
 			cachedSummariesMap = sqliteRes
 			cachedSummariesAt = time.Now()
 			cachedSummariesStamp = finalStamp
+			cachedSummariesDBPath = dbPath
 			localStoreMu.Unlock()
 			seedHierarchyCacheFromSummaries(sqliteRes)
 			return sqliteRes, nil
@@ -523,12 +530,25 @@ for r in rows:
     elif status == "error" or status == "CASCADE_RUN_STATUS_ERROR":
         status_str = "CASCADE_RUN_STATUS_ERROR"
         
+    parsed_ws = []
+    if ws_uris:
+        try:
+            raw_ws = json.loads(ws_uris)
+            if isinstance(raw_ws, list):
+                parsed_ws = [str(x).strip() for x in raw_ws if str(x).strip()]
+            elif isinstance(raw_ws, str) and raw_ws.strip():
+                parsed_ws = [raw_ws.strip()]
+        except Exception:
+            if isinstance(ws_uris, str) and ws_uris.strip():
+                parsed_ws = [ws_uris.strip()]
+
     summaries[cid] = {
         "cascadeId": cid,
         "status": status_str,
         "lastModifiedTime": str(mod_time) if mod_time else "",
         "stepCount": step_count or 0,
         "summary": preview or "",
+        "workspaceUris": parsed_ws,
         "parentConversationId": parent_id or "",
         "nestingDepth": depth or 0,
         "trajectory": {
@@ -573,11 +593,74 @@ sys.stdout.buffer.write(json.dumps(summaries, ensure_ascii=False).encode('utf-8'
 		cachedSummariesMap = res
 		cachedSummariesAt = time.Now()
 		cachedSummariesStamp = finalStamp
+		cachedSummariesDBPath = dbPath
 		localStoreMu.Unlock()
 		seedHierarchyCacheFromSummaries(res)
 
 		return res, nil
 	})
+}
+
+func parseLocalWorkspaceURIs(raw string) []string {
+	trimmed := strings.TrimSpace(raw)
+	if trimmed == "" {
+		return nil
+	}
+	var list []string
+	if strings.HasPrefix(trimmed, "[") {
+		if err := json.Unmarshal([]byte(trimmed), &list); err == nil {
+			out := make([]string, 0, len(list))
+			for _, u := range list {
+				if u = strings.TrimSpace(u); u != "" {
+					out = append(out, u)
+				}
+			}
+			return out
+		}
+	}
+	var single string
+	if strings.HasPrefix(trimmed, `"`) {
+		if err := json.Unmarshal([]byte(trimmed), &single); err == nil {
+			if single = strings.TrimSpace(single); single != "" {
+				return []string{single}
+			}
+			return nil
+		}
+	}
+	return []string{trimmed}
+}
+
+func lookupLocalCascadeWorkspaceURIs(ctx context.Context, cascadeID string) []string {
+	cid := strings.TrimSpace(cascadeID)
+	if cid == "" || getAntigravityDBPath() == "" {
+		return nil
+	}
+	summaries, err := FetchLocalConversationSummaries(ctx)
+	if err != nil || len(summaries) == 0 {
+		return nil
+	}
+	entry, ok := summaries[cid]
+	if !ok || entry == nil {
+		return nil
+	}
+	switch v := entry["workspaceUris"].(type) {
+	case []string:
+		return v
+	case []interface{}:
+		out := make([]string, 0, len(v))
+		for _, item := range v {
+			if s, ok := item.(string); ok {
+				if s = strings.TrimSpace(s); s != "" {
+					out = append(out, s)
+				}
+			}
+		}
+		return out
+	case string:
+		return parseLocalWorkspaceURIs(v)
+	default:
+		return nil
+	}
 }
 
 func normalizeLocalSummaryStatus(status string) string {
@@ -825,6 +908,7 @@ func fetchSummariesViaSQLiteCLI(ctx context.Context, dbPath string) (map[string]
 			"lastModifiedTime":     r.LastModifiedTime,
 			"stepCount":            r.StepCount,
 			"summary":              r.Preview,
+			"workspaceUris":        parseLocalWorkspaceURIs(r.WorkspaceURIs),
 			"parentConversationId": r.ParentConversationID,
 			"nestingDepth":         r.NestingDepth,
 			"trajectory": map[string]interface{}{

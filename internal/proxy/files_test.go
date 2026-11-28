@@ -1039,3 +1039,270 @@ func TestAutoRegisteredWorkspaceRoots_GeminiConfigAndWorkspaceStorage(t *testing
 		t.Errorf("expected explicit ALLOWED_WORKSPACE_ROOTS to override auto-registered external project %q", projA)
 	}
 }
+
+func TestHandleFileContentAndRaw_CascadeRelativeAndRepoRootPaths(t *testing.T) {
+	home, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home)
+	t.Setenv("APPDATA", "")
+	t.Setenv("ANTIGRAVITY_APP_DATA_DIR", "")
+	t.Setenv("ALLOWED_WORKSPACE_ROOTS", "")
+	t.Setenv("MULTIGRAVITY_ALLOWED_WORKSPACE_ROOTS", "")
+	resetWorkspaceRootsForTest()
+	t.Cleanup(resetWorkspaceRootsForTest)
+
+	// Set up two distinct repos: one as process CWD (must NEVER be read for another chat's workspace)
+	// and one as the conversation's actual workspace.
+	cwdRepo := filepath.Join(home, "Projects", "wrong-cwd-repo")
+	chatRepo := filepath.Join(home, "Projects", "my-app")
+	docsDir := filepath.Join(chatRepo, "docs")
+	for _, d := range []string{cwdRepo, docsDir} {
+		if err := os.MkdirAll(d, 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	if err := os.WriteFile(filepath.Join(cwdRepo, "AGENTS.md"), []byte("# WRONG CWD AGENTS\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	const wantAgents = "# RIGHT CHAT AGENTS\n"
+	const wantGuide = "# Guide\nSection 1\n"
+	const wantBrainPlan = "# Brain Implementation Plan\n"
+	if err := os.WriteFile(filepath.Join(chatRepo, "AGENTS.md"), []byte(wantAgents), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(docsDir, "guide.md"), []byte(wantGuide), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(chatRepo, ".env"), []byte("SECRET=topsecret\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(chatRepo, "implementation_plan.md"), []byte("# Repo Plan\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if runtime.GOOS != "windows" {
+		if err := os.Symlink("/etc/hosts", filepath.Join(chatRepo, "escape_hosts.md")); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	const cascadeID = "11111111-2222-3333-4444-555555555555"
+	const metaOnlyCascadeID = "66666666-7777-8888-9999-aaaaaaaaaaaa"
+	const noWorkspaceCascadeID = "bbbbbbbb-cccc-dddd-eeee-ffffffffffff"
+
+	brainDir := filepath.Join(home, ".gemini", "antigravity", "brain", cascadeID)
+	if err := os.MkdirAll(brainDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(brainDir, "implementation_plan.md"), []byte(wantBrainPlan), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	// Switch CWD to cwdRepo to prove conversation relative paths ignore gateway CWD.
+	origWD, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chdir(cwdRepo); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chdir(origWD) })
+
+	chatRepoURI := filePathToURI(chatRepo)
+	p := newFakeLSProxy(t, func(w http.ResponseWriter, r *http.Request) {
+		if !strings.HasSuffix(r.URL.Path, "/GetAllCascadeTrajectories") {
+			http.NotFound(w, r)
+			return
+		}
+		_ = json.NewEncoder(w).Encode(map[string]interface{}{
+			"trajectorySummaries": map[string]interface{}{
+				cascadeID: map[string]interface{}{
+					"workspaces": []map[string]interface{}{{"workspaceFolderAbsoluteUri": chatRepoURI}},
+				},
+				metaOnlyCascadeID: map[string]interface{}{
+					"trajectoryMetadata": map[string]interface{}{
+						"workspaceUris": []string{chatRepoURI},
+					},
+				},
+				noWorkspaceCascadeID: map[string]interface{}{},
+			},
+		})
+	})
+
+	// 1. All relative, bare, repo-root, file://, and fragment variants resolve to chatRepo (NOT cwdRepo).
+	okCases := []struct {
+		uri      string
+		cid      string
+		wantBody string
+		wantName string
+	}{
+		{"AGENTS.md", cascadeID, wantAgents, "AGENTS.md"},
+		{"AGENTS.md#L1-L5", cascadeID, wantAgents, "AGENTS.md"},
+		{"AGENTS.md:1", cascadeID, wantAgents, "AGENTS.md"},
+		{"./AGENTS.md", cascadeID, wantAgents, "AGENTS.md"},
+		{"./AGENTS.md#L1-L5", cascadeID, wantAgents, "AGENTS.md"},
+		{"/AGENTS.md", cascadeID, wantAgents, "AGENTS.md"},
+		{"file:///AGENTS.md", cascadeID, wantAgents, "AGENTS.md"},
+		{"file://AGENTS.md", cascadeID, wantAgents, "AGENTS.md"},
+		{"file://./AGENTS.md", cascadeID, wantAgents, "AGENTS.md"},
+		{"my-app/AGENTS.md", cascadeID, wantAgents, "AGENTS.md"},
+		{"docs/guide.md", cascadeID, wantGuide, "guide.md"},
+		{"./docs/guide.md#section-1", cascadeID, wantGuide, "guide.md"},
+		{"/docs/guide.md#L1-L2", cascadeID, wantGuide, "guide.md"},
+		{"file:///docs/guide.md", cascadeID, wantGuide, "guide.md"},
+		// trajectoryMetadata.workspaceUris fallback works even when workspaces[] is omitted.
+		{"./AGENTS.md", metaOnlyCascadeID, wantAgents, "AGENTS.md"},
+		// Brain artifact still takes priority over same-named file in workspace.
+		{"implementation_plan.md", cascadeID, wantBrainPlan, "implementation_plan.md"},
+	}
+
+	for _, tc := range okCases {
+		req := httptest.NewRequest(http.MethodGet, "/api/v1/files/content?uri="+url.QueryEscape(tc.uri)+"&cascade_id="+tc.cid, nil)
+		rr := httptest.NewRecorder()
+		p.HandleFileContent(rr, req)
+		if rr.Code != http.StatusOK {
+			t.Fatalf("HandleFileContent(%q, %s) status=%d body=%s", tc.uri, tc.cid, rr.Code, rr.Body.String())
+		}
+		var res FileContentResult
+		if err := json.Unmarshal(rr.Body.Bytes(), &res); err != nil {
+			t.Fatalf("HandleFileContent(%q) invalid json: %v", tc.uri, err)
+		}
+		if res.Content != tc.wantBody || res.Filename != tc.wantName {
+			t.Errorf("HandleFileContent(%q) = (%q, %q), want (%q, %q)", tc.uri, res.Filename, res.Content, tc.wantName, tc.wantBody)
+		}
+
+		rawReq := httptest.NewRequest(http.MethodGet, "/api/v1/files/raw?uri="+url.QueryEscape(tc.uri)+"&cascade_id="+tc.cid, nil)
+		rawRR := httptest.NewRecorder()
+		p.HandleFileRaw(rawRR, rawReq)
+		if rawRR.Code != http.StatusOK {
+			t.Fatalf("HandleFileRaw(%q, %s) status=%d body=%s", tc.uri, tc.cid, rawRR.Code, rawRR.Body.String())
+		}
+		if rawRR.Body.String() != tc.wantBody {
+			t.Errorf("HandleFileRaw(%q) body=%q, want %q", tc.uri, rawRR.Body.String(), tc.wantBody)
+		}
+	}
+
+	// 2. Non-existent benign relative files return 404 (not 403), even when CWD is "/" on Unix.
+	if runtime.GOOS != "windows" {
+		if err := os.Chdir("/"); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for _, tc := range []struct {
+		uri string
+		cid string
+	}{
+		{"./missing.md", cascadeID},
+		{"./AGENTS.md", noWorkspaceCascadeID},
+	} {
+		req := httptest.NewRequest(http.MethodGet, "/api/v1/files/content?uri="+url.QueryEscape(tc.uri)+"&cascade_id="+tc.cid, nil)
+		rr := httptest.NewRecorder()
+		p.HandleFileContent(rr, req)
+		if rr.Code != http.StatusNotFound {
+			t.Errorf("HandleFileContent(%q, %s) expected 404 not found, got %d: %s", tc.uri, tc.cid, rr.Code, rr.Body.String())
+		}
+		if strings.Contains(rr.Body.String(), "access to file is restricted") {
+			t.Errorf("HandleFileContent(%q, %s) should not report restricted for missing benign file: %s", tc.uri, tc.cid, rr.Body.String())
+		}
+	}
+
+	// 3. Security: traversal, sensitive files, symlinks escaping workspace, and system paths must return 403.
+	forbiddenURIs := []string{
+		"../../etc/passwd",
+		"../wrong-cwd-repo/AGENTS.md",
+		".env",
+		"./.env",
+		"/.env",
+		"file:///.env",
+		"./.env.local",
+		"/etc/passwd",
+		"file:///etc/passwd",
+		filepath.Join(home, ".codex", "AGENTS.md"),
+	}
+	if runtime.GOOS != "windows" {
+		forbiddenURIs = append(forbiddenURIs, "./escape_hosts.md", "escape_hosts.md", "/escape_hosts.md")
+	}
+	for _, badURI := range forbiddenURIs {
+		req := httptest.NewRequest(http.MethodGet, "/api/v1/files/content?uri="+url.QueryEscape(badURI)+"&cascade_id="+cascadeID, nil)
+		rr := httptest.NewRecorder()
+		p.HandleFileContent(rr, req)
+		if rr.Code != http.StatusForbidden {
+			t.Errorf("HandleFileContent(%q) expected 403 Forbidden, got %d: %s", badURI, rr.Code, rr.Body.String())
+		}
+
+		rawReq := httptest.NewRequest(http.MethodGet, "/api/v1/files/raw?uri="+url.QueryEscape(badURI)+"&cascade_id="+cascadeID, nil)
+		rawRR := httptest.NewRecorder()
+		p.HandleFileRaw(rawRR, rawReq)
+		if rawRR.Code != http.StatusForbidden {
+			t.Errorf("HandleFileRaw(%q) expected 403 Forbidden, got %d: %s", badURI, rawRR.Code, rawRR.Body.String())
+		}
+	}
+
+	// 4. External workspace outside $HOME (e.g. D:\ or /Volumes) bound to a cascade also resolves relative & absolute links.
+	extDir, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	extRepo := filepath.Join(extDir, "ext-app")
+	if err := os.MkdirAll(extRepo, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	const wantExtAgents = "# EXTERNAL AGENTS\n"
+	extAgentsPath := filepath.Join(extRepo, "AGENTS.md")
+	if err := os.WriteFile(extAgentsPath, []byte(wantExtAgents), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	const extCascadeID = "77777777-8888-9999-aaaa-bbbbbbbbbbbb"
+	extProxy := fakeLSWithWorkspace(t, extCascadeID, filePathToURI(extRepo))
+	for _, u := range []string{"AGENTS.md", "./AGENTS.md", "/AGENTS.md", filePathToURI(extAgentsPath)} {
+		req := httptest.NewRequest(http.MethodGet, "/api/v1/files/content?uri="+url.QueryEscape(u)+"&cascade_id="+extCascadeID, nil)
+		rr := httptest.NewRecorder()
+		extProxy.HandleFileContent(rr, req)
+		if rr.Code != http.StatusOK {
+			t.Fatalf("external workspace HandleFileContent(%q) status=%d body=%s", u, rr.Code, rr.Body.String())
+		}
+		var res FileContentResult
+		if err := json.Unmarshal(rr.Body.Bytes(), &res); err != nil {
+			t.Fatalf("external workspace invalid json: %v", err)
+		}
+		if res.Content != wantExtAgents {
+			t.Errorf("external workspace HandleFileContent(%q) content=%q, want %q", u, res.Content, wantExtAgents)
+		}
+	}
+
+	// 5. Explicit ALLOWED_WORKSPACE_ROOTS must still block workspaces outside it.
+	onlyDir := filepath.Join(home, "OnlyHere")
+	if err := os.MkdirAll(onlyDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("ALLOWED_WORKSPACE_ROOTS", onlyDir)
+	resetWorkspaceRootsForTest()
+
+	reqBlocked := httptest.NewRequest(http.MethodGet, "/api/v1/files/content?uri="+url.QueryEscape("/AGENTS.md")+"&cascade_id="+cascadeID, nil)
+	rrBlocked := httptest.NewRecorder()
+	p.HandleFileContent(rrBlocked, reqBlocked)
+	if rrBlocked.Code != http.StatusForbidden {
+		t.Errorf("expected 403 when ALLOWED_WORKSPACE_ROOTS excludes cascade workspace, got %d: %s", rrBlocked.Code, rrBlocked.Body.String())
+	}
+}
+
+func TestParseLocalWorkspaceURIs(t *testing.T) {
+	got := parseLocalWorkspaceURIs(`["file:///a/b", " file:///c/d "]`)
+	if len(got) != 2 || got[0] != "file:///a/b" || got[1] != "file:///c/d" {
+		t.Fatalf("unexpected JSON array parse: %#v", got)
+	}
+	gotSingle := parseLocalWorkspaceURIs(`"file:///only/one"`)
+	if len(gotSingle) != 1 || gotSingle[0] != "file:///only/one" {
+		t.Fatalf("unexpected JSON string parse: %#v", gotSingle)
+	}
+	gotPlain := parseLocalWorkspaceURIs("file:///plain/path")
+	if len(gotPlain) != 1 || gotPlain[0] != "file:///plain/path" {
+		t.Fatalf("unexpected plain parse: %#v", gotPlain)
+	}
+	if empty := parseLocalWorkspaceURIs("   "); len(empty) != 0 {
+		t.Fatalf("expected empty slice, got %#v", empty)
+	}
+}

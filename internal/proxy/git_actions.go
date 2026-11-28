@@ -845,22 +845,45 @@ func (p *Proxy) fetchWorkspaceGitHubPullRequests(parent context.Context, repoRoo
 	return target, prs
 }
 
-// workspaceURIsFromSummaries extracts workspace folder URIs of one cascade from a GetAllCascadeTrajectories body.
+// workspaceURIsFromSummaries extracts workspace folder URIs of one cascade from a GetAllCascadeTrajectories body,
+// preferring live workspaces[] entries and falling back to trajectoryMetadata.workspaceUris.
 func workspaceURIsFromSummaries(body []byte, cascadeID string) []string {
 	var parsed struct {
 		Summaries map[string]struct {
 			Workspaces []struct {
 				URI string `json:"workspaceFolderAbsoluteUri"`
 			} `json:"workspaces"`
+			TrajectoryMetadata *struct {
+				WorkspaceUris []string `json:"workspaceUris"`
+			} `json:"trajectoryMetadata"`
 		} `json:"trajectorySummaries"`
 	}
 	if err := json.Unmarshal(body, &parsed); err != nil {
 		return nil
 	}
+	entry, ok := parsed.Summaries[cascadeID]
+	if !ok {
+		return nil
+	}
 	var uris []string
-	for _, w := range parsed.Summaries[cascadeID].Workspaces {
-		if w.URI != "" {
-			uris = append(uris, w.URI)
+	seen := make(map[string]struct{})
+	add := func(raw string) {
+		raw = strings.TrimSpace(raw)
+		if raw == "" {
+			return
+		}
+		if _, dup := seen[raw]; dup {
+			return
+		}
+		seen[raw] = struct{}{}
+		uris = append(uris, raw)
+	}
+	for _, w := range entry.Workspaces {
+		add(w.URI)
+	}
+	if entry.TrajectoryMetadata != nil {
+		for _, u := range entry.TrajectoryMetadata.WorkspaceUris {
+			add(u)
 		}
 	}
 	return uris

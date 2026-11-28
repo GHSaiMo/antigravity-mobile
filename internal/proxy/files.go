@@ -2,6 +2,7 @@ package proxy
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -106,8 +107,12 @@ func isExistingReadableFile(p string) bool {
 // It also tolerates URL fragments (#L10-L20, #section), query strings (?v=1), and trailing editor
 // line/column suffixes (:10, :10:5) without breaking real filenames that contain literal '#' or ':'.
 func ResolveLocalFilePath(rawURI, cascadeID string) (string, error) {
+	return resolveLocalFilePathWithWorkspaces(rawURI, cascadeID, nil)
+}
+
+func resolveLocalFilePathWithWorkspaces(rawURI, cascadeID string, workspaceDirs []string) (string, error) {
 	raw := strings.TrimSpace(rawURI)
-	exactPath, exactErr := resolveLocalFilePathExact(raw, cascadeID)
+	exactPath, exactErr := resolveLocalFilePathExactWithWorkspaces(raw, cascadeID, workspaceDirs)
 	if !hasURILocationHint(raw) {
 		return exactPath, exactErr
 	}
@@ -154,7 +159,7 @@ func ResolveLocalFilePath(rawURI, cascadeID string) (string, error) {
 		hasPrimary  bool
 	)
 	for i, cand := range candidates {
-		p, err := resolveLocalFilePathExact(cand, cascadeID)
+		p, err := resolveLocalFilePathExactWithWorkspaces(cand, cascadeID, workspaceDirs)
 		if i == 0 {
 			primaryPath, primaryErr, hasPrimary = p, err, true
 		}
@@ -169,7 +174,82 @@ func ResolveLocalFilePath(rawURI, cascadeID string) (string, error) {
 	return exactPath, exactErr
 }
 
+// isLeadingSlashRepoPath reports whether clean looks like a repo-root relative path
+// such as "/AGENTS.md" or "/docs/guide.md" (single leading slash, not a UNC path or Windows drive).
+func isLeadingSlashRepoPath(clean string) bool {
+	if clean == "" || strings.HasPrefix(clean, "//") || strings.HasPrefix(clean, `\\`) {
+		return false
+	}
+	if len(clean) >= 2 && isWindowsDriveLetter(clean[0]) && clean[1] == ':' {
+		return false
+	}
+	return strings.HasPrefix(clean, "/") || strings.HasPrefix(clean, `\`)
+}
+
+// resolvePathUnderWorkspaces tries to locate an existing regular file at rel inside one of workspaceDirs.
+// It rejects parent-directory traversal and enforces IsSafeReadableFilePath (including symlink escape checks).
+// When matched is true, either path is an existing safe file or err is errAccessRestricted.
+func resolvePathUnderWorkspaces(rel string, workspaceDirs []string) (string, error, bool) {
+	if len(workspaceDirs) == 0 {
+		return "", nil, false
+	}
+	cleaned := filepath.Clean(filepath.FromSlash(strings.TrimSpace(rel)))
+	if cleaned == "" || cleaned == "." || cleaned == ".." || strings.HasPrefix(cleaned, ".."+string(filepath.Separator)) {
+		return "", nil, false
+	}
+
+	checkCandidate := func(wsDir, sub string) (string, error, bool) {
+		cand, err := joinUnder(wsDir, sub)
+		if err != nil {
+			return "", nil, false
+		}
+		if _, lErr := os.Lstat(cand); lErr != nil {
+			return "", nil, false
+		}
+		if !IsSafeReadableFilePath(cand) {
+			return "", errAccessRestricted, true
+		}
+		if fi, sErr := os.Stat(cand); sErr == nil && !fi.IsDir() {
+			return cand, nil, true
+		}
+		return "", nil, false
+	}
+
+	for _, wsDir := range workspaceDirs {
+		if p, err, ok := checkCandidate(wsDir, cleaned); ok {
+			return p, err, true
+		}
+	}
+
+	// Secondary fallback: tolerate a single leading "<workspace-folder-name>/" prefix
+	// (e.g. "my-repo/AGENTS.md" when the conversation workspace is ".../my-repo").
+	slashRel := filepath.ToSlash(cleaned)
+	if idx := strings.IndexByte(slashRel, '/'); idx > 0 && idx+1 < len(slashRel) {
+		head := slashRel[:idx]
+		rest := slashRel[idx+1:]
+		for _, wsDir := range workspaceDirs {
+			wsBase := filepath.Base(filepath.Clean(wsDir))
+			matchedBase := wsBase == head
+			if !matchedBase && (runtime.GOOS == "darwin" || runtime.GOOS == "windows") {
+				matchedBase = strings.EqualFold(wsBase, head)
+			}
+			if !matchedBase {
+				continue
+			}
+			if p, err, ok := checkCandidate(wsDir, filepath.FromSlash(rest)); ok {
+				return p, err, true
+			}
+		}
+	}
+
+	return "", nil, false
+}
+
 func resolveLocalFilePathExact(rawURI, cascadeID string) (string, error) {
+	return resolveLocalFilePathExactWithWorkspaces(rawURI, cascadeID, nil)
+}
+
+func resolveLocalFilePathExactWithWorkspaces(rawURI, cascadeID string, workspaceDirs []string) (string, error) {
 	home, err := os.UserHomeDir()
 	if err != nil {
 		return "", fmt.Errorf("unable to determine user home directory: %w", err)
@@ -224,11 +304,17 @@ func resolveLocalFilePathExact(rawURI, cascadeID string) (string, error) {
 		return resolveAntigravityBrainPath(home, sub)
 	}
 
-	// 4. Bare filename like "implementation_plan.md" or "walkthrough.md" with cascadeID
+	// 4. Bare filename like "implementation_plan.md", "walkthrough.md", or "AGENTS.md" with cascadeID
 	if !strings.ContainsAny(clean, "/\\") && cascadeID != "" {
 		planPath, err := resolveAntigravityBrainPath(home, filepath.Join(cascadeID, clean))
 		if err != nil {
 			return "", err
+		}
+		if _, stErr := os.Stat(planPath); stErr == nil {
+			return planPath, nil
+		}
+		if wsPath, wsErr, matched := resolvePathUnderWorkspaces(clean, workspaceDirs); matched {
+			return wsPath, wsErr
 		}
 		return planPath, nil
 	}
@@ -242,6 +328,14 @@ func resolveLocalFilePathExact(rawURI, cascadeID string) (string, error) {
 	if filepath.IsAbs(clean) {
 		cleanPath := filepath.Clean(clean)
 		if !IsSafeReadableFilePath(cleanPath) {
+			// Support repo-root relative markdown links like "/AGENTS.md" or "file:///AGENTS.md"
+			// ONLY when an existing safe file matches inside the conversation's workspace.
+			if len(workspaceDirs) > 0 && isLeadingSlashRepoPath(clean) && !hasSensitiveDirComponent(cleanPath) {
+				rel := strings.TrimLeft(cleanPath, "/\\")
+				if wsPath, wsErr, matched := resolvePathUnderWorkspaces(rel, workspaceDirs); matched {
+					return wsPath, wsErr
+				}
+			}
 			return "", errAccessRestricted
 		}
 		if _, err := os.Stat(cleanPath); err == nil {
@@ -253,17 +347,55 @@ func resolveLocalFilePathExact(rawURI, cascadeID string) (string, error) {
 		return cleanPath, nil
 	}
 
-	// 7. If relative path and cascadeID is provided, check brain directory first
-	if cascadeID != "" {
-		planPath, err := resolveAntigravityBrainPath(home, filepath.Join(cascadeID, clean))
-		if err == nil {
-			if _, err := os.Stat(planPath); err == nil {
-				if !IsSafeReadableFilePath(planPath) {
-					return "", errAccessRestricted
-				}
-				return planPath, nil
+	// 7. Relative path (including Windows rooted-without-drive links like "/AGENTS.md")
+	if isLeadingSlashRepoPath(clean) {
+		rel := strings.TrimLeft(clean, "/\\")
+		if len(workspaceDirs) > 0 && !hasSensitiveDirComponent(clean) {
+			if wsPath, wsErr, matched := resolvePathUnderWorkspaces(rel, workspaceDirs); matched {
+				return wsPath, wsErr
 			}
 		}
+		return "", errAccessRestricted
+	}
+
+	cleanedRel := filepath.Clean(filepath.FromSlash(clean))
+	if cleanedRel == ".." || strings.HasPrefix(cleanedRel, ".."+string(filepath.Separator)) {
+		return "", errAccessRestricted
+	}
+
+	var (
+		brainPath string
+		brainErr  error
+	)
+	if cascadeID != "" {
+		brainPath, brainErr = resolveAntigravityBrainPath(home, filepath.Join(cascadeID, cleanedRel))
+		if brainErr == nil {
+			if _, err := os.Stat(brainPath); err == nil {
+				if !IsSafeReadableFilePath(brainPath) {
+					return "", errAccessRestricted
+				}
+				return brainPath, nil
+			}
+		}
+	}
+
+	if len(workspaceDirs) > 0 {
+		if wsPath, wsErr, matched := resolvePathUnderWorkspaces(cleanedRel, workspaceDirs); matched {
+			return wsPath, wsErr
+		}
+		cand, err := joinUnder(workspaceDirs[0], cleanedRel)
+		if err != nil || !IsSafeReadableFilePath(cand) {
+			return "", errAccessRestricted
+		}
+		return cand, nil
+	}
+
+	if cascadeID != "" {
+		// Never resolve conversation-scoped relative paths against the gateway process CWD.
+		if brainErr != nil || !IsSafeReadableFilePath(brainPath) {
+			return "", errAccessRestricted
+		}
+		return brainPath, nil
 	}
 
 	cleanPath := filepath.Clean(clean)
@@ -271,6 +403,140 @@ func resolveLocalFilePathExact(rawURI, cascadeID string) (string, error) {
 		return "", errAccessRestricted
 	}
 	return cleanPath, nil
+}
+
+func shouldTryCascadeWorkspaceLookup(rawURI string, fastErr error) bool {
+	clean := strings.TrimSpace(rawURI)
+	if clean == "" {
+		return false
+	}
+	if unescaped, err := url.PathUnescape(clean); err == nil {
+		clean = unescaped
+	}
+	if strings.HasPrefix(clean, "/static/artifacts/") {
+		return false
+	}
+	if strings.HasPrefix(clean, "file://") {
+		clean = strings.TrimPrefix(clean, "file://")
+		if runtime.GOOS == "windows" {
+			if len(clean) > 2 && (clean[0] == '/' || clean[0] == '\\') && isWindowsDriveLetter(clean[1]) && clean[2] == ':' {
+				clean = clean[1:]
+			}
+		}
+	}
+	if strings.Contains(clean, "%") {
+		if unescaped, err := url.PathUnescape(clean); err == nil {
+			clean = unescaped
+		}
+	}
+	if strings.Contains(filepath.ToSlash(clean), "/brain/") {
+		return false
+	}
+	if strings.HasPrefix(clean, "~/") || strings.HasPrefix(clean, `~\`) {
+		return false
+	}
+	if !filepath.IsAbs(clean) {
+		return true
+	}
+	return errors.Is(fastErr, errAccessRestricted) && !hasSensitiveDirComponent(clean)
+}
+
+// resolveCascadeWorkspaceDirs returns validated local workspace directories associated with cascadeID
+// so relative or repo-root markdown links (e.g. "AGENTS.md", "./AGENTS.md", "/AGENTS.md") resolve
+// against the conversation's own workspace rather than the gateway process CWD.
+func (p *Proxy) resolveCascadeWorkspaceDirs(ctx context.Context, cascadeID string) []string {
+	cid := strings.TrimSpace(cascadeID)
+	if p == nil || cid == "" {
+		return nil
+	}
+	if ctx == nil {
+		ctx = context.Background()
+	}
+
+	var rawURIs []string
+	seenRaw := make(map[string]struct{})
+	appendRaw := func(uris []string) {
+		for _, u := range uris {
+			u = strings.TrimSpace(u)
+			if u == "" || isRemoteURI(u) {
+				continue
+			}
+			if _, dup := seenRaw[u]; dup {
+				continue
+			}
+			seenRaw[u] = struct{}{}
+			rawURIs = append(rawURIs, u)
+		}
+	}
+
+	port, token := p.ActiveUpstream()
+	if port > 0 {
+		lookupCtx, cancel := context.WithTimeout(ctx, 2*time.Second)
+		if body, err := p.fetchAllTrajectoriesRaw(lookupCtx, port, token); err == nil {
+			appendRaw(workspaceURIsFromSummaries(body, cid))
+		}
+		cancel()
+
+		defaultTrajCache.trajCacheMu.RLock()
+		if entry, ok := defaultTrajCache.trajCache[cid]; ok && entry != nil && entry.port == port && entry.data != nil {
+			appendRaw(entry.data.Trajectory.WorkspaceUris)
+		}
+		defaultTrajCache.trajCacheMu.RUnlock()
+	}
+
+	if len(rawURIs) == 0 && cascadeIDRe.MatchString(cid) {
+		appendRaw(lookupLocalCascadeWorkspaceURIs(ctx, cid))
+	}
+
+	if len(rawURIs) == 0 {
+		return nil
+	}
+
+	if !hasExplicitAllowedWorkspaceRoots() {
+		syncDiscoveredWorkspaceRoots(rawURIs)
+	}
+
+	dirs := make([]string, 0, len(rawURIs))
+	seenDirs := make(map[string]struct{}, len(rawURIs))
+	for _, raw := range rawURIs {
+		localDir := uriToPath(raw)
+		if localDir == "" || !filepath.IsAbs(localDir) || isDriveRoot(localDir) {
+			continue
+		}
+		resolvedDir := evalSymlinksExistingPrefix(filepath.Clean(localDir))
+		if !IsSafeFilePath(resolvedDir) {
+			continue
+		}
+		fi, err := os.Stat(resolvedDir)
+		if err != nil || !fi.IsDir() {
+			continue
+		}
+		key := resolvedDir
+		if runtime.GOOS == "windows" || runtime.GOOS == "darwin" {
+			key = strings.ToLower(key)
+		}
+		if _, dup := seenDirs[key]; dup {
+			continue
+		}
+		seenDirs[key] = struct{}{}
+		dirs = append(dirs, resolvedDir)
+	}
+	return dirs
+}
+
+func (p *Proxy) resolveFilePathForRequest(ctx context.Context, rawURI, cascadeID string) (string, error) {
+	filePath, err := resolveLocalFilePathWithWorkspaces(rawURI, cascadeID, nil)
+	if err == nil && isExistingReadableFile(filePath) {
+		return filePath, nil
+	}
+	if p == nil || strings.TrimSpace(cascadeID) == "" || !shouldTryCascadeWorkspaceLookup(rawURI, err) {
+		return filePath, err
+	}
+	wsDirs := p.resolveCascadeWorkspaceDirs(ctx, cascadeID)
+	if len(wsDirs) == 0 {
+		return filePath, err
+	}
+	return resolveLocalFilePathWithWorkspaces(rawURI, cascadeID, wsDirs)
 }
 
 func isWindowsDriveLetter(b byte) bool {
@@ -1014,7 +1280,22 @@ func GetFileContent(rawURI, cascadeID string) (*FileContentResult, error) {
 	if err != nil {
 		return nil, fmt.Errorf("failed to resolve file path: %w", err)
 	}
+	return readFileContentFromResolvedPath(filePath)
+}
 
+func (p *Proxy) getFileContentForRequest(ctx context.Context, rawURI, cascadeID string) (*FileContentResult, error) {
+	if strings.TrimSpace(rawURI) == "" && strings.TrimSpace(cascadeID) != "" {
+		rawURI = "implementation_plan.md"
+	}
+
+	filePath, err := p.resolveFilePathForRequest(ctx, rawURI, cascadeID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to resolve file path: %w", err)
+	}
+	return readFileContentFromResolvedPath(filePath)
+}
+
+func readFileContentFromResolvedPath(filePath string) (*FileContentResult, error) {
 	if resolved, err := filepath.EvalSymlinks(filePath); err == nil {
 		filePath = resolved
 	}
@@ -1028,7 +1309,7 @@ func GetFileContent(rawURI, cascadeID string) (*FileContentResult, error) {
 	}
 	defer f.Close()
 	if strings.HasSuffix(strings.ToLower(filePath), ".key") && isPrivateKeyFileHeader(f) {
-		return nil, fmt.Errorf("access to file is restricted")
+		return nil, errAccessRestricted
 	}
 	fi, err := f.Stat()
 	if err != nil {
@@ -1132,12 +1413,16 @@ func (p *Proxy) HandleFileContent(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	result, err := GetFileContent(uri, cascadeID)
+	result, err := p.getFileContentForRequest(r.Context(), uri, cascadeID)
 	if err != nil {
+		status := http.StatusNotFound
+		if errors.Is(err, errAccessRestricted) {
+			status = http.StatusForbidden
+		}
 		errBytes, _ := json.Marshal(map[string]string{"error": err.Error()})
 		w.Header().Set("Content-Type", "application/json; charset=utf-8")
 		w.Header().Set("Content-Length", strconv.Itoa(len(errBytes)))
-		w.WriteHeader(http.StatusNotFound)
+		w.WriteHeader(status)
 		_, _ = w.Write(errBytes)
 		return
 	}
@@ -1175,7 +1460,7 @@ func (p *Proxy) HandleFileRaw(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	filePath, err := ResolveLocalFilePath(uri, cascadeID)
+	filePath, err := p.resolveFilePathForRequest(r.Context(), uri, cascadeID)
 	if err != nil {
 		if errors.Is(err, errAccessRestricted) {
 			slog.Info("[Files] denied raw download", "uri", uri)
