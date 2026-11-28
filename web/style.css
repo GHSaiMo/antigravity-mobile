@@ -12383,150 +12383,55 @@ dialog::backdrop {
   font-size: 12px;
 }
 
-/* New Chat Launchpad (Scheme A · Unified across iOS / Android / Web) */
+/* New Chat Launchpad (Fixed Top Workspace Bar + Instant Two-State Body, zero magenta) */
 .launchpad-root {
-  max-width: 520px;
+  max-width: 540px;
   width: 100%;
   margin: 0 auto;
-  padding: 28px 16px 20px;
+  padding: 16px 18px 22px;
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  gap: 22px;
   user-select: none;
   -webkit-user-select: none;
-}
-.launchpad-root.launchpad-compact {
-  padding: 16px 16px 12px;
-  gap: 10px;
-}
-.launchpad-header {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  min-width: 0;
-}
-.launchpad-brand {
-  width: 32px;
-  height: 32px;
-  border-radius: 10px;
-  background: rgba(99, 102, 241, 0.14);
-  color: var(--ios-indigo, #6366f1);
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 16px;
-  font-weight: 700;
-  flex-shrink: 0;
-}
-.launchpad-compact .launchpad-brand {
-  width: 26px;
-  height: 26px;
-  border-radius: 8px;
-  font-size: 13px;
-}
-.launchpad-greeting {
-  font-size: 18px;
-  font-weight: 600;
-  color: var(--ios-label);
-  line-height: 1.3;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-.launchpad-compact .launchpad-greeting {
-  font-size: 15px;
-  white-space: nowrap;
-}
-.launchpad-compact-head {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
-}
-.launchpad-mini-pill {
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-  padding: 5px 10px;
-  border-radius: 999px;
-  background: var(--ios-secondary-bg);
-  border: 0.8px solid var(--ios-separator-subtle);
-  font-size: 12px;
-  cursor: pointer;
-  flex-shrink: 0;
-}
-.launchpad-compact-strip {
-  display: flex;
-  gap: 8px;
-  overflow-x: auto;
-  scrollbar-width: none;
-}
-.launchpad-compact-strip::-webkit-scrollbar { display: none; }
-.launchpad-compact-chip {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  padding: 8px 11px;
-  border-radius: 11px;
-  background: var(--ios-secondary-bg);
-  border: 0.8px solid var(--ios-separator-subtle);
-  color: var(--ios-label);
-  font-size: 12.5px;
-  font-weight: 500;
-  white-space: nowrap;
-  cursor: pointer;
-  flex-shrink: 0;
-}
-.launchpad-status-strip,
-.launchpad-ws-bar {
-  width: 100%;
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 10px 12px;
-  border-radius: 13px;
-  background: var(--ios-secondary-bg);
-  border: 0.8px solid var(--ios-separator-subtle);
-  color: var(--ios-label);
-  font-size: 12.5px;
   box-sizing: border-box;
 }
-.launchpad-status-strip {
-  justify-content: space-between;
-  cursor: pointer;
-  text-align: left;
+.launchpad-body {
+  display: flex;
+  flex-direction: column;
 }
-.lp-status-left {
+.launchpad-body-focus { gap: 14px; }
+.launchpad-body-explore { gap: 18px; }
+.launchpad-ws-bar {
+  width: 100%;
+  height: 46px;
   display: flex;
   align-items: center;
-  gap: 6px;
-  min-width: 0;
-  flex: 1;
-}
-.lp-q-bolt, .lp-q-val { font-weight: 700; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
-.lp-q-bolt.good, .lp-q-val.good { color: #22c55e; }
-.lp-q-bolt.warn, .lp-q-val.warn { color: #f59e0b; }
-.lp-q-bolt.danger, .lp-q-val.danger { color: #ef4444; }
-.lp-q-name { font-weight: 500; white-space: nowrap; }
-.lp-q-bar {
-  width: 34px;
-  height: 5px;
-  border-radius: 99px;
-  background: rgba(128, 128, 128, 0.18);
-  overflow: hidden;
+  gap: 8px;
+  padding: 0 14px;
+  border-radius: 14px;
+  background: var(--ios-secondary-bg);
+  border: 0.8px solid var(--ios-separator-subtle);
+  color: var(--ios-label);
+  font-size: 13px;
+  box-sizing: border-box;
   flex-shrink: 0;
 }
-.lp-q-fill { display: block; height: 100%; border-radius: 99px; }
-.lp-q-fill.good { background: #22c55e; }
-.lp-q-fill.warn { background: #f59e0b; }
-.lp-q-fill.danger { background: #ef4444; }
-.lp-status-meta, .lp-muted {
+.launchpad-explore-pill {
+  display: inline-flex;
+  align-items: center;
+  padding: 6px 11px;
+  border: none;
+  border-radius: 999px;
+  background: var(--ios-secondary-bg);
   color: var(--ios-secondary-label);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  font-size: 12.5px;
+  font-weight: 500;
+  cursor: pointer;
 }
+.launchpad-explore-pill:hover { color: var(--ios-label); }
 .lp-chevron { color: var(--ios-tertiary-label); font-size: 14px; font-weight: 600; flex-shrink: 0; }
-.lp-ws-icon { font-size: 13px; flex-shrink: 0; }
+.lp-ws-icon { font-size: 13.5px; flex-shrink: 0; }
 .lp-ws-name { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .lp-ws-pure { color: var(--ios-secondary-label); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1; }
 .lp-ws-branch {
@@ -12557,41 +12462,140 @@ dialog::backdrop {
   border: none;
   background: transparent;
   color: var(--ios-indigo, #6366f1);
-  font-size: 12.5px;
+  font-size: 13px;
   font-weight: 600;
   cursor: pointer;
   padding: 2px 4px;
   flex-shrink: 0;
 }
-.launchpad-section { display: flex; flex-direction: column; gap: 8px; }
-.launchpad-section-title { font-size: 12px; font-weight: 500; color: var(--ios-secondary-label); padding-left: 2px; }
-.launchpad-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 9px; }
+.launchpad-config-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.launchpad-config-entry {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10.5px 13px;
+  border-radius: 14px;
+  background: var(--ios-secondary-bg);
+  border: 0.9px solid rgba(99, 102, 241, 0.22);
+  text-align: left;
+  cursor: pointer;
+  transition: border-color 0.15s ease;
+}
+.launchpad-config-entry:hover { border-color: var(--ios-indigo, #6366f1); }
+.lp-cfg-icon {
+  width: 26px;
+  height: 26px;
+  border-radius: 7px;
+  background: rgba(99, 102, 241, 0.14);
+  color: var(--ios-indigo, #6366f1);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 14px;
+  font-weight: 600;
+  flex-shrink: 0;
+}
+.lp-cfg-text {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 1.5px;
+}
+.lp-cfg-title { font-size: 13.5px; font-weight: 600; color: var(--ios-label); }
+.lp-cfg-sub {
+  font-size: 11px;
+  color: var(--ios-secondary-label);
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.launchpad-head-actions { display: flex; align-items: center; gap: 6px; }
+.launchpad-mode-pill {
+  border: none;
+  border-radius: 999px;
+  padding: 6px 11px;
+  background: rgba(99, 102, 241, 0.13);
+  color: var(--ios-indigo, #6366f1);
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+.launchpad-mode-pill:hover { background: rgba(99, 102, 241, 0.22); }
+.launchpad-section { display: flex; flex-direction: column; gap: 12px; }
+.launchpad-section-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+.launchpad-section-title { font-size: 12.5px; font-weight: 500; color: var(--ios-secondary-label); padding-left: 2px; }
+.launchpad-shuffle-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 8px;
+  border: none;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--ios-secondary-label);
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background 0.15s ease, color 0.15s ease;
+}
+.launchpad-shuffle-btn:hover { background: var(--ios-secondary-bg); color: var(--ios-label); }
+.launchpad-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
 .launchpad-card {
   display: flex;
   flex-direction: column;
   align-items: flex-start;
-  gap: 4px;
-  padding: 11px 12px;
-  border-radius: 13px;
+  gap: 6.5px;
+  padding: 13.5px 13px;
+  border-radius: 14px;
   background: var(--ios-secondary-bg);
   border: 0.8px solid var(--ios-separator-subtle);
   text-align: left;
   cursor: pointer;
   transition: border-color 0.15s ease;
 }
+.launchpad-card.is-pinned { border-color: rgba(99, 102, 241, 0.34); }
 .launchpad-card:hover { border-color: var(--ios-indigo, #6366f1); }
 .launchpad-card-title {
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: 7px;
   font-size: 13px;
   font-weight: 600;
   color: var(--ios-label);
   width: 100%;
+  min-width: 0;
+}
+.launchpad-card-icon-badge {
+  width: 22px;
+  height: 22px;
+  border-radius: 6.5px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+.launchpad-card-icon-badge.lg { width: 30px; height: 30px; border-radius: 8px; }
+.launchpad-card-title-text {
+  flex: 1;
   overflow: hidden;
   white-space: nowrap;
   text-overflow: ellipsis;
 }
+.lp-card-pin-dot { font-size: 10px; opacity: 0.85; flex-shrink: 0; }
 .launchpad-card-sub {
   font-size: 11.5px;
   color: var(--ios-secondary-label);
@@ -12600,22 +12604,232 @@ dialog::backdrop {
   white-space: nowrap;
   text-overflow: ellipsis;
 }
-.launchpad-book-btn {
-  width: 100%;
-  display: inline-flex;
+
+/* 2x2 Shortcuts Configurator Modal */
+.lp-config-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 1200;
+  background: rgba(0, 0, 0, 0.55);
+  backdrop-filter: blur(4px);
+  display: flex;
   align-items: center;
   justify-content: center;
-  gap: 5px;
-  padding: 8px 10px;
+  padding: 16px;
+}
+.lp-config-overlay.hidden { display: none; }
+.lp-config-sheet {
+  width: 100%;
+  max-width: 520px;
+  max-height: 86vh;
+  background: var(--ios-bg);
+  border: 0.8px solid var(--ios-separator-subtle);
+  border-radius: 18px;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  box-shadow: 0 20px 50px rgba(0, 0, 0, 0.35);
+}
+.lp-config-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 14px 16px;
+  border-bottom: 0.7px solid var(--ios-separator-subtle);
+}
+.lp-config-title { font-size: 16px; font-weight: 600; color: var(--ios-label); }
+.lp-config-done {
   border: none;
-  border-radius: 10px;
   background: transparent;
-  color: var(--ios-secondary-label);
+  color: var(--ios-indigo, #6366f1);
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.lp-config-body {
+  padding: 14px 16px 18px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.lp-config-swap-banner {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  border-radius: 12px;
+  background: rgba(245, 158, 11, 0.13);
+  border: 1px solid rgba(245, 158, 11, 0.38);
+}
+.lp-swap-text { flex: 1; min-width: 0; }
+.lp-swap-sub { font-size: 11px; color: var(--ios-secondary-label); }
+.lp-swap-name { font-size: 13px; font-weight: 600; color: var(--ios-label); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.lp-swap-cancel { border: none; background: transparent; color: var(--ios-secondary-label); font-size: 12px; cursor: pointer; }
+.lp-config-section-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--ios-label);
+}
+.lp-config-reset {
+  border: none;
+  background: transparent;
+  color: var(--ios-indigo, #6366f1);
   font-size: 12px;
   font-weight: 500;
   cursor: pointer;
 }
-.launchpad-book-btn:hover { background: var(--ios-secondary-bg); color: var(--ios-label); }
+.lp-slots-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+.lp-slot-card {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 10px;
+  border-radius: 12px;
+  background: var(--ios-secondary-bg);
+  border: 0.8px solid var(--ios-separator-subtle);
+}
+.lp-slot-card.swap-target { border-color: rgba(245, 158, 11, 0.65); cursor: pointer; }
+.lp-slot-top { display: flex; align-items: center; gap: 6px; min-width: 0; }
+.lp-slot-title { flex: 1; font-size: 12.5px; font-weight: 600; color: var(--ios-label); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.lp-slot-del { border: none; background: transparent; color: var(--ios-secondary-label); font-size: 16px; line-height: 1; cursor: pointer; padding: 0 2px; }
+.lp-slot-bottom { display: flex; align-items: center; gap: 4px; }
+.lp-slot-sub { flex: 1; font-size: 11px; color: var(--ios-secondary-label); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.lp-slot-sub.amber { color: #f59e0b; font-weight: 500; }
+.lp-slot-arrows { display: inline-flex; gap: 3px; }
+.lp-slot-move {
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  border: none;
+  background: rgba(128, 128, 128, 0.16);
+  color: var(--ios-label);
+  font-size: 12px;
+  line-height: 1;
+  cursor: pointer;
+}
+.lp-slot-empty {
+  height: 58px;
+  border-radius: 12px;
+  border: 1px dashed var(--ios-separator-subtle);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+  font-size: 11px;
+  color: var(--ios-secondary-label);
+}
+.lp-config-tabs {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 4px;
+  padding: 3px;
+  border-radius: 10px;
+  background: var(--ios-secondary-bg);
+}
+.lp-config-tab {
+  border: none;
+  border-radius: 8px;
+  padding: 7px 4px;
+  background: transparent;
+  color: var(--ios-secondary-label);
+  font-size: 12.5px;
+  font-weight: 500;
+  cursor: pointer;
+}
+.lp-config-tab.active {
+  background: rgba(99, 102, 241, 0.16);
+  color: var(--ios-indigo, #6366f1);
+  font-weight: 600;
+}
+.lp-config-search {
+  width: 100%;
+  padding: 9px 12px;
+  border-radius: 10px;
+  border: 0.8px solid var(--ios-separator-subtle);
+  background: var(--ios-secondary-bg);
+  color: var(--ios-label);
+  font-size: 13.5px;
+  box-sizing: border-box;
+  outline: none;
+}
+.lp-config-search:focus { border-color: var(--ios-indigo, #6366f1); }
+.lp-candidate-list { display: flex; flex-direction: column; gap: 7px; max-height: 300px; overflow-y: auto; }
+.lp-candidate-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  border-radius: 12px;
+  background: var(--ios-secondary-bg);
+  border: 0.8px solid var(--ios-separator-subtle);
+  text-align: left;
+  cursor: pointer;
+}
+.lp-candidate-row.pinned { border-color: rgba(99, 102, 241, 0.38); }
+.lp-candidate-info { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.lp-candidate-head { display: flex; align-items: center; gap: 6px; min-width: 0; }
+.lp-candidate-title { font-size: 13.5px; font-weight: 600; color: var(--ios-label); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.lp-candidate-badge {
+  font-size: 10.5px;
+  font-weight: 500;
+  color: #14b8a6;
+  background: rgba(20, 184, 166, 0.14);
+  padding: 1px 6px;
+  border-radius: 999px;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+.lp-candidate-sub { font-size: 11.5px; color: var(--ios-secondary-label); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.lp-candidate-check {
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--ios-secondary-label);
+  border: 1px solid var(--ios-separator-subtle);
+  flex-shrink: 0;
+}
+.lp-candidate-row.pinned .lp-candidate-check {
+  background: var(--ios-indigo, #6366f1);
+  border-color: var(--ios-indigo, #6366f1);
+  color: #fff;
+}
+.lp-manage-wf-btn {
+  padding: 11px;
+  border-radius: 12px;
+  border: 0.8px solid var(--ios-separator-subtle);
+  background: var(--ios-secondary-bg);
+  color: var(--ios-indigo, #6366f1);
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.lp-toast-banner {
+  position: fixed;
+  left: 50%;
+  bottom: 84px;
+  transform: translateX(-50%) translateY(14px);
+  padding: 8.5px 15px;
+  border-radius: 999px;
+  background: rgba(15, 23, 42, 0.88);
+  color: #fff;
+  font-size: 12.5px;
+  font-weight: 600;
+  z-index: 1500;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.18s ease, transform 0.18s ease;
+}
+.lp-toast-banner.visible { opacity: 1; transform: translateX(-50%) translateY(0); }
 
 /* Global Classic Book Equivalent Banner inside Token History Sheet */
 .token-book-banner {

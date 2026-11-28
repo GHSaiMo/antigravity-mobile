@@ -820,6 +820,10 @@ func (p *Proxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		p.HandleWorkflowTemplates(w, r)
 		return
 	}
+	if r.URL.Path == "/gateway/launchpad-shortcuts" {
+		p.HandleLaunchpadShortcuts(w, r)
+		return
+	}
 	if r.URL.Path == "/gateway/models" {
 		p.HandleModels(w, r)
 		return

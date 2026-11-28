@@ -869,13 +869,13 @@ fun ConversationListScreen(
                 }
             }
 
-            // New Conversation Button (Right)
+            // New Conversation Button (Right): tap = workspace picker/active filter; long-press = direct Pure Chat + auto-keyboard
             Box(
                 modifier = Modifier
                     .align(Alignment.CenterEnd)
                     .padding(end = 12.dp)
                     .size(44.dp)
-                    .clickable(
+                    .combinedClickable(
                         interactionSource = remember { MutableInteractionSource() },
                         indication = null,
                         onClick = {
@@ -891,6 +891,12 @@ fun ConversationListScreen(
                                 viewModel.loadProjects()
                                 showNewConvSheet = true
                             }
+                        },
+                        onLongClick = {
+                            swipedConversationId = null
+                            haptic.medium()
+                            val draftSession = viewModel.createLocalDraftSession(ProjectItem.PURE_CHAT)
+                            onSelectConversation(draftSession.id, "新对话".loc, true, false, com.antigravity.mobile.data.model.ConversationStatus.IDLE, null)
                         }
                     ),
                 contentAlignment = Alignment.Center

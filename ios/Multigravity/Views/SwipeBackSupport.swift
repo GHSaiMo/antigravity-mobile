@@ -17,11 +17,15 @@ private final class WeakGestureDelegateBox: NSObject {
 
 final class SwipeBackHookView: UIView {
     weak var coordinator: SwipeBackEnabler.Coordinator?
+    var isSplitDetail: Bool = false
+    var onPushTransitionComplete: (() -> Void)?
+    private var hasNotifiedPushComplete = false
     
     override func didMoveToWindow() {
         super.didMoveToWindow()
         if window != nil {
             configure()
+            observePushTransitionIfNeeded()
         }
     }
     
@@ -29,6 +33,40 @@ final class SwipeBackHookView: UIView {
         super.didMoveToSuperview()
         if superview != nil {
             configure()
+        }
+    }
+
+    private func observePushTransitionIfNeeded() {
+        guard !hasNotifiedPushComplete, onPushTransitionComplete != nil else { return }
+        if let tc = nearestViewController?.transitionCoordinator ?? nearestNavigationController?.transitionCoordinator {
+            hasNotifiedPushComplete = true
+            tc.animate(alongsideTransition: nil) { [weak self] context in
+                guard !context.isCancelled else { return }
+                DispatchQueue.main.async {
+                    self?.onPushTransitionComplete?()
+                }
+            }
+            return
+        }
+        // If SwiftUI attaches the view 1 tick before UIKit wires the transitionCoordinator, re-check once on next main turn.
+        DispatchQueue.main.async { [weak self] in
+            guard let self, !self.hasNotifiedPushComplete, self.window != nil, self.onPushTransitionComplete != nil else { return }
+            self.hasNotifiedPushComplete = true
+            if let tc = self.nearestViewController?.transitionCoordinator ?? self.nearestNavigationController?.transitionCoordinator {
+                tc.animate(alongsideTransition: nil) { [weak self] context in
+                    guard !context.isCancelled else { return }
+                    DispatchQueue.main.async {
+                        self?.onPushTransitionComplete?()
+                    }
+                }
+            } else if self.isSplitDetail {
+                self.onPushTransitionComplete?()
+            } else {
+                // Fallback for non-split push without an exposed coordinator: wait for standard 0.36s push curve.
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.36) { [weak self] in
+                    self?.onPushTransitionComplete?()
+                }
+            }
         }
     }
     
@@ -91,6 +129,8 @@ final class SwipeBackHookView: UIView {
 
 struct SwipeBackEnabler: UIViewRepresentable {
     var isDisabled: Bool = false
+    var isSplitDetail: Bool = false
+    var onPushTransitionComplete: (() -> Void)? = nil
 
     func makeCoordinator() -> Coordinator {
         Coordinator()
@@ -102,6 +142,8 @@ struct SwipeBackEnabler: UIViewRepresentable {
         view.backgroundColor = .clear
         context.coordinator.isDisabled = isDisabled
         view.coordinator = context.coordinator
+        view.isSplitDetail = isSplitDetail
+        view.onPushTransitionComplete = onPushTransitionComplete
         DispatchQueue.main.async {
             view.configure()
         }
@@ -111,6 +153,8 @@ struct SwipeBackEnabler: UIViewRepresentable {
     func updateUIView(_ uiView: SwipeBackHookView, context: Context) {
         context.coordinator.isDisabled = isDisabled
         uiView.coordinator = context.coordinator
+        uiView.isSplitDetail = isSplitDetail
+        uiView.onPushTransitionComplete = onPushTransitionComplete
         if let nav = context.coordinator.navigationController {
             guard nav.topViewController === uiView.nearestViewController else { return }
             let edgeNeedsFix = nav.interactivePopGestureRecognizer?.delegate !== context.coordinator

@@ -357,6 +357,7 @@ async function ensureSlashCommands() {
         });
       }
       slashState.loaded = true;
+      window.refreshNewChatLaunchpad?.();
     }
   } catch (_) {
     // 保持未加载，下次键入 "/" 重试
@@ -425,8 +426,8 @@ function renderSlashChip() {
   window.Phase3?.renderSuggestedResponses?.();
 }
 
-function selectSlashCommand(name) {
-  const cmd = slashState.commands.find((c) => c.name === name);
+function selectSlashCommand(name, fallbackCmd) {
+  const cmd = slashState.commands.find((c) => c.name === name) || fallbackCmd;
   if (!cmd) return;
   if (typeof triggerHaptic === "function") triggerHaptic("light");
   const input = document.getElementById("chat-input");
@@ -446,7 +447,7 @@ function selectSlashCommand(name) {
     window.V233?.openBtwModal?.({ parentCascadeId: activeCascadeId, quote: sel });
     return;
   }
-  if (lowerName === "workflow") {
+  if (lowerName === "workflow" && !cmd.definitionPath) {
     renderSlashPicker();
     renderSlashChip();
     if (typeof openWorkflowSheet === "function") {
@@ -465,10 +466,11 @@ function selectSlashCommand(name) {
     slashState.selected.push({
       name: cmd.name,
       title: cmd.title || cmd.name,
-      kind: cmd.kind,
+      kind: cmd.kind || "system",
       icon: resolveSlashCommandIcon(cmd.name, cmd.icon, cmd.kind),
       definitionPath: cmd.definitionPath || "",
     });
+    window.recordLocalSlashUsage?.(cmd.name);
   }
   slashState.cascadeId = sessionKey;
   renderSlashPicker();

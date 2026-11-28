@@ -453,6 +453,8 @@ public final class ChatViewModel {
     public var focusInputTrigger: Int = 0
 
     // 本会话改动 / Git 提交 / Markdown 导出
+    /// 进程内按网关地址缓存的斜杠命令列表：新建草稿首帧即可复用，避免推入后异步回包引起启动台卡片重排。
+    static var cachedSlashCommandsByServer: [String: [SlashCommandOption]] = [:]
     /// 斜杠命令菜单（首次键入 "/" 时懒加载）与输入框里已选中的命令标签列表（有序去重）。
     public var slashCommands: [SlashCommandOption] = []
     public var isLoadingSlashCommands: Bool = false
@@ -898,6 +900,11 @@ public final class ChatViewModel {
         self.cacheManager = resolvedCacheManager
         self.streamClient = StreamWebSocketClient()
         self.activeModel = resolvedSettings.favoriteModel1
+        if let serverKey = resolvedSettings.serverURL?.absoluteString,
+           let cachedSlashes = Self.cachedSlashCommandsByServer[serverKey],
+           !cachedSlashes.isEmpty {
+            self.slashCommands = cachedSlashes
+        }
         let memImgs = resolvedCacheManager.getMemoryDraftImages(for: draftSession.id)
         let sessionImages = !draftSession.draftImages.isEmpty ? draftSession.draftImages : (memImgs ?? [])
         self.selectedImageData = sessionImages
@@ -913,7 +920,14 @@ public final class ChatViewModel {
         
         self.setupStreamClient()
         self.isInitializing = false
-        self.restoreDraftsIfNeeded()
+        let isBrandNewEmptyDraft = draftSession.draftText.isEmpty
+            && sessionImages.isEmpty
+            && draftSession.draftSlashCommands.isEmpty
+            && existingDraft.isEmpty
+            && Date().timeIntervalSince(draftSession.createdAt) < 2.0
+        if !isBrandNewEmptyDraft {
+            self.restoreDraftsIfNeeded()
+        }
     }
     
     @MainActor

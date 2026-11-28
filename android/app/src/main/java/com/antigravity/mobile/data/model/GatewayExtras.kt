@@ -981,7 +981,9 @@ data class SlashCommandOption(
     val icon: String? = null,
     /** "system" 系统命令 | "skill" 技能。 */
     val kind: String = "system",
-    val definitionPath: String? = null
+    val definitionPath: String? = null,
+    /** 网关统计的历史调用次数（含桌面端、CLI 与手机端实时调用）。 */
+    val usageCount: Int = 0
 )
 
 @Serializable
@@ -1695,11 +1697,49 @@ object WorkflowTemplateDefaults {
             title = "自定义动态工作流".loc,
             subtitle = "自由描述任务，让 Agent 依据依赖自主规划 parallel / pipeline 阶段".loc,
             icon = "workflow",
-            color = "purple",
+            color = "indigo",
             templatePrompt = "/workflow 请使用 run_workflow 编写 Python 动态工作流脚本，分阶段执行以下任务：[描述具体任务]，要求使用 parallel 并发加速并给出 finish 契约结果。".loc
         )
     )
 }
+
+@Serializable
+data class LaunchpadShortcutItem(
+    val kind: String = "",
+    val ref: String = "",
+    val title: String? = null,
+    val subtitle: String? = null,
+    val svgKey: String? = null,
+    val tint: String? = null
+) {
+    fun normalized(): LaunchpadShortcutItem {
+        val cleanKind = kind.trim().lowercase()
+        val cleanRef = if (cleanKind == "slash" || cleanKind == "skill") {
+            ref.trim().trimStart('/').lowercase()
+        } else {
+            ref.trim()
+        }
+        return copy(kind = cleanKind, ref = cleanRef)
+    }
+
+    fun stableId(): String {
+        val n = normalized()
+        return "${n.kind}:${n.ref.lowercase()}"
+    }
+}
+
+@Serializable
+data class LaunchpadShortcutsResponse(
+    val customized: Boolean = false,
+    val items: List<LaunchpadShortcutItem> = emptyList(),
+    val updatedAt: String? = null
+)
+
+@Serializable
+data class LaunchpadShortcutsUpdateRequest(
+    val customized: Boolean,
+    val items: List<LaunchpadShortcutItem>
+)
 
 // endregion
 

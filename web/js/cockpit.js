@@ -961,10 +961,10 @@ async function fetchTokenHistory(force = false) {
   }
 }
 
-// 全球经典文学书目阶梯折算库（与 iOS / Android 共享统一常数与阶梯）
+// 11 档人类经典名著与知识库阶梯（与 iOS / Android 共享统一常数与阶梯，每档倍数收敛在 0.6~20×）
 const GLOBAL_BOOK_TIERS = [
   {
-    maxTokens: 150000,
+    maxTokens: 200000,
     books: [
       { tokens: 25000, zh: "《小王子》", en: "The Little Prince", ja: "『星の王子さま』", uZh: "本", uEn1: "copy of", uEnN: "copies of", uJa: "冊", oZh: "法国 · 圣埃克苏佩里", oEn: "France · Antoine de Saint-Exupéry", oJa: "フランス · サン＝テグジュペリ" },
       { tokens: 30000, zh: "《变形记》", en: "The Metamorphosis", ja: "『変身』", uZh: "本", uEn1: "copy of", uEnN: "copies of", uJa: "冊", oZh: "捷克/奥地利 · 卡夫卡", oEn: "Bohemia · Franz Kafka", oJa: "チェコ · フランツ・カフカ" },
@@ -972,7 +972,7 @@ const GLOBAL_BOOK_TIERS = [
     ]
   },
   {
-    maxTokens: 1500000,
+    maxTokens: 1000000,
     books: [
       { tokens: 40000, zh: "《动物农场》", en: "Animal Farm", ja: "『動物農場』", uZh: "本", uEn1: "copy of", uEnN: "copies of", uJa: "冊", oZh: "英国 · 乔治·奥威尔", oEn: "UK · George Orwell", oJa: "イギリス · ジョージ・オーウェル" },
       { tokens: 55000, zh: "《牧羊少年奇幻之旅》", en: "The Alchemist", ja: "『アルケミスト』", uZh: "本", uEn1: "copy of", uEnN: "copies of", uJa: "冊", oZh: "巴西 · 保罗·柯艾略", oEn: "Brazil · Paulo Coelho", oJa: "ブラジル · パウロ・コエーリョ" },
@@ -980,7 +980,7 @@ const GLOBAL_BOOK_TIERS = [
     ]
   },
   {
-    maxTokens: 15000000,
+    maxTokens: 4000000,
     books: [
       { tokens: 130000, zh: "《一九八四》", en: "1984", ja: "『1984年』", uZh: "本", uEn1: "copy of", uEnN: "copies of", uJa: "冊", oZh: "英国 · 乔治·奥威尔", oEn: "UK · George Orwell", oJa: "イギリス · ジョージ・オーウェル" },
       { tokens: 190000, zh: "《百年孤独》", en: "One Hundred Years of Solitude", ja: "『百年の孤独』", uZh: "本", uEn1: "copy of", uEnN: "copies of", uJa: "冊", oZh: "哥伦比亚 · 加西亚·马尔克斯", oEn: "Colombia · Gabriel García Márquez", oJa: "コロンビア · ガルシア＝マルケス" },
@@ -988,25 +988,58 @@ const GLOBAL_BOOK_TIERS = [
     ]
   },
   {
-    maxTokens: 80000000,
+    maxTokens: 15000000,
     books: [
       { tokens: 520000, zh: "《堂吉诃德》", en: "Don Quixote", ja: "『ドン・キホーテ』", uZh: "部", uEn1: "copy of", uEnN: "copies of", uJa: "部", oZh: "西班牙 · 塞万提斯", oEn: "Spain · Miguel de Cervantes", oJa: "スペイン · セルバンテス" },
       { tokens: 620000, zh: "《指环王》全套", en: "The Lord of the Rings", ja: "『指輪物語』全巻", uZh: "套", uEn1: "set of", uEnN: "sets of", uJa: "セット", oZh: "英国 · 托尔金", oEn: "UK · J.R.R. Tolkien", oJa: "イギリス · トールキン" },
-      { tokens: 730000, zh: "《悲惨世界》", en: "Les Misérables", ja: "『レ・ミゼラブル』", uZh: "部", uEn1: "copy of", uEnN: "copies of", uJa: "部", oZh: "法国 · 维克多·雨果", oEn: "France · Victor Hugo", oJa: "フランス · ヴィクトル・ユーゴー" }
-    ]
-  },
-  {
-    maxTokens: 300000000,
-    books: [
+      { tokens: 730000, zh: "《悲惨世界》", en: "Les Misérables", ja: "『レ・ミゼラブル』", uZh: "部", uEn1: "copy of", uEnN: "copies of", uJa: "部", oZh: "法国 · 维克多·雨果", oEn: "France · Victor Hugo", oJa: "フランス · ヴィクトル・ユーゴー" },
       { tokens: 780000, zh: "《战争与和平》", en: "War and Peace", ja: "『戦争と平和』", uZh: "部", uEn1: "copy of", uEnN: "copies of", uJa: "部", oZh: "俄国 · 列夫·托尔斯泰", oEn: "Russia · Leo Tolstoy", oJa: "ロシア · レフ・トルストイ" },
       { tokens: 850000, zh: "《三体》全套", en: "The Three-Body Trilogy", ja: "『三体』三部作", uZh: "套", uEn1: "set of", uEnN: "sets of", uJa: "セット", oZh: "中国 · 刘慈欣", oEn: "China · Liu Cixin", oJa: "中国 · 劉慈欣" }
     ]
   },
   {
-    maxTokens: Infinity,
+    maxTokens: 45000000,
     books: [
       { tokens: 1700000, zh: "《追忆似水年华》全套", en: "In Search of Lost Time", ja: "『失われた時を求めて』全巻", uZh: "套", uEn1: "set of", uEnN: "sets of", uJa: "セット", oZh: "法国 · 马塞尔·普鲁斯特", oEn: "France · Marcel Proust", oJa: "フランス · マルセル・プルースト" },
-      { tokens: 55000000, zh: "《大英百科全书》", en: "Encyclopædia Britannica", ja: "『ブリタニカ百科事典』", uZh: "套", uEn1: "set of", uEnN: "sets of", uJa: "セット", oZh: "全球经典参考全书", oEn: "Global Reference Classic", oJa: "世界定番の百科事典" }
+      { tokens: 2300000, zh: "《冰与火之歌》全套", en: "A Song of Ice and Fire", ja: "『氷と炎の歌』全巻", uZh: "套", uEn1: "set of", uEnN: "sets of", uJa: "セット", oZh: "美国 · 乔治·R·R·马丁", oEn: "USA · George R.R. Martin", oJa: "アメリカ · ジョージ・R・R・マーティン" }
+    ]
+  },
+  {
+    maxTokens: 350000000,
+    books: [
+      { tokens: 55000000, zh: "《大英百科全书》", en: "Encyclopædia Britannica", ja: "『ブリタニカ百科事典』", uZh: "套", uEn1: "set of", uEnN: "sets of", uJa: "セット", oZh: "全球经典参考全书 · 32 卷", oEn: "Global Reference Classic · 32 Vols", oJa: "世界定番の百科事典 · 全32巻" }
+    ]
+  },
+  {
+    maxTokens: 1200000000,
+    books: [
+      { tokens: 400000000, zh: "《永乐大典》", en: "Yongle Encyclopedia", ja: "『永楽大典』", uZh: "部", uEn1: "edition of", uEnN: "editions of", uJa: "部", oZh: "中国明代 · 22,877 卷巨型类书", oEn: "Ming Dynasty · 22,877-Volume Encyclopedia", oJa: "明代中国 · 全22,877巻の類書" }
+    ]
+  },
+  {
+    maxTokens: 4000000000,
+    books: [
+      { tokens: 1000000000, zh: "《四库全书》", en: "Siku Quanshu", ja: "『四庫全書』", uZh: "套", uEn1: "set of", uEnN: "sets of", uJa: "セット", oZh: "中国清代 · 79,338 卷官修丛书", oEn: "Qing Dynasty · 79,338-Volume Imperial Library", oJa: "清代中国 · 全79,338巻の叢書" }
+    ]
+  },
+  {
+    maxTokens: 20000000000,
+    books: [
+      { tokens: 4500000000, zh: "《古登堡计划》全库", en: "Project Gutenberg Archive", ja: "『プロジェクト・グーテンベルク』全書庫", uZh: "座", uEn1: "archive of", uEnN: "archives of", uJa: "個", oZh: "7 万+部人类公版名著全集", oEn: "70,000+ Public-Domain Classics", oJa: "7万冊超のパブリックドメイン書庫" },
+      { tokens: 7000000000, zh: "《英文维基百科》全站", en: "English Wikipedia", ja: "英語版ウィキペディア", uZh: "部", uEn1: "edition of", uEnN: "editions of", uJa: "版", oZh: "全球开源百科 · 720 万+条目", oEn: "Global Open Encyclopedia · 7.2M+ Articles", oJa: "世界最大の百科事典 · 720万記事超" }
+    ]
+  },
+  {
+    maxTokens: 120000000000,
+    books: [
+      { tokens: 24000000000, zh: "《全语种维基百科》", en: "All-Language Wikipedia", ja: "全言語版ウィキペディア", uZh: "部", uEn1: "edition of", uEnN: "editions of", uJa: "版", oZh: "300+ 语言 · 6,600 万+条目知识库", oEn: "300+ Languages · 66M+ Articles", oJa: "300言語超 · 6,600万記事超の知識庫" },
+      { tokens: 28000000000, zh: "《arXiv 学术论文全库》", en: "arXiv Scientific Archive", ja: "arXiv 学術論文全アーカイブ", uZh: "座", uEn1: "archive of", uEnN: "archives of", uJa: "基", oZh: "全球前沿科研预印本全库", oEn: "Global Open Scientific Preprint Archive", oJa: "世界の最先端科学論文アーカイブ" }
+    ]
+  },
+  {
+    maxTokens: Infinity,
+    books: [
+      { tokens: 70000000000, zh: "《Semantic Scholar 论文库》", en: "Semantic Scholar Corpus", ja: "Semantic Scholar 論文コーパス", uZh: "座", uEn1: "archive of", uEnN: "archives of", uJa: "基", oZh: "3,880 万篇全球科研文献全集", oEn: "38.8M Global Research Papers", oJa: "世界3,880万報の研究論文コーパス" }
     ]
   }
 ];
@@ -1019,7 +1052,7 @@ function resolveTokenBookEquivalent(history) {
   if (tokens < 3000) return null;
 
   const matched = GLOBAL_BOOK_TIERS.find((tier) => tokens < tier.maxTokens) || GLOBAL_BOOK_TIERS[GLOBAL_BOOK_TIERS.length - 1];
-  const books = (matched.maxTokens === Infinity && tokens < 600000000) ? [matched.books[0]] : matched.books;
+  const books = matched.books;
   const daySeed = Math.max(0, Math.floor(Date.now() / 86400000));
   const book = books[daySeed % books.length];
 

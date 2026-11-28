@@ -35,35 +35,53 @@ public struct TokenBookEquivalent: Sendable, Equatable {
         }
     }
 
-    // 6 档全球经典文学书目阶梯（横跨法/美/英/捷/巴/哥/西/俄/中）
+    // 11 档人类经典名著与知识库阶梯（横跨短篇名著至百亿级全球科研文献，每档倍数收敛在 0.6~20×）
     private static let tiers: [(maxTokens: Int64, books: [BookEntry])] = [
-        (150_000, [
+        (200_000, [
             BookEntry(tokensPerUnit: 25_000, titleZh: "《小王子》", titleEn: "The Little Prince", titleJa: "『星の王子さま』", unitZh: "本", unitEnSingular: "copy of", unitEnPlural: "copies of", unitJa: "冊", originZh: "法国 · 圣埃克苏佩里", originEn: "France · Antoine de Saint-Exupéry", originJa: "フランス · サン＝テグジュペリ"),
             BookEntry(tokensPerUnit: 30_000, titleZh: "《变形记》", titleEn: "The Metamorphosis", titleJa: "『変身』", unitZh: "本", unitEnSingular: "copy of", unitEnPlural: "copies of", unitJa: "冊", originZh: "捷克/奥地利 · 卡夫卡", originEn: "Bohemia · Franz Kafka", originJa: "チェコ · フランツ・カフカ"),
             BookEntry(tokensPerUnit: 35_000, titleZh: "《老人与海》", titleEn: "The Old Man and the Sea", titleJa: "『老人と海』", unitZh: "本", unitEnSingular: "copy of", unitEnPlural: "copies of", unitJa: "冊", originZh: "美国 · 海明威", originEn: "USA · Ernest Hemingway", originJa: "アメリカ · ヘミングウェイ")
         ]),
-        (1_500_000, [
+        (1_000_000, [
             BookEntry(tokensPerUnit: 40_000, titleZh: "《动物农场》", titleEn: "Animal Farm", titleJa: "『動物農場』", unitZh: "本", unitEnSingular: "copy of", unitEnPlural: "copies of", unitJa: "冊", originZh: "英国 · 乔治·奥威尔", originEn: "UK · George Orwell", originJa: "イギリス · ジョージ・オーウェル"),
             BookEntry(tokensPerUnit: 55_000, titleZh: "《牧羊少年奇幻之旅》", titleEn: "The Alchemist", titleJa: "『アルケミスト』", unitZh: "本", unitEnSingular: "copy of", unitEnPlural: "copies of", unitJa: "冊", originZh: "巴西 · 保罗·柯艾略", originEn: "Brazil · Paulo Coelho", originJa: "ブラジル · パウロ・コエーリョ"),
             BookEntry(tokensPerUnit: 65_000, titleZh: "《了不起的盖茨比》", titleEn: "The Great Gatsby", titleJa: "『グレート・ギャツビー』", unitZh: "本", unitEnSingular: "copy of", unitEnPlural: "copies of", unitJa: "冊", originZh: "美国 · 菲茨杰拉德", originEn: "USA · F. Scott Fitzgerald", originJa: "アメリカ · フィッツジェラルド")
         ]),
-        (15_000_000, [
+        (4_000_000, [
             BookEntry(tokensPerUnit: 130_000, titleZh: "《一九八四》", titleEn: "1984", titleJa: "『1984年』", unitZh: "本", unitEnSingular: "copy of", unitEnPlural: "copies of", unitJa: "冊", originZh: "英国 · 乔治·奥威尔", originEn: "UK · George Orwell", originJa: "イギリス · ジョージ・オーウェル"),
             BookEntry(tokensPerUnit: 190_000, titleZh: "《百年孤独》", titleEn: "One Hundred Years of Solitude", titleJa: "『百年の孤独』", unitZh: "本", unitEnSingular: "copy of", unitEnPlural: "copies of", unitJa: "冊", originZh: "哥伦比亚 · 加西亚·马尔克斯", originEn: "Colombia · Gabriel García Márquez", originJa: "コロンビア · ガルシア＝マルケス"),
             BookEntry(tokensPerUnit: 250_000, titleZh: "《沙丘》", titleEn: "Dune", titleJa: "『デューン』", unitZh: "本", unitEnSingular: "copy of", unitEnPlural: "copies of", unitJa: "冊", originZh: "美国 · 弗兰克·赫伯特", originEn: "USA · Frank Herbert", originJa: "アメリカ · フランク・ハーバート")
         ]),
-        (80_000_000, [
+        (15_000_000, [
             BookEntry(tokensPerUnit: 520_000, titleZh: "《堂吉诃德》", titleEn: "Don Quixote", titleJa: "『ドン・キホーテ』", unitZh: "部", unitEnSingular: "copy of", unitEnPlural: "copies of", unitJa: "部", originZh: "西班牙 · 塞万提斯", originEn: "Spain · Miguel de Cervantes", originJa: "スペイン · セルバンテス"),
             BookEntry(tokensPerUnit: 620_000, titleZh: "《指环王》全套", titleEn: "The Lord of the Rings", titleJa: "『指輪物語』全巻", unitZh: "套", unitEnSingular: "set of", unitEnPlural: "sets of", unitJa: "セット", originZh: "英国 · 托尔金", originEn: "UK · J.R.R. Tolkien", originJa: "イギリス · トールキン"),
-            BookEntry(tokensPerUnit: 730_000, titleZh: "《悲惨世界》", titleEn: "Les Misérables", titleJa: "『レ・ミゼラブル』", unitZh: "部", unitEnSingular: "copy of", unitEnPlural: "copies of", unitJa: "部", originZh: "法国 · 维克多·雨果", originEn: "France · Victor Hugo", originJa: "フランス · ヴィクトル・ユーゴー")
-        ]),
-        (300_000_000, [
+            BookEntry(tokensPerUnit: 730_000, titleZh: "《悲惨世界》", titleEn: "Les Misérables", titleJa: "『レ・ミゼラブル』", unitZh: "部", unitEnSingular: "copy of", unitEnPlural: "copies of", unitJa: "部", originZh: "法国 · 维克多·雨果", originEn: "France · Victor Hugo", originJa: "フランス · ヴィクトル・ユーゴー"),
             BookEntry(tokensPerUnit: 780_000, titleZh: "《战争与和平》", titleEn: "War and Peace", titleJa: "『戦争と平和』", unitZh: "部", unitEnSingular: "copy of", unitEnPlural: "copies of", unitJa: "部", originZh: "俄国 · 列夫·托尔斯泰", originEn: "Russia · Leo Tolstoy", originJa: "ロシア · レフ・トルストイ"),
             BookEntry(tokensPerUnit: 850_000, titleZh: "《三体》全套", titleEn: "The Three-Body Trilogy", titleJa: "『三体』三部作", unitZh: "套", unitEnSingular: "set of", unitEnPlural: "sets of", unitJa: "セット", originZh: "中国 · 刘慈欣", originEn: "China · Liu Cixin", originJa: "中国 · 劉慈欣")
         ]),
-        (Int64.max, [
+        (45_000_000, [
             BookEntry(tokensPerUnit: 1_700_000, titleZh: "《追忆似水年华》全套", titleEn: "In Search of Lost Time", titleJa: "『失われた時を求めて』全巻", unitZh: "套", unitEnSingular: "set of", unitEnPlural: "sets of", unitJa: "セット", originZh: "法国 · 马塞尔·普鲁斯特", originEn: "France · Marcel Proust", originJa: "フランス · マルセル・プルースト"),
-            BookEntry(tokensPerUnit: 55_000_000, titleZh: "《大英百科全书》", titleEn: "Encyclopædia Britannica", titleJa: "『ブリタニカ百科事典』", unitZh: "套", unitEnSingular: "set of", unitEnPlural: "sets of", unitJa: "セット", originZh: "全球经典参考全书", originEn: "Global Reference Classic", originJa: "世界定番の百科事典")
+            BookEntry(tokensPerUnit: 2_300_000, titleZh: "《冰与火之歌》全套", titleEn: "A Song of Ice and Fire", titleJa: "『氷と炎の歌』全巻", unitZh: "套", unitEnSingular: "set of", unitEnPlural: "sets of", unitJa: "セット", originZh: "美国 · 乔治·R·R·马丁", originEn: "USA · George R.R. Martin", originJa: "アメリカ · ジョージ・R・R・マーティン")
+        ]),
+        (350_000_000, [
+            BookEntry(tokensPerUnit: 55_000_000, titleZh: "《大英百科全书》", titleEn: "Encyclopædia Britannica", titleJa: "『ブリタニカ百科事典』", unitZh: "套", unitEnSingular: "set of", unitEnPlural: "sets of", unitJa: "セット", originZh: "全球经典参考全书 · 32 卷", originEn: "Global Reference Classic · 32 Vols", originJa: "世界定番の百科事典 · 全32巻")
+        ]),
+        (1_200_000_000, [
+            BookEntry(tokensPerUnit: 400_000_000, titleZh: "《永乐大典》", titleEn: "Yongle Encyclopedia", titleJa: "『永楽大典』", unitZh: "部", unitEnSingular: "edition of", unitEnPlural: "editions of", unitJa: "部", originZh: "中国明代 · 22,877 卷巨型类书", originEn: "Ming Dynasty · 22,877-Volume Encyclopedia", originJa: "明代中国 · 全22,877巻の類書")
+        ]),
+        (4_000_000_000, [
+            BookEntry(tokensPerUnit: 1_000_000_000, titleZh: "《四库全书》", titleEn: "Siku Quanshu", titleJa: "『四庫全書』", unitZh: "套", unitEnSingular: "set of", unitEnPlural: "sets of", unitJa: "セット", originZh: "中国清代 · 79,338 卷官修丛书", originEn: "Qing Dynasty · 79,338-Volume Imperial Library", originJa: "清代中国 · 全79,338巻の叢書")
+        ]),
+        (20_000_000_000, [
+            BookEntry(tokensPerUnit: 4_500_000_000, titleZh: "《古登堡计划》全库", titleEn: "Project Gutenberg Archive", titleJa: "『プロジェクト・グーテンベルク』全書庫", unitZh: "座", unitEnSingular: "archive of", unitEnPlural: "archives of", unitJa: "個", originZh: "7 万+部人类公版名著全集", originEn: "70,000+ Public-Domain Classics", originJa: "7万冊超のパブリックドメイン書庫"),
+            BookEntry(tokensPerUnit: 7_000_000_000, titleZh: "《英文维基百科》全站", titleEn: "English Wikipedia", titleJa: "英語版ウィキペディア", unitZh: "部", unitEnSingular: "edition of", unitEnPlural: "editions of", unitJa: "版", originZh: "全球开源百科 · 720 万+条目", originEn: "Global Open Encyclopedia · 7.2M+ Articles", originJa: "世界最大の百科事典 · 720万記事超")
+        ]),
+        (120_000_000_000, [
+            BookEntry(tokensPerUnit: 24_000_000_000, titleZh: "《全语种维基百科》", titleEn: "All-Language Wikipedia", titleJa: "全言語版ウィキペディア", unitZh: "部", unitEnSingular: "edition of", unitEnPlural: "editions of", unitJa: "版", originZh: "300+ 语言 · 6,600 万+条目知识库", originEn: "300+ Languages · 66M+ Articles", originJa: "300言語超 · 6,600万記事超の知識庫"),
+            BookEntry(tokensPerUnit: 28_000_000_000, titleZh: "《arXiv 学术论文全库》", titleEn: "arXiv Scientific Archive", titleJa: "arXiv 学術論文全アーカイブ", unitZh: "座", unitEnSingular: "archive of", unitEnPlural: "archives of", unitJa: "基", originZh: "全球前沿科研预印本全库", originEn: "Global Open Scientific Preprint Archive", originJa: "世界の最先端科学論文アーカイブ")
+        ]),
+        (Int64.max, [
+            BookEntry(tokensPerUnit: 70_000_000_000, titleZh: "《Semantic Scholar 论文库》", titleEn: "Semantic Scholar Corpus", titleJa: "Semantic Scholar 論文コーパス", unitZh: "座", unitEnSingular: "archive of", unitEnPlural: "archives of", unitJa: "基", originZh: "3,880 万篇全球科研文献全集", originEn: "38.8M Global Research Papers", originJa: "世界3,880万報の研究論文コーパス")
         ])
     ]
 
@@ -75,16 +93,7 @@ public struct TokenBookEquivalent: Sendable, Equatable {
         guard tokens >= 3_000 else { return nil }
 
         let lang = UILanguage.current
-        let tierBooks: [BookEntry]
-        if let matched = tiers.first(where: { tokens < $0.maxTokens }) {
-            if matched.maxTokens == Int64.max && tokens < 600_000_000 {
-                tierBooks = [matched.books[0]]
-            } else {
-                tierBooks = matched.books
-            }
-        } else {
-            tierBooks = tiers.last!.books
-        }
+        let tierBooks = (tiers.first(where: { tokens < $0.maxTokens }) ?? tiers.last!).books
 
         let daySeed = max(0, Int(now.timeIntervalSince1970 / 86_400))
         let book = tierBooks[daySeed % tierBooks.count]

@@ -304,12 +304,22 @@ extension ChatViewModel {
 
     /// 首次键入 "/" 时懒加载命令列表；已加载或正在加载时什么都不做。失败后下次键入 "/" 会重试。
     public func ensureSlashCommands() {
-        guard slashCommands.isEmpty, !isLoadingSlashCommands, let url = settings.serverURL else { return }
+        guard let url = settings.serverURL else { return }
+        if slashCommands.isEmpty,
+           let cached = Self.cachedSlashCommandsByServer[url.absoluteString],
+           !cached.isEmpty {
+            slashCommands = cached
+            return
+        }
+        guard slashCommands.isEmpty, !isLoadingSlashCommands else { return }
         isLoadingSlashCommands = true
         Task { @MainActor [weak self] in
             guard let self else { return }
             defer { self.isLoadingSlashCommands = false }
             if let list = try? await self.apiClient.fetchSlashCommands(baseURL: url) {
+                if !list.isEmpty {
+                    Self.cachedSlashCommandsByServer[url.absoluteString] = list
+                }
                 self.slashCommands = list
             }
         }
@@ -338,6 +348,7 @@ extension ChatViewModel {
                 selectedSlashCommands.remove(at: existingIdx)
             } else {
                 selectedSlashCommands.append(command)
+                SlashUsageLocalStore.record(command.name)
             }
         }
         focusInputTrigger += 1

@@ -2814,6 +2814,66 @@ class ApiClient(
         }
     }
 
+    suspend fun fetchLaunchpadShortcuts(): Result<LaunchpadShortcutsResponse> = withContext(Dispatchers.IO) {
+        val baseUrl = currentBaseUrl ?: return@withContext Result.failure(RuntimeException("未配置网关地址".loc))
+        try {
+            val request = buildAuthorizedRequest("$baseUrl/gateway/launchpad-shortcuts")
+                .get()
+                .build()
+            client.newCall(request).await().use { response ->
+                val body = response.body?.string().orEmpty()
+                if (!response.isSuccessful) {
+                    return@withContext Result.failure(RuntimeException("HTTP ${response.code}: $body"))
+                }
+                Result.success(json.decodeFromString<LaunchpadShortcutsResponse>(body))
+            }
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
+    suspend fun saveLaunchpadShortcuts(
+        items: List<LaunchpadShortcutItem>,
+        customized: Boolean
+    ): Result<LaunchpadShortcutsResponse> = withContext(Dispatchers.IO) {
+        val baseUrl = currentBaseUrl ?: return@withContext Result.failure(RuntimeException("未配置网关地址".loc))
+        try {
+            val payload = json.encodeToString(
+                LaunchpadShortcutsUpdateRequest(customized = customized, items = items)
+            )
+            val request = buildAuthorizedRequest("$baseUrl/gateway/launchpad-shortcuts")
+                .put(payload.toRequestBody(jsonMediaType))
+                .build()
+            client.newCall(request).await().use { response ->
+                val body = response.body?.string().orEmpty()
+                if (!response.isSuccessful) {
+                    return@withContext Result.failure(RuntimeException("HTTP ${response.code}: $body"))
+                }
+                Result.success(json.decodeFromString<LaunchpadShortcutsResponse>(body))
+            }
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
+    suspend fun resetLaunchpadShortcuts(): Result<LaunchpadShortcutsResponse> = withContext(Dispatchers.IO) {
+        val baseUrl = currentBaseUrl ?: return@withContext Result.failure(RuntimeException("未配置网关地址".loc))
+        try {
+            val request = buildAuthorizedRequest("$baseUrl/gateway/launchpad-shortcuts")
+                .delete()
+                .build()
+            client.newCall(request).await().use { response ->
+                val body = response.body?.string().orEmpty()
+                if (!response.isSuccessful) {
+                    return@withContext Result.failure(RuntimeException("HTTP ${response.code}: $body"))
+                }
+                Result.success(json.decodeFromString<LaunchpadShortcutsResponse>(body))
+            }
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
     // endregion
 
     internal val prefsRef: PreferencesManager

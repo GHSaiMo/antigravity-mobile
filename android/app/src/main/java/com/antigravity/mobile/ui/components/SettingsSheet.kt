@@ -1070,6 +1070,8 @@ private fun MainSettingsContent(
                 }
             }
         }
+        val newChatLaunchpadEnabled by prefs.newChatLaunchpadEnabledFlow.collectAsState()
+        val launchpadHaptic = rememberHaptic()
         SettingsSection(
             title = "扩展与能力".loc,
             footer = "在此配置默认权限并查看 MCP 工具与技能；进入会话后，长按右上角工具按钮也可以随时改变该会话的权限。".loc
@@ -1233,6 +1235,33 @@ private fun MainSettingsContent(
                         contentDescription = null,
                         tint = colors.textMuted,
                         modifier = Modifier.size(16.dp)
+                    )
+                }
+                HorizontalDivider(color = colors.separator.copy(alpha = 0.4f), thickness = 0.5.dp)
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 16.dp, vertical = 10.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    Text(
+                        text = "新建对话启动台".loc,
+                        color = colors.textPrimary,
+                        fontSize = 15.sp,
+                        fontWeight = FontWeight.Medium,
+                        modifier = Modifier.weight(1f).padding(end = 8.dp)
+                    )
+                    Switch(
+                        checked = newChatLaunchpadEnabled,
+                        onCheckedChange = {
+                            launchpadHaptic.light()
+                            prefs.newChatLaunchpadEnabled = it
+                        },
+                        colors = SwitchDefaults.colors(
+                            checkedThumbColor = colors.surface,
+                            checkedTrackColor = colors.accentIndigo
+                        )
                     )
                 }
             }
@@ -1426,8 +1455,6 @@ private fun MainSettingsContent(
         val compactCollapseTools by prefs.compactCollapseToolsFlow.collectAsState()
         val compactCollapseTasks by prefs.compactCollapseTasksFlow.collectAsState()
         val compactHideHealthyContext by prefs.compactHideHealthyContextFlow.collectAsState()
-        val newChatLaunchpadEnabled by prefs.newChatLaunchpadEnabledFlow.collectAsState()
-        val appearanceHaptic = rememberHaptic()
         val pickerQuotaEnabled by com.antigravity.mobile.data.service.ModelPickerQuotaCache.enabled.collectAsState()
         val pickerQuotaWeekly by com.antigravity.mobile.data.service.ModelPickerQuotaCache.weekly.collectAsState()
         val quotaDisplaySummary = run {
@@ -1545,33 +1572,6 @@ private fun MainSettingsContent(
                             modifier = Modifier.size(18.dp)
                         )
                     }
-                }
-                HorizontalDivider(color = colors.separator.copy(alpha = 0.4f), thickness = 0.5.dp)
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 16.dp, vertical = 10.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.SpaceBetween
-                ) {
-                    Text(
-                        text = "新建对话启动台".loc,
-                        color = colors.textPrimary,
-                        fontSize = 15.sp,
-                        fontWeight = FontWeight.Medium,
-                        modifier = Modifier.weight(1f).padding(end = 8.dp)
-                    )
-                    Switch(
-                        checked = newChatLaunchpadEnabled,
-                        onCheckedChange = {
-                            appearanceHaptic.light()
-                            prefs.newChatLaunchpadEnabled = it
-                        },
-                        colors = SwitchDefaults.colors(
-                            checkedThumbColor = colors.surface,
-                            checkedTrackColor = colors.accentIndigo
-                        )
-                    )
                 }
             }
         }

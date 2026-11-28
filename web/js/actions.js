@@ -1043,6 +1043,11 @@ function startDraftSession(sessionInfo) {
     if (typeof updateModelSwitchUI === "function") updateModelSwitchUI();
   }
   navigateTo("#draft");
+  // Synchronously focus inside user gesture call stack so mobile Safari opens keyboard immediately
+  const chatInput = document.getElementById("chat-input");
+  if (chatInput) {
+    try { chatInput.focus(); } catch (_) {}
+  }
 }
 
 function closeNewSheet() {

@@ -97,6 +97,10 @@ extension ChatView {
         }
         // 会话切换、Agent 运行状态翻转（跑完了）、提交/改动面板关闭后重新探测 Commit / Changes 是否该显示
         .task(id: "\(viewModel.cascadeId)|\(viewModel.isRunning)|\(viewModel.gitSheet == nil)") {
+            if viewModel.isDraftConversation {
+                try? await Task.sleep(nanoseconds: 420_000_000)
+                guard !Task.isCancelled else { return }
+            }
             await viewModel.refreshActionAvailability()
         }
         .sheet(isPresented: $viewModel.showConfirmUndoSheet, onDismiss: {
@@ -198,7 +202,7 @@ extension ChatView {
         let resolvedListWidth = horizontalSizeClass == .regular ? min(viewportWidth, chatReadableMaxWidth) : viewportWidth
         let agentMarkdownWidth = max(resolvedListWidth - 88, 200)
         return ScrollView(.vertical, showsIndicators: true) {
-            messagesList(proxy: proxy)
+            messagesList(proxy: proxy, viewportHeight: viewportHeight)
                 .environment(\.markdownAvailableWidth, agentMarkdownWidth)
                 .frame(width: resolvedListWidth)
                 .frame(maxWidth: .infinity)
@@ -234,7 +238,10 @@ extension ChatView {
             .contentShape(Rectangle())
             .simultaneousGesture(
                 TapGesture().onEnded {
-                    if isInputFocused {
+                    let showingLaunchpad = viewModel.messages.isEmpty
+                        && AppSettings.shared.newChatLaunchpadEnabled
+                        && viewModel.branchOrigin == nil
+                    if isInputFocused && !showingLaunchpad {
                         isInputFocused = false
                     }
                 }
@@ -450,6 +457,7 @@ extension ChatView {
             }
             .onChange(of: isInputFocused) { _, focused in
                 if focused {
+                    initialKeyboardLatch = false
                     hideStepperImmediately()
                     DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
                         scrollToBottom(proxy: proxy, animated: true)
@@ -527,8 +535,7 @@ extension ChatView {
     
     var canScheduleAutoFocus: Bool {
         guard !hasAutoFocused, autoFocusTask == nil, !hasPendingInitialLaunchAction else { return false }
-        if shouldAutoFocus { return true }
-        return viewModel.messages.isEmpty && viewModel.stepCount == 0
+        return shouldAutoFocus && viewModel.messages.isEmpty
     }
     
     /// 消息极少且内容轻量时用普通 VStack（不挂 scrollTargetLayout，避免流式增长时与底部贴合争抢锚点）；
@@ -546,7 +553,7 @@ extension ChatView {
     }
 
     @ViewBuilder
-    func messagesList(proxy: ScrollViewProxy) -> some View {
+    func messagesList(proxy: ScrollViewProxy, viewportHeight: CGFloat) -> some View {
         let lastId = viewModel.messages.last?.id
         let isStreamingOrRunning = viewModel.isRunning || viewModel.isAwaitingResponse
         let activePlanId: String? = {
@@ -681,7 +688,27 @@ extension ChatView {
                 }
                 
                 if viewModel.messages.isEmpty {
+                    let showingLaunchpad = AppSettings.shared.newChatLaunchpadEnabled && viewModel.branchOrigin == nil
                     emptyStateView
+                        .frame(
+                            minHeight: max(viewportHeight - 16, 140),
+                            alignment: showingLaunchpad ? .top : .center
+                        )
+                        .background {
+                            if showingLaunchpad {
+                                Color.clear
+                                    .contentShape(Rectangle())
+                                    .onTapGesture {
+                                        if isInputFocused || initialKeyboardLatch {
+                                            autoFocusTask?.cancel()
+                                            hasAutoFocused = true
+                                            initialKeyboardLatch = false
+                                            isInputFocused = false
+                                            UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
+                                        }
+                                    }
+                            }
+                        }
                 }
 
                 let subagentGrouping = consecutiveSubagentGrouping(in: viewModel.messages)
@@ -1023,42 +1050,62 @@ extension ChatView {
         if AppSettings.shared.newChatLaunchpadEnabled && viewModel.branchOrigin == nil {
             NewChatLaunchpadView(
                 viewModel: viewModel,
-                isKeyboardVisible: isInputFocused,
+                isKeyboardFocused: isInputFocused,
+                isAwaitingInitialAutoFocus: initialKeyboardLatch && viewModel.pendingInteraction == nil,
                 onFillPrompt: { prompt in
                     viewModel.inputText = prompt
                     if prompt.contains("[") && prompt.contains("]") {
                         viewModel.pendingSelectFirstPlaceholder = true
                     }
+                    hasAutoFocused = true
                     isInputFocused = true
                 },
+                onSelectSlashCommand: { cmd in
+                    if cmd.name.lowercased() == "workflow" && (cmd.definitionPath ?? "").isEmpty {
+                        autoFocusTask?.cancel()
+                        hasAutoFocused = true
+                        initialKeyboardLatch = false
+                        isInputFocused = false
+                        showWorkflowTemplateSheet = true
+                    } else {
+                        viewModel.selectSlashCommand(cmd)
+                        hasAutoFocused = true
+                        isInputFocused = true
+                    }
+                },
                 onSwitchWorkspace: {
+                    autoFocusTask?.cancel()
+                    hasAutoFocused = true
+                    initialKeyboardLatch = false
                     isInputFocused = false
                     showDraftWorkspaceSwitcher = true
                 },
-                onOpenQuota: {
-                    isInputFocused = false
-                    NotificationCenter.default.post(
-                        name: .openAccountQuotaSheet,
-                        object: nil,
-                        userInfo: ["tab": 0]
-                    )
-                },
-                onOpenTokenHistory: {
-                    isInputFocused = false
-                    NotificationCenter.default.post(
-                        name: .openAccountQuotaSheet,
-                        object: nil,
-                        userInfo: ["tab": 1]
-                    )
-                },
                 onTapDirtyFiles: {
                     if !viewModel.isDraftConversation {
+                        autoFocusTask?.cancel()
+                        hasAutoFocused = true
+                        initialKeyboardLatch = false
                         isInputFocused = false
                         viewModel.openGitSheet()
                     } else {
                         viewModel.inputText = String(localized: "请先检查当前未提交的改动，指出潜在风险并给出优化建议")
+                        hasAutoFocused = true
                         isInputFocused = true
                     }
+                },
+                onDismissKeyboard: {
+                    autoFocusTask?.cancel()
+                    hasAutoFocused = true
+                    initialKeyboardLatch = false
+                    isInputFocused = false
+                    UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
+                },
+                onOpenWorkflowTemplates: {
+                    autoFocusTask?.cancel()
+                    hasAutoFocused = true
+                    initialKeyboardLatch = false
+                    isInputFocused = false
+                    showWorkflowTemplateSheet = true
                 }
             )
         } else {

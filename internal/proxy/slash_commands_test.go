@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"antigravity-mobile/internal/cockpit"
 	"antigravity-mobile/internal/inspector"
 )
 
@@ -370,5 +371,49 @@ func TestSendUpgradesLeadingPlainTextSystemSlashCommands(t *testing.T) {
 	}
 	if atomic.LoadInt32(&pathCalls) != 0 {
 		t.Errorf("file path must not trigger GetSlashCommands, calls = %d", pathCalls)
+	}
+}
+
+func TestSlashCommandsUsageCountPropagation(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	cockpit.ResetSlashUsageCache()
+	t.Cleanup(cockpit.ResetSlashUsageCache)
+
+	var calls int32
+	var sent map[string]interface{}
+	p := newSlashTestProxy(t, &calls, &sent)
+
+	// Send /plan twice and /bird-twitter once through gateway.
+	rec := doSend(p, `{"cascadeId":"c-u1","items":[{"item":{"slashCommand":{"info":{"name":"plan"}}}},{"text":" step 1"}]}`, nil)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("send plan 1 => %d %s", rec.Code, rec.Body.String())
+	}
+	rec = doSend(p, `{"cascadeId":"c-u2","items":[{"text":"/plan step 2"}]}`, nil)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("send plan 2 => %d %s", rec.Code, rec.Body.String())
+	}
+	rec = doSend(p, `{"cascadeId":"c-u3","items":[{"item":{"slashCommand":{"info":{"name":"bird-twitter"}}}}]}`, nil)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("send bird-twitter => %d %s", rec.Code, rec.Body.String())
+	}
+
+	getRec := httptest.NewRecorder()
+	p.ServeHTTP(getRec, httptest.NewRequest(http.MethodGet, "/gateway/slash-commands", nil))
+	if getRec.Code != http.StatusOK {
+		t.Fatalf("GET /gateway/slash-commands => %d %s", getRec.Code, getRec.Body.String())
+	}
+	var res SlashCommandsResponse
+	if err := json.Unmarshal(getRec.Body.Bytes(), &res); err != nil {
+		t.Fatal(err)
+	}
+	byName := map[string]int{}
+	for _, cmd := range res.Commands {
+		byName[cmd.Name] = cmd.UsageCount
+	}
+	if byName["plan"] != 2 {
+		t.Errorf("plan usageCount = %d, want 2 (all=%v)", byName["plan"], byName)
+	}
+	if byName["bird-twitter"] != 1 {
+		t.Errorf("bird-twitter usageCount = %d, want 1 (all=%v)", byName["bird-twitter"], byName)
 	}
 }

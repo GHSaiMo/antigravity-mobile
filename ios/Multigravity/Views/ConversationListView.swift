@@ -398,8 +398,9 @@ public struct ConversationListView: View {
             Task {
                 async let projects = ProjectCacheManager.shared.fetchAndCacheProjects()
                 async let workflows: Void = WorkflowTemplateStore.shared.refresh()
+                async let launchpad: Void = LaunchpadShortcutsStore.shared.refresh()
                 async let mcp: Void = CacheManager.shared.fetchAndCacheMcpAndSkills()
-                _ = await (projects, workflows, mcp)
+                _ = await (projects, workflows, launchpad, mcp)
             }
         }
         .onReceive(NotificationCenter.default.publisher(for: .conversationDraftChanged)) { _ in
@@ -908,6 +909,12 @@ public struct ConversationListView: View {
         }
     }
 
+    private func handleDirectPureChatLongPress() {
+        UIImpactFeedbackGenerator(style: .medium).impactOccurred()
+        let session = CacheManager.shared.createLocalDraftSession(project: .pureChat)
+        openConversation(session.toConversationItem())
+    }
+
     private func handleNewConversationTapped() {
         guard let filter = viewModel.selectedWorkspaceFilter else {
             showNewConversation = true
@@ -1203,12 +1210,19 @@ public struct ConversationListView: View {
                     collapsedNavigationTitleView
                 }
                 ToolbarItem(placement: .topBarTrailing) {
-                    Button(action: handleNewConversationTapped) {
-                        Image(systemName: "plus")
-                            .font(.system(size: 16, weight: .semibold))
-                    }
-                    .keyboardShortcut("n", modifiers: .command)
-                    .help(viewModel.selectedWorkspaceFilter.map { String(localized: "在 \($0.displayName) 新建会话") } ?? String(localized: "新建会话"))
+                    ToolbarNewChatControl(
+                        accessibilityLabel: viewModel.selectedWorkspaceFilter.map { String(localized: "在 \($0.displayName) 新建会话") } ?? String(localized: "新建会话"),
+                        onTap: handleNewConversationTapped,
+                        onLongPress: handleDirectPureChatLongPress
+                    )
+                    .frame(width: 32, height: 32)
+                    .background(
+                        Button("") { handleNewConversationTapped() }
+                            .keyboardShortcut("n", modifiers: .command)
+                            .opacity(0)
+                            .frame(width: 0, height: 0)
+                    )
+                    .help(viewModel.selectedWorkspaceFilter.map { String(localized: "在 \($0.displayName) 新建会话（长按直接发起纯对话）") } ?? String(localized: "新建会话（长按直接发起纯对话）"))
                 }
             }
             .background(
@@ -4474,5 +4488,78 @@ private struct BranchChildSwipeRow<StatusBadge: View>: View {
             offsetX = 0
         }
         onSwipeStateChanged(false)
+    }
+}
+
+/// 首页右上角「+」原生导航栏按钮：
+/// - 基于 UIButton（真实 UIControl，天然避开 NavigationBarTapHelper 拦截并适配 Liquid Glass 药丸样式）
+/// - 轻点：走原有新建会话逻辑（选工作区或跟随当前筛选）
+/// - 长按（0.35s）：轻震反馈，直接跳过工作区选择弹窗，进入纯对话并默认唤起键盘。
+private struct ToolbarNewChatControl: UIViewRepresentable {
+    let accessibilityLabel: String
+    let onTap: () -> Void
+    let onLongPress: () -> Void
+
+    func makeCoordinator() -> Coordinator {
+        Coordinator(onTap: onTap, onLongPress: onLongPress)
+    }
+
+    func makeUIView(context: Context) -> UIButton {
+        let button = UIButton(type: .system)
+        let config = UIImage.SymbolConfiguration(pointSize: 16, weight: .semibold)
+        button.setImage(UIImage(systemName: "plus", withConfiguration: config), for: .normal)
+        button.tintColor = .label
+        button.accessibilityLabel = accessibilityLabel
+        button.accessibilityHint = String(localized: "轻点新建会话，长按直接发起纯对话")
+        button.addTarget(context.coordinator, action: #selector(Coordinator.handleTap), for: .touchUpInside)
+
+        let lp = UILongPressGestureRecognizer(target: context.coordinator, action: #selector(Coordinator.handleLongPress(_:)))
+        lp.minimumPressDuration = 0.35
+        lp.cancelsTouchesInView = true
+        button.addGestureRecognizer(lp)
+        return button
+    }
+
+    func updateUIView(_ uiView: UIButton, context: Context) {
+        context.coordinator.onTap = onTap
+        context.coordinator.onLongPress = onLongPress
+        uiView.accessibilityLabel = accessibilityLabel
+    }
+
+    final class Coordinator: NSObject {
+        var onTap: () -> Void
+        var onLongPress: () -> Void
+        private var suppressNextTap = false
+
+        init(onTap: @escaping () -> Void, onLongPress: @escaping () -> Void) {
+            self.onTap = onTap
+            self.onLongPress = onLongPress
+        }
+
+        @objc func handleTap() {
+            if suppressNextTap {
+                suppressNextTap = false
+                return
+            }
+            onTap()
+        }
+
+        @objc func handleLongPress(_ gesture: UILongPressGestureRecognizer) {
+            switch gesture.state {
+            case .began:
+                suppressNextTap = true
+                if let btn = gesture.view as? UIButton {
+                    btn.isHighlighted = false
+                    btn.cancelTracking(with: nil)
+                }
+                onLongPress()
+            case .ended, .cancelled, .failed:
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) { [weak self] in
+                    self?.suppressNextTap = false
+                }
+            default:
+                break
+            }
+        }
     }
 }

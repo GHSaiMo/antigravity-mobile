@@ -1014,17 +1014,31 @@ fun ChatScreen(
         }
     }
 
+    var hasAutoFocusedForSession by remember(cascadeId) { mutableStateOf(false) }
+    var initialKeyboardLatch by remember(cascadeId) { mutableStateOf(isNewConversation) }
+
+    LaunchedEffect(isImeVisible, isInputFocused) {
+        if (isImeVisible || isInputFocused) {
+            initialKeyboardLatch = false
+        }
+    }
+
     LaunchedEffect(cascadeId, isNewConversation) {
         enterSession()
         viewModel.refreshPermissionSettings()
         viewModel.refreshProjectTrust()
-        // Automatically focus the input field and pop up soft keyboard ONLY when launchpad is disabled
-        if (isNewConversation && uiState.pendingInteraction == null && !voicePrefs.newChatLaunchpadEnabled) {
-            delay(250)
-            try {
-                focusRequester.requestFocus()
-                keyboardController?.show()
-            } catch (_: Exception) {}
+        // Brand-new empty conversations immediately focus input & pop up keyboard without flicker.
+        if (isNewConversation && uiState.pendingInteraction == null && !hasAutoFocusedForSession) {
+            hasAutoFocusedForSession = true
+            delay(50)
+            if (initialKeyboardLatch && uiState.messages.isEmpty() && uiState.pendingInteraction == null) {
+                try {
+                    focusRequester.requestFocus()
+                    keyboardController?.show()
+                } catch (_: Exception) {}
+                delay(650)
+                initialKeyboardLatch = false
+            }
         }
     }
 
@@ -1650,16 +1664,21 @@ fun ChatScreen(
                             val isDraft = uiState.cascadeId.isBlank() || uiState.cascadeId.startsWith("local_draft_")
                             val isPure = uiState.workspaceName.isBlank() || uiState.workspaceName == "Chat"
                             NewChatLaunchpadView(
+                                cascadeId = uiState.cascadeId,
                                 title = uiState.title,
                                 workspaceName = uiState.workspaceName,
                                 isPureChat = isPure,
                                 isDraftConversation = isDraft,
                                 gitBranch = uiState.gitBranch,
                                 uncommittedFileCount = uiState.uncommittedFileCount,
-                                selectedQuotaBucket = selectedQuotaBucket,
                                 workflowTemplates = workflowTemplates,
-                                isKeyboardVisible = isImeVisible || isInputFocused,
+                                slashCommands = uiState.slashCommands,
+                                isImeVisible = isImeVisible,
+                                isInputFocused = isInputFocused,
+                                isAwaitingInitialAutoFocus = initialKeyboardLatch && uiState.pendingInteraction == null,
                                 onFillPrompt = { prompt ->
+                                    hasAutoFocusedForSession = true
+                                    initialKeyboardLatch = false
                                     viewModel.onInputTextChanged(prompt)
                                     if (prompt.contains("[") && prompt.contains("]")) {
                                         pendingSelectFirstPlaceholder = true
@@ -1669,19 +1688,29 @@ fun ChatScreen(
                                         keyboardController?.show()
                                     } catch (_: Exception) {}
                                 },
+                                onSelectSlashCommand = { cmd ->
+                                    hasAutoFocusedForSession = true
+                                    initialKeyboardLatch = false
+                                    if (cmd.name.equals("workflow", ignoreCase = true) && cmd.definitionPath.isNullOrBlank()) {
+                                        dismissKeyboard()
+                                        showWorkflowTemplateSheet = true
+                                    } else {
+                                        viewModel.selectSlashCommand(cmd)
+                                        try {
+                                            focusRequester.requestFocus()
+                                            keyboardController?.show()
+                                        } catch (_: Exception) {}
+                                    }
+                                },
                                 onSwitchWorkspace = {
+                                    hasAutoFocusedForSession = true
+                                    initialKeyboardLatch = false
                                     dismissKeyboard()
                                     onSwitchDraftWorkspace()
                                 },
-                                onOpenQuota = {
-                                    dismissKeyboard()
-                                    onOpenAccountQuota(0)
-                                },
-                                onOpenTokenHistory = {
-                                    dismissKeyboard()
-                                    onOpenAccountQuota(1)
-                                },
                                 onTapDirtyFiles = {
+                                    hasAutoFocusedForSession = true
+                                    initialKeyboardLatch = false
                                     if (!isDraft) {
                                         dismissKeyboard()
                                         viewModel.openGitSheet()
@@ -1693,7 +1722,18 @@ fun ChatScreen(
                                         } catch (_: Exception) {}
                                     }
                                 },
-                                onPrefetchTokenHistory = onPrefetchTokenHistory
+                                onDismissKeyboard = {
+                                    hasAutoFocusedForSession = true
+                                    initialKeyboardLatch = false
+                                    dismissKeyboard()
+                                },
+                                onOpenWorkflowTemplates = {
+                                    hasAutoFocusedForSession = true
+                                    initialKeyboardLatch = false
+                                    dismissKeyboard()
+                                    showWorkflowTemplateSheet = true
+                                },
+                                onPrefetchSlashCommands = { viewModel.ensureSlashCommands() }
                             )
                         } else {
                             ChatEmptyStateView(title = uiState.title)
@@ -2165,6 +2205,7 @@ fun ChatScreen(
                                 viewModel.stripTrailingSlashQuery()
                                 showWorkflowTemplateSheet = true
                             } else {
+                                com.antigravity.mobile.ui.components.SlashUsageLocalStore.record(context, it.name)
                                 viewModel.selectSlashCommand(it)
                             }
                         },

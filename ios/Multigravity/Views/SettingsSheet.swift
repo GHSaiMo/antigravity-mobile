@@ -233,6 +233,11 @@ public struct SettingsSheet: View {
                                 .lineLimit(1)
                         }
                     }
+
+                    Toggle("新建对话启动台", isOn: $settings.newChatLaunchpadEnabled)
+                        .onChange(of: settings.newChatLaunchpadEnabled) { _, _ in
+                            UIImpactFeedbackGenerator(style: .light).impactOccurred()
+                        }
                 }
                 .task {
                     await aiAssist.fetchStatus()
@@ -401,11 +406,6 @@ public struct SettingsSheet: View {
                                 .foregroundColor(.secondary)
                         }
                     }
-
-                    Toggle("新建对话启动台", isOn: $settings.newChatLaunchpadEnabled)
-                        .onChange(of: settings.newChatLaunchpadEnabled) { _, _ in
-                            UIImpactFeedbackGenerator(style: .light).impactOccurred()
-                        }
                 }
 
                 // MARK: - 6. 手势与使用技巧

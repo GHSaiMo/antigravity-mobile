@@ -2185,6 +2185,50 @@ final class DemoGateway: @unchecked Sendable {
         return (try? JSONEncoder().encode(resp)) ?? Data("{\"templates\":[]}".utf8)
     }
 
+    private static var demoLaunchpadCustomized = false
+    private static var demoLaunchpadItems: [LaunchpadShortcutItem] = []
+
+    func launchpadShortcutsPayload() -> Data {
+        lock.lock()
+        let resp = LaunchpadShortcutsResponse(
+            customized: Self.demoLaunchpadCustomized,
+            items: Self.demoLaunchpadItems,
+            updatedAt: Self.iso(Date())
+        )
+        lock.unlock()
+        return (try? JSONEncoder().encode(resp)) ?? Data("{\"customized\":false,\"items\":[]}".utf8)
+    }
+
+    func saveLaunchpadShortcuts(data: Data) -> Data {
+        struct Payload: Decodable {
+            let customized: Bool?
+            let items: [LaunchpadShortcutItem]
+        }
+        if let decoded = try? JSONDecoder().decode(Payload.self, from: data) {
+            lock.lock()
+            let trimmed = Array(decoded.items.prefix(4))
+            Self.demoLaunchpadItems = trimmed
+            Self.demoLaunchpadCustomized = (decoded.customized ?? !trimmed.isEmpty) && !trimmed.isEmpty
+            let resp = LaunchpadShortcutsResponse(
+                customized: Self.demoLaunchpadCustomized,
+                items: Self.demoLaunchpadItems,
+                updatedAt: Self.iso(Date())
+            )
+            lock.unlock()
+            return (try? JSONEncoder().encode(resp)) ?? Data("{\"customized\":false,\"items\":[]}".utf8)
+        }
+        return launchpadShortcutsPayload()
+    }
+
+    func resetLaunchpadShortcuts() -> Data {
+        lock.lock()
+        Self.demoLaunchpadCustomized = false
+        Self.demoLaunchpadItems = []
+        let resp = LaunchpadShortcutsResponse(customized: false, items: [], updatedAt: Self.iso(Date()))
+        lock.unlock()
+        return (try? JSONEncoder().encode(resp)) ?? Data("{\"customized\":false,\"items\":[]}".utf8)
+    }
+
     static func defaultDemoWorkflowTemplates() -> [WorkflowTemplateRecord] {
         var list = WorkflowTemplateDefaults.all
         if let first = list.first {

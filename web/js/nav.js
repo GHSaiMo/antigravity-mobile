@@ -257,17 +257,17 @@ function renderRoute() {
       if (prefillText) {
         chatInput.style.height = Math.min(chatInput.scrollHeight, 120) + "px";
       }
-      const launchpadEnabled = !(window.NewChatLaunchpadPrefs && !window.NewChatLaunchpadPrefs.isEnabled());
-      // 默认开启快捷启动台时不自动聚焦拉起软键盘；仅在关闭启动台或已有预填文本时聚焦。
-      if ((!launchpadEnabled || prefillText) && window.matchMedia && window.matchMedia("(pointer: fine)").matches) {
-        setTimeout(() => {
-          chatInput.focus();
-          if (prefillText && typeof chatInput.setSelectionRange === "function") {
-            const len = chatInput.value.length;
-            chatInput.setSelectionRange(len, len);
-          }
-        }, 120);
-      }
+      // 新建空草稿会话默认自动聚焦输入框，方便用户 0 额外点击直接开始任务输入
+      setTimeout(() => {
+        if (!activeDraftSession || activeCascadeId) return;
+        if (document.activeElement !== chatInput) {
+          try { chatInput.focus(); } catch (_) {}
+        }
+        if (prefillText && typeof chatInput.setSelectionRange === "function") {
+          const len = chatInput.value.length;
+          chatInput.setSelectionRange(len, len);
+        }
+      }, 60);
     }
     updateChatControls(false, activeDraftSession.isPure ? "" : activeDraftSession.uri, false);
   } else {
@@ -2138,7 +2138,7 @@ function initBottomStackObserver() {
 }
 
 // ==========================================================================
-// 新建对话轻启动台 (方案 A · 与 iOS / Android 统一规范)
+// 新建对话双态启动台（默认速发聚焦 2×2 + 全屏探索配置 2×4，与 iOS / Android 对齐）
 // ==========================================================================
 
 window.NewChatLaunchpadPrefs = {
@@ -2150,6 +2150,353 @@ window.NewChatLaunchpadPrefs = {
 const _launchpadDraftGitCache = {};
 let _launchpadKeyboardFocused = false;
 let _launchpadListenersBound = false;
+let _launchpadShuffleSeed = Math.floor(Math.random() * 999999) + 1;
+let _launchpadLastDraftKey = "";
+let _launchpadDesktopExploreMode = false;
+
+const _LP_LOCAL_SLASH_KEY = "mgy_local_slash_usage_v1";
+const _LP_SHORTCUTS_CACHE_KEY = "mgy_launchpad_shortcuts_v1";
+const _LP_MAX_SLOTS = 4;
+const _LP_MID_CHAT_EXCLUDED = new Set(["compact", "btw", "schedule", "browser"]);
+
+function _loadLocalSlashUsage() {
+  try {
+    const raw = localStorage.getItem(_LP_LOCAL_SLASH_KEY);
+    const parsed = raw ? JSON.parse(raw) : {};
+    return parsed && typeof parsed === "object" ? parsed : {};
+  } catch {
+    return {};
+  }
+}
+
+window.recordLocalSlashUsage = function (name) {
+  const clean = String(name || "").trim().replace(/^\/+/, "").toLowerCase();
+  if (!clean) return;
+  try {
+    const map = _loadLocalSlashUsage();
+    map[clean] = (Number(map[clean]) || 0) + 1;
+    localStorage.setItem(_LP_LOCAL_SLASH_KEY, JSON.stringify(map));
+  } catch {}
+};
+
+function _normalizeShortcutItem(item) {
+  if (!item || typeof item !== "object") return null;
+  const kind = String(item.kind || "").trim().toLowerCase();
+  if (!["workflow", "slash", "skill", "prompt"].includes(kind)) return null;
+  let ref = String(item.ref || "").trim();
+  if (kind === "slash" || kind === "skill") {
+    ref = ref.replace(/^\/+/, "").toLowerCase();
+  }
+  if (!ref) return null;
+  return {
+    kind,
+    ref,
+    title: item.title ? String(item.title).trim() : "",
+    subtitle: item.subtitle ? String(item.subtitle).trim() : "",
+    svgKey: item.svgKey ? String(item.svgKey).trim() : "",
+    tint: item.tint ? String(item.tint).trim() : ""
+  };
+}
+
+function _shortcutStableId(item) {
+  return `${String(item?.kind || "").toLowerCase()}:${String(item?.ref || "").replace(/^\/+/, "").toLowerCase()}`;
+}
+
+window.LaunchpadShortcutsStore = (() => {
+  let state = { customized: false, items: [] };
+  let loaded = false;
+  let fetchedOnce = false;
+
+  function loadLocal() {
+    if (loaded) return state;
+    loaded = true;
+    try {
+      const raw = localStorage.getItem(_LP_SHORTCUTS_CACHE_KEY);
+      if (raw) {
+        const parsed = JSON.parse(raw);
+        const list = Array.isArray(parsed?.items)
+          ? parsed.items.map(_normalizeShortcutItem).filter(Boolean).slice(0, _LP_MAX_SLOTS)
+          : [];
+        const custom = !!parsed?.customized && list.length > 0;
+        state = { customized: custom, items: custom ? list : [] };
+      }
+    } catch {}
+    return state;
+  }
+
+  function saveLocal(next) {
+    state = next;
+    try {
+      localStorage.setItem(_LP_SHORTCUTS_CACHE_KEY, JSON.stringify(next));
+    } catch {}
+  }
+
+  function isPinned(kind, ref) {
+    loadLocal();
+    const id = _shortcutStableId({ kind, ref });
+    return state.items.some((x) => _shortcutStableId(x) === id);
+  }
+
+  async function refresh(force = false) {
+    loadLocal();
+    if (fetchedOnce && !force) return state;
+    fetchedOnce = true;
+    try {
+      const resp = await fetch("/gateway/launchpad-shortcuts");
+      if (!resp.ok) return state;
+      const data = await resp.json();
+      const list = Array.isArray(data?.items)
+        ? data.items.map(_normalizeShortcutItem).filter(Boolean).slice(0, _LP_MAX_SLOTS)
+        : [];
+      const custom = !!data?.customized && list.length > 0;
+      const next = { customized: custom, items: custom ? list : [] };
+      if (JSON.stringify(next) !== JSON.stringify(state)) {
+        saveLocal(next);
+        window.refreshNewChatLaunchpad?.();
+      }
+    } catch {}
+    return state;
+  }
+
+  async function applyAndSync(rawList, customized) {
+    loadLocal();
+    const dedup = [];
+    const seen = new Set();
+    for (const raw of rawList || []) {
+      const norm = _normalizeShortcutItem(raw);
+      if (!norm) continue;
+      const id = _shortcutStableId(norm);
+      if (seen.has(id)) continue;
+      seen.add(id);
+      dedup.push(norm);
+      if (dedup.length >= _LP_MAX_SLOTS) break;
+    }
+    const effectiveCustom = !!customized && dedup.length > 0;
+    const next = { customized: effectiveCustom, items: effectiveCustom ? dedup : [] };
+    saveLocal(next);
+    window.refreshNewChatLaunchpad?.();
+
+    try {
+      const resp = effectiveCustom
+        ? await fetch("/gateway/launchpad-shortcuts", {
+            method: "PUT",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ customized: true, items: next.items })
+          })
+        : await fetch("/gateway/launchpad-shortcuts", { method: "DELETE" });
+      if (resp.ok) {
+        const data = await resp.json();
+        const serverList = Array.isArray(data?.items)
+          ? data.items.map(_normalizeShortcutItem).filter(Boolean).slice(0, _LP_MAX_SLOTS)
+          : [];
+        const serverCustom = !!data?.customized && serverList.length > 0;
+        const synced = { customized: serverCustom, items: serverCustom ? serverList : [] };
+        if (JSON.stringify(synced) !== JSON.stringify(state)) {
+          saveLocal(synced);
+          window.refreshNewChatLaunchpad?.();
+        }
+      }
+    } catch {}
+    return state;
+  }
+
+  function pin(item) {
+    loadLocal();
+    const norm = _normalizeShortcutItem(item);
+    if (!norm) return { status: "invalid" };
+    if (isPinned(norm.kind, norm.ref)) return { status: "already" };
+    if (state.items.length >= _LP_MAX_SLOTS) return { status: "full" };
+    const next = state.items.concat([norm]);
+    applyAndSync(next, true);
+    return { status: "added", count: next.length };
+  }
+
+  function unpin(kind, ref) {
+    loadLocal();
+    const id = _shortcutStableId({ kind, ref });
+    const next = state.items.filter((x) => _shortcutStableId(x) !== id);
+    applyAndSync(next, next.length > 0);
+  }
+
+  function removeAt(idx) {
+    loadLocal();
+    if (idx < 0 || idx >= state.items.length) return;
+    const next = state.items.slice();
+    next.splice(idx, 1);
+    applyAndSync(next, next.length > 0);
+  }
+
+  function replaceAt(idx, item) {
+    loadLocal();
+    const norm = _normalizeShortcutItem(item);
+    if (!norm || idx < 0 || idx >= state.items.length) return;
+    const id = _shortcutStableId(norm);
+    const next = state.items.filter((x) => _shortcutStableId(x) !== id);
+    const safeIdx = Math.min(idx, next.length);
+    if (next.length >= _LP_MAX_SLOTS && safeIdx < next.length) {
+      next[safeIdx] = norm;
+    } else if (next.length < _LP_MAX_SLOTS) {
+      next.splice(safeIdx, 0, norm);
+    }
+    applyAndSync(next.slice(0, _LP_MAX_SLOTS), next.length > 0);
+  }
+
+  function move(fromIdx, toIdx) {
+    loadLocal();
+    if (fromIdx < 0 || fromIdx >= state.items.length || toIdx < 0 || toIdx >= state.items.length || fromIdx === toIdx) return;
+    const next = state.items.slice();
+    const [moved] = next.splice(fromIdx, 1);
+    next.splice(toIdx, 0, moved);
+    applyAndSync(next, true);
+  }
+
+  function reset() {
+    applyAndSync([], false);
+  }
+
+  return {
+    getState: () => loadLocal(),
+    isPinned,
+    refresh,
+    pin,
+    unpin,
+    removeAt,
+    replaceAt,
+    move,
+    reset
+  };
+})();
+
+// 启动台专属 24×24 矢量 SVG 图标目录（与 iOS / Android 像素对齐，全程严禁洋红）
+const _LP_SVG_PATHS = {
+  slash_plan: "M 8 4.5 L 16 4.5 C 17.1 4.5 18 5.4 18 6.5 L 18 19 C 18 20.1 17.1 21 16 21 L 8 21 C 6.9 21 6 20.1 6 19 L 6 6.5 C 6 5.4 6.9 4.5 8 4.5 Z M 9.5 3 L 14.5 3 L 14.5 6 L 9.5 6 Z M 9 11 L 10.6 12.6 L 13.5 9.7 M 9 16 L 15 16",
+  slash_grill: "M 4 6.5 C 4 5.1 5.1 4 6.5 4 L 14.5 4 C 15.9 4 17 5.1 17 6.5 L 17 11.5 C 17 12.9 15.9 14 14.5 14 L 9 14 L 5.5 16.8 L 5.5 14 C 4.6 13.5 4 12.6 4 11.5 Z M 17 9.5 L 18 9.5 C 19.1 9.5 20 10.4 20 11.5 L 20 16 C 20 17.1 19.1 18 18 18 L 17.5 18 L 17.5 20.5 L 14.3 18 L 11 18",
+  slash_boost: "M 13.2 2.5 L 5.2 13 L 11.6 13 L 10.4 21.5 L 18.8 11 L 12.4 11 Z",
+  slash_goal: "M 12 3.5 C 16.7 3.5 20.5 7.3 20.5 12 C 20.5 16.7 16.7 20.5 12 20.5 C 7.3 20.5 3.5 16.7 3.5 12 C 3.5 7.3 7.3 3.5 12 3.5 Z M 12 7.5 C 14.5 7.5 16.5 9.5 16.5 12 C 16.5 14.5 14.5 16.5 12 16.5 C 9.5 16.5 7.5 14.5 7.5 12 C 7.5 9.5 9.5 7.5 12 7.5 Z M 12 10.8 C 12.7 10.8 13.2 11.3 13.2 12 C 13.2 12.7 12.7 13.2 12 13.2 C 11.3 13.2 10.8 12.7 10.8 12 C 10.8 11.3 11.3 10.8 12 10.8 Z",
+  slash_teamwork: "M 12 3.5 C 13.6 3.5 14.8 4.7 14.8 6.3 C 14.8 7.9 13.6 9.1 12 9.1 C 10.4 9.1 9.2 7.9 9.2 6.3 C 9.2 4.7 10.4 3.5 12 3.5 Z M 5.8 15 C 7.2 15 8.3 16.1 8.3 17.5 C 8.3 18.9 7.2 20 5.8 20 C 4.4 20 3.3 18.9 3.3 17.5 C 3.3 16.1 4.4 15 5.8 15 Z M 18.2 15 C 19.6 15 20.7 16.1 20.7 17.5 C 20.7 18.9 19.6 20 18.2 20 C 16.8 20 15.7 18.9 15.7 17.5 C 15.7 16.1 16.8 15 18.2 15 Z M 10.4 8.8 L 7.2 15.2 M 13.6 8.8 L 16.8 15.2 M 8.3 17.5 L 15.7 17.5",
+  slash_swarm: "M 12 3 L 16.2 5.4 L 16.2 10.2 L 12 12.6 L 7.8 10.2 L 7.8 5.4 Z M 7.8 10.2 L 12 12.6 L 12 17.4 L 7.8 19.8 L 3.6 17.4 L 3.6 12.6 Z M 16.2 10.2 L 20.4 12.6 L 20.4 17.4 L 16.2 19.8 L 12 17.4 L 12 12.6 Z",
+  slash_workflow: "M 4 5.5 C 4 4.7 4.7 4 5.5 4 L 9.5 4 C 10.3 4 11 4.7 11 5.5 L 11 8.5 C 11 9.3 10.3 10 9.5 10 L 5.5 10 C 4.7 10 4 9.3 4 8.5 Z M 13 15.5 C 13 14.7 13.7 14 14.5 14 L 18.5 14 C 19.3 14 20 14.7 20 15.5 L 20 18.5 C 20 19.3 19.3 20 18.5 20 L 14.5 20 C 13.7 20 13 19.3 13 18.5 Z M 11 7 L 15.5 7 C 16.3 7 16.5 7.5 16.5 8.5 L 16.5 14 M 7.5 10 L 7.5 15.5 C 7.5 16.5 8.2 17 9 17 L 13 17",
+  slash_learn: "M 9 17.5 L 15 17.5 M 9.8 20.5 L 14.2 20.5 M 9.5 14.5 C 7.2 13.2 6 11 6 8.8 C 6 5.5 8.7 3 12 3 C 15.3 3 18 5.5 18 8.8 C 18 11 16.8 13.2 14.5 14.5 L 14.5 15.5 L 9.5 15.5 Z",
+  slash_automation: "M 12 4 C 16.4 4 20 7.6 20 12 C 20 16.4 16.4 20 12 20 C 7.6 20 4 16.4 4 12 C 4 9.4 5.2 7.1 7.2 5.6 M 4.2 5.2 L 7.6 5.2 L 7.6 8.6 M 12 7.5 L 12 12 L 15.2 13.8",
+  slash_skill: "M 6.2 7.2 L 9.2 7.2 C 7.6 3.4 14.0 3.4 12.4 7.2 L 15.4 7.2 C 16.2 7.2 16.8 7.8 16.8 8.6 L 16.8 11.6 C 20.6 10.0 20.6 16.4 16.8 14.8 L 16.8 17.8 C 16.8 18.6 16.2 19.2 15.4 19.2 L 6.2 19.2 C 5.4 19.2 4.8 18.6 4.8 17.8 L 4.8 8.6 C 4.8 7.8 5.4 7.2 6.2 7.2 Z",
+  custom_pin: "M 9 4 L 15 4 L 14.2 10 L 17.2 12.8 L 17.2 14.5 L 6.8 14.5 L 6.8 12.8 L 9.8 10 Z M 12 14.5 L 12 20.5",
+  shuffle_refresh: "M 4 7.5 L 8.2 7.5 C 10.2 7.5 11.4 9.2 12.4 11.2 L 13.2 12.8 C 14.2 14.8 15.4 16.5 17.4 16.5 L 20 16.5 M 17.5 14 L 20 16.5 L 17.5 19 M 4 16.5 L 8.2 16.5 C 9.6 16.5 10.6 15.6 11.4 14.3 M 13.8 9.7 C 14.6 8.4 15.6 7.5 17.4 7.5 L 20 7.5 M 17.5 5 L 20 7.5 L 17.5 10",
+  prompt_fact_check: "M 12 3.5 C 16.7 3.5 20.5 7.3 20.5 12 C 20.5 16.7 16.7 20.5 12 20.5 C 7.3 20.5 3.5 16.7 3.5 12 C 3.5 7.3 7.3 3.5 12 3.5 Z M 3.8 12 L 20.2 12 M 12 3.5 C 14.4 6 15.6 8.8 15.6 12 C 15.6 15.2 14.4 18 12 20.5 C 9.6 18 8.4 15.2 8.4 12 C 8.4 8.8 9.6 6 12 3.5 Z",
+  prompt_draft: "M 15.8 4.2 L 19.8 8.2 L 9.2 18.8 L 4.5 19.5 L 5.2 14.8 Z M 13.4 6.6 L 17.4 10.6 M 13.5 19.5 L 20 19.5",
+  prompt_compare: "M 12 4 L 12 19.5 M 8 19.5 L 16 19.5 M 5 7.5 L 19 7.5 M 6.2 7.5 L 3.8 13.2 C 4.5 14.4 7.9 14.4 8.6 13.2 Z M 17.8 7.5 L 15.4 13.2 C 16.1 14.4 19.5 14.4 20.2 13.2 Z",
+  prompt_digest: "M 5.5 3.5 L 14.5 3.5 L 18.5 7.5 L 18.5 20.5 L 5.5 20.5 Z M 14.5 3.5 L 14.5 7.5 L 18.5 7.5 M 8.5 11.5 L 15.5 11.5 M 8.5 15 L 15.5 15 M 8.5 18 L 12.2 18",
+  prompt_research: "M 12 3.5 C 16.7 3.5 20.5 7.3 20.5 12 C 20.5 16.7 16.7 20.5 12 20.5 C 7.3 20.5 3.5 16.7 3.5 12 C 3.5 7.3 7.3 3.5 12 3.5 Z M 15.6 8.4 L 13.6 13.6 L 8.4 15.6 L 10.4 10.4 Z",
+  prompt_brainstorm: "M 4.5 6.5 L 6.3 8.3 L 9.5 5.1 M 12 7 L 19.5 7 M 4.5 12 L 6.3 13.8 L 9.5 10.6 M 12 12.5 L 19.5 12.5 M 4.5 17.5 L 6.3 19.3 L 9.5 16.1 M 12 18 L 17 18",
+  prompt_translate: "M 4 6.5 L 11.5 6.5 M 7.8 4.2 L 7.8 6.5 M 9.8 6.5 C 9.2 9.8 7.2 12.4 4.5 14 M 6.2 9.2 C 7.5 11 9.3 12.6 11.2 13.6 M 13.2 19.5 L 16.4 11 L 19.6 19.5 M 14.3 16.8 L 18.5 16.8",
+  prompt_notes: "M 4.5 5.5 L 19.5 5.5 L 19.5 9.5 L 4.5 9.5 Z M 6.5 9.5 L 6.5 18.5 C 6.5 19.3 7.2 20 8 20 L 16 20 C 16.8 20 17.5 19.3 17.5 18.5 L 17.5 9.5 M 9.5 13.5 L 14.5 13.5 M 9.5 16.5 L 13 16.5",
+  prompt_git_diff: "M 10.5 4.2 C 14 4.2 16.8 7 16.8 10.5 C 16.8 14 14 16.8 10.5 16.8 C 7 16.8 4.2 14 4.2 10.5 C 4.2 7 7 4.2 10.5 4.2 Z M 15.2 15.2 L 20 20 M 8.3 10.5 L 12.7 10.5 M 10.5 8.3 L 10.5 12.7",
+  prompt_arch: "M 12 3.8 L 20 8 L 12 12.2 L 4 8 Z M 4 12.2 L 12 16.4 L 20 12.2 M 4 16.2 L 12 20.4 L 20 16.2",
+  prompt_bug: "M 9 7.5 L 9 6.5 C 9 4.8 10.3 3.5 12 3.5 C 13.7 3.5 15 4.8 15 6.5 L 15 7.5 M 8.5 7.5 L 15.5 7.5 C 16.9 7.5 18 8.6 18 10 L 18 14 C 18 17.3 15.3 20 12 20 C 8.7 20 6 17.3 6 14 L 6 10 C 6 8.6 7.1 7.5 8.5 7.5 Z M 12 10.8 L 12 20 M 6 10.5 L 3 9 M 6 14 L 2.8 14 M 18 10.5 L 21 9 M 18 14 L 21.2 14",
+  prompt_refactor: "M 4.5 19.5 L 15.5 8.5 M 14.2 6.8 L 17.2 9.8 M 12 3.2 L 12 5.5 M 18.5 12 L 20.8 12 M 17.5 4.5 L 19 3 M 18.5 6.5 L 19.8 5.2 M 7 5 L 7.7 7.1 L 9.8 7.8 L 7.7 8.5 L 7 10.6 L 6.3 8.5 L 4.2 7.8 L 6.3 7.1 Z",
+  prompt_tests: "M 9.2 3.5 L 14.8 3.5 M 10.2 3.5 L 10.2 9.2 L 5.4 17.8 C 4.8 18.9 5.6 20.2 6.8 20.2 L 17.2 20.2 C 18.4 20.2 19.2 18.9 18.6 17.8 L 13.8 9.2 L 13.8 3.5 M 7.6 15.2 L 16.4 15.2",
+  prompt_git_log: "M 7 4 C 8.4 4 9.5 5.1 9.5 6.5 C 9.5 7.9 8.4 9 7 9 C 5.6 9 4.5 7.9 4.5 6.5 C 4.5 5.1 5.6 4 7 4 Z M 7 15 C 8.4 15 9.5 16.1 9.5 17.5 C 9.5 18.9 8.4 20 7 20 C 5.6 20 4.5 18.9 4.5 17.5 C 4.5 16.1 5.6 15 7 15 Z M 17.5 7 C 18.9 7 20 8.1 20 9.5 C 20 10.9 18.9 12 17.5 12 C 16.1 12 15 10.9 15 9.5 C 15 8.1 16.1 7 17.5 7 Z M 7 9 L 7 15 M 17.5 12 C 17.5 15.2 14.2 17.5 9.5 17.5",
+  prompt_security: "M 12 3 L 19 6 L 19 11.8 C 19 16.4 15.9 19.7 12 21 C 8.1 19.7 5 16.4 5 11.8 L 5 6 Z M 9.2 12.2 L 11.2 14.2 L 15.2 10",
+  prompt_changelog: "M 4.5 12.4 L 12.4 4.5 L 19.5 4.5 L 19.5 11.6 L 11.6 19.5 Z M 15.2 8.2 C 15.8 8.2 16.3 8.7 16.3 9.3 C 16.3 9.9 15.8 10.4 15.2 10.4 C 14.6 10.4 14.1 9.9 14.1 9.3 C 14.1 8.7 14.6 8.2 15.2 8.2 Z"
+};
+
+function _renderLaunchpadSvg(key, size = 14) {
+  let d = null;
+  if (typeof key === "string" && key.startsWith("wf:") && typeof WORKFLOW_ICON_CATALOG !== "undefined") {
+    const wfKey = typeof normalizeWorkflowIconKey === "function" ? normalizeWorkflowIconKey(key.slice(3)) : key.slice(3);
+    const hit = WORKFLOW_ICON_CATALOG.find((ic) => ic.key === wfKey) || WORKFLOW_ICON_CATALOG[0];
+    d = hit?.path;
+  }
+  if (!d) d = _LP_SVG_PATHS[key] || _LP_SVG_PATHS.slash_skill;
+  return `<svg width="${size}" height="${size}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.95" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="${d}"></path></svg>`;
+}
+
+const _LP_CORE_SLASH_POOL = [
+  { name: "plan", svg: "slash_plan", tintName: "blue", tint: "#3b82f6", zh: "/plan 方案规划", en: "/plan Architect", ja: "/plan 実装計画", sZh: "先出步骤与风险，确认再动手", sEn: "Align steps & risks before editing", sJa: "手順とリスクを固めてから着手", fallbackIcon: "ballot" },
+  { name: "grill-me", svg: "slash_grill", tintName: "indigo", tint: "#6366f1", zh: "/grill-me 追问对齐", en: "/grill-me Clarify", ja: "/grill-me 深掘り", sZh: "逐轮反向提问，拆清模糊想法", sEn: "Interactive Q&A to sharpen ideas", sJa: "逆質問で曖昧な要件を明確化", fallbackIcon: "forum" },
+  { name: "boost", svg: "slash_boost", tintName: "amber", tint: "#f59e0b", zh: "/boost 深度攻坚", en: "/boost Deep Think", ja: "/boost 徹底推論", sZh: "多视角深度推理与严格验证", sEn: "Deep multi-angle reasoning & checks", sJa: "多角的な深い推論と厳格検証", fallbackIcon: "bolt" },
+  { name: "goal", svg: "slash_goal", tintName: "emerald", tint: "#22c55e", zh: "/goal 自律闭环", en: "/goal Autonomous", ja: "/goal 自律達成", sZh: "持续迭代自检，达标才收工", sEn: "Iterate & self-verify until done", sJa: "目標達成まで自律検証を継続", fallbackIcon: "timer" },
+  { name: "teamwork", svg: "slash_teamwork", tintName: "cyan", tint: "#06b6d4", zh: "/teamwork 团队协作", en: "/teamwork Agents", ja: "/teamwork 連携", sZh: "多角色子 Agent 分工推进大任务", sEn: "Coordinate specialist subagents", sJa: "複数エージェントで分担推進", fallbackIcon: "graph_2" },
+  { name: "swarm", svg: "slash_swarm", tintName: "amber", tint: "#f59e0b", zh: "/swarm 蜂群并发", en: "/swarm Parallel", ja: "/swarm 並列群", sZh: "共享消息板多 Agent 协同攻坚", sEn: "Shared board for parallel workers", sJa: "共有ボードで並列エージェント実行", fallbackIcon: "hub" },
+  { name: "workflow", svg: "slash_workflow", tintName: "teal", tint: "#14b8a6", zh: "/workflow 编排流程", en: "/workflow Pipeline", ja: "/workflow 編成", sZh: "并行或流水线批量执行多阶段任务", sEn: "Orchestrate staged agent pipelines", sJa: "多段階ワークフローを一括編成", fallbackIcon: "graph_2" },
+  { name: "learn", svg: "slash_learn", tintName: "amber", tint: "#f59e0b", zh: "/learn 沉淀经验", en: "/learn Persist", ja: "/learn 知見定着", sZh: "将踩坑与规范固化，后续自动生效", sEn: "Save lessons & rules for future chats", sJa: "学びやルールを今後の会話に定着", fallbackIcon: "lightbulb_2" },
+  { name: "automation", svg: "slash_automation", tintName: "blue", tint: "#3b82f6", zh: "/automation 定时任务", en: "/automation Cron", ja: "/automation 定期", sZh: "创建周期巡检或定时提醒任务", sEn: "Create recurring background schedules", sJa: "定期巡回やリマインドを自動化", fallbackIcon: "schedule" }
+];
+
+const _LP_PURE_PROMPT_POOL = [
+  { id: "pure_fact_check", svg: "prompt_fact_check", tintName: "blue", tint: "#3b82f6", zh: "联网核查资讯", en: "Web Fact-Check", ja: "最新情報を検証", sZh: "交叉验证最新进展与来源", sEn: "Verify latest updates & sources", sJa: "信頼できる情報源で事実確認", pZh: "请帮我联网核查以下消息的最新进展，并附上权威来源交叉印证：", pEn: "Please verify the latest updates and cross-check reliable sources for: ", pJa: "以下の件の最新状況と信頼できる情報源を突き合わせて確認してください：" },
+  { id: "pure_draft", svg: "prompt_draft", tintName: "teal", tint: "#14b8a6", zh: "起草与润色", en: "Draft & Polish", ja: "下書き・推敲", sZh: "文章 / 公告 / 邮件 / 提纲", sEn: "Articles, notes, emails & outlines", sJa: "記事・お知らせ・メール・構成案", pZh: "帮我起草并润色一段清晰自然的内容，主题是：", pEn: "Help me draft and polish a clear, natural piece about: ", pJa: "次のテーマについて自然で分かりやすい文章を作成・推敲してください：" },
+  { id: "pure_compare", svg: "prompt_compare", tintName: "amber", tint: "#f59e0b", zh: "多维方案对比", en: "Compare Options", ja: "多角的に比較", sZh: "权衡利弊、成本与风险", sEn: "Weigh pros, cons, cost & risk", sJa: "利点・コスト・リスクを比較整理", pZh: "请从利弊、成本与风险角度对比以下方案，并给出建议：", pEn: "Please compare these options across pros, cons, cost, and risk, then recommend one: ", pJa: "以下の案をメリット・コスト・リスクの観点で比較し、推奨案を示してください：" },
+  { id: "pure_digest", svg: "prompt_digest", tintName: "indigo", tint: "#6366f1", zh: "长文精读提炼", en: "Distill Long Text", ja: "長文の要点抽出", sZh: "抓核心结论与关键数据", sEn: "Extract key takeaways & figures", sJa: "核心結論と重要データを整理", pZh: "请帮我精读下面内容，提炼核心结论、关键数据与潜在漏洞：", pEn: "Please read the following closely and extract key conclusions, data, and blind spots: ", pJa: "以下の内容を精読し、核心結論・主要データ・見落としを抽出してください：" },
+  { id: "pure_research", svg: "prompt_research", tintName: "cyan", tint: "#06b6d4", zh: "深度专题调研", en: "Topic Deep Dive", ja: "テーマ徹底調査", sZh: "梳理来龙去脉与现状趋势", sEn: "Map background, status & trends", sJa: "背景・現状・今後の動向を整理", pZh: "请帮我做一次系统的专题调研，梳理背景、现状与关键趋势：", pEn: "Please run a structured deep dive covering background, current state, and key trends on: ", pJa: "次のテーマについて背景・現状・主要トレンドを体系的に調査してください：" },
+  { id: "pure_brainstorm", svg: "prompt_brainstorm", tintName: "emerald", tint: "#22c55e", zh: "拆解模糊想法", en: "Shape Rough Ideas", ja: "アイデア具体化", sZh: "把灵感变成可执行清单", sEn: "Turn sparks into action checklists", sJa: "着想を実行可能な手順へ分解", pZh: "我有一个初步想法，请帮我拆解关键问题并整理成行动清单：", pEn: "I have a rough idea—help me break down the key questions into an actionable checklist: ", pJa: "まだ曖昧なアイデアがあります。論点を分解し実行リストに整理してください：" },
+  { id: "pure_translate", svg: "prompt_translate", tintName: "blue", tint: "#3b82f6", zh: "地道翻译润色", en: "Natural Translation", ja: "自然な翻訳推敲", sZh: "保留原意与语境的自然表达", sEn: "Idiomatic phrasing with exact nuance", sJa: "ニュアンスを保った自然な表現", pZh: "请将下面内容地道地翻译并润色，保持自然专业语气：", pEn: "Please translate and polish the following naturally while preserving nuance and tone: ", pJa: "以下の内容を元の意図と専門的なトーンを保って自然に翻訳・推敲してください：" },
+  { id: "pure_notes", svg: "prompt_notes", tintName: "teal", tint: "#14b8a6", zh: "零散记录整理", en: "Organize Notes", ja: "メモを構造化", sZh: "转成结构化纪要与待办", sEn: "Structure minutes, decisions & TODOs", sJa: "議事録・決定事項・TODO化", pZh: "请把以下零散记录整理成结构化纪要，列出结论与下一步待办：", pEn: "Please turn these rough notes into structured minutes with decisions and next actions: ", pJa: "以下の断片メモを構造化し、結論と次のアクション一覧にまとめてください：" }
+];
+
+const _LP_WS_PROMPT_POOL = [
+  { id: "ws_git_diff", svg: "prompt_git_diff", tintName: "amber", tint: "#f59e0b", requiresDirty: true, zh: "审查未提交改动", en: "Review Dirty Diff", ja: "未コミット変更確認", sZh: "检查 git diff 风险与优化", sEn: "Inspect git diff risks & fixes", sJa: "git diff のリスクと改善確認", pZh: "请先检查当前未提交的改动，指出潜在风险并给出优化建议", pEn: "Please review the current uncommitted changes, highlight potential risks, and suggest improvements", pJa: "現在の未コミット変更を確認し、潜在リスクと改善案を教えてください" },
+  { id: "ws_arch", svg: "prompt_arch", tintName: "indigo", tint: "#6366f1", zh: "梳理项目架构", en: "Map Architecture", ja: "構成を把握", sZh: "快速定位核心模块与入口", sEn: "Find core modules & entry points", sJa: "主要モジュールと入口を整理", pZh: "请先梳理这个工作区的整体架构、核心模块分工与关键入口文件", pEn: "Please map out the overall architecture, core modules, and key entry points of this workspace", pJa: "このワークスペースの全体構造、主要モジュール、エントリポイントを整理してください" },
+  { id: "ws_bug", svg: "prompt_bug", tintName: "coral", tint: "#ef4444", zh: "定位排查 Bug", en: "Debug Root Cause", ja: "バグ原因調査", sZh: "结合代码与日志追查根因", sEn: "Trace root cause from code & logs", sJa: "コードとログから根本原因特定", pZh: "请帮我排查并定位以下问题的根因，先分析再给修复方案：", pEn: "Please investigate and find the root cause of this issue before proposing a fix: ", pJa: "以下の問題の根本原因を分析し、修正案を提示してください：" },
+  { id: "ws_refactor", svg: "prompt_refactor", tintName: "teal", tint: "#14b8a6", zh: "代码优化重构", en: "Refactor & Polish", ja: "最適化・改善", sZh: "提升可读性、性能与稳定性", sEn: "Improve clarity, speed & stability", sJa: "可読性・性能・安定性を改善", pZh: "请分析当前模块可优化的设计点，给出轻量低侵入的重构方案：", pEn: "Please identify improvements in the current module and propose a low-impact refactor: ", pJa: "現在のモジュールの改善点を分析し、低侵襲なリファクタ案を提案してください：" },
+  { id: "ws_tests", svg: "prompt_tests", tintName: "emerald", tint: "#22c55e", zh: "补全单元测试", en: "Add Unit Tests", ja: "単体テスト追加", sZh: "覆盖核心路径与边界条件", sEn: "Cover core flows & edge cases", sJa: "主要経路と境界ケースを網羅", pZh: "请为以下模块补充单元测试，重点覆盖异常分支与边界情况：", pEn: "Please add high-value unit tests focusing on edge cases and error paths for: ", pJa: "以下のモジュールに異常系・境界条件を重視した単体テストを追加してください：" },
+  { id: "ws_git_log", svg: "prompt_git_log", tintName: "cyan", tint: "#06b6d4", zh: "速览近期提交", en: "Summarize Commits", ja: "直近コミット要約", sZh: "总结最近变更与影响范围", sEn: "Recap recent git log & blast radius", sJa: "最近の変更点と影響範囲を把握", pZh: "请结合最近的 git log 梳理近期核心改动，并评估影响范围：", pEn: "Please summarize recent key commits from git log and assess their impact area: ", pJa: "最近の git log から主な変更点を要約し、影響範囲を評価してください：" },
+  { id: "ws_security", svg: "prompt_security", tintName: "amber", tint: "#f59e0b", zh: "安全隐患体检", en: "Security Checkup", ja: "セキュリティ点検", sZh: "排查权限、输入与异常兜底", sEn: "Audit auth, inputs & error handling", sJa: "権限・入力検証・例外処理を確認", pZh: "请对当前工作区关键链路做一次轻量安全与健壮性检查：", pEn: "Please perform a lightweight security and resilience audit on the critical paths here: ", pJa: "このワークスペースの重要経路について軽量なセキュリティ・堅牢性チェックを行ってください：" },
+  { id: "ws_changelog", svg: "prompt_changelog", tintName: "blue", tint: "#3b82f6", zh: "生成变更说明", en: "Draft Changelog", ja: "変更履歴を作成", sZh: "整理发版日志或 PR 描述", sEn: "Write release notes or PR summary", sJa: "リリースノートや PR 概要を整形", pZh: "请基于当前分支近期改动，整理一份简洁清晰的变更说明：", pEn: "Please draft clear, concise release notes or a PR summary from recent branch changes: ", pJa: "現在のブランチの直近変更から簡潔な変更履歴・PR説明を作成してください：" }
+];
+
+const _LP_ALL_PROMPTS = _LP_PURE_PROMPT_POOL.concat(_LP_WS_PROMPT_POOL);
+
+function _lpTintColor(colorKey) {
+  switch (String(colorKey || "").toLowerCase()) {
+    case "indigo":
+    case "purple": return "#5e5ce6";
+    case "green":
+    case "emerald": return "#30d158";
+    case "blue": return "#0a84ff";
+    case "teal": return "#30b0c7";
+    case "cyan": return "#06b6d4";
+    case "red":
+    case "coral": return "#ff453a";
+    case "orange":
+    case "amber": return "#ff9f0a";
+    default: return "#5e5ce6";
+  }
+}
+
+function _lpSafeTintName(colorKey) {
+  switch (String(colorKey || "").toLowerCase()) {
+    case "indigo":
+    case "purple": return "indigo";
+    case "green":
+    case "emerald": return "green";
+    case "blue": return "blue";
+    case "teal": return "teal";
+    case "cyan": return "cyan";
+    case "red":
+    case "coral": return "red";
+    case "orange":
+    case "amber": return "orange";
+    default: return "indigo";
+  }
+}
+
+function _lpDeterministicShuffle(items, seed) {
+  if (!Array.isArray(items) || items.length <= 1) return items.slice();
+  const arr = items.slice();
+  let state = ((seed || 1) >>> 0) || 1;
+  for (let i = arr.length - 1; i > 0; i--) {
+    state = (Math.imul(state, 1664525) + 1013904223) >>> 0;
+    const j = state % (i + 1);
+    const tmp = arr[i];
+    arr[i] = arr[j];
+    arr[j] = tmp;
+  }
+  return arr;
+}
+
+function _isMobileTouchLayout() {
+  return window.innerWidth <= 820;
+}
 
 function _bindLaunchpadKeyboardListeners() {
   if (_launchpadListenersBound) return;
@@ -2157,7 +2504,7 @@ function _bindLaunchpadKeyboardListeners() {
   const inputEl = document.getElementById("chat-input");
   if (!inputEl) return;
   inputEl.addEventListener("focus", () => {
-    if (window.innerWidth <= 820) {
+    if (_isMobileTouchLayout()) {
       _launchpadKeyboardFocused = true;
       window.refreshNewChatLaunchpad?.();
     }
@@ -2170,128 +2517,499 @@ function _bindLaunchpadKeyboardListeners() {
   });
 }
 
-function _launchpadGreeting(accountName, compact) {
-  const hour = new Date().getHours();
-  const isEnLang = typeof isEn === "function" && isEn();
-  const isJaLang = typeof isJa === "function" && isJa();
-  const period = hour >= 5 && hour < 12
-    ? (isEnLang ? "Good morning" : (isJaLang ? "おはようございます" : "上午好"))
-    : (hour >= 12 && hour < 18
-      ? (isEnLang ? "Good afternoon" : (isJaLang ? "こんにちは" : "下午好"))
-      : (isEnLang ? "Good evening" : (isJaLang ? "こんばんは" : "晚上好")));
-  const raw = (accountName || "").trim();
-  const shortName = raw ? raw.split(/\s+/)[0] : "";
-  if (compact) {
-    return shortName ? `${period}, ${shortName}` : period;
+function _showLaunchpadToast(message) {
+  let el = document.getElementById("lp-toast-banner");
+  if (!el) {
+    el = document.createElement("div");
+    el.id = "lp-toast-banner";
+    el.className = "lp-toast-banner";
+    document.body.appendChild(el);
   }
-  if (isEnLang) return shortName ? `${period}, what's next, ${shortName}?` : `${period}, what's next?`;
-  if (isJaLang) return shortName ? `${period}、${shortName}さん。次は何をしますか？` : `${period}、次は何をしますか？`;
-  return shortName ? `${period}，接下来做什么，${shortName}？` : `${period}，接下来做什么？`;
+  el.textContent = message;
+  el.classList.add("visible");
+  clearTimeout(el.__hideTimer);
+  el.__hideTimer = setTimeout(() => {
+    el.classList.remove("visible");
+  }, 1900);
 }
 
-function _buildLaunchpadCards(isPure, dirtyCount) {
-  const tr = (s) => (typeof t === "function" ? t(s) : s);
+function _buildLaunchpadData(isPure, dirtyCount) {
   const isEnLang = typeof isEn === "function" && isEn();
   const isJaLang = typeof isJa === "function" && isJa();
-  const cards = [];
+  const pick3 = (zh, en, ja) => (isEnLang ? en : (isJaLang ? ja : zh));
 
-  if (!isPure) {
-    if (dirtyCount > 0) {
-      cards.push({
-        icon: "🔍",
-        title: isEnLang ? `Review ${dirtyCount} changes` : (isJaLang ? `変更 ${dirtyCount} 件をレビュー` : `审查当前 ${dirtyCount} 个改动`),
-        sub: isEnLang ? "Inspect git diff & suggestions" : (isJaLang ? "git diff のリスクと改善確認" : "检查 git diff 风险与优化"),
-        prompt: isEnLang
-          ? "Please review the current uncommitted changes, highlight potential risks, and suggest improvements"
-          : (isJaLang ? "未コミットの変更点を確認し、潜在リスクと改善案を教えてください" : "请先检查当前未提交的改动，指出潜在风险并给出优化建议")
-      });
-    } else {
-      cards.push({
-        icon: "🧭",
-        title: isEnLang ? "Map Project Structure" : (isJaLang ? "プロジェクト構造を把握" : "梳理项目结构"),
-        sub: isEnLang ? "Find core modules & entry points" : (isJaLang ? "主要モジュールと入口を整理" : "快速定位核心模块与入口"),
-        prompt: isEnLang
-          ? "Please map out the core modules and key entry points of this workspace"
-          : (isJaLang ? "このワークスペースの主要モジュールとエントリポイントを整理してください" : "请先梳理这个工作区的核心模块与关键入口文件")
-      });
-    }
-  }
-
-  // 优先承接用户放入快捷菜单的自定义 Workflow 模板
-  const defaultIds = new Set(["code_review", "test_and_fix", "research", "custom"]);
-  const maxPinned = isPure ? 1 : 2;
+  const gatewayCommands = (typeof slashState !== "undefined" && Array.isArray(slashState.commands)) ? slashState.commands : [];
+  const gatewayByName = new Map();
+  gatewayCommands.forEach((c) => {
+    if (c && c.name) gatewayByName.set(String(c.name).toLowerCase(), c);
+  });
+  const coreByName = new Map(_LP_CORE_SLASH_POOL.map((s) => [s.name, s]));
   const templates = (typeof workflowState !== "undefined" && Array.isArray(workflowState.templates))
     ? workflowState.templates
     : (typeof loadCachedWorkflowTemplates === "function" ? loadCachedWorkflowTemplates() : []);
-  templates
-    .filter((tpl) => tpl && tpl.inQuickMenu && !defaultIds.has(tpl.id))
-    .slice(0, maxPinned)
-    .forEach((tpl) => {
-      cards.push({
-        icon: "📌",
-        title: tpl.title || tr("置顶模板"),
-        sub: tpl.subtitle || tr("置顶模板"),
-        prompt: tpl.templatePrompt || ""
+
+  const makeCoreCard = (spec) => {
+    const live = gatewayByName.get(spec.name);
+    const title = pick3(spec.zh, spec.en, spec.ja);
+    const sub = pick3(spec.sZh, spec.sEn, spec.sJa);
+    return {
+      svg: spec.svg,
+      tint: spec.tint,
+      title,
+      sub,
+      slashName: spec.name,
+      slashFallback: live || {
+        name: spec.name, title, description: sub, icon: spec.fallbackIcon, kind: "system", definitionPath: ""
+      },
+      shortcutItem: { kind: "slash", ref: spec.name, title, subtitle: sub, svgKey: spec.svg, tint: spec.tintName }
+    };
+  };
+
+  const makeDynamicSlashCard = (opt) => {
+    const lower = String(opt.name || "").toLowerCase();
+    const spec = coreByName.get(lower);
+    if (spec) return makeCoreCard(spec);
+    const desc = String(opt.description || "").trim();
+    const kind = String(opt.kind || "").toLowerCase() === "system" ? "slash" : "skill";
+    return {
+      svg: "slash_skill",
+      tint: "#14b8a6",
+      title: `/${opt.name}`,
+      sub: desc || pick3("高频常用技能指令", "Frequently used skill", "よく使うスキルコマンド"),
+      slashName: opt.name,
+      slashFallback: opt,
+      shortcutItem: { kind, ref: opt.name, title: `/${opt.name}`, subtitle: desc, svgKey: "slash_skill", tint: "teal" }
+    };
+  };
+
+  const makePromptCard = (spec) => {
+    const title = (spec.id === "ws_git_diff" && dirtyCount > 0)
+      ? pick3(`审查 ${dirtyCount} 个改动`, `Review ${dirtyCount} changes`, `変更 ${dirtyCount} 件を確認`)
+      : pick3(spec.zh, spec.en, spec.ja);
+    const sub = pick3(spec.sZh, spec.sEn, spec.sJa);
+    return {
+      svg: spec.svg,
+      tint: spec.tint,
+      title,
+      sub,
+      prompt: pick3(spec.pZh, spec.pEn, spec.pJa),
+      shortcutItem: { kind: "prompt", ref: spec.id, title: pick3(spec.zh, spec.en, spec.ja), subtitle: sub, svgKey: spec.svg, tint: spec.tintName }
+    };
+  };
+
+  // 状态一：2×2 快捷起手（未自定义时不套用自定义 Workflow：上排 2 随机系统核心斜杠 + 下排 2 按模式随机模板）
+  const shortcutState = window.LaunchpadShortcutsStore.getState();
+  const focusCards = [];
+  const usedSlashNames = new Set();
+  const usedPromptIds = new Set();
+
+  if (shortcutState.customized) {
+    for (const item of shortcutState.items.slice(0, _LP_MAX_SLOTS)) {
+      if (item.kind === "workflow") {
+        const tpl = templates.find((x) => x && x.id === item.ref);
+        if (!tpl) continue;
+        const wfIconKey = `wf:${typeof normalizeWorkflowIconKey === "function" ? normalizeWorkflowIconKey(tpl.icon) : (tpl.icon || "workflow")}`;
+        focusCards.push({
+          svg: wfIconKey,
+          tint: _lpTintColor(tpl.color),
+          title: tpl.title || pick3("自定义快捷模板", "Custom quick template", "カスタムショートカット"),
+          sub: tpl.subtitle || pick3("自定义快捷模板", "Custom quick template", "カスタムショートカット"),
+          prompt: tpl.templatePrompt || "",
+          shortcutItem: item
+        });
+      } else if (item.kind === "slash" || item.kind === "skill") {
+        const lower = item.ref.toLowerCase();
+        usedSlashNames.add(lower);
+        const core = coreByName.get(lower);
+        const live = gatewayByName.get(lower);
+        if (core) {
+          focusCards.push(makeCoreCard(core));
+        } else if (live) {
+          focusCards.push(makeDynamicSlashCard(live));
+        } else {
+          focusCards.push({
+            svg: item.svgKey || "slash_skill",
+            tint: _lpTintColor(item.tint || "teal"),
+            title: item.title || `/${lower}`,
+            sub: item.subtitle || pick3("自定义斜杠指令", "Custom slash command", "カスタムコマンド"),
+            slashName: lower,
+            slashFallback: { name: lower, title: item.title || `/${lower}`, description: item.subtitle || "", icon: "terminal", kind: item.kind === "slash" ? "system" : "skill" },
+            shortcutItem: item
+          });
+        }
+      } else if (item.kind === "prompt") {
+        const spec = _LP_ALL_PROMPTS.find((p) => p.id === item.ref);
+        if (!spec) continue;
+        usedPromptIds.add(spec.id);
+        focusCards.push(makePromptCard(spec));
+      }
+    }
+  }
+
+  // 上排补齐（最多补至 2 格）：基于纯对话或代码工作区的随机提示词模板
+  const promptPool = isPure
+    ? _LP_PURE_PROMPT_POOL
+    : _LP_WS_PROMPT_POOL.filter((item) => !item.requiresDirty || dirtyCount > 0);
+  if (focusCards.length < 2) {
+    const filteredPrompts = promptPool.filter((p) => !usedPromptIds.has(p.id));
+    for (const spec of _lpDeterministicShuffle(filteredPrompts, _launchpadShuffleSeed ^ 0x7E4B21)) {
+      if (focusCards.length >= 2) break;
+      usedPromptIds.add(spec.id);
+      focusCards.push(makePromptCard(spec));
+    }
+  }
+
+  // 下排补齐（补满至 4 格）：随机系统核心斜杠（用户自选 2 项时，下排正好为 2 个随机斜杠）
+  const intersectedCore = gatewayCommands.length > 0
+    ? _LP_CORE_SLASH_POOL.filter((s) => gatewayByName.has(s.name))
+    : _LP_CORE_SLASH_POOL;
+  if (focusCards.length < 4) {
+    const coreAvail = intersectedCore.length >= 2 ? intersectedCore : _LP_CORE_SLASH_POOL;
+    const slashPool = coreAvail.filter((s) => !usedSlashNames.has(s.name));
+    const finalSlashPool = slashPool.length >= 2 ? slashPool : _LP_CORE_SLASH_POOL.filter((s) => !usedSlashNames.has(s.name));
+    for (const spec of _lpDeterministicShuffle(finalSlashPool, _launchpadShuffleSeed ^ 0x13579B)) {
+      if (focusCards.length >= 4) break;
+      usedSlashNames.add(spec.name);
+      focusCards.push(makeCoreCard(spec));
+    }
+  }
+
+  // 状态二：2×4 学习区（上 4 随机核心斜杠 + 下 4 按模式切换的提示词池）
+  const availableCore = intersectedCore.length >= 4 ? intersectedCore : _LP_CORE_SLASH_POOL;
+  const exploreSlashCards = _lpDeterministicShuffle(availableCore, _launchpadShuffleSeed ^ 0x5A3C91)
+    .slice(0, 4)
+    .map(makeCoreCard);
+
+  const explorePromptCards = _lpDeterministicShuffle(promptPool, _launchpadShuffleSeed ^ 0x2F8B4D)
+    .slice(0, 4)
+    .map(makePromptCard);
+
+  return { focusCards: focusCards.slice(0, 4), exploreSlashCards, explorePromptCards, shortcutState };
+}
+
+function _openLaunchpadConfiguratorModal(pendingItem = null) {
+  const isEnLang = typeof isEn === "function" && isEn();
+  const isJaLang = typeof isJa === "function" && isJa();
+  const pick3 = (zh, en, ja) => (isEnLang ? en : (isJaLang ? ja : zh));
+
+  let overlay = document.getElementById("lp-config-modal");
+  if (!overlay) {
+    overlay = document.createElement("div");
+    overlay.id = "lp-config-modal";
+    overlay.className = "lp-config-overlay hidden";
+    document.body.appendChild(overlay);
+    overlay.addEventListener("click", (e) => {
+      if (e.target === overlay) overlay.classList.add("hidden");
+    });
+  }
+
+  let activeTab = "workflow";
+  let searchQuery = "";
+  let activePending = pendingItem ? _normalizeShortcutItem(pendingItem) : null;
+
+  const gatewayCommands = (typeof slashState !== "undefined" && Array.isArray(slashState.commands)) ? slashState.commands : [];
+  const gatewayByName = new Map();
+  gatewayCommands.forEach((c) => {
+    if (c && c.name) gatewayByName.set(String(c.name).toLowerCase(), c);
+  });
+  const templates = (typeof workflowState !== "undefined" && Array.isArray(workflowState.templates))
+    ? workflowState.templates
+    : (typeof loadCachedWorkflowTemplates === "function" ? loadCachedWorkflowTemplates() : []);
+  const localCounts = _loadLocalSlashUsage();
+
+  function resolveDisplay(item) {
+    const norm = _normalizeShortcutItem(item) || item;
+    if (norm.kind === "workflow") {
+      const wf = templates.find((x) => x && x.id === norm.ref);
+      if (wf) {
+        const wfIconKey = `wf:${typeof normalizeWorkflowIconKey === "function" ? normalizeWorkflowIconKey(wf.icon) : (wf.icon || "workflow")}`;
+        return { svg: wfIconKey, tint: _lpTintColor(wf.color), title: wf.title, sub: wf.subtitle || "Workflow" };
+      }
+      const fallbackIcon = String(norm.svgKey || "").startsWith("wf:") ? norm.svgKey : "wf:workflow";
+      return { svg: fallbackIcon, tint: _lpTintColor(norm.tint || "indigo"), title: norm.title || norm.ref, sub: norm.subtitle || "Workflow" };
+    }
+    if (norm.kind === "slash" || norm.kind === "skill") {
+      const core = _LP_CORE_SLASH_POOL.find((s) => s.name === norm.ref);
+      if (core) return { svg: core.svg, tint: core.tint, title: pick3(core.zh, core.en, core.ja), sub: pick3(core.sZh, core.sEn, core.sJa) };
+      const live = gatewayByName.get(norm.ref);
+      if (live) return { svg: "slash_skill", tint: "#14b8a6", title: `/${live.name}`, sub: live.description || pick3("已安装技能", "Installed skill", "スキル") };
+      return { svg: norm.svgKey || "slash_skill", tint: _lpTintColor(norm.tint || "teal"), title: norm.title || `/${norm.ref}`, sub: norm.subtitle || "" };
+    }
+    const spec = _LP_ALL_PROMPTS.find((p) => p.id === norm.ref);
+    if (spec) return { svg: spec.svg, tint: spec.tint, title: pick3(spec.zh, spec.en, spec.ja), sub: pick3(spec.sZh, spec.sEn, spec.sJa) };
+    return { svg: norm.svgKey || "prompt_draft", tint: _lpTintColor(norm.tint || "blue"), title: norm.title || norm.ref, sub: norm.subtitle || "" };
+  }
+
+  function buildCandidates() {
+    const q = searchQuery.trim().toLowerCase();
+    if (activeTab === "workflow") {
+      return templates
+        .filter((tpl) => tpl && (!q || String(tpl.title || "").toLowerCase().includes(q) || String(tpl.subtitle || "").toLowerCase().includes(q)))
+        .map((tpl) => {
+          const wfIconKey = `wf:${typeof normalizeWorkflowIconKey === "function" ? normalizeWorkflowIconKey(tpl.icon) : (tpl.icon || "workflow")}`;
+          return {
+            item: { kind: "workflow", ref: tpl.id, title: tpl.title, subtitle: tpl.subtitle, svgKey: wfIconKey, tint: _lpSafeTintName(tpl.color) },
+            svg: wfIconKey,
+            tint: _lpTintColor(tpl.color),
+            title: tpl.title,
+            sub: tpl.subtitle || tpl.templatePrompt || "",
+            badge: tpl.inQuickMenu ? pick3("快选", "Quick", "クイック") : ""
+          };
+        });
+    }
+    if (activeTab === "slash") {
+      const coreNames = new Set(_LP_CORE_SLASH_POOL.map((s) => s.name));
+      const list = _LP_CORE_SLASH_POOL
+        .filter((s) => !q || s.name.includes(q) || s.zh.toLowerCase().includes(q) || s.en.toLowerCase().includes(q) || s.sZh.toLowerCase().includes(q))
+        .map((s) => {
+          const count = Math.max(Number(gatewayByName.get(s.name)?.usageCount) || 0, Number(localCounts[s.name]) || 0);
+          const title = pick3(s.zh, s.en, s.ja);
+          const sub = pick3(s.sZh, s.sEn, s.sJa);
+          return {
+            item: { kind: "slash", ref: s.name, title, subtitle: sub, svgKey: s.svg, tint: s.tintName },
+            svg: s.svg,
+            tint: s.tint,
+            title,
+            sub,
+            badge: count > 0 ? pick3(`用过 ${count} 次`, `${count}×`, `${count}回`) : ""
+          };
+        });
+      gatewayCommands.forEach((cmd) => {
+        const lower = String(cmd?.name || "").toLowerCase();
+        if (String(cmd?.kind || "").toLowerCase() !== "system" || coreNames.has(lower) || _LP_MID_CHAT_EXCLUDED.has(lower)) return;
+        if (q && !lower.includes(q) && !String(cmd.description || "").toLowerCase().includes(q)) return;
+        const count = Math.max(Number(cmd.usageCount) || 0, Number(localCounts[lower]) || 0);
+        list.push({
+          item: { kind: "slash", ref: lower, title: `/${cmd.name}`, subtitle: cmd.description || "", svgKey: "slash_skill", tint: "blue" },
+          svg: "slash_skill",
+          tint: "#3b82f6",
+          title: `/${cmd.name}`,
+          sub: cmd.description || pick3("系统斜杠指令", "System slash command", "システムコマンド"),
+          badge: count > 0 ? pick3(`用过 ${count} 次`, `${count}×`, `${count}回`) : ""
+        });
+      });
+      return list;
+    }
+    if (activeTab === "skill") {
+      const slashExcludedNames = new Set(_LP_CORE_SLASH_POOL.map((s) => s.name));
+      _LP_MID_CHAT_EXCLUDED.forEach((n) => slashExcludedNames.add(n));
+      return gatewayCommands
+        .filter((cmd) => {
+          const lower = String(cmd?.name || "").toLowerCase();
+          return cmd && lower && String(cmd.kind || "").toLowerCase() !== "system" && !slashExcludedNames.has(lower);
+        })
+        .filter((cmd) => !q || String(cmd.name || "").toLowerCase().includes(q) || String(cmd.description || "").toLowerCase().includes(q))
+        .sort((a, b) => {
+          const ca = Math.max(Number(a.usageCount) || 0, Number(localCounts[String(a.name || "").toLowerCase()]) || 0);
+          const cb = Math.max(Number(b.usageCount) || 0, Number(localCounts[String(b.name || "").toLowerCase()]) || 0);
+          return (cb - ca) || String(a.name).localeCompare(String(b.name));
+        })
+        .map((cmd) => {
+          const lower = String(cmd.name || "").toLowerCase();
+          const count = Math.max(Number(cmd.usageCount) || 0, Number(localCounts[lower]) || 0);
+          return {
+            item: { kind: "skill", ref: lower, title: `/${cmd.name}`, subtitle: cmd.description || "", svgKey: "slash_skill", tint: "teal" },
+            svg: "slash_skill",
+            tint: "#14b8a6",
+            title: `/${cmd.name}`,
+            sub: cmd.description || pick3("已安装技能", "Installed skill", "スキル"),
+            badge: count > 0 ? pick3(`用过 ${count} 次`, `${count}×`, `${count}回`) : ""
+          };
+        });
+    }
+    return _LP_ALL_PROMPTS
+      .filter((p) => !q || p.zh.toLowerCase().includes(q) || p.en.toLowerCase().includes(q) || p.sZh.toLowerCase().includes(q))
+      .map((p) => {
+        const title = pick3(p.zh, p.en, p.ja);
+        const sub = pick3(p.sZh, p.sEn, p.sJa);
+        return {
+          item: { kind: "prompt", ref: p.id, title, subtitle: sub, svgKey: p.svg, tint: p.tintName },
+          svg: p.svg,
+          tint: p.tint,
+          title,
+          sub,
+          badge: p.id.startsWith("pure_") ? pick3("纯对话", "Chat", "チャット") : pick3("代码区", "Code", "コード")
+        };
+      });
+  }
+
+  function renderModal() {
+    const st = window.LaunchpadShortcutsStore.getState();
+    const candidates = buildCandidates();
+    const isSwap = !!activePending;
+    const pendingInfo = activePending ? resolveDisplay(activePending) : null;
+
+    overlay.innerHTML = `
+      <div class="lp-config-sheet">
+        <div class="lp-config-header">
+          <div class="lp-config-title">${escapeHtml(pick3("自定义 2×2 快捷指令", "Customize 2×2 Shortcuts", "2×2 ショートカット設定"))}</div>
+          <button type="button" class="lp-config-done" data-lpc="close">${escapeHtml(pick3("完成", "Done", "完了"))}</button>
+        </div>
+        <div class="lp-config-body">
+          ${pendingInfo ? `
+            <div class="lp-config-swap-banner">
+              <span class="launchpad-card-icon-badge" style="color:${pendingInfo.tint};background:${pendingInfo.tint}22">${_renderLaunchpadSvg(pendingInfo.svg, 14)}</span>
+              <div class="lp-swap-text">
+                <div class="lp-swap-sub">${escapeHtml(pick3("2×2 已满，点击下方槽位替换为：", "2×2 full — click a slot below to replace with:", "満枠です。下の枠をクリックして置換："))}</div>
+                <div class="lp-swap-name">${escapeHtml(pendingInfo.title)}</div>
+              </div>
+              <button type="button" class="lp-swap-cancel" data-lpc="cancel-swap">${escapeHtml(pick3("取消", "Cancel", "取消"))}</button>
+            </div>
+          ` : ""}
+
+          <div class="lp-config-section-head">
+            <span>${escapeHtml(pick3(`当前已固定 (${st.items.length}/4)`, `Pinned Slots (${st.items.length}/4)`, `固定済み (${st.items.length}/4)`))}</span>
+            ${st.customized ? `<button type="button" class="lp-config-reset" data-lpc="reset">${escapeHtml(pick3("恢复智能推荐", "Smart Default", "おすすめに戻す"))}</button>` : ""}
+          </div>
+
+          <div class="lp-slots-grid">
+            ${[0, 1, 2, 3].map((idx) => {
+              const item = st.items[idx];
+              if (!item) {
+                return `<div class="lp-slot-empty"><span>+</span><span>${escapeHtml(pick3(`空位 ${idx + 1} · 自动补位`, `Slot ${idx + 1} · Auto`, `枠 ${idx + 1} · 自動`))}</span></div>`;
+              }
+              const info = resolveDisplay(item);
+              return `
+                <div class="lp-slot-card ${isSwap ? "swap-target" : ""}" data-lpc-slot="${idx}">
+                  <div class="lp-slot-top">
+                    <span class="launchpad-card-icon-badge" style="color:${info.tint};background:${info.tint}22">${_renderLaunchpadSvg(info.svg, 12.5)}</span>
+                    <span class="lp-slot-title">${escapeHtml(info.title)}</span>
+                    ${!isSwap ? `<button type="button" class="lp-slot-del" data-lpc-del="${idx}" aria-label="Remove">×</button>` : ""}
+                  </div>
+                  <div class="lp-slot-bottom">
+                    <span class="lp-slot-sub ${isSwap ? "amber" : ""}">${escapeHtml(isSwap ? pick3("点此替换", "Click to replace", "クリックで置換") : info.sub)}</span>
+                    ${(!isSwap && st.items.length > 1) ? `
+                      <span class="lp-slot-arrows">
+                        ${idx > 0 ? `<button type="button" class="lp-slot-move" data-lpc-move="${idx}:${idx - 1}">‹</button>` : ""}
+                        ${idx < st.items.length - 1 ? `<button type="button" class="lp-slot-move" data-lpc-move="${idx}:${idx + 1}">›</button>` : ""}
+                      </span>
+                    ` : ""}
+                  </div>
+                </div>
+              `;
+            }).join("")}
+          </div>
+
+          <div class="lp-config-tabs">
+            ${[
+              ["workflow", "Workflow"],
+              ["slash", pick3("斜杠", "Slash", "スラッシュ")],
+              ["skill", pick3("技能", "Skills", "スキル")],
+              ["prompt", pick3("模板", "Prompts", "テンプレート")]
+            ].map(([k, lbl]) => `
+              <button type="button" class="lp-config-tab ${activeTab === k ? "active" : ""}" data-lpc-tab="${k}">${escapeHtml(lbl)}</button>
+            `).join("")}
+          </div>
+
+          <input type="text" class="lp-config-search" id="lp-config-search-input" value="${escapeHtml(searchQuery)}" placeholder="${escapeHtml(pick3("搜索指令、技能或模板...", "Search commands, skills or prompts...", "検索..."))}" />
+
+          <div class="lp-candidate-list">
+            ${candidates.map((c, i) => {
+              const pinned = window.LaunchpadShortcutsStore.isPinned(c.item.kind, c.item.ref);
+              return `
+                <button type="button" class="lp-candidate-row ${pinned ? "pinned" : ""}" data-lpc-cand="${i}">
+                  <span class="launchpad-card-icon-badge lg" style="color:${c.tint};background:${c.tint}22">${_renderLaunchpadSvg(c.svg, 15)}</span>
+                  <span class="lp-candidate-info">
+                    <span class="lp-candidate-head">
+                      <span class="lp-candidate-title">${escapeHtml(c.title)}</span>
+                      ${c.badge ? `<span class="lp-candidate-badge">${escapeHtml(c.badge)}</span>` : ""}
+                    </span>
+                    <span class="lp-candidate-sub">${escapeHtml(c.sub)}</span>
+                  </span>
+                  <span class="lp-candidate-check">${pinned ? "✓" : "+"}</span>
+                </button>
+              `;
+            }).join("")}
+            ${activeTab === "workflow" ? `
+              <button type="button" class="lp-manage-wf-btn" data-lpc="open-wf">${escapeHtml(pick3("新建或编辑 Workflow 模板", "Create or edit Workflow templates", "Workflow テンプレートを管理"))}</button>
+            ` : ""}
+          </div>
+        </div>
+      </div>
+    `;
+
+    overlay.querySelector('[data-lpc="close"]')?.addEventListener("click", () => overlay.classList.add("hidden"));
+    overlay.querySelector('[data-lpc="cancel-swap"]')?.addEventListener("click", () => {
+      activePending = null;
+      renderModal();
+    });
+    overlay.querySelector('[data-lpc="reset"]')?.addEventListener("click", () => {
+      window.LaunchpadShortcutsStore.reset();
+      _showLaunchpadToast(pick3("已恢复智能推荐", "Reset to smart defaults", "おすすめに戻しました"));
+      renderModal();
+    });
+    overlay.querySelector('[data-lpc="open-wf"]')?.addEventListener("click", () => {
+      overlay.classList.add("hidden");
+      if (typeof openWorkflowSheet === "function") openWorkflowSheet(false);
+    });
+    overlay.querySelectorAll("[data-lpc-del]").forEach((btn) => {
+      btn.addEventListener("click", (e) => {
+        e.stopPropagation();
+        window.LaunchpadShortcutsStore.removeAt(parseInt(btn.getAttribute("data-lpc-del"), 10));
+        renderModal();
       });
     });
-
-  const fallback = isPure ? [
-    {
-      icon: "💬",
-      title: isEnLang ? "/grill-me Discuss" : (isJaLang ? "/grill-me 壁打ち" : "/grill-me 探讨"),
-      sub: isEnLang ? "Unpack ideas step by step" : (isJaLang ? "アイデアを段階的に深掘り" : "逐项拆解模糊想法"),
-      prompt: "/grill-me "
-    },
-    {
-      icon: "🌐",
-      title: isEnLang ? "Web Fact-Check" : (isJaLang ? "最新情報を調査" : "联网核查资讯"),
-      sub: isEnLang ? "Verify latest updates online" : (isJaLang ? "Web で事実関係を確認" : "交叉验证最新进展"),
-      prompt: isEnLang ? "Please verify the latest updates and reliable sources for: " : (isJaLang ? "以下の件の最新状況と信頼できる情報源を調べてください：" : "请帮我联网核查以下消息的最新进展与可靠来源：")
-    },
-    {
-      icon: "✍️",
-      title: isEnLang ? "Draft & Polish" : (isJaLang ? "文章の下書き・推敲" : "起草与润色"),
-      sub: isEnLang ? "Articles, notes, or outlines" : (isJaLang ? "記事・お知らせ・構成案" : "文章 / 公告 / 提纲"),
-      prompt: isEnLang ? "Help me draft a clear and concise write-up for: " : (isJaLang ? "次の内容について分かりやすい説明文を作成してください：" : "帮我起草一份清晰自然的说明：")
-    },
-    {
-      icon: "⚖️",
-      title: isEnLang ? "Compare Options" : (isJaLang ? "案を比較検討" : "多维方案对比"),
-      sub: isEnLang ? "Weigh pros, cons & tradeoffs" : (isJaLang ? "利点・コスト・リスクを比較" : "权衡利弊与取舍"),
-      prompt: isEnLang ? "Please compare these options across pros, cons, cost, and risk: " : (isJaLang ? "以下の案をメリット・コスト・リスクの観点から比較してください：" : "请从利弊、成本与风险角度对比以下方案：")
+    overlay.querySelectorAll("[data-lpc-move]").forEach((btn) => {
+      btn.addEventListener("click", (e) => {
+        e.stopPropagation();
+        const [f, tIdx] = String(btn.getAttribute("data-lpc-move")).split(":").map(Number);
+        window.LaunchpadShortcutsStore.move(f, tIdx);
+        renderModal();
+      });
+    });
+    if (isSwap) {
+      overlay.querySelectorAll("[data-lpc-slot]").forEach((slotEl) => {
+        slotEl.addEventListener("click", () => {
+          const idx = parseInt(slotEl.getAttribute("data-lpc-slot"), 10);
+          window.LaunchpadShortcutsStore.replaceAt(idx, activePending);
+          activePending = null;
+          _showLaunchpadToast(pick3(`已替换槽位 ${idx + 1}`, `Replaced slot ${idx + 1}`, `枠 ${idx + 1} を置換しました`));
+          renderModal();
+        });
+      });
     }
-  ] : [
-    {
-      icon: "🗺️",
-      title: isEnLang ? "/plan Architect" : (isJaLang ? "/plan 計画設計" : "/plan 方案规划"),
-      sub: isEnLang ? "Align steps before coding" : (isJaLang ? "手順を固めてから実装" : "先对齐步骤再动手"),
-      prompt: "/plan "
-    },
-    {
-      icon: "💬",
-      title: isEnLang ? "/grill-me Discuss" : (isJaLang ? "/grill-me 壁打ち" : "/grill-me 探讨"),
-      sub: isEnLang ? "Walk through design choices" : (isJaLang ? "要件と設計を一つずつ整理" : "逐项拆解需求决策"),
-      prompt: "/grill-me "
-    },
-    {
-      icon: "🐛",
-      title: isEnLang ? "Debug an Issue" : (isJaLang ? "バグ原因を調査" : "定位排查 Bug"),
-      sub: isEnLang ? "Trace root cause from logs" : (isJaLang ? "ログとコードから原因特定" : "结合上下文与日志定位"),
-      prompt: isEnLang ? "Please help investigate and find the root cause of this issue: " : (isJaLang ? "以下の問題の根本原因を調査してください：" : "请帮我排查并定位以下问题的根因：")
-    },
-    {
-      icon: "✨",
-      title: isEnLang ? "Refactor & Polish" : (isJaLang ? "改善とリファクタ" : "优化与重构"),
-      sub: isEnLang ? "Improve clarity & stability" : (isJaLang ? "可読性と安定性を向上" : "提升可读性与稳定性"),
-      prompt: isEnLang ? "Please identify improvements in the current module and propose a lightweight refactor: " : (isJaLang ? "現在のモジュールの改善点を分析し、軽量なリファクタ案を提案してください：" : "请分析当前模块可优化的设计点并给出轻量重构方案：")
+    overlay.querySelectorAll("[data-lpc-tab]").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        activeTab = btn.getAttribute("data-lpc-tab");
+        renderModal();
+      });
+    });
+    const searchEl = overlay.querySelector("#lp-config-search-input");
+    if (searchEl) {
+      searchEl.addEventListener("input", () => {
+        searchQuery = searchEl.value;
+        const pos = searchEl.selectionStart;
+        renderModal();
+        const nextInput = overlay.querySelector("#lp-config-search-input");
+        if (nextInput) {
+          nextInput.focus();
+          if (typeof pos === "number") nextInput.setSelectionRange(pos, pos);
+        }
+      });
     }
-  ];
-
-  for (const item of fallback) {
-    if (cards.length >= 4) break;
-    cards.push(item);
+    overlay.querySelectorAll("[data-lpc-cand]").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        const c = candidates[parseInt(btn.getAttribute("data-lpc-cand"), 10)];
+        if (!c) return;
+        if (window.LaunchpadShortcutsStore.isPinned(c.item.kind, c.item.ref)) {
+          window.LaunchpadShortcutsStore.unpin(c.item.kind, c.item.ref);
+          renderModal();
+          return;
+        }
+        const res = window.LaunchpadShortcutsStore.pin(c.item);
+        if (res.status === "added") {
+          _showLaunchpadToast(pick3(`已固定到 2×2 (${res.count}/4)`, `Pinned to 2×2 (${res.count}/4)`, `2×2 に固定 (${res.count}/4)`));
+          renderModal();
+        } else if (res.status === "full") {
+          _showLaunchpadToast(pick3("已选满 4 项，请先移除一项", "4/4 slots full — remove one first", "4枠満枠です。1つ削除してください"));
+        }
+      });
+    });
   }
-  return cards.slice(0, 4);
+
+  overlay.classList.remove("hidden");
+  window.LaunchpadShortcutsStore.refresh(true).then(() => renderModal());
+  renderModal();
 }
 
 function _fetchDraftGitStatusIfNeeded(uri) {
@@ -2327,6 +3045,13 @@ window.renderNewChatLaunchpad = function (streamEl, draft) {
   const isPure = !!draft.isPure;
   const enabled = window.NewChatLaunchpadPrefs.isEnabled();
 
+  const draftKey = `${draft.isPure ? "pure" : (draft.uri || draft.name || "")}`;
+  if (draftKey !== _launchpadLastDraftKey) {
+    _launchpadLastDraftKey = draftKey;
+    _launchpadShuffleSeed = Math.floor(Math.random() * 999999) + 1;
+    _launchpadDesktopExploreMode = false;
+  }
+
   if (!enabled) {
     streamEl.innerHTML = `
       <div class="chat-empty-state">
@@ -2342,186 +3067,267 @@ window.renderNewChatLaunchpad = function (streamEl, draft) {
     return;
   }
 
-  // 静默预热 Token 历史与草稿 Git 状态（零闪烁）
-  if (typeof refreshTokenHistoryIfStale === "function" && (typeof currentTokenHistory === "undefined" || !currentTokenHistory)) {
-    try { refreshTokenHistoryIfStale(); } catch {}
+  if (typeof ensureSlashCommands === "function") {
+    try { ensureSlashCommands(); } catch {}
   }
+  window.LaunchpadShortcutsStore.refresh(false);
   if (!isPure && draft.uri) {
     _fetchDraftGitStatusIfNeeded(draft.uri);
   }
 
-  const quotaData = typeof currentCockpitQuotas !== "undefined" ? currentCockpitQuotas : null;
-  const currentAcc = quotaData && (quotaData.current_account || (quotaData.accounts && quotaData.accounts[0]));
-  const resolvedQuota = (currentAcc && typeof resolveAccountQuotaDisplay === "function")
-    ? resolveAccountQuotaDisplay(currentAcc, typeof selectedQuotaBucket !== "undefined" ? selectedQuotaBucket : "gemini_5h")
-    : null;
-  const quotaPct = resolvedQuota && resolvedQuota.bucket ? Math.max(0, Math.min(100, Math.round(resolvedQuota.bucket.remaining_percent))) : null;
-  const quotaClass = quotaPct == null ? "" : (quotaPct >= 50 ? "good" : (quotaPct >= 20 ? "warn" : "danger"));
-  const quotaShortLabel = resolvedQuota
-    ? (resolvedQuota.key === "gemini_5h" ? "Gemini 5h"
-      : resolvedQuota.key === "gemini_weekly" ? "Gemini"
-      : resolvedQuota.key === "claude_5h" ? "Claude 5h"
-      : resolvedQuota.key === "claude_weekly" ? "Claude" : "")
-    : "";
-
-  const tokenData = typeof currentTokenHistory !== "undefined" ? currentTokenHistory : null;
-  const todayTokens = tokenData?.summary?.today_tokens > 0 && typeof formatTokensCompact === "function"
-    ? formatTokensCompact(tokenData.summary.today_tokens) : "";
-  const cacheHit = tokenData && typeof computeTokenCacheHitRate === "function"
-    ? computeTokenCacheHitRate(tokenData) : null;
-  const bookEq = tokenData && typeof resolveTokenBookEquivalent === "function"
-    ? resolveTokenBookEquivalent(tokenData) : null;
-
   const gitInfo = (!isPure && draft.uri) ? (_launchpadDraftGitCache[draft.uri] || {}) : {};
   const gitBranch = gitInfo.branch || "";
   const dirtyCount = gitInfo.dirtyCount || 0;
-  const compact = _launchpadKeyboardFocused && window.innerWidth <= 820;
+  const isMobile = _isMobileTouchLayout();
+  const isFocusState = isMobile ? _launchpadKeyboardFocused : !_launchpadDesktopExploreMode;
 
   const isEnLang = typeof isEn === "function" && isEn();
   const isJaLang = typeof isJa === "function" && isJa();
-  const todayLabel = isEnLang ? "Today" : (isJaLang ? "今日" : "今日");
-  const cacheLabel = isEnLang ? "Cache" : (isJaLang ? "キャッシュ" : "缓存");
-  const quickLabel = isEnLang ? "Quick Start" : (isJaLang ? "クイック開始" : "快捷发起");
-  const switchLabel = isEnLang ? "Switch" : (isJaLang ? "切替" : "切换");
-  const pickWsLabel = isEnLang ? "Workspace" : (isJaLang ? "選択" : "选工作区");
-  const cleanLabel = isEnLang ? "Clean" : (isJaLang ? "クリーン" : "干净");
-  const pureDesc = isEnLang ? "Pure chat · No workspace linked" : (isJaLang ? "チャット専用 · ワークスペース未連携" : "纯对话模式 · 不关联代码工作区");
-  const dirtyLabel = isEnLang ? `${dirtyCount} dirty` : (isJaLang ? `${dirtyCount} 変更` : `${dirtyCount} 改动`);
+  const pick3 = (zh, en, ja) => (isEnLang ? en : (isJaLang ? ja : zh));
 
-  const hasStatus = quotaPct !== null || !!todayTokens || cacheHit !== null;
-  const cards = _buildLaunchpadCards(isPure, dirtyCount);
-  const greeting = _launchpadGreeting(currentAcc?.name, compact);
+  const switchLabel = pick3("切换", "Switch", "切替");
+  const pickWsLabel = pick3("选工作区", "Workspace", "選択");
+  const cleanLabel = pick3("干净", "Clean", "クリーン");
+  const pureDesc = pick3("纯对话模式 · 不关联代码工作区", "Pure chat · No workspace linked", "チャット専用 · ワークスペース未連携");
+  const dirtyLabel = pick3(`${dirtyCount} 改动`, `${dirtyCount} dirty`, `${dirtyCount} 変更`);
 
-  if (compact) {
-    streamEl.innerHTML = `
-      <div class="launchpad-root launchpad-compact">
-        <div class="launchpad-compact-head">
-          <div class="launchpad-header">
-            <span class="launchpad-brand">✦</span>
-            <span class="launchpad-greeting">${escapeHtml(greeting)}</span>
-          </div>
-          ${hasStatus ? `
-            <button type="button" class="launchpad-mini-pill" data-lp-action="quota">
-              ${quotaPct !== null ? `<span class="lp-q-val ${quotaClass}">⚡${quotaPct}%</span>` : ""}
-              ${todayTokens ? `<span class="lp-muted">${quotaPct !== null ? "· " : ""}${escapeHtml(todayTokens)}</span>` : ""}
-            </button>
-          ` : ""}
+  const { focusCards, exploreSlashCards, explorePromptCards, shortcutState } = _buildLaunchpadData(isPure, dirtyCount);
+
+  const wsBarHtml = `
+    <div class="launchpad-ws-bar">
+      ${isPure ? `
+        <span class="lp-ws-icon">💬</span>
+        <span class="lp-ws-pure">${escapeHtml(pureDesc)}</span>
+        <button type="button" class="lp-ws-switch" data-lp-action="switch-ws">${escapeHtml(pickWsLabel)}</button>
+      ` : `
+        <span class="lp-ws-icon">📁</span>
+        <span class="lp-ws-name">${escapeHtml(draft.name || "")}</span>
+        ${gitBranch ? `<span class="lp-ws-branch">${escapeHtml(gitBranch)}</span>` : ""}
+        ${dirtyCount > 0
+          ? `<button type="button" class="lp-ws-dirty" data-lp-action="dirty">${escapeHtml(dirtyLabel)}</button>`
+          : (gitBranch ? `<span class="lp-ws-clean">${escapeHtml(cleanLabel)}</span>` : "")}
+        <span class="lp-spacer"></span>
+        <button type="button" class="lp-ws-switch" data-lp-action="switch-ws">${escapeHtml(switchLabel)}</button>
+      `}
+    </div>
+  `;
+
+  const renderCardHtml = (c, poolKey, idx, allowPinBadge) => {
+    const pinned = allowPinBadge && c.shortcutItem && window.LaunchpadShortcutsStore.isPinned(c.shortcutItem.kind, c.shortcutItem.ref);
+    return `
+      <button type="button" class="launchpad-card ${pinned ? "is-pinned" : ""}" data-lp-pool="${poolKey}" data-lp-idx="${idx}" title="${allowPinBadge ? escapeHtml(pick3("单击试用 · 右键或长按固定到 2×2", "Click to use · Right-click or long-press to pin", "クリックで使用・長押し/右クリックで固定")) : ""}">
+        <div class="launchpad-card-title">
+          <span class="launchpad-card-icon-badge" style="color:${c.tint};background:${c.tint}21">${_renderLaunchpadSvg(c.svg, 13.5)}</span>
+          <span class="launchpad-card-title-text">${escapeHtml(c.title)}</span>
+          ${pinned ? `<span class="lp-card-pin-dot" aria-label="Pinned">📌</span>` : ""}
         </div>
-        <div class="launchpad-compact-strip">
-          ${cards.map((c, idx) => `
-            <button type="button" class="launchpad-compact-chip" data-lp-card="${idx}">
-              <span>${c.icon}</span>
-              <span>${escapeHtml(c.title)}</span>
-            </button>
-          `).join("")}
+        <div class="launchpad-card-sub">${escapeHtml(c.sub)}</div>
+      </button>
+    `;
+  };
+
+  let bodyHtml = "";
+  if (isFocusState) {
+    bodyHtml = `
+      <div class="launchpad-body launchpad-body-focus">
+        <div class="launchpad-section">
+          <div class="launchpad-section-head">
+            <div class="launchpad-section-title">${escapeHtml(pick3("快捷起手", "Quick Start", "クイック起動"))}</div>
+            <div class="launchpad-head-actions">
+              ${!isMobile ? `<button type="button" class="launchpad-mode-pill" data-lp-action="toggle-mode">${escapeHtml(pick3("探索与配置", "Explore & Edit", "探索と設定"))}</button>` : `
+                <button type="button" class="launchpad-explore-pill" data-lp-action="enter-explore">
+                  <span>${escapeHtml(pick3("探索与配置 ›", "Explore & Edit ›", "探索と設定 ›"))}</span>
+                </button>
+              `}
+            </div>
+          </div>
+          <div class="launchpad-grid">
+            ${focusCards.map((c, idx) => renderCardHtml(c, "focus", idx, false)).join("")}
+          </div>
         </div>
       </div>
     `;
   } else {
-    const rightParts = [];
-    if (todayTokens) rightParts.push(`${todayLabel} ${todayTokens}`);
-    if (cacheHit !== null) rightParts.push(`${cacheLabel} ${cacheHit}%`);
+    const configSub = shortcutState.customized
+      ? pick3(`已固定 ${shortcutState.items.length}/4 项 · 右键/长按下方卡片亦可一键添加`, `${shortcutState.items.length}/4 pinned · Right-click/long-press cards below to pin`, `${shortcutState.items.length}/4 固定済み · 下のカード長押しで追加`)
+      : pick3("当前为随机推荐 · 右键/长按下方卡片可一键固定", "Random discovery · Right-click/long-press any card below to pin", "ランダム表示中 · カード長押しで固定可能");
 
-    streamEl.innerHTML = `
-      <div class="launchpad-root">
-        <div class="launchpad-header">
-          <span class="launchpad-brand">✦</span>
-          <span class="launchpad-greeting">${escapeHtml(greeting)}</span>
-        </div>
-
-        ${hasStatus ? `
-          <button type="button" class="launchpad-status-strip" data-lp-action="quota">
-            <div class="lp-status-left">
-              ${quotaPct !== null ? `
-                <span class="lp-q-bolt ${quotaClass}">⚡</span>
-                ${quotaShortLabel ? `<span class="lp-q-name">${escapeHtml(quotaShortLabel)}</span>` : ""}
-                <span class="lp-q-val ${quotaClass}">${quotaPct}%</span>
-                <span class="lp-q-bar"><span class="lp-q-fill ${quotaClass}" style="width:${Math.max(4, quotaPct)}%"></span></span>
-              ` : ""}
-              ${rightParts.length ? `<span class="lp-status-meta">${escapeHtml(rightParts.join(" · "))}</span>` : ""}
-            </div>
+    bodyHtml = `
+      <div class="launchpad-body launchpad-body-explore">
+        <div class="launchpad-config-row">
+          <button type="button" class="launchpad-config-entry" data-lp-action="open-config">
+            <span class="lp-cfg-icon">⊞</span>
+            <span class="lp-cfg-text">
+              <span class="lp-cfg-title">${escapeHtml(pick3("自定义 2×2 快捷指令", "Customize 2×2 Shortcuts", "2×2 ショートカット設定"))}</span>
+              <span class="lp-cfg-sub">${escapeHtml(configSub)}</span>
+            </span>
             <span class="lp-chevron">›</span>
           </button>
-        ` : ""}
-
-        <div class="launchpad-ws-bar">
-          ${isPure ? `
-            <span class="lp-ws-icon">💬</span>
-            <span class="lp-ws-pure">${escapeHtml(pureDesc)}</span>
-            <button type="button" class="lp-ws-switch" data-lp-action="switch-ws">${escapeHtml(pickWsLabel)}</button>
-          ` : `
-            <span class="lp-ws-icon">📁</span>
-            <span class="lp-ws-name">${escapeHtml(draft.name || "")}</span>
-            ${gitBranch ? `<span class="lp-ws-branch">${escapeHtml(gitBranch)}</span>` : ""}
-            ${dirtyCount > 0
-              ? `<button type="button" class="lp-ws-dirty" data-lp-action="dirty">${escapeHtml(dirtyLabel)}</button>`
-              : (gitBranch ? `<span class="lp-ws-clean">${escapeHtml(cleanLabel)}</span>` : "")}
-            <span class="lp-spacer"></span>
-            <button type="button" class="lp-ws-switch" data-lp-action="switch-ws">${escapeHtml(switchLabel)}</button>
-          `}
+          ${!isMobile ? `<button type="button" class="launchpad-mode-pill" data-lp-action="toggle-mode">${escapeHtml(pick3("快捷 2×2", "Quick 2×2", "2×2"))}</button>` : ""}
         </div>
 
         <div class="launchpad-section">
-          <div class="launchpad-section-title">${escapeHtml(quickLabel)}</div>
+          <div class="launchpad-section-head">
+            <div class="launchpad-section-title">${escapeHtml(pick3("探索斜杠指令", "Discover Slash Commands", "スラッシュコマンド探索"))}</div>
+            <button type="button" class="launchpad-shuffle-btn" data-lp-action="shuffle">
+              ${_renderLaunchpadSvg("shuffle_refresh", 13)}
+              <span>${escapeHtml(pick3("换一批", "Shuffle", "入れ替え"))}</span>
+            </button>
+          </div>
           <div class="launchpad-grid">
-            ${cards.map((c, idx) => `
-              <button type="button" class="launchpad-card" data-lp-card="${idx}">
-                <div class="launchpad-card-title"><span>${c.icon}</span><span>${escapeHtml(c.title)}</span></div>
-                <div class="launchpad-card-sub">${escapeHtml(c.sub)}</div>
-              </button>
-            `).join("")}
+            ${exploreSlashCards.map((c, idx) => renderCardHtml(c, "slash", idx, true)).join("")}
           </div>
         </div>
 
-        ${bookEq ? `
-          <button type="button" class="launchpad-book-btn" data-lp-action="history">
-            <span>✨</span>
-            <span>${escapeHtml(bookEq.sentence)}</span>
-            <span class="lp-chevron">›</span>
-          </button>
-        ` : ""}
+        <div class="launchpad-section">
+          <div class="launchpad-section-head">
+            <div class="launchpad-section-title">${escapeHtml(isPure ? pick3("纯对话任务表达", "Chat Prompt Ideas", "チャット向けプロンプト例") : pick3("代码工作区任务表达", "Workspace Prompt Ideas", "開発ワークスペース向け例"))}</div>
+          </div>
+          <div class="launchpad-grid">
+            ${explorePromptCards.map((c, idx) => renderCardHtml(c, "prompt", idx, true)).join("")}
+          </div>
+        </div>
       </div>
     `;
   }
 
-  streamEl.querySelectorAll("[data-lp-card]").forEach((btn) => {
-    btn.addEventListener("click", () => {
-      const idx = parseInt(btn.getAttribute("data-lp-card"), 10);
-      const card = cards[idx];
-      if (!card) return;
-      const inputEl = document.getElementById("chat-input");
-      if (inputEl) {
-        inputEl.value = card.prompt;
-        inputEl.style.height = "auto";
-        inputEl.style.height = Math.min(inputEl.scrollHeight, 120) + "px";
-        inputEl.focus();
-        if (typeof inputEl.setSelectionRange === "function") {
-          const openIdx = card.prompt.indexOf("[");
-          const closeIdx = openIdx >= 0 ? card.prompt.indexOf("]", openIdx) : -1;
-          if (openIdx >= 0 && closeIdx > openIdx) {
-            inputEl.setSelectionRange(openIdx, closeIdx + 1);
-          } else {
-            const len = card.prompt.length;
-            inputEl.setSelectionRange(len, len);
-          }
+  streamEl.innerHTML = `
+    <div class="launchpad-root" data-lp-blank="${isFocusState ? "1" : "0"}">
+      ${wsBarHtml}
+      ${bodyHtml}
+    </div>
+  `;
+
+  const pools = { focus: focusCards, slash: exploreSlashCards, prompt: explorePromptCards };
+
+  const triggerCard = (card) => {
+    if (!card) return;
+    if (card.slashName) {
+      window.recordLocalSlashUsage?.(card.slashName);
+      if (typeof selectSlashCommand === "function") {
+        selectSlashCommand(card.slashName, card.slashFallback);
+      }
+      return;
+    }
+    const inputEl = document.getElementById("chat-input");
+    if (inputEl) {
+      inputEl.value = card.prompt || "";
+      inputEl.style.height = "auto";
+      inputEl.style.height = Math.min(inputEl.scrollHeight, 120) + "px";
+      inputEl.focus();
+      if (typeof inputEl.setSelectionRange === "function") {
+        const openIdx = (card.prompt || "").indexOf("[");
+        const closeIdx = openIdx >= 0 ? (card.prompt || "").indexOf("]", openIdx) : -1;
+        if (openIdx >= 0 && closeIdx > openIdx) {
+          inputEl.setSelectionRange(openIdx, closeIdx + 1);
+        } else {
+          const len = (card.prompt || "").length;
+          inputEl.setSelectionRange(len, len);
         }
       }
+    }
+  };
+
+  const handlePinAction = (card) => {
+    if (!card || !card.shortcutItem) return;
+    const item = card.shortcutItem;
+    if (window.LaunchpadShortcutsStore.isPinned(item.kind, item.ref)) {
+      if (typeof triggerHaptic === "function") triggerHaptic("light");
+      window.LaunchpadShortcutsStore.unpin(item.kind, item.ref);
+      _showLaunchpadToast(pick3("已从 2×2 移除", "Removed from 2×2", "2×2 から削除しました"));
+      return;
+    }
+    const res = window.LaunchpadShortcutsStore.pin(item);
+    if (res.status === "added") {
+      if (typeof triggerHaptic === "function") triggerHaptic("medium");
+      _showLaunchpadToast(pick3(`已固定到新建页 2×2 (${res.count}/4)`, `Pinned to 2×2 (${res.count}/4)`, `2×2 に固定 (${res.count}/4)`));
+    } else if (res.status === "full") {
+      if (typeof triggerHaptic === "function") triggerHaptic("medium");
+      _openLaunchpadConfiguratorModal(item);
+    }
+  };
+
+  // 点击空白区收起移动端键盘进入探索态
+  const blankEl = streamEl.querySelector('[data-lp-blank="1"]');
+  if (blankEl && isMobile) {
+    blankEl.addEventListener("click", (e) => {
+      if (e.target.closest("button")) return;
+      document.getElementById("chat-input")?.blur();
+      _launchpadKeyboardFocused = false;
+      window.renderNewChatLaunchpad(streamEl, draft);
+    });
+  }
+
+  streamEl.querySelectorAll("[data-lp-pool]").forEach((btn) => {
+    const poolKey = btn.getAttribute("data-lp-pool");
+    const idx = parseInt(btn.getAttribute("data-lp-idx"), 10);
+    const card = pools[poolKey]?.[idx];
+    const allowPin = poolKey !== "focus";
+
+    let lpTimer = null;
+    let lpTriggered = false;
+    if (allowPin) {
+      btn.addEventListener("pointerdown", (e) => {
+        if (e.button && e.button !== 0) return;
+        lpTriggered = false;
+        clearTimeout(lpTimer);
+        lpTimer = setTimeout(() => {
+          lpTriggered = true;
+          handlePinAction(card);
+        }, 450);
+      });
+      const cancelLp = () => {
+        if (lpTimer) {
+          clearTimeout(lpTimer);
+          lpTimer = null;
+        }
+      };
+      btn.addEventListener("pointerup", cancelLp);
+      btn.addEventListener("pointercancel", cancelLp);
+      btn.addEventListener("pointermove", cancelLp);
+      btn.addEventListener("contextmenu", (e) => {
+        e.preventDefault();
+        cancelLp();
+        handlePinAction(card);
+      });
+    }
+
+    btn.addEventListener("click", (e) => {
+      if (lpTriggered) {
+        lpTriggered = false;
+        e.preventDefault();
+        return;
+      }
+      triggerCard(card);
     });
   });
 
-  streamEl.querySelector('[data-lp-action="quota"]')?.addEventListener("click", () => {
-    if (typeof openQuotaSheet === "function") openQuotaSheet("realtime");
+  streamEl.querySelector('[data-lp-action="enter-explore"]')?.addEventListener("click", () => {
+    document.getElementById("chat-input")?.blur();
+    _launchpadKeyboardFocused = false;
+    window.renderNewChatLaunchpad(streamEl, draft);
   });
-  streamEl.querySelector('[data-lp-action="history"]')?.addEventListener("click", () => {
-    if (typeof openQuotaSheet === "function") openQuotaSheet("history");
+  streamEl.querySelector('[data-lp-action="toggle-mode"]')?.addEventListener("click", () => {
+    _launchpadDesktopExploreMode = !_launchpadDesktopExploreMode;
+    window.renderNewChatLaunchpad(streamEl, draft);
+  });
+  streamEl.querySelector('[data-lp-action="open-config"]')?.addEventListener("click", () => {
+    _openLaunchpadConfiguratorModal(null);
+  });
+  streamEl.querySelector('[data-lp-action="shuffle"]')?.addEventListener("click", () => {
+    if (typeof triggerHaptic === "function") triggerHaptic("light");
+    _launchpadShuffleSeed += 1;
+    window.renderNewChatLaunchpad(streamEl, draft);
   });
   streamEl.querySelector('[data-lp-action="switch-ws"]')?.addEventListener("click", () => {
     if (typeof openNewSheet === "function") openNewSheet();
   });
   streamEl.querySelector('[data-lp-action="dirty"]')?.addEventListener("click", () => {
-    const reviewPrompt = isEnLang
-      ? "Please review the current uncommitted changes, highlight potential risks, and suggest improvements"
-      : (isJaLang ? "未コミットの変更点を確認し、潜在リスクと改善案を教えてください" : "请先检查当前未提交的改动，指出潜在风险并给出优化建议");
+    const reviewPrompt = pick3(
+      "请先检查当前未提交的改动，指出潜在风险并给出优化建议",
+      "Please review the current uncommitted changes, highlight potential risks, and suggest improvements",
+      "未コミットの変更点を確認し、潜在リスクと改善案を教えてください"
+    );
     const inputEl = document.getElementById("chat-input");
     if (inputEl) {
       inputEl.value = reviewPrompt;

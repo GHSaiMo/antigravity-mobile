@@ -416,14 +416,17 @@ public struct SlashCommandOption: Codable, Sendable, Identifiable, Hashable {
     /// "system" 系统命令 | "skill" 技能。
     public let kind: String
     public let definitionPath: String?
+    /// 网关统计的历史调用次数（含桌面端、CLI 与手机端实时调用），用于新对话启动台优先推荐常用指令。
+    public let usageCount: Int
 
-    public init(name: String, title: String = "", description: String = "", icon: String? = nil, kind: String = "system", definitionPath: String? = nil) {
+    public init(name: String, title: String = "", description: String = "", icon: String? = nil, kind: String = "system", definitionPath: String? = nil, usageCount: Int = 0) {
         self.name = name
         self.title = title
         self.description = description
         self.icon = icon
         self.kind = kind
         self.definitionPath = definitionPath
+        self.usageCount = usageCount
     }
 
     public init(from decoder: Decoder) throws {
@@ -434,8 +437,9 @@ public struct SlashCommandOption: Codable, Sendable, Identifiable, Hashable {
         icon = try c.decodeIfPresent(String.self, forKey: .icon)
         kind = try c.decodeIfPresent(String.self, forKey: .kind) ?? "system"
         definitionPath = try c.decodeIfPresent(String.self, forKey: .definitionPath)
+        usageCount = try c.decodeIfPresent(Int.self, forKey: .usageCount) ?? 0
     }
-    enum CodingKeys: String, CodingKey { case name, title, description, icon, kind, definitionPath }
+    enum CodingKeys: String, CodingKey { case name, title, description, icon, kind, definitionPath, usageCount }
 }
 
 struct SlashCommandsResponse: Decodable {
@@ -1041,10 +1045,71 @@ public enum WorkflowTemplateDefaults {
                 title: String(localized: "自定义动态工作流"),
                 subtitle: String(localized: "自由描述任务，让 Agent 依据依赖自主规划 parallel / pipeline 阶段"),
                 icon: "workflow",
-                color: "purple",
+                color: "indigo",
                 templatePrompt: String(localized: "/workflow 请使用 run_workflow 编写 Python 动态工作流脚本，分阶段执行以下任务：[描述具体任务]，要求使用 parallel 并发加速并给出 finish 契约结果。")
             )
         ]
     }
 }
+
+// MARK: - 新建对话 2×2 快捷指令跨端同步模型 (/gateway/launchpad-shortcuts)
+
+public struct LaunchpadShortcutItem: Codable, Equatable, Hashable, Identifiable, Sendable {
+    public let kind: String // "workflow" | "slash" | "skill" | "prompt"
+    public let ref: String
+    public let title: String?
+    public let subtitle: String?
+    public let svgKey: String?
+    public let tint: String?
+
+    public var id: String { "\(kind):\(ref.lowercased())" }
+
+    public init(
+        kind: String,
+        ref: String,
+        title: String? = nil,
+        subtitle: String? = nil,
+        svgKey: String? = nil,
+        tint: String? = nil
+    ) {
+        self.kind = kind.lowercased()
+        let cleanedRef = ref.trimmingCharacters(in: .whitespacesAndNewlines)
+        if self.kind == "slash" || self.kind == "skill" {
+            self.ref = cleanedRef.replacingOccurrences(of: "^/+", with: "", options: .regularExpression).lowercased()
+        } else {
+            self.ref = cleanedRef
+        }
+        self.title = title
+        self.subtitle = subtitle
+        self.svgKey = svgKey
+        self.tint = tint
+    }
+}
+
+public struct LaunchpadShortcutsResponse: Codable, Sendable {
+    public let customized: Bool
+    public let items: [LaunchpadShortcutItem]
+    public let updatedAt: String?
+
+    public init(customized: Bool, items: [LaunchpadShortcutItem], updatedAt: String? = nil) {
+        self.customized = customized
+        self.items = items
+        self.updatedAt = updatedAt
+    }
+
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        customized = try c.decodeIfPresent(Bool.self, forKey: .customized) ?? false
+        items = try c.decodeIfPresent([LaunchpadShortcutItem].self, forKey: .items) ?? []
+        updatedAt = try c.decodeIfPresent(String.self, forKey: .updatedAt)
+    }
+
+    enum CodingKeys: String, CodingKey { case customized, items, updatedAt }
+}
+
+struct LaunchpadShortcutsUpdateRequest: Encodable {
+    let customized: Bool
+    let items: [LaunchpadShortcutItem]
+}
+
 

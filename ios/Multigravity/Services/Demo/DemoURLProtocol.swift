@@ -314,6 +314,15 @@ private enum DemoRouter {
         case ("DELETE", "/gateway/workflow-templates"):
             return rawJSON(gw.resetWorkflowTemplates())
 
+        case ("GET", "/gateway/launchpad-shortcuts"):
+            return rawJSON(gw.launchpadShortcutsPayload())
+
+        case ("PUT", "/gateway/launchpad-shortcuts"), ("POST", "/gateway/launchpad-shortcuts"):
+            return rawJSON(gw.saveLaunchpadShortcuts(data: body))
+
+        case ("DELETE", "/gateway/launchpad-shortcuts"):
+            return rawJSON(gw.resetLaunchpadShortcuts())
+
         case ("POST", "/gateway/tasks/background"):
             return json(gw.globalBackgroundTasksPayload())
 

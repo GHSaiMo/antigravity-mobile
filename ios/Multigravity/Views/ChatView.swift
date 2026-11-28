@@ -68,6 +68,7 @@ public struct ChatView: View {
     let initialLaunchAction: HomeScreenQuickAction.ChatLaunchAction?
     let onConsumeLaunchAction: (() -> Void)?
     @State var hasAutoFocused = false
+    @State var initialKeyboardLatch: Bool
     @State var hasConsumedLaunchAction = false
     @State var shouldFocusInputAfterCaptureDismiss = false
     @State var isViewAppeared = false
@@ -97,6 +98,7 @@ public struct ChatView: View {
         if let retained = resolvedStore.peek(sessionKey: conversation.id) {
             self.restoredFromSessionStore = true
             self.shouldAutoFocus = false
+            _initialKeyboardLatch = State(initialValue: false)
             _viewModel = State(initialValue: retained.viewModel)
             _scrollHUD = State(initialValue: retained.scrollHUD)
             _hasInitiallyAligned = State(initialValue: !retained.viewModel.messages.isEmpty || retained.scrollHUD.lastKnownVisibleMessageId != nil)
@@ -107,19 +109,17 @@ public struct ChatView: View {
         self.restoredFromSessionStore = false
         _scrollHUD = State(initialValue: ChatScrollHUDState())
         if conversation.isDraft {
-            self.shouldAutoFocus = !AppSettings.shared.newChatLaunchpadEnabled || initialLaunchAction != nil
-            if var draftSession = CacheManager.shared.getLocalDraftSession(id: conversation.id) {
-                if draftSession.draftImages.isEmpty {
-                    draftSession.draftImages = CacheManager.shared.getDraftImages(for: conversation.id)
-                }
+            self.shouldAutoFocus = true
+            _initialKeyboardLatch = State(initialValue: initialLaunchAction == nil)
+            if let draftSession = CacheManager.shared.getLocalDraftSession(id: conversation.id) {
+                // 内存图片已由 getLocalDraftSession 同步附带；磁盘草稿图片延后由 restoreDraftsIfNeeded 异步加载，避免推入动画首帧主线程磁盘 I/O
                 _viewModel = State(initialValue: ChatViewModel(draftSession: draftSession))
             } else if let project = conversation.draftProject {
-                var session = LocalDraftSession(
+                let session = LocalDraftSession(
                     id: conversation.id,
                     project: project,
                     draftText: CacheManager.shared.getDraft(for: conversation.id)
                 )
-                session.draftImages = CacheManager.shared.getDraftImages(for: conversation.id)
                 _viewModel = State(initialValue: ChatViewModel(draftSession: session))
             } else {
                 let isNewOrEmpty = isNewConversation || conversation.stepCount == 0
@@ -137,7 +137,8 @@ public struct ChatView: View {
             }
         } else {
             let isNewOrEmpty = isNewConversation || conversation.stepCount == 0
-            self.shouldAutoFocus = isNewOrEmpty && (!AppSettings.shared.newChatLaunchpadEnabled || initialLaunchAction != nil)
+            self.shouldAutoFocus = isNewOrEmpty
+            _initialKeyboardLatch = State(initialValue: isNewOrEmpty && initialLaunchAction == nil)
             let seededBranchOrigin: SideQuestionOrigin? = {
                 guard let parentId = conversation.branchParentId, !parentId.isEmpty else { return nil }
                 return SideQuestionOrigin(
@@ -194,12 +195,14 @@ public struct ChatView: View {
         if let retained = resolvedStore.peek(sessionKey: draftSession.id) {
             self.restoredFromSessionStore = true
             self.shouldAutoFocus = false
+            _initialKeyboardLatch = State(initialValue: false)
             _viewModel = State(initialValue: retained.viewModel)
             _scrollHUD = State(initialValue: retained.scrollHUD)
             _hasInitiallyAligned = State(initialValue: !retained.viewModel.messages.isEmpty || retained.scrollHUD.lastKnownVisibleMessageId != nil)
         } else {
             self.restoredFromSessionStore = false
-            self.shouldAutoFocus = !AppSettings.shared.newChatLaunchpadEnabled
+            self.shouldAutoFocus = true
+            _initialKeyboardLatch = State(initialValue: true)
             _scrollHUD = State(initialValue: ChatScrollHUDState())
             _viewModel = State(initialValue: ChatViewModel(
                 draftSession: draftSession
@@ -217,7 +220,8 @@ public struct ChatView: View {
         self.restoredFromSessionStore = false
         self.initialLaunchAction = nil
         self.onConsumeLaunchAction = nil
-        self.shouldAutoFocus = !AppSettings.shared.newChatLaunchpadEnabled
+        self.shouldAutoFocus = true
+        _initialKeyboardLatch = State(initialValue: true)
         _scrollHUD = State(initialValue: ChatScrollHUDState())
         _viewModel = State(initialValue: ChatViewModel(
             draftProject: draftProject
@@ -299,9 +303,15 @@ public struct ChatView: View {
             .onGeometryChange(for: CGSize.self) { proxy in
                 proxy.size
             } action: { newSize in
-                modelPickerState.containerSize = newSize
-                workflowPickerState.containerSize = newSize
-                commitPickerState.containerSize = newSize
+                if modelPickerState.containerSize != newSize {
+                    modelPickerState.containerSize = newSize
+                }
+                if workflowPickerState.containerSize != newSize {
+                    workflowPickerState.containerSize = newSize
+                }
+                if commitPickerState.containerSize != newSize {
+                    commitPickerState.containerSize = newSize
+                }
             }
             .overlay {
                 ModelSlidePickerOverlay(state: modelPickerState, isRunning: viewModel.isRunning) { modelId in
@@ -465,6 +475,11 @@ public struct ChatView: View {
             viewModel.connectStream()
             return
         }
+        // 新建本地草稿页：让路给 350ms 导航横向推入动画，落定后再并发拉取模型/模板/权限/信任状态，避免推入中途主线程布局抖动。
+        if viewModel.isDraftConversation {
+            try? await Task.sleep(nanoseconds: 420_000_000)
+            guard !Task.isCancelled else { return }
+        }
         if let url = AppSettings.shared.serverURL {
             Task { @MainActor in
                 await ModelCatalogStore.shared.refreshIfNeeded(settings: AppSettings.shared, baseURL: url)
@@ -494,7 +509,11 @@ public struct ChatView: View {
         content
             .background(
                 SwipeBackEnabler(
-                    isDisabled: modelPickerState.isPresented || workflowPickerState.isPresented || commitPickerState.isPresented
+                    isDisabled: modelPickerState.isPresented || workflowPickerState.isPresented || commitPickerState.isPresented,
+                    isSplitDetail: isSplitDetail,
+                    onPushTransitionComplete: {
+                        handlePushTransitionComplete()
+                    }
                 )
             )
             .onChange(of: ShareInbox.shared.deliveryTick) { _, _ in
@@ -993,17 +1012,51 @@ public struct ChatView: View {
         if preserveScrollOnReturn {
             DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) { preserveScrollOnReturn = false }
         }
-        viewModel.restoreDraftsIfNeeded()
+        let isFreshEmptyDraft = viewModel.isDraftConversation
+            && !restoredFromSessionStore
+            && viewModel.inputText.isEmpty
+            && viewModel.selectedImageData.isEmpty
+            && viewModel.selectedFiles.isEmpty
+            && viewModel.draftSession.map { Date().timeIntervalSince($0.createdAt) < 2.0 } ?? false
+        if !isFreshEmptyDraft {
+            viewModel.restoreDraftsIfNeeded()
+        }
         consumeSharedFiles()
         checkPendingLiveRecording()
         if let launchAction = initialLaunchAction, !hasConsumedLaunchAction {
+            initialKeyboardLatch = false
             scheduleInitialLaunchAction(launchAction)
-        } else if shouldAutoFocus && viewModel.pendingInteraction == nil {
-            scheduleAutoFocus(delay: 0.45)
+        } else if shouldAutoFocus && !hasAutoFocused && viewModel.pendingInteraction == nil {
+            // 首帧保持 initialKeyboardLatch = true 直接锁定 2×2 速发态（零闪动）；
+            // 推入动画期间不抢先 becomeFirstResponder（避免键盘 XPC 阻塞横向推入帧），
+            // 在 UINavigationController 横向推入视觉落定（~0.36s 或 transitionCoordinator 完成，取更早者）瞬间拉起键盘。
+            autoFocusTask?.cancel()
+            autoFocusTask = Task { @MainActor in
+                try? await Task.sleep(nanoseconds: 360_000_000)
+                guard !Task.isCancelled else { return }
+                handlePushTransitionComplete()
+            }
         }
         if !restoredFromSessionStore && !viewModel.messages.isEmpty {
             Task {
                 await viewModel.resumeActiveSession()
+            }
+        }
+    }
+
+    @MainActor
+    private func handlePushTransitionComplete() {
+        guard shouldAutoFocus, !hasAutoFocused, isViewAppeared, initialKeyboardLatch,
+              viewModel.messages.isEmpty, viewModel.pendingInteraction == nil else {
+            return
+        }
+        hasAutoFocused = true
+        autoFocusTask?.cancel()
+        isInputFocused = true
+        autoFocusTask = Task { @MainActor in
+            try? await Task.sleep(nanoseconds: 700_000_000)
+            if !Task.isCancelled {
+                initialKeyboardLatch = false
             }
         }
     }

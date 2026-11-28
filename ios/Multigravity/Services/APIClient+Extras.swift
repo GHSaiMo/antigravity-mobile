@@ -533,4 +533,36 @@ extension APIClient {
             failurePrefix: String(localized: "重置 Workflow 模板失败")
         )
     }
+
+    /// 获取新建对话 2×2 快捷指令配置（GET /gateway/launchpad-shortcuts）。
+    public func fetchLaunchpadShortcuts(baseURL: URL) async throws -> LaunchpadShortcutsResponse {
+        try await gatewayJSONRequest(
+            method: "GET",
+            path: "gateway/launchpad-shortcuts",
+            baseURL: baseURL,
+            failurePrefix: String(localized: "获取快捷指令配置失败")
+        )
+    }
+
+    /// 保存新建对话 2×2 快捷指令配置（PUT /gateway/launchpad-shortcuts）。
+    public func saveLaunchpadShortcuts(_ items: [LaunchpadShortcutItem], customized: Bool, baseURL: URL) async throws -> LaunchpadShortcutsResponse {
+        let body = try JSONEncoder().encode(LaunchpadShortcutsUpdateRequest(customized: customized, items: items))
+        return try await gatewayJSONRequest(
+            method: "PUT",
+            path: "gateway/launchpad-shortcuts",
+            bodyData: body,
+            baseURL: baseURL,
+            failurePrefix: String(localized: "保存快捷指令配置失败")
+        )
+    }
+
+    /// 重置新建对话 2×2 快捷指令为智能推荐（DELETE /gateway/launchpad-shortcuts）。
+    public func resetLaunchpadShortcuts(baseURL: URL) async throws -> LaunchpadShortcutsResponse {
+        try await gatewayJSONRequest(
+            method: "DELETE",
+            path: "gateway/launchpad-shortcuts",
+            baseURL: baseURL,
+            failurePrefix: String(localized: "重置快捷指令配置失败")
+        )
+    }
 }

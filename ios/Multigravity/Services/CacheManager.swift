@@ -1487,7 +1487,11 @@ public final class CacheManager: @unchecked Sendable {
         lock.lock()
         ensureLocalDraftSessionsLoaded()
         memLocalDraftSessions?[session.id] = session
-        persistDraftSessionsToDisk()
+        // 空白新建草稿仅驻留内存，避免点击“新建对话”瞬间的同步磁盘写入卡住推入转场首帧；
+        // 一旦用户输入文本、附件或斜杠命令，saveLocalDraftSession 会立即持久化。
+        if !draftText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !draftSlashCommands.isEmpty {
+            persistDraftSessionsToDisk()
+        }
         lock.unlock()
         if !draftText.isEmpty {
             saveDraft(key: session.id, text: draftText)

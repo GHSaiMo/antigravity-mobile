@@ -113,7 +113,63 @@ function initApp() {
     triggerHaptic("selection");
     navigateTo(SubagentManager.backHash());
   });
-  document.getElementById("btn-new")?.addEventListener("click", openNewSheet);
+  const btnNewEl = document.getElementById("btn-new");
+  if (btnNewEl) {
+    let newBtnLpTimer = null;
+    let newBtnLpFired = false;
+    let newBtnStartX = 0;
+    let newBtnStartY = 0;
+
+    const triggerDirectPureChat = () => {
+      if (typeof triggerHaptic === "function") triggerHaptic("medium");
+      if (typeof startDraftSession === "function") {
+        startDraftSession({ isPure: true, name: "新对话", path: "", uri: "", rawId: "outside-of-project" });
+      }
+    };
+
+    btnNewEl.title = typeof t === "function" ? t("轻点新建会话，长按或右键直达纯对话") : "轻点新建会话，长按或右键直达纯对话";
+    btnNewEl.addEventListener("pointerdown", (e) => {
+      if (e.button && e.button !== 0) return;
+      newBtnLpFired = false;
+      newBtnStartX = e.clientX;
+      newBtnStartY = e.clientY;
+      clearTimeout(newBtnLpTimer);
+      newBtnLpTimer = setTimeout(() => {
+        newBtnLpFired = true;
+        triggerDirectPureChat();
+      }, 380);
+    });
+    btnNewEl.addEventListener("pointermove", (e) => {
+      if (!newBtnLpTimer) return;
+      if (Math.hypot(e.clientX - newBtnStartX, e.clientY - newBtnStartY) > 10) {
+        clearTimeout(newBtnLpTimer);
+        newBtnLpTimer = null;
+      }
+    });
+    const clearNewBtnLp = () => {
+      if (newBtnLpTimer) {
+        clearTimeout(newBtnLpTimer);
+        newBtnLpTimer = null;
+      }
+    };
+    btnNewEl.addEventListener("pointerup", clearNewBtnLp);
+    btnNewEl.addEventListener("pointercancel", clearNewBtnLp);
+    btnNewEl.addEventListener("pointerleave", clearNewBtnLp);
+    btnNewEl.addEventListener("contextmenu", (e) => {
+      e.preventDefault();
+      clearNewBtnLp();
+      triggerDirectPureChat();
+    });
+    btnNewEl.addEventListener("click", (e) => {
+      if (newBtnLpFired) {
+        newBtnLpFired = false;
+        e.preventDefault();
+        e.stopPropagation();
+        return;
+      }
+      openNewSheet();
+    });
+  }
   document.getElementById("btn-settings")?.addEventListener("click", openSettingsSheet);
 
   // New Conversation Sheet

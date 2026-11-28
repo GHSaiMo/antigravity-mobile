@@ -12,6 +12,7 @@ import (
 	"sync"
 	"time"
 
+	"antigravity-mobile/internal/cockpit"
 	"antigravity-mobile/internal/i18n"
 )
 
@@ -53,6 +54,7 @@ type SlashCommandOption struct {
 	Icon           string `json:"icon,omitempty"`
 	Kind           string `json:"kind"` // "system" | "skill"
 	DefinitionPath string `json:"definitionPath,omitempty"`
+	UsageCount     int    `json:"usageCount,omitempty"`
 }
 
 // SlashCommandsResponse is the response of /gateway/slash-commands.
@@ -291,6 +293,13 @@ func (p *Proxy) HandleSlashCommands(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	localized := localizeSlashCommandsForLang(options, uiLang)
+	if usage := cockpit.GetSlashCommandUsageStats(); len(usage) > 0 {
+		for i := range localized {
+			if cnt := usage[strings.ToLower(strings.TrimSpace(localized[i].Name))]; cnt > 0 {
+				localized[i].UsageCount = cnt
+			}
+		}
+	}
 	data, _ := json.Marshal(SlashCommandsResponse{Commands: localized})
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
@@ -397,6 +406,7 @@ func (p *Proxy) expandSlashCommands(ctx context.Context, rawMap map[string]inter
 			return false, err
 		}
 		slash["info"] = decoded
+		cockpit.RecordSlashCommandUsage(name)
 	}
 	return true, nil
 }
@@ -452,6 +462,7 @@ func (p *Proxy) upgradeLeadingPlainTextSystemSlash(ctx context.Context, rawMap m
 		upgraded = append(upgraded, items[1:]...)
 	}
 	rawMap["items"] = upgraded
+	cockpit.RecordSlashCommandUsage(cand)
 	slog.Info("[Slash] Upgraded leading plain-text system command", "command", cand)
 	return true, nil
 }
