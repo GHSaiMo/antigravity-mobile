@@ -37,9 +37,18 @@ data class EndpointHealthStatus(
 )
 
 /**
+ * Typed IOException thrown when cleartext HTTP traffic targets a public host.
+ */
+class CleartextPublicHostException(val host: String) : java.io.IOException(
+    "公网地址 %s 不支持明文 HTTP，请开启 HTTPS / SSL 或改用局域网 / Tailscale".loc(host)
+)
+
+/**
  * Strict cleartext enforcement interceptor compliant with Security Audit M-1.
- * Ensures cleartext HTTP traffic is strictly limited to RFC 1918 private LAN IP
- * addresses and loopback. Public domain HTTP traffic is rejected immediately.
+ * Ensures cleartext HTTP traffic is strictly limited to private LAN addresses
+ * (RFC 1918, loopback, .local, IPv6 ULA/link-local) and Tailscale virtual tunnel
+ * hosts (100.64.0.0/10, *.ts.net, fd7a:115c:a1e0::/48), matching iOS NetworkTransport.
+ * Public domain/IP HTTP traffic is rejected immediately.
  */
 class LanCleartextSecurityInterceptor : okhttp3.Interceptor {
     override fun intercept(chain: okhttp3.Interceptor.Chain): okhttp3.Response {
@@ -47,8 +56,8 @@ class LanCleartextSecurityInterceptor : okhttp3.Interceptor {
         val url = request.url
         if (!url.isHttps) {
             val host = url.host
-            if (!ConnectionManager.isLanHost(host)) {
-                throw java.io.IOException("Cleartext HTTP traffic to public host '$host' is rejected by security policy.")
+            if (!ConnectionManager.isPrivateOrTailscaleHost(host)) {
+                throw CleartextPublicHostException(host)
             }
         }
         return chain.proceed(request)
@@ -277,11 +286,8 @@ class ConnectionManager(private val context: Context) {
                 errorMessage = "无效地址".loc
             )
         }
-        val targetUrl = if (!clean.startsWith("http://") && !clean.startsWith("https://")) {
-            "http://$clean/healthz"
-        } else {
-            "$clean/healthz"
-        }
+        val normalized = PreferencesManager.normalizeUrl(clean) ?: clean
+        val targetUrl = "$normalized/healthz"
 
         val targetClient = overrideClient ?: if (isLanHost(extractHost(clean))) httpClient else publicProbeClient
         val start = System.currentTimeMillis()
@@ -587,8 +593,8 @@ class ConnectionManager(private val context: Context) {
             }
 
             // Stateless multi-VPS pool auto-discovery when all known endpoints are unreachable
-            val seedCloudUrl = prefs.primaryCloudUrl?.trim()?.trimEnd('/')?.takeIf { it.isNotBlank() }
-                ?: prefs.gatewayBaseUrl?.trim()?.trimEnd('/')?.takeIf { it.isNotBlank() && !isLanHost(extractHost(it)) }
+            val seedCloudUrl = prefs.primaryCloudUrl?.trim()?.trimEnd('/')?.takeIf { it.isNotBlank() && !isPrivateOrTailscaleHost(extractHost(it)) }
+                ?: prefs.gatewayBaseUrl?.trim()?.trimEnd('/')?.takeIf { it.isNotBlank() && !isPrivateOrTailscaleHost(extractHost(it)) }
             if (reachable.isEmpty() && E2eeCrypto.isReady(prefs) && !seedCloudUrl.isNullOrBlank()) {
                 val migratedUrl = RelayPoolResolver.resolveReachableCloudUrl(
                     currentCloudUrl = seedCloudUrl,
@@ -719,11 +725,8 @@ class ConnectionManager(private val context: Context) {
         val clean = baseUrl.trim().trimEnd('/')
         if (clean.isBlank()) return@withContext Result.failure(IllegalArgumentException("网关地址为空".loc))
 
-        val statusUrl = if (!clean.startsWith("http://") && !clean.startsWith("https://")) {
-            "http://$clean/gateway/status"
-        } else {
-            "$clean/gateway/status"
-        }
+        val normalized = PreferencesManager.normalizeUrl(clean) ?: clean
+        val statusUrl = "$normalized/gateway/status"
 
         val start = System.currentTimeMillis()
         val prefs = PreferencesManager(context)
@@ -795,6 +798,26 @@ class ConnectionManager(private val context: Context) {
             }.trim().trim('[', ']').lowercase()
         }
 
+        private fun isValidIpv6Chars(value: String): Boolean =
+            value.isNotEmpty() && value.all { it in '0'..'9' || it in 'a'..'f' || it == ':' || it == '.' }
+
+        private fun isTailscaleIpv6(clean: String): Boolean {
+            val noZone = clean.substringBefore('%')
+            return noZone.startsWith("fd7a:115c:a1e0:") && isValidIpv6Chars(noZone)
+        }
+
+        private fun isPrivateLanIpv6(clean: String): Boolean {
+            val noZone = clean.substringBefore('%')
+            if (!noZone.contains(':') || isTailscaleIpv6(noZone) || !isValidIpv6Chars(noZone)) {
+                return false
+            }
+            val firstGroup = noZone.substringBefore(':')
+            if (firstGroup.isEmpty() || firstGroup.length > 4) return false
+            val firstHextet = firstGroup.toIntOrNull(16) ?: return false
+            // ULA fc00::/7 or Link-Local fe80::/10
+            return (firstHextet and 0xFE00) == 0xFC00 || (firstHextet and 0xFFC0) == 0xFE80
+        }
+
         fun isLanHost(host: String): Boolean {
             val clean = host.trim().trim('[', ']').lowercase()
             if (clean == "127.0.0.1" || clean == "localhost" || clean == "::1" || clean.endsWith(".local")) {
@@ -809,6 +832,9 @@ class ConnectionManager(private val context: Context) {
                     val second = parts[1].toIntOrNull() ?: 0
                     if (second in 16..31) return true
                 }
+            }
+            if (isPrivateLanIpv6(clean)) {
+                return true
             }
             return false
         }
@@ -831,8 +857,16 @@ class ConnectionManager(private val context: Context) {
                     if (second in 64..127) return true
                 }
             }
+            if (isTailscaleIpv6(clean)) return true
             return false
         }
+
+        /**
+         * Returns true when [host] is a local/private LAN host or a Tailscale WireGuard tunnel host,
+         * matching iOS `NetworkTransport.isLocalOrPrivateHost`. Cleartext HTTP is permitted exclusively
+         * for these private addresses.
+         */
+        fun isPrivateOrTailscaleHost(host: String): Boolean = isLanHost(host) || isTailscaleHost(host)
 
         fun isTrustedEndpoint(urlString: String, info: PairingInfo, usedBase: String): Boolean {
             val trimmed = urlString.trim()
@@ -843,7 +877,7 @@ class ConnectionManager(private val context: Context) {
             val host = extractHost(trimmed)
             if (host.isBlank()) return false
             val clean = host.trim('[', ']').lowercase()
-            if (isHttp && !isLanHost(clean) && !isTailscaleHost(clean)) {
+            if (isHttp && !isPrivateOrTailscaleHost(clean)) {
                 return false
             }
 
@@ -870,7 +904,7 @@ class ConnectionManager(private val context: Context) {
                 val parentSuffix = "." + parts.drop(1).joinToString(".")
                 if (allowed.any { it.endsWith(parentSuffix) }) return true
             }
-            return isLanHost(clean) || isTailscaleHost(clean)
+            return isPrivateOrTailscaleHost(clean)
         }
 
         fun isSameEndpoint(url1: String?, url2: String?): Boolean {

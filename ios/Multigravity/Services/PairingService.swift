@@ -54,11 +54,90 @@ public struct PairingInfo: Equatable, Sendable {
     
     public static func formatURL(host: String, port: Int, ssl: Bool) -> String {
         let scheme = ssl ? "https://" : "http://"
-        let formattedHost = host
+        var formattedHost = host.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !formattedHost.hasPrefix("["), formattedHost.filter({ $0 == ":" }).count >= 2 {
+            formattedHost = "[\(formattedHost)]"
+        }
         if (ssl && port == 443) || (!ssl && port == 80) {
             return "\(scheme)\(formattedHost)"
         }
         return "\(scheme)\(formattedHost):\(port)"
+    }
+
+    /// Normalizes manual pairing form inputs (host, port, code, ssl) so pasting a full
+    /// `https://...` URL, `host:port`, or an official managed relay host works seamlessly
+    /// even if the user left the SSL toggle off or kept the default LAN port 58900.
+    nonisolated public static func fromManualInput(
+        rawHost: String,
+        rawPort: Int,
+        rawCode: String,
+        ssl: Bool
+    ) -> PairingInfo {
+        var working = rawHost.trimmingCharacters(in: .whitespacesAndNewlines)
+        var effectivePort = rawPort
+        var effectiveSSL = ssl
+        var hasExplicitSchemeHTTPS = false
+        var hasExplicitURLPort = false
+
+        let lower = working.lowercased()
+        if lower.hasPrefix("https://") || lower.hasPrefix("http://") {
+            hasExplicitSchemeHTTPS = lower.hasPrefix("https://")
+            if hasExplicitSchemeHTTPS {
+                effectiveSSL = true
+            }
+            if let range = working.range(of: "://") {
+                working = String(working[range.upperBound...])
+            }
+        }
+        if let cutIdx = working.firstIndex(where: { $0 == "/" || $0 == "?" || $0 == "#" }) {
+            working = String(working[..<cutIdx])
+        }
+        working = working.trimmingCharacters(in: .whitespacesAndNewlines)
+
+        if working.hasPrefix("["), let endBracket = working.firstIndex(of: "]") {
+            let hostPart = String(working[working.index(after: working.startIndex)..<endBracket])
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            let tail = String(working[working.index(after: endBracket)...])
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            if tail.hasPrefix(":"), let parsed = Int(tail.dropFirst()), (1...65535).contains(parsed) {
+                effectivePort = parsed
+                hasExplicitURLPort = true
+            }
+            working = hostPart
+        } else if working.filter({ $0 == ":" }).count == 1, let colonIdx = working.lastIndex(of: ":") {
+            let portStr = working[working.index(after: colonIdx)...]
+            if let parsed = Int(portStr), (1...65535).contains(parsed) {
+                working = String(working[..<colonIdx]).trimmingCharacters(in: .whitespacesAndNewlines)
+                effectivePort = parsed
+                hasExplicitURLPort = true
+            }
+        }
+
+        if !working.isEmpty && !working.contains(".") && !working.contains(":") && working.lowercased() != "localhost" {
+            working = "\(working).jiuge.space"
+        }
+
+        let cleanLower = working.lowercased()
+        let isKnownRelay = cleanLower.hasSuffix(".multigravity.app") ||
+            cleanLower.hasSuffix(".mgy.jiuge.space") ||
+            cleanLower.hasSuffix(".jiuge.space") ||
+            cleanLower.hasSuffix(".trycloudflare.com")
+        if isKnownRelay {
+            effectiveSSL = true
+        }
+        if (hasExplicitSchemeHTTPS || isKnownRelay) && !hasExplicitURLPort && effectivePort == 58900 {
+            effectivePort = 443
+        }
+        if effectivePort == 443 && !NetworkTransport.isLocalOrPrivateHost(working) {
+            effectiveSSL = true
+        }
+
+        return PairingInfo(
+            host: working,
+            port: effectivePort,
+            code: rawCode.trimmingCharacters(in: .whitespacesAndNewlines),
+            ssl: effectiveSSL
+        )
     }
     
     public var serverBaseURL: String {
@@ -306,7 +385,7 @@ public final class PairingService: Sendable {
             validHost = "\(validHost).jiuge.space"
         }
         
-        let effectiveSSL = sslExplicit ?? (validPort == 443 || (!validHost.hasPrefix("192.168.") && !validHost.hasPrefix("10.") && !validHost.hasPrefix("127.")))
+        let effectiveSSL = sslExplicit ?? (validPort == 443 || !NetworkTransport.isLocalOrPrivateHost(validHost))
         
         var validRelay = relayHost?.trimmingCharacters(in: .whitespacesAndNewlines)
         if let r = validRelay, !r.isEmpty, !r.contains("."), !r.contains(":"), r.lowercased() != "localhost" {

@@ -120,7 +120,7 @@ public final class NetworkTransport: Sendable {
         if clean.hasPrefix("["), let end = clean.firstIndex(of: "]") {
             return String(clean[clean.index(after: clean.startIndex)..<end]).lowercased()
         }
-        if let colonIdx = clean.lastIndex(of: ":") {
+        if clean.filter({ $0 == ":" }).count == 1, let colonIdx = clean.lastIndex(of: ":") {
             let port = clean[clean.index(after: colonIdx)...]
             if !port.isEmpty && port.allSatisfy({ $0.isNumber }) {
                 clean = String(clean[..<colonIdx])
@@ -129,6 +129,30 @@ public final class NetworkTransport: Sendable {
         return clean.trimmingCharacters(in: CharacterSet(charactersIn: "[]")).lowercased()
     }
     
+    nonisolated private static func isValidIPv6Chars(_ value: String) -> Bool {
+        guard !value.isEmpty else { return false }
+        return value.unicodeScalars.allSatisfy { s in
+            (s.value >= 0x30 && s.value <= 0x39) || // 0-9
+            (s.value >= 0x61 && s.value <= 0x66) || // a-f
+            s.value == 0x3A || s.value == 0x2E      // : .
+        }
+    }
+
+    nonisolated private static func isTailscaleIPv6(_ clean: String) -> Bool {
+        let noZone = clean.split(separator: "%", maxSplits: 1).first.map(String.init) ?? clean
+        return noZone.hasPrefix("fd7a:115c:a1e0:") && isValidIPv6Chars(noZone)
+    }
+
+    nonisolated private static func isPrivateLanIPv6(_ clean: String) -> Bool {
+        let noZone = clean.split(separator: "%", maxSplits: 1).first.map(String.init) ?? clean
+        guard noZone.contains(":"), !isTailscaleIPv6(noZone), isValidIPv6Chars(noZone) else { return false }
+        guard let firstGroup = noZone.split(separator: ":", maxSplits: 1, omittingEmptySubsequences: false).first,
+              !firstGroup.isEmpty, firstGroup.count <= 4,
+              let firstHextet = UInt16(firstGroup, radix: 16) else { return false }
+        // ULA fc00::/7 or Link-Local fe80::/10
+        return (firstHextet & 0xFE00) == 0xFC00 || (firstHextet & 0xFFC0) == 0xFE80
+    }
+
     nonisolated public static func isLocalOrPrivateHost(_ host: String) -> Bool {
         let clean = extractHost(from: host)
         if clean.isEmpty { return false }
@@ -146,7 +170,11 @@ public final class NetworkTransport: Sendable {
                 return true
             }
         }
-        // Tailscale CGNAT range (100.64.0.0/10) or any Tailscale virtual node (*.ts.net)
+        // IPv6 ULA (fc00::/7) and Link-Local (fe80::/10)
+        if isPrivateLanIPv6(clean) {
+            return true
+        }
+        // Tailscale CGNAT range (100.64.0.0/10), Tailscale IPv6 (fd7a:115c:a1e0::/48), or MagicDNS (*.ts.net)
         if isTailscaleHost(clean) {
             return true
         }
@@ -158,7 +186,7 @@ public final class NetworkTransport: Sendable {
     nonisolated public static func isTailscaleHost(_ host: String) -> Bool {
         let clean = extractHost(from: host)
         if clean.isEmpty { return false }
-        if clean.hasSuffix(".ts.net") { return true }
+        if clean == "ts.net" || clean.hasSuffix(".ts.net") { return true }
         // Tailscale CGNAT range 100.64.0.0/10
         let parts = clean.split(separator: ".")
         if parts.count == 4,
@@ -168,6 +196,7 @@ public final class NetworkTransport: Sendable {
            let fourth = Int(parts[3]), fourth >= 0, fourth <= 255 {
             return true
         }
+        if isTailscaleIPv6(clean) { return true }
         return false
     }
 

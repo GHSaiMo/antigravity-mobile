@@ -627,15 +627,11 @@ class MainActivity : ComponentActivity() {
                         },
                         onPairHostAndCode = { rawHost, port, rawCode, ssl ->
                             showAddGatewayManualSheetFlow.value = false
-                            var cleanHost = rawHost.trim()
-                            if (!cleanHost.contains(".") && !cleanHost.contains(":") && !cleanHost.equals("localhost", ignoreCase = true)) {
-                                cleanHost = "$cleanHost.jiuge.space"
-                            }
                             pairAdditionalGateway(
-                                PairingInfo(
-                                    host = cleanHost,
-                                    port = port,
-                                    code = rawCode.trim(),
+                                PairingInfo.fromManualInput(
+                                    rawHost = rawHost,
+                                    rawPort = port,
+                                    rawCode = rawCode,
                                     ssl = ssl
                                 )
                             )

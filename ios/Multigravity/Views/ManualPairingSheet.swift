@@ -330,15 +330,10 @@ public struct ManualPairingSheet: View {
             return
         }
         
-        var effectiveHost = trimmedHost
-        if !effectiveHost.contains(".") && !effectiveHost.contains(":") && effectiveHost.lowercased() != "localhost" {
-            effectiveHost = "\(effectiveHost).jiuge.space"
-        }
-        
-        let info = PairingInfo(
-            host: effectiveHost,
-            port: parsedPort,
-            code: trimmedCode,
+        let info = PairingInfo.fromManualInput(
+            rawHost: trimmedHost,
+            rawPort: parsedPort,
+            rawCode: trimmedCode,
             ssl: ssl
         )
         

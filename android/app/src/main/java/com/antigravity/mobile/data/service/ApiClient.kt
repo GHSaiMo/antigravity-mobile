@@ -208,7 +208,7 @@ class ApiClient(
         for (candidate in candidates) {
             val candHost = ConnectionManager.extractHost(candidate)
             val gwPub = info.e2eePubKey?.takeIf { it.isNotBlank() }
-            val useEncryptedPair = gwPub != null && !ConnectionManager.isLanHost(candHost) && !ConnectionManager.isTailscaleHost(candHost)
+            val useEncryptedPair = gwPub != null && !ConnectionManager.isPrivateOrTailscaleHost(candHost)
             val endpoint = if (useEncryptedPair) "$candidate/api/v1/e2ee/pair" else "$candidate/api/v1/auth/pair"
             try {
                 var activePriv = ephemKp.private
@@ -266,7 +266,7 @@ class ApiClient(
                         if (h.isNotEmpty()) e2eeHosts.add(h)
                     }
 
-                    if (info.ssl || !ConnectionManager.isLanHost(ConnectionManager.extractHost(info.host))) {
+                    if (info.ssl || !ConnectionManager.isPrivateOrTailscaleHost(ConnectionManager.extractHost(info.host))) {
                         cloudUrl = info.serverBaseUrl
                     }
 
@@ -2751,7 +2751,7 @@ class RouteFailoverInterceptor(
         val newScheme = targetUri.scheme ?: "https"
         val newHost = targetUri.host ?: ConnectionManager.extractHost(clean)
         if (newHost.isBlank()) return null
-        if (!newScheme.equals("https", ignoreCase = true) && !ConnectionManager.isLanHost(newHost)) {
+        if (!newScheme.equals("https", ignoreCase = true) && !ConnectionManager.isPrivateOrTailscaleHost(newHost)) {
             return null
         }
         val newPort = if (targetUri.port != -1) {

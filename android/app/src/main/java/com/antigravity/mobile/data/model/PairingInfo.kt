@@ -1,5 +1,6 @@
 package com.antigravity.mobile.data.model
 
+import com.antigravity.mobile.data.service.ConnectionManager
 import com.antigravity.mobile.ui.util.loc
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
@@ -166,7 +167,7 @@ data class PairingInfo(
             }
 
             val ssl = params["ssl"]?.let { it == "1" || it.equals("true", ignoreCase = true) }
-                ?: (port == 443 || (!host.startsWith("192.168.") && !host.startsWith("10.") && !host.startsWith("172.") && !host.startsWith("127.")))
+                ?: (port == 443 || !ConnectionManager.isPrivateOrTailscaleHost(host))
 
             var cleanRelay = relay?.trim()
             if (cleanRelay != null && !cleanRelay.contains(".") && !cleanRelay.contains(":") && !cleanRelay.equals("localhost", ignoreCase = true)) {
@@ -184,6 +185,95 @@ data class PairingInfo(
                 os = os,
                 platform = platform,
                 e2eePubKey = e2eePubKey
+            )
+        }
+
+        /**
+         * Normalizes manual pairing form inputs (host, port, code, ssl) so pasting a full
+         * `https://...` URL, `host:port`, or an official managed relay host works seamlessly
+         * even if the user left the SSL toggle off or kept the default LAN port 58900.
+         */
+        fun fromManualInput(
+            rawHost: String,
+            rawPort: Int,
+            rawCode: String,
+            ssl: Boolean
+        ): PairingInfo {
+            var working = rawHost.trim()
+            var effectivePort = rawPort
+            var effectiveSsl = ssl
+            var hasExplicitSchemeHttps = false
+            var hasExplicitUrlPort = false
+
+            val lower = working.lowercase()
+            if (lower.startsWith("https://") || lower.startsWith("http://")) {
+                hasExplicitSchemeHttps = lower.startsWith("https://")
+                if (hasExplicitSchemeHttps) {
+                    effectiveSsl = true
+                }
+                working = working.substringAfter("://")
+                val slashIdx = working.indexOfAny(charArrayOf('/', '?', '#'))
+                if (slashIdx >= 0) {
+                    working = working.substring(0, slashIdx)
+                }
+            } else {
+                val slashIdx = working.indexOfAny(charArrayOf('/', '?', '#'))
+                if (slashIdx >= 0) {
+                    working = working.substring(0, slashIdx)
+                }
+            }
+            working = working.trim()
+
+            // Extract embedded :port when user enters host:port or [ipv6]:port
+            if (working.startsWith("[")) {
+                val endBracket = working.indexOf(']')
+                if (endBracket > 0) {
+                    val hostPart = working.substring(1, endBracket).trim()
+                    val tail = working.substring(endBracket + 1).trim()
+                    if (tail.startsWith(":")) {
+                        val parsed = tail.substring(1).toIntOrNull()
+                        if (parsed != null && parsed in 1..65535) {
+                            effectivePort = parsed
+                            hasExplicitUrlPort = true
+                        }
+                    }
+                    working = hostPart
+                }
+            } else if (working.count { it == ':' } == 1) {
+                val idx = working.lastIndexOf(':')
+                val portStr = working.substring(idx + 1)
+                val parsed = portStr.toIntOrNull()
+                if (parsed != null && parsed in 1..65535) {
+                    working = working.substring(0, idx).trim()
+                    effectivePort = parsed
+                    hasExplicitUrlPort = true
+                }
+            }
+
+            if (working.isNotEmpty() &&
+                !working.contains(".") &&
+                !working.contains(":") &&
+                !working.equals("localhost", ignoreCase = true)
+            ) {
+                working = "$working.jiuge.space"
+            }
+
+            val isKnownRelay = ConnectionManager.isRelayHost(working)
+            if (isKnownRelay) {
+                effectiveSsl = true
+            }
+            if ((hasExplicitSchemeHttps || isKnownRelay) && !hasExplicitUrlPort && effectivePort == 58900) {
+                effectivePort = 443
+            }
+            if (effectivePort == 443 && !ConnectionManager.isPrivateOrTailscaleHost(working)) {
+                effectiveSsl = true
+            }
+
+            return PairingInfo(
+                host = working,
+                port = effectivePort,
+                code = rawCode.trim(),
+                ssl = effectiveSsl
             )
         }
     }

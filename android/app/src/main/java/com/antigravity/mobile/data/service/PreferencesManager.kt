@@ -1278,12 +1278,22 @@ class PreferencesManager(context: Context) {
     companion object {
         fun normalizeUrl(raw: String?): String? {
             if (raw.isNullOrBlank()) return null
-            var clean = raw.trim().trimEnd('/')
-            if (clean.isBlank()) return null
-            if (!clean.startsWith("http://", ignoreCase = true) && !clean.startsWith("https://", ignoreCase = true)) {
-                clean = "http://$clean"
+            val trimmed = raw.trim().trimEnd('/')
+            if (trimmed.isBlank()) return null
+            val schemeIdx = trimmed.indexOf("://")
+            if (schemeIdx >= 0) {
+                val scheme = trimmed.substring(0, schemeIdx).lowercase()
+                if (scheme != "http" && scheme != "https") return null
+                return "$scheme://${trimmed.substring(schemeIdx + 3)}"
             }
-            return clean
+            val host = ConnectionManager.extractHost(trimmed)
+            val scheme = if (ConnectionManager.isPrivateOrTailscaleHost(host)) "http://" else "https://"
+            val authority = if (!trimmed.startsWith("[") && trimmed.count { it == ':' } >= 2) {
+                "[$trimmed]"
+            } else {
+                trimmed
+            }
+            return "$scheme$authority"
         }
 
         fun bodyScaleFactor(scale: String): Float = when (scale) {
