@@ -1,6 +1,6 @@
 # Multigravity (`mgy`) IPv6 直连配置指南
 
-> 🌐 [English Quick Guide →](#english-quick-guide)
+> 🌐 **简体中文** | [English](ipv6_direct_guide_en.md) | [日本語](ipv6_direct_guide_ja.md)
 
 如果你所在的家庭宽带、校园网、公司内网或云主机具备 **IPv6**，可以通过本指南为 Multigravity 网关开启 **IPv4/IPv6 双栈监听**（以及可选的**免反代原生 HTTPS 端口**），让手机在 5G/4G 或其他支持 IPv6 的网络下直接连接你的电脑，获得更低延迟和更高带宽；当手机处于无 IPv6 的 Wi-Fi 环境时，仍会自动回退到官方 E2EE 加密中继，无缝不断联。
 
@@ -21,7 +21,6 @@
 8. [进阶选项：关闭默认中继 / 强制 E2EE / 后台自启服务](#8-进阶选项关闭默认中继--强制-e2ee--后台自启服务)
 9. [参数与环境变量速查表](#9-参数与环境变量速查表)
 10. [常见问题排查（FAQ）](#10-常见问题排查faq)
-11. [English Quick Guide](#english-quick-guide)
 
 ---
 
@@ -315,50 +314,3 @@ MGY_FORCE_E2EE=1
    - 可以。未指定具体 IPv6 地址（`-host ""` 或 `-host ::`）时，Go 网关绑定的是标准 **IPv4/IPv6 双栈套接字**，`127.0.0.1`、`192.168.x.x` 与 IPv6 会同时正常工作。
 6. **在没有 IPv6 的公司 Wi-Fi 下会断联吗？**
    - 只要没有关闭 `CF_TUNNEL_ENABLED=0`，手机端探测到 IPv6 自定义地址不可达后，会自动无缝切换到官方 E2EE 中继，切回 5G 或有 IPv6 网络后再自动恢复直连。
-
----
-
-## English Quick Guide
-
-Multigravity gateway (`mgy >= v1.2.9-hotfix.1`) provides **opt-in IPv4/IPv6 dual-stack listening** and an **optional dedicated native HTTPS port** (default remains IPv4-only `tcp4` with zero impact on existing setups). No mobile app update is required for HTTPS DDNS direct access.
-
-### 1. Update Gateway
-
-```bash
-mgy update v1.2.9-hotfix.1
-# If refreshing an earlier hotfix.1 install:
-mgy update -force v1.2.9-hotfix.1
-```
-
-### 2. Configure `~/.multigravity/.env`
-
-**Option A — Native HTTPS on a dedicated port (no reverse proxy needed, ACME hot-reload supported):**
-
-```env
-MULTIGRAVITY_ENABLE_IPV6=1
-MGY_TLS_CERT=/path/to/fullchain.pem
-MGY_TLS_KEY=/path/to/privkey.pem
-MGY_TLS_PORT=58943
-DDNS_HOST=home.example.com
-```
-
-Allow inbound TCP `58943` in your router's IPv6 firewall (keep HTTP port `58900` LAN-only).
-
-**Option B — Behind a reverse proxy (Caddy / Nginx / Lucky):**
-
-- If the reverse proxy runs on the **same host**, proxy directly to `http://127.0.0.1:58900` (ensure WebSocket `Upgrade`/`Connection` forwarding is enabled).
-- If the reverse proxy runs on **another device** (router/NAS) reaching `mgy` over IPv6, add `MULTIGRAVITY_ENABLE_IPV6=1` to `~/.multigravity/.env`.
-
-**Option C — Tailscale / Private IPv6:**
-
-Add `MULTIGRAVITY_ENABLE_IPV6=1` (or bind specifically with `MULTIGRAVITY_HOST=fd7a:115c:a1e0::xxxx`), then connect via `http://[fd7a:115c:a1e0::xxxx]:58900`.
-
-### 3. Configure Mobile App
-
-After normal QR pairing, open **Settings → Network → Custom Server Address** and enter:
-
-```text
-https://home.example.com:58943
-```
-
-The mobile app automatically routes in order: **Wi-Fi LAN → Custom IPv6 Direct → Official E2EE Cloud Relay fallback** (unless disabled with `CF_TUNNEL_ENABLED=0`).

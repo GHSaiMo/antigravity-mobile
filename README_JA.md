@@ -155,7 +155,7 @@ mgy
 - **クロスデバイスカーソルと物理ハードウェア連携**：Follow-Me カーソルエンジンがデスクトップとモバイル間のアクティブセッションを自動調停。`integrations/yoooclaw/` 経由でウェアラブルデバイスの物理ボタンから音声をアクティブセッションへ直接送信できます。
 
 ### 7. ゼロ知識 E2EE・マルチリージョンリレープール・セキュア通知
-- **パケットロス感知マルチリージョンリレープール＆BYO-Relay**：ゼロ知識マルチ VPS リレープール（ロス感知マルチサンプル計測・ヒステリシス固定・ランタイム Ping エスケープ・自動フェイルオーバー）と **[BYO-Relay（セルフホストリレー）](docs/self_hosted_relay_guide_ja.md)** に加え、Cloudflare Tunnel・LAN Wi-Fi・Tailscale から最小遅延ルートへ自動切替します。
+- **パケットロス感知マルチリージョンリレープール・BYO-Relay・IPv6 直結**：ゼロ知識マルチ VPS リレープール（ロス感知マルチサンプル計測・ヒステリシス固定・ランタイム Ping エスケープ・自動フェイルオーバー）、**[BYO-Relay（セルフホストリレー）](docs/self_hosted_relay_guide_ja.md)**、**[IPv6 直結（デュアルスタック / ネイティブ HTTPS）](docs/ipv6_direct_guide_ja.md)** に加え、Cloudflare Tunnel・LAN Wi-Fi・Tailscale から最小遅延ルートへ自動切替します。
 - **端末別多言語通知・通知秘匿・ロック画面承認＆全 5 プール守護**：iOS の **APNs / ロック画面クイック承認 / Dynamic Island** と Android の **FCM** が端末ごとの言語に合わせて通知（非中日英は英語へフォールバック）。**通知本文秘匿（`MGY_PUSH_REDACT`）**、カテゴリ別通知設定、停滞アラート、高リスク承認タイトル、承認済みバナー自動消去、全 5 プール守護、稼働中ホストスリープ防止を標準搭載します。
 - **ゼロ知識 E2EE v2 とローカルファースト設計**：全クライアント＆ゲートウェイに **E2EE v2 エンドツーエンド暗号化**（ECDH P-256 + HKDF-SHA256 + AES-256-GCM＋リプレイ・WS 連番保護）と強制 E2EE を実装し、リレー経路での平文アクセスを厳格に拒否（HTTP 426）。Keychain / EncryptedSharedPreferences 保護、機密パスブラックリスト、WebSocket レート制限も標準搭載しています。
 
@@ -194,7 +194,7 @@ mgy help             # 全コマンド一覧と起動オプションを表示
 
 - **デフォルト設定パス**：`~/.multigravity/.env`（旧 `~/.antigravity-mobile/` からの自動マイグレーションに対応）。
 - **主な環境変数**：`MULTIGRAVITY_PORT` (`58900`)、`CF_TUNNEL_ENABLED` (`1`)、`APNS_ENABLED` (`1`)、`MGY_PREVENT_SLEEP` (`1` 稼働時スリープ防止)、`MGY_LANG` (`zh` / `en` / `ja` 自動判別)、`MULTIGRAVITY_LOG_LEVEL` (`info`)。
-- **詳細ドキュメント**：自前サーバーでの中継構築は [セルフホストリレー（BYO-Relay）構築ガイド](docs/self_hosted_relay_guide_ja.md)、IPv6 直結設定は [IPv6 直結ガイド](docs/ipv6_direct_guide.md#english-quick-guide)、複数 PC の LAN 集約は [マルチホスト Hub 接続ガイド](docs/hub_guide.md#english-guide)、インストール検証やトラブルシューティングは [インストール＆運用テストガイド](docs/installation_and_testing_guide.md)、RPC プロトコル仕様は [language_server RPC 技術ノート](docs/ls_rpc_integration_notes.md) を参照してください。
+- **詳細ドキュメント**：自前サーバーでの中継構築は [セルフホストリレー（BYO-Relay）構築ガイド](docs/self_hosted_relay_guide_ja.md)、IPv6 直結設定は [IPv6 直結設定ガイド](docs/ipv6_direct_guide_ja.md)、複数 PC の LAN 集約は [マルチホスト Hub 接続ガイド](docs/hub_guide.md#english-guide)、インストール検証やトラブルシューティングは [インストール＆運用テストガイド](docs/installation_and_testing_guide.md)、RPC プロトコル仕様は [language_server RPC 技術ノート](docs/ls_rpc_integration_notes.md) を参照してください。
 
 <details>
 <summary>🗑️ ゲートウェイの完全アンインストールと設定削除</summary>
