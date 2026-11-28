@@ -187,6 +187,7 @@ public enum PairingError: LocalizedError, Sendable {
     case missingFields(String)
     case networkError(String)
     case serverRejected(String)
+    case gatewayOffline
     case decodingError(String)
     
     public var errorDescription: String? {
@@ -199,10 +200,18 @@ public enum PairingError: LocalizedError, Sendable {
             return String(localized: "配对网络请求失败: \(msg)")
         case .serverRejected(let msg):
             return String(localized: "配对失败: \(msg)")
+        case .gatewayOffline:
+            return String(localized: "电脑端网关暂未连接至中继节点（gateway_offline），请确认电脑上 mgy 已显示中继就绪并重新执行 mgy pair 扫码")
         case .decodingError(let msg):
             return String(localized: "配对响应解析失败: \(msg)")
         }
     }
+}
+
+private struct RelayLayerPairingError: Error {
+    let isGatewayOffline: Bool
+    let statusCode: Int
+    let fallbackMessage: String
 }
 
 public final class PairingService: Sendable {
@@ -406,7 +415,34 @@ public final class PairingService: Sendable {
         ))
     }
     
+    /// Classifies outer HTTP status/body returned before a pairing request reaches the gateway
+    /// (e.g. mgy-relay `503 gateway_offline`, `502 gateway_unreachable`, `429 tunnel_busy`).
+    /// Never matches decrypted inner gateway responses (which arrive inside outer HTTP 200).
+    nonisolated static func classifyRelayLayerPairingFailure(
+        outerStatus: Int,
+        rawData: Data
+    ) -> (isRelayLayer: Bool, isGatewayOffline: Bool) {
+        let snippet = String(data: rawData.prefix(320), encoding: .utf8)?.lowercased() ?? ""
+        switch outerStatus {
+        case 503:
+            if snippet.contains("upstream_not_connected") ||
+               snippet.contains("antigravity upstream not connected") ||
+               snippet.contains("language_server") {
+                return (false, false)
+            }
+            return (true, snippet.contains("gateway_offline"))
+        case 502, 520, 521, 522, 523, 524:
+            return (true, false)
+        case 429:
+            return (snippet.contains("tunnel_busy"), false)
+        default:
+            return (false, false)
+        }
+    }
+
     /// Sends pairing request to the gateway, trying candidate endpoints and saving credentials upon success.
+    /// Automatically probes sibling VPS relay nodes via `/api/relay/pool` when an official relay
+    /// returns `503 gateway_offline` / transient relay errors (e.g. stale QR cache or VPS failover).
     public func pair(with info: PairingInfo) async throws -> (deviceId: String, deviceToken: String) {
         var candidates = info.candidateBaseURLs
         if NetworkTransport.shared.isCellular {
@@ -455,15 +491,13 @@ public final class PairingService: Sendable {
             let e2ee_salt: String?
             let relay_cloud_url: String?
         }
-        
-        var lastError: Error?
-        
-        for baseURL in candidates {
+
+        func attemptPair(at baseURL: String) async throws -> (deviceId: String, deviceToken: String) {
             let candHost = URL(string: baseURL)?.host ?? ""
             let useEncryptedPair = (info.e2eePubKey != nil) && !NetworkTransport.isLocalOrPrivateHost(candHost)
             let pairPath = useEncryptedPair ? "/api/v1/e2ee/pair" : "/api/v1/auth/pair"
             guard let endpointURL = URL(string: "\(baseURL)\(pairPath)") else {
-                continue
+                throw PairingError.invalidURI(String(localized: "无可用网关端点地址"))
             }
             
             var request = URLRequest(url: endpointURL)
@@ -482,172 +516,292 @@ public final class PairingService: Sendable {
                 request.httpBody = bodyData
             }
             
-            do {
-                let (rawData, response) = try await NetworkTransport.shared.send(request: request)
-                
-                guard let httpResponse = response as? HTTPURLResponse else {
-                    continue
-                }
-                
-                let effectiveStatus: Int
-                let data: Data
-                if useEncryptedPair, httpResponse.statusCode == 200, let gwPub = info.e2eePubKey {
-                    let dec = try E2EECrypto.shared.decryptPairResponse(
-                        outerData: rawData,
-                        privateKey: activePairPriv,
-                        clientPubB64: activeClientPub,
-                        gatewayPubB64: gwPub
-                    )
-                    effectiveStatus = dec.status
-                    data = dec.body
-                } else {
-                    effectiveStatus = httpResponse.statusCode
-                    data = rawData
-                }
-
-                if effectiveStatus != 200 {
-                    if let errObj = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-                       let errMsg = errObj["error"] as? String {
-                        throw PairingError.serverRejected(errMsg)
+            let (rawData, response) = try await NetworkTransport.shared.send(request: request)
+            guard let httpResponse = response as? HTTPURLResponse else {
+                throw PairingError.networkError(String(localized: "无效网络响应"))
+            }
+            
+            let outerStatus = httpResponse.statusCode
+            let effectiveStatus: Int
+            let data: Data
+            if useEncryptedPair, outerStatus == 200, let gwPub = info.e2eePubKey {
+                let dec = try E2EECrypto.shared.decryptPairResponse(
+                    outerData: rawData,
+                    privateKey: activePairPriv,
+                    clientPubB64: activeClientPub,
+                    gatewayPubB64: gwPub
+                )
+                effectiveStatus = dec.status
+                data = dec.body
+            } else {
+                if outerStatus != 200 {
+                    let relayCheck = Self.classifyRelayLayerPairingFailure(outerStatus: outerStatus, rawData: rawData)
+                    if relayCheck.isRelayLayer {
+                        let parsedErr = (try? JSONSerialization.jsonObject(with: rawData) as? [String: Any])?["error"] as? String
+                        throw RelayLayerPairingError(
+                            isGatewayOffline: relayCheck.isGatewayOffline,
+                            statusCode: outerStatus,
+                            fallbackMessage: parsedErr ?? "HTTP \(outerStatus)"
+                        )
                     }
-                    throw PairingError.serverRejected("HTTP \(effectiveStatus)")
                 }
-                
-                let decoded = try JSONDecoder().decode(PairResp.self, from: data)
-                
-                // Derive per-device E2EE key in memory first so we store it strictly under the target profile's namespace
-                // without ever overwriting another gateway profile's credentials.
-                var derivedE2EEKeyB64: String? = nil
-                if let gwPub = decoded.e2ee_gateway_pub, !gwPub.isEmpty,
-                   let saltB64 = decoded.e2ee_salt, !saltB64.isEmpty,
-                   let shared = try? E2EECrypto.sharedSecret(privateKey: activePairPriv, peerPubB64: gwPub),
-                   let salt = E2EECrypto.decodeBase64Flexible(saltB64) {
-                    let devKey = E2EECrypto.deriveDeviceKey(sharedSecret: shared, salt: salt, deviceID: decoded.device_id)
-                    derivedE2EEKeyB64 = E2EECrypto.base64URLEncode(devKey)
-                }
+                effectiveStatus = outerStatus
+                data = rawData
+            }
 
-                let resolvedGatewayId = decoded.gateway_id?.trimmingCharacters(in: .whitespacesAndNewlines)
-                    .nilIfEmpty
-                    ?? GatewayProfileStore.deriveGatewayId(fromE2EEPubKeyB64: decoded.e2ee_gateway_pub ?? info.e2eePubKey)
-                let resolvedGatewayName = decoded.gateway_name?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty
-                let resolvedPlatform = decoded.platform ?? decoded.os ?? info.platform ?? info.os
-                let hasE2EEKey = (derivedE2EEKeyB64 != nil)
+            if effectiveStatus != 200 {
+                if let errObj = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                   let errMsg = errObj["error"] as? String {
+                    throw PairingError.serverRejected(errMsg)
+                }
+                throw PairingError.serverRejected("HTTP \(effectiveStatus)")
+            }
+            
+            let decoded = try JSONDecoder().decode(PairResp.self, from: data)
+            
+            // Derive per-device E2EE key in memory first so we store it strictly under the target profile's namespace
+            // without ever overwriting another gateway profile's credentials.
+            var derivedE2EEKeyB64: String? = nil
+            if let gwPub = decoded.e2ee_gateway_pub, !gwPub.isEmpty,
+               let saltB64 = decoded.e2ee_salt, !saltB64.isEmpty,
+               let shared = try? E2EECrypto.sharedSecret(privateKey: activePairPriv, peerPubB64: gwPub),
+               let salt = E2EECrypto.decodeBase64Flexible(saltB64) {
+                let devKey = E2EECrypto.deriveDeviceKey(sharedSecret: shared, salt: salt, deviceID: decoded.device_id)
+                derivedE2EEKeyB64 = E2EECrypto.base64URLEncode(devKey)
+            }
+
+            let resolvedGatewayId = decoded.gateway_id?.trimmingCharacters(in: .whitespacesAndNewlines)
+                .nilIfEmpty
+                ?? GatewayProfileStore.deriveGatewayId(fromE2EEPubKeyB64: decoded.e2ee_gateway_pub ?? info.e2eePubKey)
+            let resolvedGatewayName = decoded.gateway_name?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty
+            let resolvedPlatform = decoded.platform ?? decoded.os ?? info.platform ?? info.os
+            let hasE2EEKey = (derivedE2EEKeyB64 != nil)
+            
+            // Classify endpoints and persist profile on MainActor
+            await MainActor.run {
+                var lanURL: String? = info.lanBaseURL
+                var relayURL: String? = nil
+                var cloudURL: String? = nil
+                var e2eeHosts: [String] = []
                 
-                // Classify endpoints and persist profile on MainActor
-                await MainActor.run {
-                    var lanURL: String? = info.lanBaseURL
-                    var relayURL: String? = nil
-                    var cloudURL: String? = nil
-                    var e2eeHosts: [String] = []
-                    
-                    if info.ssl || !NetworkTransport.isLocalOrPrivateHost(info.host) {
-                        cloudURL = info.serverBaseURL
+                let candClean = baseURL.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+                let cleanCandHost = NetworkTransport.extractHost(from: candClean)
+                if !cleanCandHost.isEmpty && !NetworkTransport.isLocalOrPrivateHost(cleanCandHost) {
+                    cloudURL = candClean
+                    if cleanCandHost.hasPrefix("r-") {
+                        relayURL = candClean
+                        e2eeHosts.append(cleanCandHost)
                     }
-                    
-                    if let eps = decoded.endpoints {
-                        for ep in eps {
-                            guard Self.isTrustedEndpoint(ep.url, pairing: info, usedBase: baseURL) || (useEncryptedPair && NetworkTransport.isValidAdvertisedCloudURL(ep.url, trustedByE2EE: true)) else {
-                                continue
+                } else if info.ssl || !NetworkTransport.isLocalOrPrivateHost(info.host) {
+                    cloudURL = info.serverBaseURL
+                }
+                
+                if let eps = decoded.endpoints {
+                    for ep in eps {
+                        guard Self.isTrustedEndpoint(ep.url, pairing: info, usedBase: baseURL) || (useEncryptedPair && NetworkTransport.isValidAdvertisedCloudURL(ep.url, trustedByE2EE: true)) else {
+                            continue
+                        }
+                        switch ep.type.lowercased() {
+                        case "lan":
+                            lanURL = ep.url
+                        case "relay":
+                            relayURL = ep.url
+                            cloudURL = ep.url
+                            if let rHost = URL(string: ep.url)?.host {
+                                e2eeHosts.append(NetworkTransport.extractHost(from: rHost))
                             }
-                            switch ep.type.lowercased() {
-                            case "lan":
-                                lanURL = ep.url
-                            case "relay":
-                                relayURL = ep.url
+                        case "cloudflare":
+                            if cloudURL == nil || relayURL == nil {
                                 cloudURL = ep.url
-                                if let rHost = URL(string: ep.url)?.host {
-                                    e2eeHosts.append(NetworkTransport.extractHost(from: rHost))
-                                }
-                            case "cloudflare":
-                                if cloudURL == nil || relayURL == nil {
-                                    cloudURL = ep.url
-                                }
-                            case "primary":
-                                let h = URL(string: ep.url)?.host ?? ""
-                                if NetworkTransport.isLocalOrPrivateHost(h) {
-                                    if lanURL == nil { lanURL = ep.url }
-                                } else {
-                                    if cloudURL == nil { cloudURL = ep.url }
-                                }
-                            default:
-                                break
                             }
-                        }
-                    }
-
-                    if let dualRelay = decoded.relay_cloud_url?.trimmingCharacters(in: .whitespacesAndNewlines),
-                       !dualRelay.isEmpty,
-                       hasE2EEKey,
-                       NetworkTransport.isValidAdvertisedCloudURL(dualRelay, trustedByE2EE: true) {
-                        relayURL = dualRelay
-                        cloudURL = dualRelay
-                        if let rHost = URL(string: dualRelay)?.host {
-                            e2eeHosts.append(NetworkTransport.extractHost(from: rHost))
-                        }
-                    }
-                    
-                    // Fallback classify successful candidate if slots are unassigned
-                    let candClean = baseURL.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
-                    if let candHost = URL(string: candClean)?.host {
-                        if NetworkTransport.isLocalOrPrivateHost(candHost) {
-                            if lanURL == nil { lanURL = candClean }
-                        } else {
-                            if cloudURL == nil { cloudURL = candClean }
-                        }
-                    }
-
-                    let store = GatewayProfileStore.shared
-                    let hadActiveBefore = (store.activeProfileId != nil && AppSettings.shared.isPaired && !AppSettings.shared.isDemoMode)
-                    let (profile, _) = store.upsertPairedProfile(
-                        gatewayId: resolvedGatewayId,
-                        gatewayName: resolvedGatewayName,
-                        platform: resolvedPlatform,
-                        deviceID: decoded.device_id,
-                        deviceToken: decoded.device_token,
-                        e2eeKeyB64: derivedE2EEKeyB64,
-                        lanURL: lanURL,
-                        relayURL: relayURL,
-                        cloudURL: cloudURL,
-                        activeURL: baseURL,
-                        e2eeRequiredHosts: e2eeHosts
-                    )
-
-                    if hadActiveBefore && store.activeProfileId != profile.id {
-                        _ = GatewaySwitcher.shared.switchTo(profileId: profile.id, showToast: true)
-                    } else {
-                        store.setActiveProfileId(profile.id)
-                        E2EECrypto.shared.resetForGatewaySwitch(requiredHosts: profile.e2eeRequiredHosts)
-                        CacheManager.shared.switchStorageNamespace(profile.storageNamespace)
-                        ProjectCacheManager.shared.switchStorageNamespace(profile.storageNamespace)
-                        DocumentCacheManager.shared.switchStorageNamespace(profile.storageNamespace)
-                        WeChatArchiveCacheManager.shared.switchStorageNamespace(profile.storageNamespace)
-                        DraftFileStore.shared.switchStorageNamespace(profile.storageNamespace)
-                        AppSettings.shared.applyProfile(profile)
-                        AppSettings.shared.syncWidgetConfiguration(reloadWidget: true)
-                    }
-
-                    ActivityManager.shared.startRemoteTokenObservers()
-                    PushNotificationManager.shared.syncAllTokensIfPaired(force: true)
-                    Task {
-                        await PushNotificationManager.shared.refreshAuthorizationStatus()
-                        if PushNotificationManager.shared.authorizationStatus == .notDetermined {
-                            _ = await PushNotificationManager.shared.requestAuthorizationAndRegister()
+                        case "primary":
+                            let h = URL(string: ep.url)?.host ?? ""
+                            if NetworkTransport.isLocalOrPrivateHost(h) {
+                                if lanURL == nil { lanURL = ep.url }
+                            } else {
+                                if cloudURL == nil { cloudURL = ep.url }
+                            }
+                        default:
+                            break
                         }
                     }
                 }
+
+                if let dualRelay = decoded.relay_cloud_url?.trimmingCharacters(in: .whitespacesAndNewlines),
+                   !dualRelay.isEmpty,
+                   hasE2EEKey,
+                   NetworkTransport.isValidAdvertisedCloudURL(dualRelay, trustedByE2EE: true) {
+                    relayURL = dualRelay
+                    cloudURL = dualRelay
+                    if let rHost = URL(string: dualRelay)?.host {
+                        e2eeHosts.append(NetworkTransport.extractHost(from: rHost))
+                    }
+                }
                 
-                return (decoded.device_id, decoded.device_token)
+                // Fallback classify successful candidate if slots are unassigned
+                if let candHost = URL(string: candClean)?.host {
+                    if NetworkTransport.isLocalOrPrivateHost(candHost) {
+                        if lanURL == nil { lanURL = candClean }
+                    } else {
+                        if cloudURL == nil { cloudURL = candClean }
+                    }
+                }
+
+                let store = GatewayProfileStore.shared
+                let hadActiveBefore = (store.activeProfileId != nil && AppSettings.shared.isPaired && !AppSettings.shared.isDemoMode)
+                let (profile, _) = store.upsertPairedProfile(
+                    gatewayId: resolvedGatewayId,
+                    gatewayName: resolvedGatewayName,
+                    platform: resolvedPlatform,
+                    deviceID: decoded.device_id,
+                    deviceToken: decoded.device_token,
+                    e2eeKeyB64: derivedE2EEKeyB64,
+                    lanURL: lanURL,
+                    relayURL: relayURL,
+                    cloudURL: cloudURL,
+                    activeURL: candClean,
+                    e2eeRequiredHosts: e2eeHosts
+                )
+
+                if hadActiveBefore && store.activeProfileId != profile.id {
+                    _ = GatewaySwitcher.shared.switchTo(profileId: profile.id, showToast: true)
+                } else {
+                    store.setActiveProfileId(profile.id)
+                    E2EECrypto.shared.resetForGatewaySwitch(requiredHosts: profile.e2eeRequiredHosts)
+                    CacheManager.shared.switchStorageNamespace(profile.storageNamespace)
+                    ProjectCacheManager.shared.switchStorageNamespace(profile.storageNamespace)
+                    DocumentCacheManager.shared.switchStorageNamespace(profile.storageNamespace)
+                    WeChatArchiveCacheManager.shared.switchStorageNamespace(profile.storageNamespace)
+                    DraftFileStore.shared.switchStorageNamespace(profile.storageNamespace)
+                    AppSettings.shared.applyProfile(profile)
+                    AppSettings.shared.syncWidgetConfiguration(reloadWidget: true)
+                }
+
+                ActivityManager.shared.startRemoteTokenObservers()
+                PushNotificationManager.shared.syncAllTokensIfPaired(force: true)
+                Task {
+                    await PushNotificationManager.shared.refreshAuthorizationStatus()
+                    if PushNotificationManager.shared.authorizationStatus == .notDetermined {
+                        _ = await PushNotificationManager.shared.requestAuthorizationAndRegister()
+                    }
+                }
+            }
+            
+            return (decoded.device_id, decoded.device_token)
+        }
+        
+        var lastError: Error?
+        var sawGatewayOffline = false
+        var attemptedPeerDiscovery = false
+        var triedURLs = Set<String>()
+        
+        for baseURL in candidates {
+            let cleanBase = baseURL.trimmingCharacters(in: CharacterSet(charactersIn: "/")).lowercased()
+            guard triedURLs.insert(cleanBase).inserted else { continue }
+            
+            do {
+                return try await attemptPair(at: baseURL)
             } catch let pairErr as PairingError {
-                // If server rejected (e.g. invalid code), don't keep looping with same code
+                // If gateway explicitly rejected (e.g. invalid/expired code), stop looping immediately
                 if case .serverRejected = pairErr {
                     throw pairErr
                 }
                 lastError = pairErr
+            } catch let relayErr as RelayLayerPairingError {
+                if relayErr.isGatewayOffline {
+                    sawGatewayOffline = true
+                }
+                lastError = relayErr.isGatewayOffline
+                    ? PairingError.gatewayOffline
+                    : PairingError.serverRejected(relayErr.fallbackMessage)
+                
+                // Auto-heal stale QR relay host or mid-pairing VPS failover via official RELAY_POOL
+                if !attemptedPeerDiscovery && RelayPoolResolver.shared.isOfficialOrPoolHost(baseURL) {
+                    attemptedPeerDiscovery = true
+                    if let peerURL = await RelayPoolResolver.shared.discoverPeerRelayForPairing(
+                        failedURLString: baseURL,
+                        e2eePubKey: info.e2eePubKey
+                    ) {
+                        let cleanPeer = peerURL.trimmingCharacters(in: CharacterSet(charactersIn: "/")).lowercased()
+                        if triedURLs.insert(cleanPeer).inserted {
+                            do {
+                                return try await attemptPair(at: peerURL)
+                            } catch let peerPairErr as PairingError {
+                                if case .serverRejected = peerPairErr {
+                                    throw peerPairErr
+                                }
+                                lastError = peerPairErr
+                            } catch let peerRelayErr as RelayLayerPairingError {
+                                if peerRelayErr.isGatewayOffline {
+                                    sawGatewayOffline = true
+                                }
+                                lastError = peerRelayErr.isGatewayOffline
+                                    ? PairingError.gatewayOffline
+                                    : PairingError.serverRejected(peerRelayErr.fallbackMessage)
+                            } catch {
+                                lastError = error
+                            }
+                        }
+                    } else if !Task.isCancelled {
+                        // Gateway may still be finishing its initial 1-2s WSS handshake on this node.
+                        try? await Task.sleep(nanoseconds: 1_200_000_000)
+                        if !Task.isCancelled {
+                            do {
+                                return try await attemptPair(at: baseURL)
+                            } catch let retryPairErr as PairingError {
+                                if case .serverRejected = retryPairErr {
+                                    throw retryPairErr
+                                }
+                                lastError = retryPairErr
+                            } catch let retryRelayErr as RelayLayerPairingError {
+                                if retryRelayErr.isGatewayOffline {
+                                    sawGatewayOffline = true
+                                }
+                                lastError = retryRelayErr.isGatewayOffline
+                                    ? PairingError.gatewayOffline
+                                    : PairingError.serverRejected(retryRelayErr.fallbackMessage)
+                            } catch {
+                                lastError = error
+                            }
+                        }
+                    }
+                }
             } catch {
                 lastError = error
+                if !attemptedPeerDiscovery && RelayPoolResolver.shared.isOfficialOrPoolHost(baseURL) {
+                    attemptedPeerDiscovery = true
+                    if let peerURL = await RelayPoolResolver.shared.discoverPeerRelayForPairing(
+                        failedURLString: baseURL,
+                        e2eePubKey: info.e2eePubKey
+                    ) {
+                        let cleanPeer = peerURL.trimmingCharacters(in: CharacterSet(charactersIn: "/")).lowercased()
+                        if triedURLs.insert(cleanPeer).inserted {
+                            do {
+                                return try await attemptPair(at: peerURL)
+                            } catch let peerPairErr as PairingError {
+                                if case .serverRejected = peerPairErr {
+                                    throw peerPairErr
+                                }
+                                lastError = peerPairErr
+                            } catch let peerRelayErr as RelayLayerPairingError {
+                                if peerRelayErr.isGatewayOffline {
+                                    sawGatewayOffline = true
+                                }
+                                lastError = peerRelayErr.isGatewayOffline
+                                    ? PairingError.gatewayOffline
+                                    : PairingError.serverRejected(peerRelayErr.fallbackMessage)
+                            } catch {
+                                lastError = error
+                            }
+                        }
+                    }
+                }
             }
         }
         
+        if sawGatewayOffline {
+            throw PairingError.gatewayOffline
+        }
         if let err = lastError {
             if let pairingErr = err as? PairingError {
                 throw pairingErr

@@ -12,14 +12,15 @@ import java.util.concurrent.ConcurrentHashMap
 /**
  * Stateless mobile auto-discovery for multi-VPS relay pools.
  * Queries `GET https://dispatcher.multigravity.app/api/relay/pool` (falling back to
- * `https://dispatcher.jiuge.space/api/relay/pool`, cached 60s), expands all
- * `host_template` entries with the machine's deterministic `sid`, concurrently probes `/healthz`,
- * and re-locks onto the active VPS node when a paired gateway fails over or migrates.
+ * `https://dispatcher.jiuge.space/api/relay/pool`, cached 15m with 5m force-refresh cooldown),
+ * expands all `host_template` entries with the machine's deterministic `sid`, concurrently probes
+ * `/healthz`, and re-locks onto the active VPS node when a paired gateway fails over or migrates.
  */
 object RelayPoolResolver {
     private const val POOL_URL = "https://dispatcher.multigravity.app/api/relay/pool"
     private const val LEGACY_POOL_URL = "https://dispatcher.jiuge.space/api/relay/pool"
-    private const val CACHE_TTL_MS = 60_000L
+    private const val CACHE_TTL_MS = 15 * 60_000L
+    private const val FORCE_REFRESH_COOLDOWN_MS = 5 * 60_000L
 
     data class PoolNode(
         val id: String,
@@ -70,7 +71,8 @@ object RelayPoolResolver {
 
     fun fetchPoolNodes(httpClient: OkHttpClient, forceRefresh: Boolean = false): List<PoolNode> {
         val now = System.currentTimeMillis()
-        if (!forceRefresh && cachedNodes.isNotEmpty() && (now - cachedAtMs) < CACHE_TTL_MS) {
+        val ttl = if (forceRefresh) FORCE_REFRESH_COOLDOWN_MS else CACHE_TTL_MS
+        if (cachedNodes.isNotEmpty() && (now - cachedAtMs) < ttl) {
             return cachedNodes
         }
         for (endpoint in listOf(POOL_URL, LEGACY_POOL_URL)) {
@@ -124,31 +126,30 @@ object RelayPoolResolver {
         val sid = extractSid(currentCloudUrl) ?: return null
         val currentClean = currentCloudUrl?.trim()?.trimEnd('/')?.lowercase()
 
-        val nodes = fetchPoolNodes(httpClient, forceRefresh = true)
-        val relayCandidates = linkedSetOf<String>()
-        for (node in nodes) {
-            val host = node.hostTemplate.replace("{sid}", sid).trim().lowercase()
-            if (host.isEmpty() || !host.contains('.')) continue
-            val urlStr = "https://$host"
-            if (urlStr != currentClean) {
-                relayCandidates.add(urlStr)
+        val seen = linkedSetOf<String>()
+        if (currentClean != null) seen.add(currentClean)
+
+        val initialNodes = fetchPoolNodes(httpClient, forceRefresh = false)
+        val initialCandidates = expandCandidates(initialNodes, sid, seen)
+        val initialBest = probeFastestReachable(initialCandidates) { connectionManager.testSingleEndpoint(it) }
+        if (initialBest != null) {
+            val bestHost = ConnectionManager.extractHost(initialBest.urlString)
+            if (bestHost.isNotEmpty()) {
+                E2eeCrypto.markHostRequiresE2ee(bestHost)
             }
+            return initialBest.urlString
         }
 
-        if (relayCandidates.isNotEmpty()) {
-            val statuses = coroutineScope {
-                relayCandidates.map { cand ->
-                    async { connectionManager.testSingleEndpoint(cand) }
-                }.awaitAll()
+        // All cached peers failed: allow one cooldown-gated refresh in case a new VPS joined the pool.
+        val refreshedNodes = fetchPoolNodes(httpClient, forceRefresh = true)
+        val extraCandidates = expandCandidates(refreshedNodes, sid, seen)
+        val extraBest = probeFastestReachable(extraCandidates) { connectionManager.testSingleEndpoint(it) }
+        if (extraBest != null) {
+            val bestHost = ConnectionManager.extractHost(extraBest.urlString)
+            if (bestHost.isNotEmpty()) {
+                E2eeCrypto.markHostRequiresE2ee(bestHost)
             }
-            val best = statuses.filter { it.isReachable }.minByOrNull { it.latencyMs }
-            if (best != null) {
-                val bestHost = ConnectionManager.extractHost(best.urlString)
-                if (bestHost.isNotEmpty()) {
-                    E2eeCrypto.markHostRequiresE2ee(bestHost)
-                }
-                return best.urlString
-            }
+            return extraBest.urlString
         }
 
         // Secondary fallback: if the dispatcher or every peer relay node is temporarily unreachable,
@@ -165,5 +166,114 @@ object RelayPoolResolver {
             }
         }
         return null
+    }
+
+    /**
+     * Classifies outer HTTP status/body returned before a pairing request reaches the gateway
+     * (e.g. mgy-relay `503 gateway_offline`, `502 gateway_unreachable`, `429 tunnel_busy`).
+     * Returns `(isRelayLayer, isGatewayOffline)`.
+     */
+    fun classifyRelayPairingFailure(outerCode: Int, rawBody: String): Pair<Boolean, Boolean> {
+        val snippet = rawBody.take(320).lowercase()
+        return when (outerCode) {
+            503 -> {
+                if (snippet.contains("upstream_not_connected") ||
+                    snippet.contains("antigravity upstream not connected") ||
+                    snippet.contains("language_server")
+                ) {
+                    false to false
+                } else {
+                    true to snippet.contains("gateway_offline")
+                }
+            }
+            502, 520, 521, 522, 523, 524 -> true to false
+            429 -> snippet.contains("tunnel_busy") to false
+            else -> false to false
+        }
+    }
+
+    /**
+     * Discovers an active peer VPS relay node during initial pairing (before E2EE device keys
+     * are persisted) when the QR code's relay host returns HTTP 502/503 (`gateway_offline`)
+     * or fails transport.
+     *
+     * Security:
+     * - Strictly restricted to official managed relay pool hosts ([isOfficialOrPoolHost]);
+     *   custom self-hosted BYO-Relay domains return null without contacting the dispatcher.
+     */
+    suspend fun discoverPeerRelayForPairing(
+        failedUrl: String,
+        httpClient: OkHttpClient,
+        probeEndpoint: suspend (String) -> EndpointHealthStatus
+    ): String? {
+        if (!isOfficialOrPoolHost(failedUrl)) return null
+        val sid = extractSid(failedUrl) ?: return null
+        val failedClean = failedUrl.trim().trimEnd('/').lowercase()
+
+        val seen = linkedSetOf(failedClean)
+        val initialNodes = fetchPoolNodes(httpClient, forceRefresh = false)
+        val initialCandidates = expandCandidates(initialNodes, sid, seen)
+        val initialBest = probeFastestReachable(initialCandidates, probeEndpoint)
+        if (initialBest != null) {
+            val bestHost = ConnectionManager.extractHost(initialBest.urlString)
+            if (bestHost.isNotEmpty()) {
+                E2eeCrypto.markHostRequiresE2ee(bestHost)
+            }
+            return initialBest.urlString
+        }
+
+        // All cached peers failed: allow one cooldown-gated refresh in case a new VPS joined the pool.
+        val refreshedNodes = fetchPoolNodes(httpClient, forceRefresh = true)
+        val extraCandidates = expandCandidates(refreshedNodes, sid, seen)
+        val extraBest = probeFastestReachable(extraCandidates, probeEndpoint)
+        if (extraBest != null) {
+            val bestHost = ConnectionManager.extractHost(extraBest.urlString)
+            if (bestHost.isNotEmpty()) {
+                E2eeCrypto.markHostRequiresE2ee(bestHost)
+            }
+            return extraBest.urlString
+        }
+
+        val failedHost = ConnectionManager.extractHost(failedUrl)
+        if (failedHost.endsWith(".jiuge.space") || failedHost.endsWith(".multigravity.app")) {
+            val legacyCfUrl = "https://$sid.jiuge.space"
+            if (legacyCfUrl != failedClean) {
+                val cfStatus = probeEndpoint(legacyCfUrl)
+                if (cfStatus.isReachable) {
+                    return cfStatus.urlString
+                }
+            }
+        }
+        return null
+    }
+
+    private fun expandCandidates(
+        nodes: List<PoolNode>,
+        sid: String,
+        seen: MutableSet<String>
+    ): List<String> {
+        val result = mutableListOf<String>()
+        for (node in nodes) {
+            val host = node.hostTemplate.replace("{sid}", sid).trim().lowercase()
+            if (host.isEmpty() || !host.contains('.')) continue
+            val urlStr = "https://$host"
+            if (seen.add(urlStr)) {
+                result.add(urlStr)
+            }
+        }
+        return result
+    }
+
+    private suspend fun probeFastestReachable(
+        candidates: List<String>,
+        probeEndpoint: suspend (String) -> EndpointHealthStatus
+    ): EndpointHealthStatus? {
+        if (candidates.isEmpty()) return null
+        val statuses = coroutineScope {
+            candidates.map { cand ->
+                async { probeEndpoint(cand) }
+            }.awaitAll()
+        }
+        return statuses.filter { it.isReachable }.minByOrNull { it.latencyMs }
     }
 }

@@ -298,11 +298,30 @@ func (t *CloudflareTunnel) markStaleCredentials(cmd *exec.Cmd, reason string) {
 	}
 }
 
+var tunnelCacheMu sync.Mutex
+
 // InvalidateTunnelCache removes the locally cached cf_tunnel.json file.
 func InvalidateTunnelCache() error {
+	tunnelCacheMu.Lock()
+	defer tunnelCacheMu.Unlock()
 	cachePath := filepath.Join(config.GetDataDir(), "cf_tunnel.json")
 	if err := os.Remove(cachePath); err != nil && !os.IsNotExist(err) {
 		return err
+	}
+	return nil
+}
+
+func writeTunnelCacheLocked(cachePath string, data []byte) error {
+	if err := os.MkdirAll(filepath.Dir(cachePath), 0700); err != nil {
+		return err
+	}
+	tmpPath := cachePath + ".tmp"
+	if err := os.WriteFile(tmpPath, data, 0600); err != nil {
+		return err
+	}
+	if err := os.Rename(tmpPath, cachePath); err != nil {
+		_ = os.Remove(tmpPath)
+		return os.WriteFile(cachePath, data, 0600)
 	}
 	return nil
 }
@@ -769,7 +788,12 @@ func GetStableMachineID() string {
 
 // LoadCachedTunnelResult reads locally cached Cloudflare Tunnel credentials without network I/O.
 func LoadCachedTunnelResult() *CFTunnelResult {
-	cachePath := filepath.Join(config.GetDataDir(), "cf_tunnel.json")
+	tunnelCacheMu.Lock()
+	defer tunnelCacheMu.Unlock()
+	return loadCachedTunnelResultLocked(filepath.Join(config.GetDataDir(), "cf_tunnel.json"))
+}
+
+func loadCachedTunnelResultLocked(cachePath string) *CFTunnelResult {
 	data, err := os.ReadFile(cachePath)
 	if err != nil {
 		return nil
@@ -780,6 +804,78 @@ func LoadCachedTunnelResult() *CFTunnelResult {
 	}
 	cached.Reused = true
 	return &cached
+}
+
+// UpdateCachedRelayPool atomically updates cf_tunnel.json with the active connected relay_v1
+// node and/or refreshed relay_nodes pool so subsequent startups reuse the fastest active VPS
+// instead of printing a stale initial relay_nodes[0] domain.
+// Never overwrites an existing non-relay_v1 (Cloudflare) tunnel cache unless base is relay_v1.
+func UpdateCachedRelayPool(active *relay.NodeConfig, nodes []relay.NodeConfig, base *CFTunnelResult) error {
+	tunnelCacheMu.Lock()
+	defer tunnelCacheMu.Unlock()
+
+	cachePath := filepath.Join(config.GetDataDir(), "cf_tunnel.json")
+	var res CFTunnelResult
+	if base != nil {
+		if base.EffectiveMode() != ModeRelayV1 {
+			return nil
+		}
+		res = *base
+		if len(base.RelayNodes) > 0 {
+			res.RelayNodes = append([]relay.NodeConfig(nil), base.RelayNodes...)
+		}
+	} else if existing := loadCachedTunnelResultLocked(cachePath); existing != nil {
+		if existing.EffectiveMode() != ModeRelayV1 {
+			return nil
+		}
+		res = *existing
+	} else {
+		res = CFTunnelResult{
+			Success: true,
+			Mode:    ModeRelayV1,
+		}
+	}
+
+	if len(nodes) > 0 {
+		res.RelayNodes = append([]relay.NodeConfig(nil), nodes...)
+	}
+
+	if active != nil {
+		u := strings.TrimSpace(active.URL)
+		tok := strings.TrimSpace(active.Token)
+		ep := strings.TrimSpace(active.Endpoint)
+		if u != "" && tok != "" && ep != "" {
+			res.Success = true
+			res.Mode = ModeRelayV1
+			res.URL = u
+			res.Token = tok
+			res.RelayEndpoint = ep
+			sub := strings.TrimSpace(active.Subdomain)
+			if sub == "" {
+				if parsed, err := url.Parse(u); err == nil {
+					sub = strings.TrimSpace(parsed.Hostname())
+				}
+			}
+			res.Subdomain = sub
+			if reg := strings.TrimSpace(active.Region); reg != "" {
+				res.Region = reg
+			}
+			if len(res.RelayNodes) == 0 {
+				res.RelayNodes = []relay.NodeConfig{*active}
+			}
+		}
+	}
+
+	if res.EffectiveMode() != ModeRelayV1 || strings.TrimSpace(res.Token) == "" || strings.TrimSpace(res.URL) == "" {
+		return nil
+	}
+	res.Reused = false
+
+	encoded, err := json.Marshal(&res)
+	if err != nil {
+		return err
+	}
+	return writeTunnelCacheLocked(cachePath, encoded)
 }
 
 func hasCapability(caps []string, mode string) bool {
@@ -895,7 +991,9 @@ func RegisterOrFetchTunnelWithOptions(ctx context.Context, workerURL, inviteCode
 
 	// 2. Cache result locally (unless SkipCache is set for dual-track or pool refresh calls)
 	if !opts.SkipCache {
-		_ = os.WriteFile(cachePath, respData, 0600)
+		tunnelCacheMu.Lock()
+		_ = writeTunnelCacheLocked(cachePath, respData)
+		tunnelCacheMu.Unlock()
 	}
 	return &result, nil
 }

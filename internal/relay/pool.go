@@ -64,6 +64,7 @@ type PoolConfig struct {
 	DegradedPingThreshold time.Duration   // yamux ping RTT treated as degraded (default 450ms)
 	RefreshFunc           func(ctx context.Context) ([]NodeConfig, error)
 	OnEndpointChanged     func(node NodeConfig)
+	OnConnected           func(node NodeConfig)
 	OnAllFailed           func()
 	ProbeClient           *http.Client
 	Logger                *slog.Logger
@@ -1014,10 +1015,16 @@ func (p *PoolProvider) runNodeEpoch(parentCtx context.Context, node NodeConfig) 
 
 	if targetConns == 1 {
 		p.logger.Info("✅ [RelayPool] E2EE 中继隧道就绪", "node", node.ID, "conns", 1, "url", node.URL)
+		if p.cfg.OnConnected != nil {
+			go p.cfg.OnConnected(node)
+		}
 		return false, p.serveSession(epochCtx, wsc0, sess0)
 	}
 
 	p.logger.Info("✅ [RelayPool] E2EE 并发中继隧道池就绪", "node", node.ID, "conns", targetConns, "url", node.URL)
+	if p.cfg.OnConnected != nil {
+		go p.cfg.OnConnected(node)
+	}
 
 	var (
 		allDownFailures atomic.Int32

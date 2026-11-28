@@ -39,6 +39,7 @@ type ProviderOptions struct {
 	LocalAddr         string
 	RefreshFunc       func(ctx context.Context) ([]relay.NodeConfig, error)
 	OnEndpointChanged func(node relay.NodeConfig)
+	OnConnected       func(node relay.NodeConfig)
 	OnAllFailed       func()
 }
 
@@ -126,6 +127,7 @@ func NewProviderWithOptions(ctx context.Context, res *CFTunnelResult, cfCfg *con
 			LocalAddr:         opts.LocalAddr,
 			RefreshFunc:       opts.RefreshFunc,
 			OnEndpointChanged: opts.OnEndpointChanged,
+			OnConnected:       opts.OnConnected,
 			OnAllFailed:       opts.OnAllFailed,
 		})
 	default:

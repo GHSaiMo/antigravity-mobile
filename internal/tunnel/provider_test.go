@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	"antigravity-mobile/internal/config"
+	"antigravity-mobile/internal/relay"
 )
 
 func TestRegisterOrFetchTunnelWithOptions_ForwardCompatPayloadAndCacheGuard(t *testing.T) {
@@ -134,5 +135,100 @@ func TestNewProvider_LazyCloudflaredProvisioning(t *testing.T) {
 	}
 	if prov.Mode() != ModeCloudflare || prov.PublicURL() != "https://abcd1234.jiuge.space" {
 		t.Errorf("unexpected provider state: mode=%q url=%q", prov.Mode(), prov.PublicURL())
+	}
+}
+
+func TestUpdateCachedRelayPool_PersistsActiveNodeAndGuardsCloudflareCache(t *testing.T) {
+	tmpDir := t.TempDir()
+	t.Setenv("MULTIGRAVITY_DATA_DIR", tmpDir)
+
+	nodeA := relay.NodeConfig{
+		ID:        "la2-direct",
+		Region:    "us",
+		Priority:  18,
+		Endpoint:  "wss://ctl.la2.jiuge.space/_mgy_tunnel",
+		HealthURL: "https://ctl.la2.jiuge.space/healthz",
+		Subdomain: "r-abcd1234.la2.jiuge.space",
+		URL:       "https://r-abcd1234.la2.jiuge.space",
+		Token:     "mgyr1.la2.sig",
+	}
+	nodeB := relay.NodeConfig{
+		ID:        "hk1-direct",
+		Region:    "ap",
+		Priority:  6,
+		Endpoint:  "wss://ctl.hk1.jiuge.space/_mgy_tunnel",
+		HealthURL: "https://ctl.hk1.jiuge.space/healthz",
+		Subdomain: "r-abcd1234.hk1.jiuge.space",
+		URL:       "https://r-abcd1234.hk1.jiuge.space",
+		Token:     "mgyr1.hk1.sig",
+	}
+	nodeC := relay.NodeConfig{
+		ID:        "tw2-direct",
+		Region:    "ap",
+		Priority:  4,
+		Endpoint:  "wss://ctl.tw2.multigravity.app/_mgy_tunnel",
+		HealthURL: "https://ctl.tw2.multigravity.app/healthz",
+		Subdomain: "r-abcd1234.tw2.multigravity.app",
+		URL:       "https://r-abcd1234.tw2.multigravity.app",
+		Token:     "mgyr1.tw2.sig",
+	}
+
+	// 1. Existing Cloudflare cache must NOT be overwritten when base is nil (e.g. DualTrack safety).
+	cachePath := filepath.Join(tmpDir, "cf_tunnel.json")
+	cfSeed := `{"success":true,"mode":"cloudflare","subdomain":"abcd1234.jiuge.space","url":"https://abcd1234.jiuge.space","token":"cf-tok"}`
+	if err := os.WriteFile(cachePath, []byte(cfSeed), 0600); err != nil {
+		t.Fatalf("seed cf cache: %v", err)
+	}
+	if err := UpdateCachedRelayPool(&nodeB, []relay.NodeConfig{nodeA, nodeB}, nil); err != nil {
+		t.Fatalf("UpdateCachedRelayPool returned unexpected err: %v", err)
+	}
+	loaded := LoadCachedTunnelResult()
+	if loaded == nil || loaded.EffectiveMode() != ModeCloudflare || loaded.URL != "https://abcd1234.jiuge.space" {
+		t.Fatalf("expected cloudflare cache to remain untouched, got %+v", loaded)
+	}
+
+	// 2. Explicit relay_v1 base + active fastest node promotes nodeB to top-level URL/Subdomain/Token.
+	base := &CFTunnelResult{
+		Success:       true,
+		Mode:          ModeRelayV1,
+		Region:        "us",
+		RelayEndpoint: nodeA.Endpoint,
+		Subdomain:     nodeA.Subdomain,
+		URL:           nodeA.URL,
+		Token:         nodeA.Token,
+		TunnelID:      "relay-abcd1234",
+		TunnelName:    "mgy-abcd1234",
+		RelayNodes:    []relay.NodeConfig{nodeA, nodeB},
+	}
+	if err := UpdateCachedRelayPool(&nodeB, base.RelayNodes, base); err != nil {
+		t.Fatalf("UpdateCachedRelayPool(base): %v", err)
+	}
+	loaded = LoadCachedTunnelResult()
+	if loaded == nil || loaded.EffectiveMode() != ModeRelayV1 {
+		t.Fatalf("expected relay_v1 cached result, got %+v", loaded)
+	}
+	if loaded.URL != nodeB.URL || loaded.Subdomain != nodeB.Subdomain || loaded.Token != nodeB.Token || loaded.RelayEndpoint != nodeB.Endpoint {
+		t.Fatalf("expected active nodeB promoted into cache, got url=%q sub=%q ep=%q", loaded.URL, loaded.Subdomain, loaded.RelayEndpoint)
+	}
+	if len(loaded.RelayNodes) != 2 {
+		t.Fatalf("expected 2 relay_nodes preserved, got %d", len(loaded.RelayNodes))
+	}
+
+	// 3. Periodic pool refresh (active == nil) updates RelayNodes while keeping current active nodeB.
+	if err := UpdateCachedRelayPool(nil, []relay.NodeConfig{nodeA, nodeB, nodeC}, nil); err != nil {
+		t.Fatalf("UpdateCachedRelayPool(refresh): %v", err)
+	}
+	loaded = LoadCachedTunnelResult()
+	if loaded == nil || loaded.URL != nodeB.URL || len(loaded.RelayNodes) != 3 {
+		t.Fatalf("expected active nodeB preserved with 3 refreshed nodes, got url=%q count=%d", loaded.URL, len(loaded.RelayNodes))
+	}
+
+	// 4. Subsequent failover/OnConnected promotes nodeC while retaining all 3 RelayNodes.
+	if err := UpdateCachedRelayPool(&nodeC, nil, nil); err != nil {
+		t.Fatalf("UpdateCachedRelayPool(failover): %v", err)
+	}
+	loaded = LoadCachedTunnelResult()
+	if loaded == nil || loaded.URL != nodeC.URL || loaded.Subdomain != nodeC.Subdomain || len(loaded.RelayNodes) != 3 {
+		t.Fatalf("expected active nodeC promoted with 3 nodes retained, got url=%q sub=%q count=%d", loaded.URL, loaded.Subdomain, len(loaded.RelayNodes))
 	}
 }

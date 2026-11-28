@@ -275,7 +275,8 @@ class ConnectionManager(private val context: Context) {
 
     suspend fun testSingleEndpoint(
         urlString: String,
-        overrideClient: OkHttpClient? = null
+        overrideClient: OkHttpClient? = null,
+        expectedGatewayId: String? = null
     ): EndpointHealthStatus = withContext(Dispatchers.IO) {
         val clean = urlString.trim().trimEnd('/')
         if (clean.isBlank()) {
@@ -299,11 +300,26 @@ class ConnectionManager(private val context: Context) {
                     E2eeCrypto.observeServerCapabilities(resp, resp.request.url.host)
                     val body = resp.body?.string() ?: ""
                     var platform: String? = null
+                    var gatewayId: String? = null
                     try {
                         val json = JSONObject(body)
                         platform = json.optString("platform").takeIf { it.isNotBlank() }
                             ?: json.optString("os").takeIf { it.isNotBlank() }
+                        gatewayId = json.optString("gateway_id").takeIf { it.isNotBlank() }
+                            ?: json.optString("e2ee_pub").takeIf { it.isNotBlank() }?.let {
+                                com.antigravity.mobile.data.model.GatewayProfileUtils.deriveGatewayId(it)
+                            }
                     } catch (_: Exception) {}
+                    val expected = expectedGatewayId?.trim()?.takeIf { it.isNotEmpty() }
+                    if (expected != null && !gatewayId.isNullOrBlank() && gatewayId != expected) {
+                        return@use EndpointHealthStatus(
+                            urlString = urlString,
+                            isReachable = false,
+                            latencyMs = took,
+                            errorMessage = "网关身份不匹配".loc,
+                            platform = platform
+                        )
+                    }
                     EndpointHealthStatus(
                         urlString = urlString,
                         isReachable = true,
@@ -329,6 +345,24 @@ class ConnectionManager(private val context: Context) {
                 errorMessage = e.message ?: "连接超时".loc
             )
         }
+    }
+
+    /**
+     * Discovers an active peer VPS relay node during initial pairing (before E2EE device keys
+     * are persisted) when the QR code's relay host returns HTTP 502/503 (`gateway_offline`)
+     * or fails transport.
+     */
+    suspend fun discoverPeerRelayForPairing(
+        failedUrl: String,
+        expectedGatewayId: String? = null
+    ): String? = withContext(Dispatchers.IO) {
+        RelayPoolResolver.discoverPeerRelayForPairing(
+            failedUrl = failedUrl,
+            httpClient = publicProbeClient,
+            probeEndpoint = { cand ->
+                testSingleEndpoint(cand, overrideClient = publicProbeClient, expectedGatewayId = expectedGatewayId)
+            }
+        )
     }
 
     /**

@@ -1,8 +1,11 @@
 package com.antigravity.mobile.data.service
 
 import com.antigravity.mobile.data.model.PairingInfo
+import kotlinx.coroutines.runBlocking
+import okhttp3.OkHttpClient
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -82,5 +85,32 @@ class DualDomainSupportTest {
                 trustedByE2ee = false
             )
         )
+    }
+
+    @Test
+    fun relayPoolResolver_classifiesRelayPairingFailuresAccurately() {
+        assertEquals(true to true, RelayPoolResolver.classifyRelayPairingFailure(503, """{"error":"gateway_offline"}"""))
+        assertEquals(true to false, RelayPoolResolver.classifyRelayPairingFailure(503, """{"error":"relay_capacity_full"}"""))
+        assertEquals(false to false, RelayPoolResolver.classifyRelayPairingFailure(503, """{"error":"upstream_not_connected"}"""))
+        assertEquals(true to false, RelayPoolResolver.classifyRelayPairingFailure(502, """{"error":"gateway_unreachable"}"""))
+        assertEquals(true to false, RelayPoolResolver.classifyRelayPairingFailure(429, """{"error":"tunnel_busy"}"""))
+        assertEquals(false to false, RelayPoolResolver.classifyRelayPairingFailure(429, """{"error":"too many requests"}"""))
+        assertEquals(false to false, RelayPoolResolver.classifyRelayPairingFailure(401, """{"error":"invalid_pairing_code"}"""))
+        assertEquals(false to false, RelayPoolResolver.classifyRelayPairingFailure(426, """{"error":"e2ee_required"}"""))
+    }
+
+    @Test
+    fun relayPoolResolver_discoverPeerRelayForPairing_ignoresByoRelayDomains() = runBlocking {
+        var probeCalled = false
+        val result = RelayPoolResolver.discoverPeerRelayForPairing(
+            failedUrl = "https://r-a1b2c3d4.byo-relay.example.com",
+            httpClient = OkHttpClient(),
+            probeEndpoint = {
+                probeCalled = true
+                EndpointHealthStatus(it, isReachable = true, latencyMs = 10L)
+            }
+        )
+        assertNull(result)
+        assertFalse(probeCalled)
     }
 }

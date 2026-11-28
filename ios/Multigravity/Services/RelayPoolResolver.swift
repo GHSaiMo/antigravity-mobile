@@ -11,6 +11,8 @@ public final class RelayPoolResolver: Sendable {
 
     public static let defaultPoolURL = URL(string: "https://dispatcher.multigravity.app/api/relay/pool")!
     public static let legacyPoolURL = URL(string: "https://dispatcher.jiuge.space/api/relay/pool")!
+    private static let cacheTTL: TimeInterval = 15 * 60
+    private static let forceRefreshCooldown: TimeInterval = 5 * 60
 
     public struct PoolNode: Decodable, Sendable {
         public let id: String
@@ -74,11 +76,14 @@ public final class RelayPoolResolver: Sendable {
         return isPoolDomainHost(clean)
     }
 
-    /// Fetches (or returns 60s-cached) pool node templates from the dispatcher Worker,
+    /// Fetches (or returns cached) pool node templates from the dispatcher Worker,
     /// falling back to the legacy dispatcher domain if the primary domain is unreachable.
+    /// Normal callers reuse the cache for 15 minutes; `forceRefresh: true` still enforces
+    /// a 5-minute cooldown so offline/sleeping gateways never hammer `/api/relay/pool`.
     public func fetchPoolNodes(forceRefresh: Bool = false) async -> [PoolNode] {
+        let ttl = forceRefresh ? Self.forceRefreshCooldown : Self.cacheTTL
         let cached = cacheLock.withLock { state -> [PoolNode]? in
-            if !forceRefresh && !state.nodes.isEmpty && Date().timeIntervalSince(state.fetchedAt) < 60 {
+            if !state.nodes.isEmpty && Date().timeIntervalSince(state.fetchedAt) < ttl {
                 return state.nodes
             }
             return nil
@@ -215,6 +220,78 @@ public final class RelayPoolResolver: Sendable {
         return applied ? migratedURL : nil
     }
 
+    /// Discovers an active peer VPS relay node during initial pairing (before E2EE device keys
+    /// are persisted) when the QR code's relay host returns HTTP 502/503 (`gateway_offline`)
+    /// or fails transport.
+    /// Security:
+    /// - Only activates for official managed relay pool hosts (`isOfficialOrPoolHost`),
+    ///   never contacting the official dispatcher for self-hosted BYO-Relay domains.
+    /// - Derives `expectedGatewayId` from `e2eePubKey` when available so `/healthz` probes
+    ///   reject unrelated gateways before any pairing request is sent.
+    public func discoverPeerRelayForPairing(
+        failedURLString: String,
+        e2eePubKey: String? = nil
+    ) async -> String? {
+        guard isOfficialOrPoolHost(failedURLString),
+              let sid = Self.extractSID(from: failedURLString) else {
+            return nil
+        }
+        let failedClean = failedURLString
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+            .lowercased()
+        let expectedGatewayId = e2eePubKey.flatMap {
+            GatewayProfileStore.deriveGatewayId(fromE2EEPubKeyB64: $0)
+        }
+
+        let nodes = await fetchPoolNodes(forceRefresh: false)
+        var seen = Set<String>([failedClean])
+        let initialCandidates = Self.expandCandidateURLs(nodes: nodes, sid: sid, seen: &seen)
+
+        if let best = await Self.probeFastestReachable(
+            candidateURLs: initialCandidates,
+            timeout: 4.0,
+            expectedGatewayId: expectedGatewayId
+        ) {
+            if let host = URL(string: best.urlString)?.host {
+                E2EECrypto.shared.markHostRequiresE2EE(host)
+            }
+            return best.urlString
+        }
+
+        // If all cached peers failed, allow one cooldown-gated refresh in case a new VPS joined the pool.
+        let refreshedNodes = await fetchPoolNodes(forceRefresh: true)
+        let extraCandidates = Self.expandCandidateURLs(nodes: refreshedNodes, sid: sid, seen: &seen)
+        if let best = await Self.probeFastestReachable(
+            candidateURLs: extraCandidates,
+            timeout: 4.0,
+            expectedGatewayId: expectedGatewayId
+        ) {
+            if let host = URL(string: best.urlString)?.host {
+                E2EECrypto.shared.markHostRequiresE2EE(host)
+            }
+            return best.urlString
+        }
+
+        // Secondary fallback: if the gateway activated its Cloudflare fallback tunnel
+        // (`https://<sid>.jiuge.space`) while VPS relays were unreachable, probe it too.
+        let failedHost = NetworkTransport.extractHost(from: failedURLString)
+        if failedHost.hasSuffix(".jiuge.space") || failedHost.hasSuffix(".multigravity.app") {
+            let legacyCF = "https://\(sid).jiuge.space"
+            if legacyCF != failedClean {
+                let cfStatus = await ConnectionManager.testSingleEndpoint(
+                    urlString: legacyCF,
+                    timeout: 4.0,
+                    expectedGatewayId: expectedGatewayId
+                )
+                if cfStatus.isReachable {
+                    return cfStatus.urlString
+                }
+            }
+        }
+        return nil
+    }
+
     private func performResolveReachableCloudURL(
         currentCloudURL: String?,
         expectedEpoch: UInt64,
@@ -232,11 +309,50 @@ public final class RelayPoolResolver: Sendable {
             .trimmingCharacters(in: CharacterSet(charactersIn: "/"))
             .lowercased()
 
-        let nodes = await fetchPoolNodes(forceRefresh: true)
+        let nodes = await fetchPoolNodes(forceRefresh: false)
         guard !nodes.isEmpty, GatewayRuntimeState.shared.epoch == expectedEpoch else { return nil }
 
-        var candidateURLs: [String] = []
         var seen = Set<String>()
+        if let currentClean { seen.insert(currentClean) }
+        let initialCandidates = Self.expandCandidateURLs(nodes: nodes, sid: sid, seen: &seen)
+
+        if let best = await Self.probeFastestReachable(
+            candidateURLs: initialCandidates,
+            timeout: nil,
+            expectedGatewayId: expectedGatewayId
+        ) {
+            guard GatewayRuntimeState.shared.epoch == expectedEpoch else { return nil }
+            if let host = URL(string: best.urlString)?.host {
+                E2EECrypto.shared.markHostRequiresE2EE(host)
+            }
+            return best.urlString
+        }
+
+        guard GatewayRuntimeState.shared.epoch == expectedEpoch else { return nil }
+        // All cached peers were unreachable: allow a cooldown-gated refresh to discover newly added nodes.
+        let refreshedNodes = await fetchPoolNodes(forceRefresh: true)
+        guard GatewayRuntimeState.shared.epoch == expectedEpoch else { return nil }
+        let extraCandidates = Self.expandCandidateURLs(nodes: refreshedNodes, sid: sid, seen: &seen)
+        if let best = await Self.probeFastestReachable(
+            candidateURLs: extraCandidates,
+            timeout: nil,
+            expectedGatewayId: expectedGatewayId
+        ) {
+            guard GatewayRuntimeState.shared.epoch == expectedEpoch else { return nil }
+            if let host = URL(string: best.urlString)?.host {
+                E2EECrypto.shared.markHostRequiresE2EE(host)
+            }
+            return best.urlString
+        }
+        return nil
+    }
+
+    private static func expandCandidateURLs(
+        nodes: [PoolNode],
+        sid: String,
+        seen: inout Set<String>
+    ) -> [String] {
+        var result: [String] = []
         for node in nodes {
             let host = node.host_template
                 .replacingOccurrences(of: "{sid}", with: sid)
@@ -244,18 +360,31 @@ public final class RelayPoolResolver: Sendable {
                 .lowercased()
             guard !host.isEmpty, host.contains(".") else { continue }
             let urlStr = "https://\(host)"
-            if urlStr == currentClean { continue }
             if seen.insert(urlStr).inserted {
-                candidateURLs.append(urlStr)
+                result.append(urlStr)
             }
         }
-        guard !candidateURLs.isEmpty else { return nil }
+        return result
+    }
 
+    private static func probeFastestReachable(
+        candidateURLs: [String],
+        timeout: TimeInterval?,
+        expectedGatewayId: String?
+    ) async -> EndpointHealthStatus? {
+        guard !candidateURLs.isEmpty else { return nil }
         var statuses: [EndpointHealthStatus] = []
         await withTaskGroup(of: EndpointHealthStatus.self) { group in
             for cand in candidateURLs {
                 group.addTask {
-                    await ConnectionManager.testSingleEndpoint(
+                    if let timeout {
+                        return await ConnectionManager.testSingleEndpoint(
+                            urlString: cand,
+                            timeout: timeout,
+                            expectedGatewayId: expectedGatewayId
+                        )
+                    }
+                    return await ConnectionManager.testSingleEndpoint(
                         urlString: cand,
                         expectedGatewayId: expectedGatewayId
                     )
@@ -265,17 +394,8 @@ public final class RelayPoolResolver: Sendable {
                 statuses.append(status)
             }
         }
-
-        guard GatewayRuntimeState.shared.epoch == expectedEpoch else { return nil }
-        let best = statuses
+        return statuses
             .filter { $0.isReachable }
             .min(by: { $0.latencyMs < $1.latencyMs })
-        if let best {
-            if let host = URL(string: best.urlString)?.host {
-                E2EECrypto.shared.markHostRequiresE2EE(host)
-            }
-            return best.urlString
-        }
-        return nil
     }
 }

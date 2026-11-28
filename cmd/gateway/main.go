@@ -1145,9 +1145,12 @@ func runGatewayServerOnce(mode gatewayMode, args []string) string {
 		shouldPrintQR = deviceCount == 0
 	}
 
+	initialQRHost := qrHost
+	printedInitialQR := false
 	if shouldPrintQR {
 		if initialSession, err := pairingMgr.GenerateSession(5 * time.Minute); err == nil {
 			auth.PrintPairingQRCode(qrHost, qrPort, initialSession.Code, cfDomain != "", extraHosts...)
+			printedInitialQR = true
 		} else {
 			slog.Warn(i18n.T("⚠️  无法生成初始配对二维码", "⚠️  Failed to generate initial pairing QR code"), "err", err)
 		}
@@ -1198,6 +1201,30 @@ func runGatewayServerOnce(mode gatewayMode, args []string) string {
 		go func(cfgCopy config.CloudflareConfig, preloaded *tunnel.CFTunnelResult) {
 			var fallbackOnce sync.Once
 			var retireCFOnce sync.Once
+			var liveTunnelQROnce sync.Once
+
+			printLiveTunnelQRIfNeeded := func(subdomain string) {
+				sub := strings.TrimSpace(subdomain)
+				if sub == "" || !shouldPrintQR || watcherCtx.Err() != nil {
+					return
+				}
+				if !qrExplicitlySet && len(authStore.ListDevices()) > 0 {
+					return
+				}
+				// If startup already printed a cloud QR pointing to this exact same live node, avoid duplicating it.
+				if printedInitialQR && hadCachedDomain && strings.EqualFold(sub, strings.TrimSpace(initialQRHost)) {
+					return
+				}
+				liveTunnelQROnce.Do(func() {
+					if sess, sErr := pairingMgr.GenerateSession(5 * time.Minute); sErr == nil {
+						var extras []string
+						if lanExtra != "" {
+							extras = append(extras, lanExtra)
+						}
+						auth.PrintPairingQRCode(sub, 443, sess.Code, true, extras...)
+					}
+				})
+			}
 
 			makeRelayOpts := func(isDualTrack bool) tunnel.ProviderOptions {
 				return tunnel.ProviderOptions{
@@ -1216,17 +1243,24 @@ func runGatewayServerOnce(mode gatewayMode, args []string) string {
 							return nil, err
 						}
 						if len(fresh.RelayNodes) > 0 {
+							if !isDualTrack && cfgCopy.Token == "" {
+								_ = tunnel.UpdateCachedRelayPool(nil, fresh.RelayNodes, nil)
+							}
 							return fresh.RelayNodes, nil
 						}
 						if fresh.RelayEndpoint != "" && fresh.Token != "" && fresh.URL != "" {
 							healthURL := strings.Replace(fresh.RelayEndpoint, "wss://", "https://", 1)
 							healthURL = strings.Replace(healthURL, "ws://", "http://", 1)
 							healthURL = strings.Replace(healthURL, "/_mgy_tunnel", "/healthz", 1)
-							return []relay.NodeConfig{{
+							single := []relay.NodeConfig{{
 								ID: "default", Region: fresh.Region, Priority: 10,
 								Endpoint: fresh.RelayEndpoint, HealthURL: healthURL,
 								Subdomain: fresh.Subdomain, URL: fresh.URL, Token: fresh.Token,
-							}}, nil
+							}}
+							if !isDualTrack && cfgCopy.Token == "" {
+								_ = tunnel.UpdateCachedRelayPool(nil, single, nil)
+							}
+							return single, nil
 						}
 						return nil, fmt.Errorf("no relay nodes returned")
 					},
@@ -1236,6 +1270,21 @@ func runGatewayServerOnce(mode gatewayMode, args []string) string {
 						} else {
 							authHandler.SetCloudEndpoint(node.URL, tunnel.ModeRelayV1)
 							authHandler.SetPrimary(node.Subdomain, 443, true)
+							if !isDualTrack && cfgCopy.Token == "" {
+								_ = tunnel.UpdateCachedRelayPool(&node, nil, nil)
+							}
+						}
+					},
+					OnConnected: func(node relay.NodeConfig) {
+						if isDualTrack && authHandler.DualTrackRelayURL() != "" {
+							authHandler.SetDualTrackRelayURL(node.URL)
+						} else {
+							authHandler.SetCloudEndpoint(node.URL, tunnel.ModeRelayV1)
+							authHandler.SetPrimary(node.Subdomain, 443, true)
+							if !isDualTrack && cfgCopy.Token == "" {
+								_ = tunnel.UpdateCachedRelayPool(&node, nil, nil)
+							}
+							printLiveTunnelQRIfNeeded(node.Subdomain)
 						}
 					},
 					OnAllFailed: func() {
@@ -1276,6 +1325,7 @@ func runGatewayServerOnce(mode gatewayMode, args []string) string {
 							authHandler.SetCloudEndpoint(fbProv.PublicURL(), tunnel.ModeCloudflare)
 							authHandler.SetPrimary(fbProv.Subdomain(), 443, true)
 							slog.Info("✅ [Fallback] Cloudflare 兜底隧道已自动激活", "url", fbProv.PublicURL())
+							printLiveTunnelQRIfNeeded(fbProv.Subdomain())
 						})
 					},
 				}
@@ -1350,14 +1400,13 @@ func runGatewayServerOnce(mode gatewayMode, args []string) string {
 
 			authHandler.SetCloudEndpoint(prov.PublicURL(), prov.Mode())
 			authHandler.SetPrimary(prov.Subdomain(), 443, true)
-			if !hadCachedDomain && shouldPrintQR && len(authStore.ListDevices()) == 0 {
-				if sess, sErr := pairingMgr.GenerateSession(5 * time.Minute); sErr == nil {
-					var extras []string
-					if lanExtra != "" {
-						extras = append(extras, lanExtra)
-					}
-					auth.PrintPairingQRCode(prov.Subdomain(), 443, sess.Code, true, extras...)
-				}
+			if poolProv, ok := prov.(*relay.PoolProvider); ok && cfgCopy.Token == "" {
+				activeNode := poolProv.ActiveNode()
+				_ = tunnel.UpdateCachedRelayPool(&activeNode, cfRes.RelayNodes, cfRes)
+			}
+			// For relay_v1, defer QR re-print until OnConnected fires so the scanned node actually has a live tunnel.
+			if prov.Mode() != tunnel.ModeRelayV1 {
+				printLiveTunnelQRIfNeeded(prov.Subdomain())
 			}
 
 			// Dual-Track Step 2: While legacy Cloudflare Tunnel serves older Apps, attempt to launch parallel
@@ -1435,6 +1484,10 @@ func runGatewayServerOnce(mode gatewayMode, args []string) string {
 											authHandler.SetDualTrackRelayURL("")
 											oldCF.Stop()
 											_ = tunnel.InvalidateTunnelCache()
+											if poolProv, ok := newPrimary.(*relay.PoolProvider); ok && cfgCopy.Token == "" {
+												activeNode := poolProv.ActiveNode()
+												_ = tunnel.UpdateCachedRelayPool(&activeNode, relayRes.RelayNodes, relayRes)
+											}
 											slog.Info("✅ [DualTrack] 全部已配对设备已完成 E2EE 升级，已平滑退役旧版 Cloudflare Tunnel")
 										}
 									}()

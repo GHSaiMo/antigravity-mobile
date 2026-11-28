@@ -35,6 +35,7 @@ func TestPoolProvider_SelectsFastestNodeAndFailsOver(t *testing.T) {
 	tokFast, _ := SignToken(secret, TokenClaims{ShortID: "abcd1234", OwnerHash: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", Domain: "r-abcd1234.fast.jiuge.space"})
 
 	switched := make(chan string, 4)
+	connected := make(chan string, 4)
 	ln := NewStreamListener()
 	defer ln.Close()
 
@@ -65,6 +66,9 @@ func TestPoolProvider_SelectsFastestNodeAndFailsOver(t *testing.T) {
 		OnEndpointChanged: func(n NodeConfig) {
 			switched <- n.ID
 		},
+		OnConnected: func(n NodeConfig) {
+			connected <- n.ID
+		},
 	})
 	if err != nil {
 		t.Fatalf("NewPoolProvider: %v", err)
@@ -80,6 +84,15 @@ func TestPoolProvider_SelectsFastestNodeAndFailsOver(t *testing.T) {
 	// Should pick "fast" despite "slow" having lower priority number!
 	if got := pool.ActiveNode().ID; got != "fast" {
 		t.Fatalf("expected fastest node 'fast', got %q", got)
+	}
+
+	select {
+	case id := <-connected:
+		if id != "fast" {
+			t.Fatalf("expected OnConnected('fast'), got %q", id)
+		}
+	case <-time.After(3 * time.Second):
+		t.Fatalf("timed out waiting for initial OnConnected('fast')")
 	}
 
 	deadline := time.Now().Add(3 * time.Second)
@@ -103,6 +116,14 @@ func TestPoolProvider_SelectsFastestNodeAndFailsOver(t *testing.T) {
 	}
 	if got := pool.ActiveNode().ID; got != "slow" {
 		t.Fatalf("expected active node switched to 'slow', got %q", got)
+	}
+	select {
+	case id := <-connected:
+		if id != "slow" {
+			t.Fatalf("expected failover OnConnected('slow'), got %q", id)
+		}
+	case <-time.After(3 * time.Second):
+		t.Fatalf("timed out waiting for failover OnConnected('slow')")
 	}
 }
 

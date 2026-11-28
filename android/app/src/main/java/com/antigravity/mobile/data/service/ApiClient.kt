@@ -9,6 +9,7 @@ import com.antigravity.mobile.data.model.*
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.suspendCancellableCoroutine
@@ -183,15 +184,42 @@ class ApiClient(
     private val jsonMediaType = "application/json; charset=utf-8".toMediaType()
     private val messagesEtagCache = java.util.concurrent.ConcurrentHashMap<String, Pair<String, StreamUpdatePayload>>()
 
+    private sealed class PairAttemptOutcome {
+        data class Success(val response: PairResponse) : PairAttemptOutcome()
+        data class GatewayRejected(val message: String) : PairAttemptOutcome()
+        data class RelayRetryable(val isGatewayOffline: Boolean, val fallbackMessage: String) : PairAttemptOutcome()
+        data class TransportFailed(val error: Exception) : PairAttemptOutcome()
+    }
+
+    private fun extractErrorText(rawBody: String, fallbackStatus: Int): String {
+        val trimmed = rawBody.trim()
+        if (trimmed.startsWith("{")) {
+            try {
+                val err = org.json.JSONObject(trimmed).optString("error").trim()
+                if (err.isNotEmpty()) return err
+            } catch (_: Exception) {}
+        }
+        return trimmed.ifBlank { "HTTP $fallbackStatus" }
+    }
+
     /**
      * Attempts pairing with candidates from PairingInfo.
      * Supports encrypted zero-knowledge pairing (`POST /api/v1/e2ee/pair`) when QR carries `&pk=...`
      * over public relay hosts, as well as inline E2EE key negotiation during LAN/CF pairing.
+     * Automatically probes sibling VPS relay nodes via `/api/relay/pool` when an official relay
+     * returns `503 gateway_offline` or fails transport (e.g. stale QR cache or VPS failover).
      */
     suspend fun pair(info: PairingInfo): Result<PairResponse> = withContext(Dispatchers.IO) {
-        val candidates = info.candidateBaseUrls()
-        if (candidates.isEmpty()) {
+        val rawCandidates = info.candidateBaseUrls()
+        if (rawCandidates.isEmpty()) {
             return@withContext Result.failure(IllegalArgumentException("无可用候选网关地址".loc))
+        }
+        val candidates = if (connectionManager?.isCellular == true) {
+            val privateLan = rawCandidates.filter { ConnectionManager.isPrivateOrTailscaleHost(ConnectionManager.extractHost(it)) }
+            val publicPaths = rawCandidates.filterNot { it in privateLan }
+            publicPaths + privateLan
+        } else {
+            rawCandidates
         }
 
         val deviceName = "${Build.MANUFACTURER} ${Build.MODEL}"
@@ -203,14 +231,15 @@ class ApiClient(
             e2eePub = ephemPubB64
         )
         val bodyStr = json.encodeToString(pairReq)
+        val expectedGatewayId = GatewayProfileUtils.deriveGatewayId(info.e2eePubKey)
 
-        var lastException: Exception? = null
-        for (candidate in candidates) {
-            val candHost = ConnectionManager.extractHost(candidate)
+        suspend fun attemptPair(candidate: String): PairAttemptOutcome {
+            val candClean = candidate.trim().trimEnd('/')
+            val candHost = ConnectionManager.extractHost(candClean)
             val gwPub = info.e2eePubKey?.takeIf { it.isNotBlank() }
             val useEncryptedPair = gwPub != null && !ConnectionManager.isPrivateOrTailscaleHost(candHost)
-            val endpoint = if (useEncryptedPair) "$candidate/api/v1/e2ee/pair" else "$candidate/api/v1/auth/pair"
-            try {
+            val endpoint = if (useEncryptedPair) "$candClean/api/v1/e2ee/pair" else "$candClean/api/v1/auth/pair"
+            return try {
                 var activePriv = ephemKp.private
                 var activeClientPub = ephemPubB64
                 val postBody = if (useEncryptedPair) {
@@ -229,15 +258,24 @@ class ApiClient(
 
                 client.newCall(request).await().use { response ->
                     val rawRespStr = response.body?.string() ?: ""
+                    val outerCode = response.code
                     val (effectiveCode, respStr) = if (useEncryptedPair && response.isSuccessful) {
                         E2eeCrypto.decryptPairEnvelope(rawRespStr, activePriv, activeClientPub, gwPub!!)
                     } else {
-                        response.code to rawRespStr
+                        if (!response.isSuccessful) {
+                            val (isRelayLayer, isGatewayOffline) = RelayPoolResolver.classifyRelayPairingFailure(outerCode, rawRespStr)
+                            if (isRelayLayer) {
+                                return@use PairAttemptOutcome.RelayRetryable(
+                                    isGatewayOffline = isGatewayOffline,
+                                    fallbackMessage = extractErrorText(rawRespStr, outerCode)
+                                )
+                            }
+                        }
+                        outerCode to rawRespStr
                     }
                     if (effectiveCode !in 200..299) {
-                        val errMsg = respStr.ifBlank { "HTTP $effectiveCode" }
-                        lastException = RuntimeException("配对响应失败: %s".loc(errMsg))
-                        return@use
+                        val errMsg = extractErrorText(respStr, effectiveCode)
+                        return@use PairAttemptOutcome.GatewayRejected(errMsg)
                     }
                     val pairResp = json.decodeFromString<PairResponse>(respStr)
 
@@ -266,14 +304,20 @@ class ApiClient(
                         if (h.isNotEmpty()) e2eeHosts.add(h)
                     }
 
-                    if (info.ssl || !ConnectionManager.isPrivateOrTailscaleHost(ConnectionManager.extractHost(info.host))) {
+                    if (candHost.isNotEmpty() && !ConnectionManager.isPrivateOrTailscaleHost(candHost)) {
+                        cloudUrl = candClean
+                        if (candHost.startsWith("r-")) {
+                            relayUrl = candClean
+                            e2eeHosts.add(candHost)
+                        }
+                    } else if (info.ssl || !ConnectionManager.isPrivateOrTailscaleHost(ConnectionManager.extractHost(info.host))) {
                         cloudUrl = info.serverBaseUrl
                     }
 
                     if (pairResp.endpoints != null) {
                         for (ep in pairResp.endpoints) {
                             val epUrl = ep.url.trim().trimEnd('/')
-                            val trusted = ConnectionManager.isTrustedEndpoint(epUrl, info, candidate) ||
+                            val trusted = ConnectionManager.isTrustedEndpoint(epUrl, info, candClean) ||
                                 (useEncryptedPair && ConnectionManager.isValidAdvertisedCloudUrl(epUrl, prefs, trustedByE2ee = true))
                             if (!trusted) {
                                 continue
@@ -315,7 +359,6 @@ class ApiClient(
                     }
 
                     // Fallback classify the successful candidate into its slot if still unassigned
-                    val candClean = candidate.trim().trimEnd('/')
                     when {
                         ConnectionManager.isLanHost(candHost) -> {
                             if (lanUrl.isNullOrBlank()) lanUrl = candClean
@@ -374,14 +417,91 @@ class ApiClient(
                         syncPushTokenToAllGateways(fcm)
                     }
 
-                    return@withContext Result.success(pairResp)
+                    PairAttemptOutcome.Success(pairResp)
                 }
+            } catch (e: CancellationException) {
+                throw e
             } catch (e: Exception) {
-                Log.w("ApiClient", "Failed candidate $candidate: ${e.message}")
-                lastException = e
+                Log.w("ApiClient", "Failed candidate $candClean: ${e.message}")
+                PairAttemptOutcome.TransportFailed(e)
             }
         }
 
+        val triedUrls = HashSet<String>()
+        var lastException: Exception? = null
+        var sawGatewayOffline = false
+        var attemptedPeerDiscovery = false
+
+        suspend fun tryPeerDiscovery(failedUrl: String, allowSameNodeRetry: Boolean): PairAttemptOutcome? {
+            if (attemptedPeerDiscovery || !RelayPoolResolver.isOfficialOrPoolHost(failedUrl)) {
+                return null
+            }
+            attemptedPeerDiscovery = true
+            val peerUrl = connectionManager?.discoverPeerRelayForPairing(
+                failedUrl = failedUrl,
+                expectedGatewayId = expectedGatewayId
+            )
+            if (!peerUrl.isNullOrBlank()) {
+                val peerKey = peerUrl.trim().trimEnd('/').lowercase()
+                if (triedUrls.add(peerKey)) {
+                    return attemptPair(peerUrl)
+                }
+            } else if (allowSameNodeRetry) {
+                // Gateway may still be completing its initial 1-2s WSS handshake on this node.
+                delay(1200L)
+                return attemptPair(failedUrl)
+            }
+            return null
+        }
+
+        for (candidate in candidates) {
+            val candKey = candidate.trim().trimEnd('/').lowercase()
+            if (!triedUrls.add(candKey)) continue
+
+            when (val outcome = attemptPair(candidate)) {
+                is PairAttemptOutcome.Success -> return@withContext Result.success(outcome.response)
+                is PairAttemptOutcome.GatewayRejected -> {
+                    return@withContext Result.failure(RuntimeException("配对响应失败: %s".loc(outcome.message)))
+                }
+                is PairAttemptOutcome.RelayRetryable -> {
+                    if (outcome.isGatewayOffline) sawGatewayOffline = true
+                    lastException = RuntimeException("配对响应失败: %s".loc(outcome.fallbackMessage))
+                    when (val peerOutcome = tryPeerDiscovery(candidate, allowSameNodeRetry = true)) {
+                        is PairAttemptOutcome.Success -> return@withContext Result.success(peerOutcome.response)
+                        is PairAttemptOutcome.GatewayRejected -> {
+                            return@withContext Result.failure(RuntimeException("配对响应失败: %s".loc(peerOutcome.message)))
+                        }
+                        is PairAttemptOutcome.RelayRetryable -> {
+                            if (peerOutcome.isGatewayOffline) sawGatewayOffline = true
+                            lastException = RuntimeException("配对响应失败: %s".loc(peerOutcome.fallbackMessage))
+                        }
+                        is PairAttemptOutcome.TransportFailed -> lastException = peerOutcome.error
+                        null -> {}
+                    }
+                }
+                is PairAttemptOutcome.TransportFailed -> {
+                    lastException = outcome.error
+                    when (val peerOutcome = tryPeerDiscovery(candidate, allowSameNodeRetry = false)) {
+                        is PairAttemptOutcome.Success -> return@withContext Result.success(peerOutcome.response)
+                        is PairAttemptOutcome.GatewayRejected -> {
+                            return@withContext Result.failure(RuntimeException("配对响应失败: %s".loc(peerOutcome.message)))
+                        }
+                        is PairAttemptOutcome.RelayRetryable -> {
+                            if (peerOutcome.isGatewayOffline) sawGatewayOffline = true
+                            lastException = RuntimeException("配对响应失败: %s".loc(peerOutcome.fallbackMessage))
+                        }
+                        is PairAttemptOutcome.TransportFailed -> lastException = peerOutcome.error
+                        null -> {}
+                    }
+                }
+            }
+        }
+
+        if (sawGatewayOffline) {
+            return@withContext Result.failure(
+                RuntimeException("电脑端网关暂未连接至中继节点（gateway_offline），请确认电脑上 mgy 已显示中继就绪并重新执行 mgy pair 扫码".loc)
+            )
+        }
         Result.failure(lastException ?: RuntimeException("所有候选地址配对均超时或失败".loc))
     }
 
