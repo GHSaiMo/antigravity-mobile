@@ -154,7 +154,7 @@ mgy
 - **跨端游标与物理外设**：Follow-Me 游标引擎智能仲裁桌面与移动端活跃会话；支持 `integrations/yoooclaw/` 随身硬件按键语音直连注入活跃会话。
 
 ### 7. 零知识端到端加密、多地域中继池与安全推送
-- **多通道并发测速与丢包感知中继池**：支持零知识多节点 VPS 中继池（丢包感知多样本测速、滞回钉选、运行时 Ping 逃逸、故障自动切换）与**自建中继（BYO-Relay）**、Cloudflare Tunnel 专属 HTTPS 域名自动回退、局域网 Wi-Fi 与 Tailscale 并发探活，自动择优切换最低延迟链路。
+- **多通道并发测速与丢包感知中继池**：支持零知识多节点 VPS 中继池（丢包感知多样本测速、滞回钉选、运行时 Ping 逃逸、故障自动切换）与**[自建中继（BYO-Relay）](docs/self_hosted_relay_guide.md)**、Cloudflare Tunnel 专属 HTTPS 域名自动回退、局域网 Wi-Fi 与 Tailscale 并发探活，自动择优切换最低延迟链路。
 - **按设备语言三语推送、推送脱敏、锁屏快批与全 5 池额度守护**：iOS 原生支持 **APNs 推送、锁屏快捷审批与远程 Live Activity 灵动岛状态更新**，Android 支持 `dataSync` 前台保活与 FCM 推送；全量通知按**各配对设备语言**原生输出 **简中 / English / 日本語**（非中日英自动降级英文），支持**推送正文脱敏（`MGY_PUSH_REDACT`）**、可定制通知偏好子页、任务停滞告警、高危审批独立标题与桌面端已审批横幅静默撤回，覆盖全 5 池低水位、官方提前回满喜报及异常骤降告警；网关内置跨平台**任务期动态防休眠守卫**（仅活跃任务期持锁、允许熄屏、空闲 2 分钟自动释放）。
 - **零知识 E2EE v2 与本地优先安全架构**：全端内置 **E2EE v2 端到端加密协议**（ECDH P-256 + HKDF-SHA256 + AES-256-GCM + 防重放与 WS 序号保护），支持强制 E2EE 与中继明文直拒（HTTP 426）确保中转节点零知识不可见；支持老设备双轨静默升级，设备凭据存入系统 Keychain / EncryptedSharedPreferences，集成敏感路径黑名单与 WS 限流防刷。
 
@@ -193,7 +193,7 @@ mgy help             # 查看完整命令与启动参数
 
 - **默认配置目录**：`~/.multigravity/.env`（自动兼容迁移旧版 `~/.antigravity-mobile/`）。
 - **核心环境变量**：`MULTIGRAVITY_PORT` (`58900`)、`CF_TUNNEL_ENABLED` (`1`)、`APNS_ENABLED` (`1`)、`MGY_PREVENT_SLEEP` (`1` 任务期按需防休眠)、`MGY_LANG` (`zh` / `en` / `ja` 自适应)、`MULTIGRAVITY_LOG_LEVEL` (`info`)。
-- **进阶文档**：多机聚合详见 [多机聚合 Hub 接入指南](docs/hub_guide.md)，安装自测与排错详见 [安装与运维指南](docs/installation_and_testing_guide.md)，RPC 接入细节详见 [language_server RPC 说明](docs/ls_rpc_integration_notes.md)。
+- **进阶文档**：自建私有中继详见 [自建中继节点（BYO-Relay）配置指南](docs/self_hosted_relay_guide.md)，公网 IPv6 直连详见 [IPv6 直连配置指南](docs/ipv6_direct_guide.md)，多机聚合详见 [多机聚合 Hub 接入指南](docs/hub_guide.md)，安装自测与排错详见 [安装与运维指南](docs/installation_and_testing_guide.md)，RPC 接入细节详见 [language_server RPC 说明](docs/ls_rpc_integration_notes.md)。
 
 <details>
 <summary>🗑️ 彻底卸载网关与清理配置</summary>

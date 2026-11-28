@@ -155,7 +155,7 @@ Purpose-built for **iPhone Duo** and iOS 27.1+: the compact cover display embrac
 - **Cross-Device Cursor & Physical Peripherals**: Follow-Me cursor engine intelligently arbitrates active sessions between desktop and mobile. Hardware integration via `integrations/yoooclaw/` enables wearable push-to-talk buttons to inject voice directly into the active session.
 
 ### 7. Zero-Knowledge E2EE, Multi-Region Relay Pool & Secure Push
-- **Loss-Aware Multi-Region Relay Pool & BYO-Relay**: Combines a zero-knowledge multi-VPS relay pool (loss-aware multi-sample RTT probing, hysteresis pinning, runtime ping escape, automatic failover) and **BYO-Relay** with automatic Cloudflare Tunnel HTTPS fallback, LAN Wi-Fi, and Tailscale to pick the lowest-latency route automatically.
+- **Loss-Aware Multi-Region Relay Pool & BYO-Relay**: Combines a zero-knowledge multi-VPS relay pool (loss-aware multi-sample RTT probing, hysteresis pinning, runtime ping escape, automatic failover) and **[BYO-Relay](docs/self_hosted_relay_guide_en.md)** with automatic Cloudflare Tunnel HTTPS fallback, LAN Wi-Fi, and Tailscale to pick the lowest-latency route automatically.
 - **Per-Device Trilingual Push, Redaction, Lock-Screen Approvals & 5-Bucket Quota Guardian**: Native **iOS APNs, Lock-Screen Quick Approvals & Live Activities** and **Android FCM**, localized **per paired device** in **English / 简体中文 / 日本語** (clean English fallback for other locales); supports **push redaction (`MGY_PUSH_REDACT`)**, customizable notification preferences, task stall alerts, distinct high-risk push titles, silent dismissal of desktop-resolved banners, all 5 quota pools, and task-time host idle-sleep prevention.
 - **Zero-Knowledge E2EE v2 & Local-First Security**: Implements **E2EE v2** (ECDH P-256 + HKDF-SHA256 + AES-256-GCM with replay & WebSocket sequence protection), Force-E2EE, and strict plaintext rejection over relay routes (`HTTP 426`), with Keychain / EncryptedSharedPreferences storage, sensitive path blacklists, and WebSocket rate limiting.
 
@@ -194,7 +194,7 @@ mgy help             # Show full command list and startup options
 
 - **Default Config Path**: `~/.multigravity/.env` (automatically migrates legacy `~/.antigravity-mobile/`).
 - **Core Environment Variables**: `MULTIGRAVITY_PORT` (`58900`), `CF_TUNNEL_ENABLED` (`1`), `APNS_ENABLED` (`1`), `MGY_PREVENT_SLEEP` (`1` task-time idle-sleep guard), `MGY_LANG` (`zh` / `en` / `ja` auto-detect), `MULTIGRAVITY_LOG_LEVEL` (`info`).
-- **Advanced Documentation**: See [Multi-Host Hub Guide](docs/hub_guide.md#english-guide) for LAN aggregation, [Installation & Testing Guide](docs/installation_and_testing_guide.md) for troubleshooting, and [language_server RPC Notes](docs/ls_rpc_integration_notes.md) for RPC protocol specifications.
+- **Advanced Documentation**: See [Self-Hosted Relay (BYO-Relay) Guide](docs/self_hosted_relay_guide_en.md) to run your own VPS relay, [IPv6 Direct Guide](docs/ipv6_direct_guide.md#english-quick-guide) for IPv6/DDNS direct access, [Multi-Host Hub Guide](docs/hub_guide.md#english-guide) for LAN aggregation, [Installation & Testing Guide](docs/installation_and_testing_guide.md) for troubleshooting, and [language_server RPC Notes](docs/ls_rpc_integration_notes.md) for RPC protocol specifications.
 
 <details>
 <summary>🗑️ Completely Uninstall Gateway & Clean Configurations</summary>
