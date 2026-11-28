@@ -941,14 +941,14 @@ extension MarkdownContentView {
     
     /// Dark mode inline code color: Antigravity Desktop Amber (#E5C07B)
     static let darkInlineCodeColor = Color(red: 229/255, green: 192/255, blue: 123/255)
-    /// Light mode inline code color: Warm Caramel Amber (#B45309, WCAG AA 5.02:1 on white)
-    static let lightInlineCodeColor = Color(red: 180/255, green: 83/255, blue: 9/255)
+    /// Light mode inline code color: Vibrant Amber Gold (#D97706)
+    static let lightInlineCodeColor = Color(red: 217/255, green: 119/255, blue: 6/255)
     /// Fallback dynamic color when caller does not supply an explicit SwiftUI ColorScheme
     static let adaptiveInlineCodeColor = Color(uiColor: UIColor { traits in
         if traits.userInterfaceStyle == .dark {
             return UIColor(red: 229.0/255.0, green: 192.0/255.0, blue: 123.0/255.0, alpha: 1.0)
         }
-        return UIColor(red: 180.0/255.0, green: 83.0/255.0, blue: 9.0/255.0, alpha: 1.0)
+        return UIColor(red: 217.0/255.0, green: 119.0/255.0, blue: 6.0/255.0, alpha: 1.0)
     })
 
     public static func renderInlineMarkdown(_ text: String, size: CGFloat = 15, weight: Font.Weight = .regular, colorScheme: ColorScheme? = nil) -> AttributedString {

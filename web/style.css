@@ -80,9 +80,9 @@
     --orchestrator-slate: #334155;
     --orchestrator-slate-rgb: 51, 65, 85;
 
-    --code-fg: #b45309;
-    --code-bg: rgba(180, 83, 9, 0.08);
-    --code-border: rgba(180, 83, 9, 0.18);
+    --code-fg: #d97706;
+    --code-bg: rgba(217, 119, 6, 0.08);
+    --code-border: rgba(217, 119, 6, 0.18);
 
     /* Code Syntax Highlighting Palette - Light (Xcode Light inspired) */
     --tok-kw: #ad3da4;
@@ -9892,9 +9892,9 @@ body.font-comfortable pre, body.font-comfortable code {
   --orchestrator-slate: #334155;
   --orchestrator-slate-rgb: 51, 65, 85;
 
-  --code-fg: #92400e;
-  --code-bg: rgba(180, 83, 9, 0.08);
-  --code-border: rgba(180, 83, 9, 0.18);
+  --code-fg: #d97706;
+  --code-bg: rgba(217, 119, 6, 0.08);
+  --code-border: rgba(217, 119, 6, 0.18);
 
   --tok-kw: #ad3da4;
   --tok-str: #c41a16;
