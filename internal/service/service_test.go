@@ -17,6 +17,7 @@ func TestBuildServiceArgsModesAndFlags(t *testing.T) {
 		Mode:        "hub",
 		Port:        58910,
 		Host:        "127.0.0.1",
+		EnableIPv6:  true,
 		Headless:    true,
 		Name:        "HomeHub",
 		NoDiscovery: true,
@@ -27,7 +28,7 @@ func TestBuildServiceArgsModesAndFlags(t *testing.T) {
 		t.Fatalf("BuildServiceArgs: %v", err)
 	}
 	got := strings.Join(args, " ")
-	want := "hub -qr=false -port 58910 -host 127.0.0.1 -headless -name HomeHub -no-discovery -log-file /tmp/mgy-data/logs/service.log"
+	want := "hub -qr=false -port 58910 -host 127.0.0.1 -ipv6 -headless -name HomeHub -no-discovery -log-file /tmp/mgy-data/logs/service.log"
 	if got != want {
 		t.Fatalf("args = %q, want %q", got, want)
 	}

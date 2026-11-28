@@ -90,4 +90,57 @@ func TestGetCloudflareConfig(t *testing.T) {
 	}
 }
 
+func TestGetEnableIPv6(t *testing.T) {
+	t.Setenv("MULTIGRAVITY_ENABLE_IPV6", "")
+	t.Setenv("MGY_ENABLE_IPV6", "")
+	if GetEnableIPv6() {
+		t.Fatalf("expected default GetEnableIPv6() = false")
+	}
+
+	t.Setenv("MGY_ENABLE_IPV6", "1")
+	if !GetEnableIPv6() {
+		t.Fatalf("expected MGY_ENABLE_IPV6=1 to enable IPv6")
+	}
+
+	t.Setenv("MULTIGRAVITY_ENABLE_IPV6", "false")
+	if GetEnableIPv6() {
+		t.Fatalf("expected MULTIGRAVITY_ENABLE_IPV6=false to take precedence over MGY_ENABLE_IPV6")
+	}
+
+	t.Setenv("MULTIGRAVITY_ENABLE_IPV6", "true")
+	if !GetEnableIPv6() {
+		t.Fatalf("expected MULTIGRAVITY_ENABLE_IPV6=true to enable IPv6")
+	}
+}
+
+func TestGetTLSConfig(t *testing.T) {
+	t.Setenv("MGY_TLS_CERT", "")
+	t.Setenv("MULTIGRAVITY_TLS_CERT", "")
+	t.Setenv("MGY_TLS_KEY", "")
+	t.Setenv("MULTIGRAVITY_TLS_KEY", "")
+	t.Setenv("MGY_TLS_PORT", "")
+	t.Setenv("MULTIGRAVITY_TLS_PORT", "")
+
+	def := GetTLSConfig()
+	if def.Enabled() || def.Port != DefaultTLSPort {
+		t.Fatalf("unexpected default TLSConfig: %+v", def)
+	}
+
+	t.Setenv("MULTIGRAVITY_TLS_CERT", "/etc/certs/fullchain.pem")
+	t.Setenv("MULTIGRAVITY_TLS_KEY", "/etc/certs/privkey.pem")
+	t.Setenv("MULTIGRAVITY_TLS_PORT", "59443")
+	cfg := GetTLSConfig()
+	if !cfg.Enabled() || cfg.CertFile != "/etc/certs/fullchain.pem" || cfg.KeyFile != "/etc/certs/privkey.pem" || cfg.Port != 59443 {
+		t.Fatalf("unexpected TLSConfig from MULTIGRAVITY_*: %+v", cfg)
+	}
+
+	t.Setenv("MGY_TLS_CERT", "/tmp/a.crt")
+	t.Setenv("MGY_TLS_KEY", "/tmp/a.key")
+	t.Setenv("MGY_TLS_PORT", "443")
+	cfg2 := GetTLSConfig()
+	if cfg2.CertFile != "/tmp/a.crt" || cfg2.KeyFile != "/tmp/a.key" || cfg2.Port != 443 {
+		t.Fatalf("expected MGY_TLS_* precedence, got: %+v", cfg2)
+	}
+}
+
 

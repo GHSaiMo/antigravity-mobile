@@ -163,6 +163,7 @@ func IsLoopbackAddr(remoteAddr string) bool {
 	if err != nil {
 		host = remoteAddr
 	}
+	host = strings.Trim(strings.TrimSpace(host), "[]")
 	ip := net.ParseIP(host)
 	return ip != nil && ip.IsLoopback()
 }
@@ -173,6 +174,7 @@ func IsPrivateLANAddr(remoteAddr string) bool {
 	if err != nil {
 		host = remoteAddr
 	}
+	host = strings.Trim(strings.TrimSpace(host), "[]")
 	ip := net.ParseIP(host)
 	if ip == nil {
 		return false

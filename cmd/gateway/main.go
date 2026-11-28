@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"crypto/tls"
 	"encoding/json"
 	"flag"
 	"fmt"
@@ -189,6 +190,38 @@ func defaultPort() int {
 	return defaultPort
 }
 
+// resolveListenSpec determines the TCP network family and net.JoinHostPort address for the gateway listener.
+// By default (enableIPv6 == false), non-IPv6 hosts strictly use "tcp4" to preserve the historical IPv4-only baseline.
+// When enableIPv6 is true (or host is an explicit IPv6 literal such as "::", "::1", or an IPv6 address),
+// it uses "tcp" (OS dual-stack for wildcard / IPv6 socket for explicit IPv6 literals) unless an explicit IPv4 literal was given.
+func resolveListenSpec(host string, port int, enableIPv6 bool) (network, addr string, ipv6Active bool) {
+	cleanHost := strings.Trim(strings.TrimSpace(host), "[]")
+	addr = net.JoinHostPort(cleanHost, strconv.Itoa(port))
+
+	if cleanHost != "" {
+		if ip := net.ParseIP(cleanHost); ip != nil {
+			if ip.To4() == nil {
+				return "tcp", addr, true
+			}
+			return "tcp4", addr, false
+		}
+	}
+	if enableIPv6 {
+		return "tcp", addr, true
+	}
+	return "tcp4", addr, false
+}
+
+// localControlHost returns the loopback host used by CLI subcommands (`mgy pair`, `mgy list`, `mgy clear`)
+// to contact the locally running gateway. Defaults to 127.0.0.1; switches to [::1] only when MULTIGRAVITY_HOST is IPv6 loopback.
+func localControlHost() string {
+	h := strings.Trim(strings.TrimSpace(defaultHost()), "[]")
+	if ip := net.ParseIP(h); ip != nil && ip.IsLoopback() && ip.To4() == nil {
+		return "[" + ip.String() + "]"
+	}
+	return "127.0.0.1"
+}
+
 func runGatewayServer(args []string) {
 	runGatewayServerWithMode(modeStandalone, args)
 }
@@ -215,8 +248,13 @@ func runGatewayServerOnce(mode gatewayMode, args []string) string {
 		fsName = "mgy node"
 	}
 	fs := flag.NewFlagSet(fsName, flag.ExitOnError)
-	host := fs.String("host", defaultHost, i18n.T("网关监听的主机/IP 地址（默认 \"\" 绑定所有 IPv4 网卡，设为 127.0.0.1 仅限本机访问）", "Gateway listening host/IP (default \"\" binds all IPv4 interfaces; 127.0.0.1 for local only)"))
+	host := fs.String("host", defaultHost, i18n.T("网关监听的主机/IP 地址（默认 \"\" 绑定所有 IPv4 网卡，配合 -ipv6 启用 IPv4/IPv6 双栈；设为 127.0.0.1 仅限本机访问）", "Gateway listening host/IP (default \"\" binds all IPv4 interfaces, or IPv4/IPv6 dual-stack with -ipv6; 127.0.0.1 for local only)"))
 	port := fs.Int("port", defaultPort, i18n.T("网关 HTTP/WebSocket 监听端口（默认 58900）", "Gateway HTTP/WebSocket listening port (default 58900)"))
+	enableIPv6 := fs.Bool("ipv6", config.GetEnableIPv6(), i18n.T("启用 IPv4/IPv6 双栈监听，支持 IPv6 局域网/Tailscale/反代/DDNS 直连（默认关闭仅监听 IPv4，环境变量: MULTIGRAVITY_ENABLE_IPV6=1）", "Enable IPv4/IPv6 dual-stack listening for IPv6 LAN/Tailscale/reverse-proxy/DDNS direct access (default: false/IPv4-only, env: MULTIGRAVITY_ENABLE_IPV6=1)"))
+	tlsCfg := config.GetTLSConfig()
+	tlsCertFlag := fs.String("tls-cert", tlsCfg.CertFile, i18n.T("可选原生 HTTPS 证书文件路径 (PEM，与 -tls-key 配合在独立端口启用原生 TLS，免反代，环境变量: MGY_TLS_CERT)", "Optional native HTTPS certificate file path (PEM, pair with -tls-key for reverse-proxy-free TLS, env: MGY_TLS_CERT)"))
+	tlsKeyFlag := fs.String("tls-key", tlsCfg.KeyFile, i18n.T("可选原生 HTTPS 私钥文件路径 (PEM，与 -tls-cert 配合，环境变量: MGY_TLS_KEY)", "Optional native HTTPS private key file path (PEM, pair with -tls-cert, env: MGY_TLS_KEY)"))
+	tlsPortFlag := fs.Int("tls-port", tlsCfg.Port, i18n.T("可选原生 HTTPS 独立监听端口（默认 58943，仅在配置 -tls-cert 与 -tls-key 时启用，环境变量: MGY_TLS_PORT）", "Optional dedicated native HTTPS listening port (default 58943, active only when -tls-cert and -tls-key are set, env: MGY_TLS_PORT)"))
 	printQR := fs.Bool("qr", false, i18n.T("启动时是否输出配对二维码（默认: 未配对时自动输出，已配对时默认隐藏）", "Print pairing QR code on startup (default: auto for unpaired, hidden when paired)"))
 	pollSec := fs.Int("poll", 5, i18n.T("探测本地 Antigravity 实例与健康检查的轮询间隔秒数（默认 5 秒）", "Polling interval in seconds for Antigravity health checks (default 5s)"))
 	ddnsHost := fs.String("ddns", os.Getenv("DDNS_HOST"), i18n.T("公网 DDNS 域名，用于生成扫码配对链接及外部直连", "Public DDNS hostname for pairing link and direct external access"))
@@ -295,13 +333,46 @@ func runGatewayServerOnce(mode gatewayMode, args []string) string {
 
 	// Bind the TCP listener BEFORE touching ~/.multigravity/admin_token or starting background workers,
 	// so a duplicate `mgy` launch fails fast without mutating or rotating credentials owned by the running instance.
-	// Strictly listen on IPv4 only (tcp4) to prevent exposing IPv6 sockets or Bonjour/scanner characteristics.
-	listenAddr := fmt.Sprintf("%s:%d", *host, *port)
-	rawListener, err := net.Listen("tcp4", listenAddr)
+	// Defaults to IPv4-only ("tcp4"); opt-in `-ipv6` / MULTIGRAVITY_ENABLE_IPV6=1 (or explicit IPv6 -host) binds dual-stack ("tcp").
+	listenNet, listenAddr, ipv6Active := resolveListenSpec(*host, *port, *enableIPv6)
+	rawListener, err := net.Listen(listenNet, listenAddr)
 	if err != nil {
-		log.Fatalf("❌ Failed to bind server address %s: %v", listenAddr, err)
+		log.Fatalf("❌ Failed to bind server address %s (%s): %v", listenAddr, listenNet, err)
 	}
 	defer rawListener.Close()
+
+	// Optional dedicated native HTTPS listener (when both -tls-cert and -tls-key are configured).
+	// Kept on its own port (default 58943) so local CLI (`mgy pair/list/clear`), LAN HTTP, and tunnels remain untouched.
+	tlsCertPath := strings.TrimSpace(*tlsCertFlag)
+	tlsKeyPath := strings.TrimSpace(*tlsKeyFlag)
+	var (
+		rawTLSListener net.Listener
+		nativeTLSConf  *tls.Config
+		tlsListenAddr  string
+	)
+	if (tlsCertPath != "") != (tlsKeyPath != "") {
+		log.Fatalf("❌ Both -tls-cert (MGY_TLS_CERT) and -tls-key (MGY_TLS_KEY) must be configured together")
+	}
+	if tlsCertPath != "" && tlsKeyPath != "" {
+		if *tlsPortFlag <= 0 || *tlsPortFlag > 65535 {
+			log.Fatalf("❌ Invalid -tls-port %d (must be 1..65535)", *tlsPortFlag)
+		}
+		if *tlsPortFlag == *port {
+			log.Fatalf("❌ -tls-port (%d) must differ from HTTP -port (%d) so local CLI and LAN HTTP remain reachable", *tlsPortFlag, *port)
+		}
+		var tlsErr error
+		nativeTLSConf, tlsErr = newReloadingTLSConfig(tlsCertPath, tlsKeyPath, tlsCertStatInterval)
+		if tlsErr != nil {
+			log.Fatalf("❌ Failed to initialize native TLS: %v", tlsErr)
+		}
+		var tlsNet string
+		tlsNet, tlsListenAddr, _ = resolveListenSpec(*host, *tlsPortFlag, *enableIPv6)
+		rawTLSListener, tlsErr = net.Listen(tlsNet, tlsListenAddr)
+		if tlsErr != nil {
+			log.Fatalf("❌ Failed to bind native TLS address %s (%s): %v", tlsListenAddr, tlsNet, tlsErr)
+		}
+		defer rawTLSListener.Close()
+	}
 
 	if _, _, err := auth.EnsureAdminToken(true); err != nil {
 		log.Fatalf("❌ Failed to initialize MULTIGRAVITY_ADMIN_TOKEN: %v", err)
@@ -569,9 +640,9 @@ func runGatewayServerOnce(mode gatewayMode, args []string) string {
 
 	lanAdvertiseURL := ""
 	if netAddrs.LANIPv4 != "" {
-		lanAdvertiseURL = fmt.Sprintf("http://%s:%d", netAddrs.LANIPv4, *port)
-	} else if *host != "" && *host != "0.0.0.0" && *host != "::" && *host != "[::]" {
-		lanAdvertiseURL = fmt.Sprintf("http://%s:%d", *host, *port)
+		lanAdvertiseURL = fmt.Sprintf("http://%s", net.JoinHostPort(netAddrs.LANIPv4, strconv.Itoa(*port)))
+	} else if h := strings.Trim(strings.TrimSpace(*host), "[]"); h != "" && h != "0.0.0.0" && h != "::" {
+		lanAdvertiseURL = fmt.Sprintf("http://%s", net.JoinHostPort(h, strconv.Itoa(*port)))
 	}
 
 	listenLoopback := auth.IsListenAddrLoopback(*host)
@@ -775,10 +846,10 @@ func runGatewayServerOnce(mode gatewayMode, args []string) string {
 
 	// 6 & 7. Build combined Root Router with Middleware
 	wsDialHost := "127.0.0.1"
-	if h := strings.TrimSpace(*host); h != "" && h != "0.0.0.0" && h != "::" && h != "[::]" {
+	if h := strings.Trim(strings.TrimSpace(*host), "[]"); h != "" && h != "0.0.0.0" && h != "::" {
 		wsDialHost = h
 	}
-	localWSAddr := fmt.Sprintf("%s:%d", wsDialHost, *port)
+	localWSAddr := net.JoinHostPort(wsDialHost, strconv.Itoa(*port))
 
 	// When MGY_FORCE_E2EE=1 wraps the main HTTP server, bind an isolated loopback-only listener for
 	// e2ee.HandleWS internal decrypted WS dialing so HandleWS's injected X-Forwarded-Proto header is
@@ -811,7 +882,7 @@ func runGatewayServerOnce(mode gatewayMode, args []string) string {
 	}
 
 	server := &http.Server{
-		Addr:    fmt.Sprintf("%s:%d", *host, *port),
+		Addr:    listenAddr,
 		Handler: mainHandler,
 		// SEC-6: ReadHeaderTimeout and MaxHeaderBytes prevent Slowloris & header memory amplification.
 		ReadHeaderTimeout: 10 * time.Second,
@@ -822,6 +893,24 @@ func runGatewayServerOnce(mode gatewayMode, args []string) string {
 		ReadTimeout:  0,
 		WriteTimeout: 0,
 		IdleTimeout:  120 * time.Second,
+	}
+
+	var (
+		tlsServer   *http.Server
+		tlsListener net.Listener
+	)
+	if rawTLSListener != nil && nativeTLSConf != nil {
+		tlsServer = &http.Server{
+			Addr:              tlsListenAddr,
+			Handler:           mainHandler,
+			ReadHeaderTimeout: 10 * time.Second,
+			MaxHeaderBytes:    64 << 10,
+			ReadTimeout:       0,
+			WriteTimeout:      0,
+			IdleTimeout:       120 * time.Second,
+		}
+		tlsListener = tls.NewListener(netutil.NewAdaptiveListener(rawTLSListener), nativeTLSConf)
+		defer tlsListener.Close()
 	}
 
 	if innerWSListener != nil {
@@ -863,6 +952,13 @@ func runGatewayServerOnce(mode gatewayMode, args []string) string {
 			log.Fatalf("Server error: %v", err)
 		}
 	}()
+	if tlsServer != nil && tlsListener != nil {
+		go func() {
+			if err := tlsServer.Serve(tlsListener); err != nil && err != http.ErrServerClosed && err != net.ErrClosed {
+				log.Fatalf("Native TLS server error: %v", err)
+			}
+		}()
+	}
 	if innerWSServer != nil {
 		go func() {
 			if err := innerWSServer.Serve(innerWSListener); err != nil && err != http.ErrServerClosed && err != net.ErrClosed {
@@ -929,6 +1025,27 @@ func runGatewayServerOnce(mode gatewayMode, args []string) string {
 			fmt.Print(i18n.Sprintf("  ➜  局域网络:   %s (需配对码)\n",
 				"  ➜  LAN:          %s (Pairing required)\n", lanURL))
 		}
+	}
+	if ipv6Active {
+		fmt.Print(i18n.Sprintf("  ➜  双栈监听:   IPv4 / IPv6 双栈已开启 (%s | 支持 Tailscale/反代/DDNS 直连)\n",
+			"  ➜  Listen Stack: IPv4 / IPv6 dual-stack enabled (%s | Tailscale/proxy/DDNS direct ready)\n", listenAddr))
+	}
+	if tlsServer != nil {
+		tlsDisplayHost := strings.TrimSpace(*ddnsHost)
+		if tlsDisplayHost == "" {
+			tlsDisplayHost = "<your-ddns-domain>"
+		}
+		cleanDisplayHost := strings.Trim(tlsDisplayHost, "[]")
+		tlsDisplayURL := fmt.Sprintf("https://%s", net.JoinHostPort(cleanDisplayHost, strconv.Itoa(*tlsPortFlag)))
+		if *tlsPortFlag == 443 {
+			if strings.Contains(cleanDisplayHost, ":") {
+				tlsDisplayURL = fmt.Sprintf("https://[%s]", cleanDisplayHost)
+			} else {
+				tlsDisplayURL = "https://" + cleanDisplayHost
+			}
+		}
+		fmt.Print(i18n.Sprintf("  ➜  原生 HTTPS: %s (TLS 1.2+，证书自动热重载，监听 %s)\n",
+			"  ➜  Native HTTPS: %s (TLS 1.2+, auto-reload cert, listening on %s)\n", tlsDisplayURL, tlsListenAddr))
 	}
 	if customRelayRes != nil {
 		fmt.Print(i18n.Sprintf("  ➜  云端穿透:   自建 E2EE 中继已就绪 (%s | 跳过公共调度器)\n",
@@ -1358,6 +1475,11 @@ func runGatewayServerOnce(mode gatewayMode, args []string) string {
 	if innerWSServer != nil {
 		_ = innerWSServer.Shutdown(ctx)
 	}
+	if tlsServer != nil {
+		if err := tlsServer.Shutdown(ctx); err != nil {
+			slog.Warn("Native TLS server shutdown error", "err", err)
+		}
+	}
 	if err := server.Shutdown(ctx); err != nil {
 		slog.Warn("Server shutdown error", "err", err)
 	}
@@ -1393,7 +1515,11 @@ func runHelpCmd() {
 
 网关运行参数 (用于 mgy 或 mgy run):
   -port <端口号>          HTTP/WebSocket 监听端口 (默认: 58900, 环境变量: MULTIGRAVITY_PORT)
-  -host <主机/IP>         监听地址 (默认: "" 全网卡 IPv4 监听; 设为 127.0.0.1 仅限本机)
+  -host <主机/IP>         监听地址 (默认: "" 全网卡 IPv4 监听, 配合 -ipv6 启用双栈; 设为 127.0.0.1 仅限本机)
+  -ipv6                   启用 IPv4/IPv6 双栈监听，供 IPv6 反代/DDNS/Tailscale 直连 (默认: false, 环境变量: MULTIGRAVITY_ENABLE_IPV6=1)
+  -tls-cert <证书路径>    可选原生 HTTPS 证书文件 PEM (与 -tls-key 配合启用独立 HTTPS 端口, 环境变量: MGY_TLS_CERT)
+  -tls-key <私钥路径>     可选原生 HTTPS 私钥文件 PEM (支持 ACME 证书自动热重载, 环境变量: MGY_TLS_KEY)
+  -tls-port <端口号>      原生 HTTPS 独立监听端口 (默认: 58943, 环境变量: MGY_TLS_PORT)
   -qr=<true|false>        启动时是否打印配对二维码 (默认: true)
   -poll <秒数>            Antigravity 实例轮询间隔 (默认: 5秒)
   -ddns <域名/IP>         公网 DDNS 域名或固定 IP 地址
@@ -1425,7 +1551,11 @@ Common Subcommands:
 
 Gateway Startup Flags (for mgy or mgy run):
   -port <number>          HTTP/WebSocket listening port (default: 58900, env: MULTIGRAVITY_PORT)
-  -host <host/IP>         Listening address (default: "" binds all IPv4 interfaces; 127.0.0.1 for local only)
+  -host <host/IP>         Listening address (default: "" binds all IPv4 interfaces, or dual-stack with -ipv6; 127.0.0.1 for local only)
+  -ipv6                   Enable IPv4/IPv6 dual-stack listening for IPv6 proxy/DDNS/Tailscale direct access (default: false, env: MULTIGRAVITY_ENABLE_IPV6=1)
+  -tls-cert <cert-path>   Optional native HTTPS PEM cert file (pair with -tls-key for dedicated HTTPS port, env: MGY_TLS_CERT)
+  -tls-key <key-path>     Optional native HTTPS PEM private key file (supports ACME auto-reload, env: MGY_TLS_KEY)
+  -tls-port <number>      Dedicated native HTTPS listening port (default: 58943, env: MGY_TLS_PORT)
   -qr=<true|false>        Print pairing QR code on startup (default: true)
   -poll <seconds>         Antigravity instance health check polling interval (default: 5s)
   -ddns <domain/IP>       Public DDNS domain or fixed IP address
@@ -1466,7 +1596,7 @@ func runPairCmd(args []string) {
 	}
 
 	if *hubFlag {
-		u := fmt.Sprintf("http://127.0.0.1:%d/api/v1/hub/pair-code", targetPort)
+		u := fmt.Sprintf("http://%s:%d/api/v1/hub/pair-code", localControlHost(), targetPort)
 		req, err := http.NewRequest(http.MethodPost, u, nil)
 		if err != nil {
 			fmt.Fprint(os.Stderr, i18n.Sprintf("❌ 创建请求失败: %v\n", "❌ Failed to create request: %v\n", err))
@@ -1519,7 +1649,7 @@ func runPairCmd(args []string) {
 		return
 	}
 
-	u := fmt.Sprintf("http://127.0.0.1:%d/api/v1/auth/session", targetPort)
+	u := fmt.Sprintf("http://%s:%d/api/v1/auth/session", localControlHost(), targetPort)
 	req, err := http.NewRequest(http.MethodPost, u, nil)
 	if err != nil {
 		fmt.Fprint(os.Stderr, i18n.Sprintf("❌ 创建请求失败: %v\n", "❌ Failed to create request: %v\n", err))
@@ -1615,7 +1745,7 @@ func runListCmd(args []string) {
 		}
 	}
 
-	urlStr := fmt.Sprintf("http://127.0.0.1:%d/api/v1/devices", targetPort)
+	urlStr := fmt.Sprintf("http://%s:%d/api/v1/devices", localControlHost(), targetPort)
 
 	var devices []auth.PairedDevice
 	mode := i18n.T("离线模式 (直接读取本地凭据)", "Offline mode (direct read from local credentials)")
@@ -1714,7 +1844,7 @@ func runClearCmd(args []string) {
 		Transport: localtls.NewLoopbackTransport(), // SEC-AUDIT M-2: gate InsecureSkipVerify to loopback only
 	}
 
-	urlStr := fmt.Sprintf("http://127.0.0.1:%d/api/v1/devices/%s", targetPort, target)
+	urlStr := fmt.Sprintf("http://%s:%d/api/v1/devices/%s", localControlHost(), targetPort, target)
 	req, _ := http.NewRequest(http.MethodDelete, urlStr, nil)
 	if adminToken != "" {
 		req.Header.Set("Authorization", "Bearer "+adminToken)
