@@ -26,7 +26,7 @@ object MathSymbolProcessor {
 
     private val subscriptMap: Map<Char, String> = mapOf(
         '0' to "₀", '1' to "₁", '2' to "₂", '3' to "₃", '4' to "₄",
-        '5' to "₅", '6' to "₆", '7' to "₇", '8' to "⁸", '9' to "₉",
+        '5' to "₅", '6' to "₆", '7' to "₇", '8' to "₈", '9' to "₉",
         '+' to "₊", '-' to "₋", '=' to "₌", '(' to "₍", ')' to "₎",
         'a' to "ₐ", 'e' to "ₑ", 'h' to "ₕ", 'i' to "ᵢ", 'j' to "ⱼ",
         'k' to "ₖ", 'l' to "ₗ", 'm' to "ₘ", 'n' to "ₙ", 'o' to "ₒ",
@@ -408,7 +408,7 @@ object MathSymbolProcessor {
     )
 
     private val subSupTextWrapperRegex = Regex("""([_^])\\(?:text|textbf|textit|textrm|textsf|texttt|textsc|mathrm|mathbf|mathit|mathsf|mathtt|mathbbm|operatorname\*?|pmb|boldsymbol|bm|bold|emph|mbox|hbox)\{([^{}]*(?:\{[^{}]*\}[^{}]*)*)\}""")
-    private val textWrapperRegex = Regex("""\\(?:text|textbf|textit|textrm|textsf|texttt|textsc|mathrm|mathbf|mathit|mathsf|mathtt|mathbbm|operatorname\*?|pmb|boldsymbol|bm|bold|emph|mbox|hbox)\{([^{}]*)\}""")
+    private val textWrapperRegex = Regex("""\\(?:text|textbf|textit|textrm|textsf|texttt|textsc|mathrm|mathbf|mathit|mathsf|mathtt|mathbbm|operatorname\*?|pmb|boldsymbol|bm|bold|emph|mbox|hbox|ce|pu)\{([^{}]*)\}""")
     private val fontFallbackRegex = Regex("""\\(?:mathcal|mathscr|mathbb|mathfrak|mathbbm)\{([^{}]*)\}""")
     private val colorWrapperRegex = Regex("""\\(?:textcolor|color)\{[^{}]*\}\{([^{}]*)\}|\\color\{[^{}]*\}""")
     private val cancelRegex = Regex("""\\(?:cancel|bcancel|xcancel|sout)\{([^{}]*(?:\{[^{}]*\}[^{}]*)*)\}""")
@@ -622,7 +622,11 @@ object MathSymbolProcessor {
             str = next
         }
         for (pass in 0 until 3) {
-            val next = fracRegex.replace(str, "$1 / $2")
+            val next = fracRegex.replace(str) { match ->
+                val num = formatFractionPart(match.groupValues[1])
+                val den = formatFractionPart(match.groupValues[2])
+                "$num / $den"
+            }
             if (next == str) break
             str = next
         }
@@ -944,46 +948,23 @@ object MathSymbolProcessor {
             token
         }
 
-        // 3. Process block math $$...$$ or \[...\]
-        protectedText = blockMathRegex.replace(protectedText) { match ->
-            val formula = match.groupValues[1].ifEmpty { match.groupValues[2] }
-                .trim('$', ' ', '\t', '\n', '\r')
-                .replace("\\[", "")
-                .replace("\\]", "")
-                .replace("\\\\", "\n")
-            cleanMathExpression(formula)
-        }
-
-        // 4. Process inline math $...$ or \(...\)
-        protectedText = inlineMathRegex.replace(protectedText) { match ->
-            var inner = match.value
-            if (inner.startsWith("$") && inner.endsWith("$") && inner.length >= 2) {
-                inner = inner.substring(1, inner.length - 1)
-            } else if (inner.startsWith("\\(") && inner.endsWith("\\)") && inner.length >= 4) {
-                inner = inner.substring(2, inner.length - 2)
-            }
+        // 3. Process display & inline math spans with currency-safe single-pass scanner
+        protectedText = replaceInlineMathSpans(protectedText) { inner, _ ->
             cleanMathExpression(inner)
         }
 
-        // 5. Transform standalone LaTeX constructs & symbols in bare prose
+        // 4. Transform standalone LaTeX constructs & symbols in bare prose
         if (protectedText.contains('\\')) {
-            protectedText = unwrapTextAndFontCommands(protectedText)
-            protectedText = replaceUnderOverBraces(protectedText)
-            protectedText = replaceExtensibleArrows(protectedText)
-            protectedText = replaceStructuralMathCommands(protectedText)
-            protectedText = cleanSizingAndDelimiters(protectedText, isMathMode = false)
-            protectedText = replaceSymbolsSinglePass(protectedText)
-            protectedText = fontFallbackRegex.replace(protectedText, "$1")
-            protectedText = replaceBareOperatorLimits(protectedText)
+            protectedText = processBareLatex(protectedText)
         }
 
-        // 6. Restore inline code spans
+        // 5. Restore inline code spans
         for (idx in inlineSpans.indices) {
             val token = "XXAGYINLINETOKEN${idx}XX"
             protectedText = protectedText.replace(token, inlineSpans[idx])
         }
 
-        // 7. Restore fenced code blocks
+        // 6. Restore fenced code blocks
         for (idx in codeBlocks.indices) {
             val token = "XXAGYBLOCKTOKEN${idx}XX"
             protectedText = protectedText.replace(token, codeBlocks[idx])
@@ -991,5 +972,313 @@ object MathSymbolProcessor {
 
         cache.set(hash, protectedText)
         return protectedText
+    }
+
+    sealed class InlineMathSegment {
+        data class Text(val value: String) : InlineMathSegment()
+        data class Math(val latex: String, val isDisplay: Boolean) : InlineMathSegment()
+    }
+
+    private val complexMathCommands = listOf(
+        "\\frac", "\\dfrac", "\\tfrac", "\\cfrac", "\\over",
+        "\\binom", "\\dbinom", "\\tbinom", "\\choose",
+        "\\sqrt", "\\begin{", "\\underbrace", "\\overbrace",
+        "\\overset", "\\underset", "\\stackrel", "\\substack",
+        "\\xrightarrow", "\\xleftarrow", "\\xRightarrow", "\\xLeftarrow",
+        "\\xleftrightarrow", "\\xLeftrightarrow", "\\xmapsto",
+        "\\boxed", "\\cancel", "\\bcancel", "\\xcancel",
+        "\\ce{", "\\pu{", "\\widehat", "\\widetilde",
+        "\\overrightarrow", "\\overline", "\\underline",
+        "\\hat{", "\\vec{", "\\bar{", "\\tilde{", "\\dot{", "\\ddot{",
+        "\\color{", "\\textcolor{", "\\colorbox{",
+        "\\sum_", "\\sum^", "\\prod_", "\\prod^", "\\int_", "\\int^",
+        "\\iint", "\\iiint", "\\oint", "\\lim_", "\\limsup_", "\\liminf_",
+        "\\argmax_", "\\argmin_", "\\bigcup_", "\\bigcap_", "\\bigoplus_", "\\bigotimes_"
+    )
+
+    fun needsRichMathRendering(latex: String): Boolean {
+        val trimmed = latex.trim()
+        if (trimmed.isEmpty()) return false
+        for (cmd in complexMathCommands) {
+            if (trimmed.contains(cmd)) return true
+        }
+        if (trimmed.contains('_') && trimmed.contains('^')) return true
+        if (trimmed.contains("_\\text") || trimmed.contains("_{\\text") || trimmed.contains("^\\text") || trimmed.contains("^{\\text") ||
+            trimmed.contains("_\\mathrm") || trimmed.contains("_{\\mathrm") || trimmed.contains("^\\mathrm") || trimmed.contains("^{\\mathrm")
+        ) {
+            return true
+        }
+        if (trimmed.contains("^{") || trimmed.contains("_{")) {
+            val cleaned = unwrapTextAndFontCommands(trimmed)
+            for (m in supGroupRegex.findAll(cleaned)) {
+                val inner = m.groupValues[1].trim()
+                if (inner.contains('\\') || inner.contains('{') || !inner.all { superscriptMap.containsKey(it) || it == ' ' || it == ',' }) {
+                    return true
+                }
+            }
+            for (m in subGroupRegex.findAll(cleaned)) {
+                val inner = m.groupValues[1].trim()
+                if (inner.contains('\\') || inner.contains('{') || !inner.all { subscriptMap.containsKey(it) || it == ' ' || it == ',' }) {
+                    return true
+                }
+            }
+        }
+        return false
+    }
+
+    fun hasExplicitColor(latex: String): Boolean {
+        return latex.contains("\\color") || latex.contains("\\textcolor") || latex.contains("\\colorbox") || latex.contains("\\fcolorbox")
+    }
+
+    fun complexInlineFormulas(text: String): List<Pair<String, Boolean>> {
+        if (!text.contains('$') && !text.contains("\\(") && !text.contains("\\[")) return emptyList()
+        val segments = splitInlineMathPreservingCodeSpans(text)
+        val seen = HashSet<String>()
+        val result = ArrayList<Pair<String, Boolean>>()
+        for (seg in segments) {
+            if (seg is InlineMathSegment.Math) {
+                val trimmed = seg.latex.trim()
+                if (trimmed.isEmpty()) continue
+                if (seg.isDisplay || needsRichMathRendering(trimmed)) {
+                    val key = "${if (seg.isDisplay) "D" else "I"}:$trimmed"
+                    if (seen.add(key)) {
+                        result.add(trimmed to seg.isDisplay)
+                    }
+                }
+            }
+        }
+        return result
+    }
+
+    fun processBareLatex(text: String): String {
+        if (!text.contains('\\')) return text
+        var out = unwrapTextAndFontCommands(text)
+        out = replaceUnderOverBraces(out)
+        out = replaceExtensibleArrows(out)
+        out = replaceStructuralMathCommands(out)
+        out = cleanSizingAndDelimiters(out, isMathMode = false)
+        out = replaceSymbolsSinglePass(out)
+        out = fontFallbackRegex.replace(out, "$1")
+        out = replaceBareOperatorLimits(out)
+        return out
+    }
+
+    fun splitInlineMathPreservingCodeSpans(text: String): List<InlineMathSegment> {
+        if (!text.contains('$') && !text.contains("\\(") && !text.contains("\\[")) {
+            return if (text.isEmpty()) emptyList() else listOf(InlineMathSegment.Text(text))
+        }
+        val n = text.length
+        val segments = ArrayList<InlineMathSegment>()
+        val buffer = StringBuilder()
+        var i = 0
+
+        fun flushBuffer() {
+            if (buffer.isNotEmpty()) {
+                segments.add(InlineMathSegment.Text(buffer.toString()))
+                buffer.setLength(0)
+            }
+        }
+
+        fun isEscaped(idx: Int): Boolean {
+            var count = 0
+            var k = idx - 1
+            while (k >= 0 && text[k] == '\\') {
+                count++
+                k--
+            }
+            return (count % 2) == 1
+        }
+
+        fun isLikelyCurrency(inner: String, nextChar: Char?): Boolean {
+            if (nextChar != null && nextChar in '0'..'9') return true
+            if (inner.isNotEmpty() && inner[0] in '0'..'9') {
+                val hasSpace = inner.contains(' ') || inner.contains('\t')
+                val hasMathSignal = inner.any { ch ->
+                    ch == '\\' || ch == '^' || ch == '_' || ch == '{' || ch == '}' ||
+                        ch == '=' || ch == '<' || ch == '>' || ch == '+' || ch == '-' ||
+                        ch == '*' || ch == '/' || ch == '×' || ch == '÷' || ch == '±'
+                }
+                if (hasSpace && !hasMathSignal) return true
+            }
+            return false
+        }
+
+        while (i < n) {
+            val ch = text[i]
+
+            if (ch == '`') {
+                var tickCount = 0
+                while (i + tickCount < n && text[i + tickCount] == '`') tickCount++
+                var closeIdx = -1
+                var j = i + tickCount
+                while (j < n) {
+                    if (text[j] == '`') {
+                        var run = 0
+                        while (j + run < n && text[j + run] == '`') run++
+                        if (run == tickCount) {
+                            closeIdx = j + run
+                            break
+                        }
+                        j += run
+                    } else {
+                        j++
+                    }
+                }
+                if (closeIdx != -1) {
+                    buffer.append(text, i, closeIdx)
+                    i = closeIdx
+                    continue
+                }
+                buffer.append(text, i, i + tickCount)
+                i += tickCount
+                continue
+            }
+
+            if (ch == '\\' && i + 1 < n && text[i + 1] == '$') {
+                buffer.append("\\$")
+                i += 2
+                continue
+            }
+
+            if (ch == '\\' && i + 1 < n && text[i + 1] == '(' && !isEscaped(i)) {
+                var closeIdx = -1
+                var j = i + 2
+                while (j < n - 1) {
+                    if (text[j] == '\\' && text[j + 1] == ')' && !isEscaped(j)) {
+                        closeIdx = j
+                        break
+                    }
+                    j++
+                }
+                if (closeIdx > i + 2) {
+                    val inner = text.substring(i + 2, closeIdx)
+                    if (inner.trim().isNotEmpty()) {
+                        flushBuffer()
+                        segments.add(InlineMathSegment.Math(inner, isDisplay = false))
+                        i = closeIdx + 2
+                        continue
+                    }
+                }
+            }
+
+            if (ch == '\\' && i + 1 < n && text[i + 1] == '[' && !isEscaped(i)) {
+                var closeIdx = -1
+                var j = i + 2
+                while (j < n - 1) {
+                    if (text[j] == '\\' && text[j + 1] == ']' && !isEscaped(j)) {
+                        closeIdx = j
+                        break
+                    }
+                    j++
+                }
+                if (closeIdx > i + 2) {
+                    val inner = text.substring(i + 2, closeIdx)
+                    if (inner.trim().isNotEmpty()) {
+                        flushBuffer()
+                        segments.add(InlineMathSegment.Math(inner, isDisplay = true))
+                        i = closeIdx + 2
+                        continue
+                    }
+                }
+            }
+
+            if (ch == '$' && i + 1 < n && text[i + 1] == '$' && !isEscaped(i)) {
+                var closeIdx = -1
+                var j = i + 2
+                while (j < n - 1) {
+                    if (text[j] == '$' && text[j + 1] == '$' && !isEscaped(j)) {
+                        closeIdx = j
+                        break
+                    }
+                    j++
+                }
+                if (closeIdx > i + 2) {
+                    val inner = text.substring(i + 2, closeIdx)
+                    if (inner.trim().isNotEmpty()) {
+                        flushBuffer()
+                        segments.add(InlineMathSegment.Math(inner, isDisplay = true))
+                        i = closeIdx + 2
+                        continue
+                    }
+                }
+            }
+
+            if (ch == '$' && !isEscaped(i) && (i + 1 < n && text[i + 1] != '$')) {
+                val prevIsAlphaNum = i > 0 && text[i - 1].let { (it in 'a'..'z') || (it in 'A'..'Z') || (it in '0'..'9') }
+                val next = text[i + 1]
+                if (!prevIsAlphaNum && !next.isWhitespace()) {
+                    var closeIdx = -1
+                    var j = i + 1
+                    while (j < n) {
+                        if (text[j] == '\n') break
+                        if (text[j] == '$' && !isEscaped(j)) {
+                            if (j + 1 < n && text[j + 1] == '$') break
+                            if (j > i + 1 && !text[j - 1].isWhitespace()) {
+                                val candidate = text.substring(i + 1, j)
+                                val afterClose = if (j + 1 < n) text[j + 1] else null
+                                if (!isLikelyCurrency(candidate, afterClose)) {
+                                    closeIdx = j
+                                }
+                            }
+                            break
+                        }
+                        j++
+                    }
+                    if (closeIdx > i + 1) {
+                        val inner = text.substring(i + 1, closeIdx)
+                        if (inner.trim().isNotEmpty()) {
+                            flushBuffer()
+                            segments.add(InlineMathSegment.Math(inner, isDisplay = false))
+                            i = closeIdx + 1
+                            continue
+                        }
+                    }
+                }
+            }
+
+            buffer.append(ch)
+            i++
+        }
+        flushBuffer()
+        return segments
+    }
+
+    private fun replaceInlineMathSpans(text: String, transform: (String, Boolean) -> String): String {
+        val segments = splitInlineMathPreservingCodeSpans(text)
+        val sb = StringBuilder(text.length)
+        for (seg in segments) {
+            when (seg) {
+                is InlineMathSegment.Text -> sb.append(seg.value)
+                is InlineMathSegment.Math -> {
+                    val normalized = if (seg.isDisplay) seg.latex.replace("\\\\", "\n") else seg.latex
+                    sb.append(transform(normalized, seg.isDisplay))
+                }
+            }
+        }
+        return sb.toString()
+    }
+
+    private fun formatFractionPart(raw: String): String {
+        val t = raw.trim()
+        if (t.isEmpty()) return ""
+        if (t.length <= 2) return t
+        val needsParen = t.any { ch -> ch == '+' || ch == '-' || ch == '=' || ch == '/' || ch.isWhitespace() }
+        if (!needsParen) return t
+        if (t.startsWith("(") && t.endsWith(")")) {
+            var depth = 0
+            var wrapped = true
+            for (idx in t.indices) {
+                when (t[idx]) {
+                    '(' -> depth++
+                    ')' -> depth--
+                }
+                if (depth == 0 && idx < t.lastIndex) {
+                    wrapped = false
+                    break
+                }
+            }
+            if (wrapped && depth == 0) return t
+        }
+        return "($t)"
     }
 }

@@ -546,7 +546,7 @@ public enum MathSymbolProcessor: Sendable {
         pattern: #"([_^])\\(?:text|textbf|textit|textrm|textsf|texttt|textsc|mathrm|mathbf|mathit|mathsf|mathtt|mathbbm|operatorname\*?|pmb|boldsymbol|bm|bold|emph|mbox|hbox)\{([^{}]*(?:\{[^{}]*\}[^{}]*)*)\}"#
     )
     private static let textWrapperRegex = try? NSRegularExpression(
-        pattern: #"\\(?:text|textbf|textit|textrm|textsf|texttt|textsc|mathrm|mathbf|mathit|mathsf|mathtt|mathbbm|operatorname\*?|pmb|boldsymbol|bm|bold|emph|mbox|hbox)\{([^{}]*)\}"#
+        pattern: #"\\(?:text|textbf|textit|textrm|textsf|texttt|textsc|mathrm|mathbf|mathit|mathsf|mathtt|mathbbm|operatorname\*?|pmb|boldsymbol|bm|bold|emph|mbox|hbox|ce|pu)\{([^{}]*)\}"#
     )
     private static let fontFallbackRegex = try? NSRegularExpression(
         pattern: #"\\(?:mathcal|mathscr|mathbb|mathfrak|mathbbm)\{([^{}]*)\}"#
@@ -601,7 +601,7 @@ public enum MathSymbolProcessor: Sendable {
         pattern: #"\\boxed\{([^{}]*(?:\{[^{}]*\}[^{}]*)*)\}"#
     )
     private static let mathEnvRegex = try? NSRegularExpression(
-        pattern: #"\\(?:begin|end)\{(?:aligned|align\*?|matrix|bmatrix|pmatrix|vmatrix|Vmatrix|Bmatrix|cases|split|gather\*?| multline\*?|array|equation\*?|subequations)\}(?:\{[^{}]*\})?"#
+        pattern: #"\\(?:begin|end)\{(?:aligned|align\*?|matrix|bmatrix|pmatrix|vmatrix|Vmatrix|Bmatrix|cases|split|gather\*?|multline\*?|array|equation\*?|subequations)\}(?:\{[^{}]*\})?"#
     )
     private static let mathTagRegex = try? NSRegularExpression(pattern: #"\\tag\*?\{([^{}]*)\}"#)
     private static let mathLabelRegex = try? NSRegularExpression(pattern: #"\\label\{([^{}]*)\}"#)
@@ -653,32 +653,9 @@ public enum MathSymbolProcessor: Sendable {
             }
         }
         
-        // 3. Process display math blocks: $$...$$ and \[...\]
-        if let displayBlockRegex = Self.displayBlockRegex {
-            protectedText = replaceRegexMatches(in: protectedText, regex: displayBlockRegex) { matchText in
-                var content = matchText
-                if content.hasPrefix("$$") && content.hasSuffix("$$") && content.count >= 4 {
-                    content = String(content.dropFirst(2).dropLast(2))
-                } else if content.hasPrefix(#"\["#) && content.hasSuffix(#"\]"#) && content.count >= 4 {
-                    content = String(content.dropFirst(2).dropLast(2))
-                }
-                content = content.trimmingCharacters(in: .whitespacesAndNewlines)
-                content = content.replacingOccurrences(of: #"\\\\"#, with: "\n")
-                return cleanMathExpression(content)
-            }
-        }
-        
-        // 4. Process inline math: $...$ and \(...\)
-        if let inlineMathRegex = Self.inlineMathRegex {
-            protectedText = replaceRegexMatches(in: protectedText, regex: inlineMathRegex) { matchText in
-                var inner = matchText
-                if inner.hasPrefix("$") && inner.hasSuffix("$") && inner.count >= 2 {
-                    inner = String(inner.dropFirst().dropLast())
-                } else if inner.hasPrefix(#"\("#) && inner.hasSuffix(#"\)"#) && inner.count >= 4 {
-                    inner = String(inner.dropFirst(2).dropLast(2))
-                }
-                return cleanMathExpression(inner)
-            }
+        // 3. Process inline & display math spans with currency-safe single-pass scanner
+        protectedText = replaceInlineMathSpans(in: protectedText) { inner, _ in
+            cleanMathExpression(inner)
         }
         
         // 5. Transform standalone LaTeX constructs & symbol commands in bare prose
@@ -900,7 +877,16 @@ public enum MathSymbolProcessor: Sendable {
         }
         if let fracRegex = Self.fracRegex {
             for _ in 0..<3 {
-                let next = fracRegex.stringByReplacingMatches(in: str, range: NSRange(location: 0, length: (str as NSString).length), withTemplate: "$1 / $2")
+                let nsStr = str as NSString
+                let matches = fracRegex.matches(in: str, range: NSRange(location: 0, length: nsStr.length))
+                guard !matches.isEmpty else { break }
+                var next = str
+                for match in matches.reversed() {
+                    let num = nsStr.substring(with: match.range(at: 1))
+                    let den = nsStr.substring(with: match.range(at: 2))
+                    let rep = "\(formatFractionPart(num)) / \(formatFractionPart(den))"
+                    next = (next as NSString).replacingCharacters(in: match.range, with: rep)
+                }
                 if next == str { break }
                 str = next
             }
@@ -1261,6 +1247,350 @@ public enum MathSymbolProcessor: Sendable {
         }
         
         return str.trimmingCharacters(in: .whitespaces)
+    }
+    
+    // MARK: - Inline Math Segmentation & Complexity Detection
+    
+    public enum InlineMathSegment: Equatable, Sendable {
+        case text(String)
+        case math(latex: String, isDisplay: Bool)
+    }
+    
+    private static let complexMathCommands: [String] = [
+        #"\frac"#, #"\dfrac"#, #"\tfrac"#, #"\cfrac"#, #"\over"#,
+        #"\binom"#, #"\dbinom"#, #"\tbinom"#, #"\choose"#,
+        #"\sqrt"#, #"\begin{"#, #"\underbrace"#, #"\overbrace"#,
+        #"\overset"#, #"\underset"#, #"\stackrel"#, #"\substack"#,
+        #"\xrightarrow"#, #"\xleftarrow"#, #"\xRightarrow"#, #"\xLeftarrow"#,
+        #"\xleftrightarrow"#, #"\xLeftrightarrow"#, #"\xmapsto"#,
+        #"\boxed"#, #"\cancel"#, #"\bcancel"#, #"\xcancel"#,
+        #"\ce{"#, #"\pu{"#, #"\widehat"#, #"\widetilde"#,
+        #"\overrightarrow"#, #"\overline"#, #"\underline"#,
+        #"\hat{"#, #"\vec{"#, #"\bar{"#, #"\tilde{"#, #"\dot{"#, #"\ddot{"#,
+        #"\color{"#, #"\textcolor{"#, #"\colorbox{"#,
+        #"\sum_"#, #"\sum^"#, #"\prod_"#, #"\prod^"#, #"\int_"#, #"\int^"#,
+        #"\iint"#, #"\iiint"#, #"\oint"#, #"\lim_"#, #"\limsup_"#, #"\liminf_"#,
+        #"\argmax_"#, #"\argmin_"#, #"\bigcup_"#, #"\bigcap_"#, #"\bigoplus_"#, #"\bigotimes_"#
+    ]
+    
+    /// Determines whether an inline LaTeX expression benefits from full KaTeX 2D typesetting
+    /// instead of lightweight inline Unicode text.
+    public static func needsRichMathRendering(_ latex: String) -> Bool {
+        let trimmed = latex.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return false }
+        for cmd in complexMathCommands {
+            if trimmed.contains(cmd) { return true }
+        }
+        // Combined sub + sup on the same expression (e.g. x_i^2, A_{ij}^{(k)}, \sum_{i} x_i^2)
+        if trimmed.contains("_") && trimmed.contains("^") {
+            return true
+        }
+        // Subscripts/superscripts wrapping \text/\mathrm (e.g. \theta_{\text{max}}, L_\text{loss}) look much cleaner via KaTeX
+        if trimmed.contains(#"_\text"#) || trimmed.contains(#"_{\text"#) || trimmed.contains(#"^\text"#) || trimmed.contains(#"^{\text"#) ||
+           trimmed.contains(#"_\mathrm"#) || trimmed.contains(#"_{\mathrm"#) || trimmed.contains(#"^\mathrm"#) || trimmed.contains(#"^{\mathrm"#) {
+            return true
+        }
+        // Check for unmappable multi-character sub/superscript groups (e.g., x_{i,j}, \theta_{\text{max}}, \mathbb{R}^{d \times d})
+        if trimmed.contains("^{") || trimmed.contains("_{") {
+            let cleaned = unwrapTextAndFontCommands(trimmed)
+            if let supGroupRegex = Self.supGroupRegex {
+                let ns = cleaned as NSString
+                for m in supGroupRegex.matches(in: cleaned, range: NSRange(location: 0, length: ns.length)) {
+                    let inner = ns.substring(with: m.range(at: 1)).trimmingCharacters(in: .whitespaces)
+                    if inner.contains("\\") || inner.contains("{") || !inner.allSatisfy({ superscriptDict[$0] != nil || $0 == " " || $0 == "," }) {
+                        return true
+                    }
+                }
+            }
+            if let subGroupRegex = Self.subGroupRegex {
+                let ns = cleaned as NSString
+                for m in subGroupRegex.matches(in: cleaned, range: NSRange(location: 0, length: ns.length)) {
+                    let inner = ns.substring(with: m.range(at: 1)).trimmingCharacters(in: .whitespaces)
+                    if inner.contains("\\") || inner.contains("{") || !inner.allSatisfy({ subscriptDict[$0] != nil || $0 == " " || $0 == "," }) {
+                        return true
+                    }
+                }
+            }
+        }
+        return false
+    }
+    
+    /// Returns true if the expression contains explicit color directives that should preserve original colors.
+    public static func hasExplicitColor(_ latex: String) -> Bool {
+        latex.contains(#"\color"#) || latex.contains(#"\textcolor"#) || latex.contains(#"\colorbox"#) || latex.contains(#"\fcolorbox"#)
+    }
+    
+    /// Quick check whether a raw Markdown string contains any inline math requiring KaTeX rendering.
+    public static func complexInlineFormulas(in text: String) -> [(latex: String, isDisplay: Bool)] {
+        guard text.contains("$") || text.contains(#"\("#) || text.contains(#"\["#) else { return [] }
+        let segments = splitInlineMathPreservingCodeSpans(in: text)
+        var seen = Set<String>()
+        var result: [(latex: String, isDisplay: Bool)] = []
+        for seg in segments {
+            if case .math(let latex, let isDisplay) = seg {
+                let trimmed = latex.trimmingCharacters(in: .whitespacesAndNewlines)
+                guard !trimmed.isEmpty else { continue }
+                if isDisplay || needsRichMathRendering(trimmed) {
+                    let key = "\(isDisplay ? "D" : "I"):\(trimmed)"
+                    if seen.insert(key).inserted {
+                        result.append((trimmed, isDisplay))
+                    }
+                }
+            }
+        }
+        return result
+    }
+    
+    /// Transforms bare LaTeX commands outside math delimiters without touching `$` or `_`/`^` prose.
+    public static func processBareLatex(_ text: String) -> String {
+        guard text.contains("\\") else { return text }
+        var out = unwrapTextAndFontCommands(text)
+        out = replaceUnderOverBraces(out)
+        out = replaceExtensibleArrows(out)
+        out = replaceStructuralMathCommands(out)
+        out = cleanSizingAndDelimiters(out, isMathMode: false)
+        out = replaceSymbolsSinglePass(out)
+        if let fontFallbackRegex = Self.fontFallbackRegex {
+            out = fontFallbackRegex.stringByReplacingMatches(
+                in: out,
+                range: NSRange(location: 0, length: (out as NSString).length),
+                withTemplate: "$1"
+            )
+        }
+        out = replaceBareOperatorLimits(out)
+        return out
+    }
+    
+    /// Splits inline text into alternating text and math segments while leaving inline code spans untouched.
+    public static func splitInlineMathPreservingCodeSpans(in text: String) -> [InlineMathSegment] {
+        guard text.contains("$") || text.contains(#"\("#) || text.contains(#"\["#) else {
+            return text.isEmpty ? [] : [.text(text)]
+        }
+        let chars = Array(text)
+        let n = chars.count
+        var segments: [InlineMathSegment] = []
+        var buffer = ""
+        var i = 0
+        
+        func flushBuffer() {
+            if !buffer.isEmpty {
+                segments.append(.text(buffer))
+                buffer = ""
+            }
+        }
+        
+        func isEscaped(_ idx: Int) -> Bool {
+            var count = 0
+            var k = idx - 1
+            while k >= 0 && chars[k] == "\\" {
+                count += 1
+                k -= 1
+            }
+            return (count % 2) == 1
+        }
+        
+        func isLikelyCurrency(_ inner: String, nextChar: Character?) -> Bool {
+            if let nc = nextChar, nc.isASCII && nc.isNumber { return true }
+            if let first = inner.first, first.isASCII && first.isNumber {
+                let hasSpace = inner.contains(" ") || inner.contains("\t")
+                let hasMathSignal = inner.contains { ch in
+                    ch == "\\" || ch == "^" || ch == "_" || ch == "{" || ch == "}" ||
+                    ch == "=" || ch == "<" || ch == ">" || ch == "+" || ch == "-" ||
+                    ch == "*" || ch == "/" || ch == "×" || ch == "÷" || ch == "±"
+                }
+                if hasSpace && !hasMathSignal { return true }
+            }
+            return false
+        }
+        
+        while i < n {
+            let ch = chars[i]
+            
+            // Preserve inline code spans `...` or ``...``
+            if ch == "`" {
+                var tickCount = 0
+                while i + tickCount < n && chars[i + tickCount] == "`" { tickCount += 1 }
+                var closeIdx = -1
+                var j = i + tickCount
+                while j < n {
+                    if chars[j] == "`" {
+                        var run = 0
+                        while j + run < n && chars[j + run] == "`" { run += 1 }
+                        if run == tickCount {
+                            closeIdx = j + run
+                            break
+                        }
+                        j += run
+                    } else {
+                        j += 1
+                    }
+                }
+                if closeIdx != -1 {
+                    buffer.append(contentsOf: chars[i..<closeIdx])
+                    i = closeIdx
+                    continue
+                }
+                buffer.append(contentsOf: chars[i..<(i + tickCount)])
+                i += tickCount
+                continue
+            }
+            
+            // Escaped dollar \$
+            if ch == "\\" && i + 1 < n && chars[i + 1] == "$" {
+                buffer.append("\\$")
+                i += 2
+                continue
+            }
+            
+            // \( ... \) inline math
+            if ch == "\\" && i + 1 < n && chars[i + 1] == "(" && !isEscaped(i) {
+                var closeIdx = -1
+                var j = i + 2
+                while j < n - 1 {
+                    if chars[j] == "\\" && chars[j + 1] == ")" && !isEscaped(j) {
+                        closeIdx = j
+                        break
+                    }
+                    j += 1
+                }
+                if closeIdx > i + 2 {
+                    let inner = String(chars[(i + 2)..<closeIdx])
+                    if !inner.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                        flushBuffer()
+                        segments.append(.math(latex: inner, isDisplay: false))
+                        i = closeIdx + 2
+                        continue
+                    }
+                }
+            }
+            
+            // \[ ... \] display math inside paragraph/blockquote
+            if ch == "\\" && i + 1 < n && chars[i + 1] == "[" && !isEscaped(i) {
+                var closeIdx = -1
+                var j = i + 2
+                while j < n - 1 {
+                    if chars[j] == "\\" && chars[j + 1] == "]" && !isEscaped(j) {
+                        closeIdx = j
+                        break
+                    }
+                    j += 1
+                }
+                if closeIdx > i + 2 {
+                    let inner = String(chars[(i + 2)..<closeIdx])
+                    if !inner.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                        flushBuffer()
+                        segments.append(.math(latex: inner, isDisplay: true))
+                        i = closeIdx + 2
+                        continue
+                    }
+                }
+            }
+            
+            // $$ ... $$ display math inside paragraph/blockquote
+            if ch == "$" && i + 1 < n && chars[i + 1] == "$" && !isEscaped(i) {
+                var closeIdx = -1
+                var j = i + 2
+                while j < n - 1 {
+                    if chars[j] == "$" && chars[j + 1] == "$" && !isEscaped(j) {
+                        closeIdx = j
+                        break
+                    }
+                    j += 1
+                }
+                if closeIdx > i + 2 {
+                    let inner = String(chars[(i + 2)..<closeIdx])
+                    if !inner.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                        flushBuffer()
+                        segments.append(.math(latex: inner, isDisplay: true))
+                        i = closeIdx + 2
+                        continue
+                    }
+                }
+            }
+            
+            // $ ... $ single-line inline math
+            if ch == "$" && !isEscaped(i) && (i + 1 < n && chars[i + 1] != "$") {
+                let prevIsAlphaNum: Bool = {
+                    guard i > 0 else { return false }
+                    let p = chars[i - 1]
+                    return p.isASCII && (p.isLetter || p.isNumber)
+                }()
+                let next = chars[i + 1]
+                if !prevIsAlphaNum && !next.isWhitespace {
+                    var closeIdx = -1
+                    var j = i + 1
+                    while j < n {
+                        if chars[j] == "\n" { break }
+                        if chars[j] == "$" && !isEscaped(j) {
+                            if j + 1 < n && chars[j + 1] == "$" { break }
+                            if j > i + 1 && !chars[j - 1].isWhitespace {
+                                let candidate = String(chars[(i + 1)..<j])
+                                let afterClose: Character? = (j + 1 < n) ? chars[j + 1] : nil
+                                if !isLikelyCurrency(candidate, nextChar: afterClose) {
+                                    closeIdx = j
+                                }
+                            }
+                            break
+                        }
+                        j += 1
+                    }
+                    if closeIdx > i + 1 {
+                        let inner = String(chars[(i + 1)..<closeIdx])
+                        if !inner.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                            flushBuffer()
+                            segments.append(.math(latex: inner, isDisplay: false))
+                            i = closeIdx + 1
+                            continue
+                        }
+                    }
+                }
+            }
+            
+            buffer.append(ch)
+            i += 1
+        }
+        flushBuffer()
+        return segments
+    }
+    
+    private static func replaceInlineMathSpans(in text: String, transform: (String, Bool) -> String) -> String {
+        let segments = splitInlineMathPreservingCodeSpans(in: text)
+        var out = ""
+        out.reserveCapacity(text.count)
+        for seg in segments {
+            switch seg {
+            case .text(let s):
+                out.append(s)
+            case .math(let latex, let isDisplay):
+                let normalized = isDisplay ? latex.replacingOccurrences(of: #"\\\\"#, with: "\n") : latex
+                out.append(transform(normalized, isDisplay))
+            }
+        }
+        return out
+    }
+    
+    private static func formatFractionPart(_ raw: String) -> String {
+        let t = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !t.isEmpty else { return "" }
+        if t.count <= 2 { return t }
+        let needsParen = t.contains { ch in
+            ch == "+" || ch == "-" || ch == "=" || ch == "/" || ch.isWhitespace
+        }
+        guard needsParen else { return t }
+        if t.hasPrefix("(") && t.hasSuffix(")") {
+            var depth = 0
+            var wrapped = true
+            for (idx, ch) in t.enumerated() {
+                if ch == "(" { depth += 1 }
+                else if ch == ")" { depth -= 1 }
+                if depth == 0 && idx < t.count - 1 {
+                    wrapped = false
+                    break
+                }
+            }
+            if wrapped && depth == 0 { return t }
+        }
+        return "(\(t))"
     }
     
     // MARK: - Regex Helper

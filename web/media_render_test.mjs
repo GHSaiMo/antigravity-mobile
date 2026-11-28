@@ -222,3 +222,87 @@ test("repairMermaid quotes bare subgraph titles and nested-paren node labels wit
     `expected already-quoted subgraph to stay intact, got:\n${repaired}`
   );
 });
+
+function loadMediaRuntimeWithKatex() {
+  const katexSource = fs.readFileSync(path.join(__dirname, "js", "vendor", "katex", "katex.min.js"), "utf8");
+  const mhchemSource = fs.readFileSync(path.join(__dirname, "js", "vendor", "katex", "mhchem.min.js"), "utf8");
+  const ctx = {
+    window: {
+      location: { origin: "http://localhost:8080" },
+      matchMedia: () => ({ matches: false }),
+    },
+    location: { origin: "http://localhost:8080", host: "localhost:8080" },
+    document: { compatMode: "CSS1Compat" },
+    fetch: () => Promise.resolve({ json: () => Promise.resolve({}) }),
+    URL,
+    URLSearchParams,
+    console,
+    setTimeout,
+    Map,
+    Set,
+    Object,
+    Array,
+    String,
+    Number,
+    Boolean,
+    RegExp,
+    Math,
+    Date,
+    decodeURIComponent,
+    encodeURIComponent,
+  };
+  ctx.self = ctx.window;
+  ctx.globalThis = ctx;
+  vm.runInNewContext(katexSource, ctx, { filename: "web/js/vendor/katex/katex.min.js" });
+  ctx.katex = ctx.katex || ctx.window.katex;
+  ctx.window.katex = ctx.katex;
+  vm.runInNewContext(mhchemSource, ctx, { filename: "web/js/vendor/katex/mhchem.min.js" });
+  vm.runInNewContext(mediaSource, ctx, { filename: "web/js/media.js" });
+  return ctx;
+}
+
+test("KaTeX renders display and inline LaTeX formulas offline including CJK text and mhchem", () => {
+  const katexMedia = loadMediaRuntimeWithKatex();
+
+  const blockHtml = katexMedia.renderMarkdown("前置说明\n$$\n\\mathcal{L}(\\theta) = \\frac{1}{N} \\sum_{i=1}^{N} \\left(y_i - \\hat{y}_i\\right)^2 + \\lambda \\|\\theta\\|_2^2\n$$\n后置说明");
+  assert.match(blockHtml, /<div class="math-display-block katex-rendered"><span class="katex-display">/);
+  assert.ok(!blockHtml.includes("<br/>"), "KaTeX display block must not inject <br/>");
+  assert.match(blockHtml, /<p>前置说明<\/p>/);
+  assert.match(blockHtml, /<p>后置说明<\/p>/);
+
+  const inlineHtml = katexMedia.renderMarkdown("当 $x_1 + x_2 = \\frac{a+b}{c+d}$ 且 \\(\\alpha_i * \\beta_j\\) 时，化学式 $\\ce{H2O -> H+ + OH-}$ 成立。");
+  assert.match(inlineHtml, /<span class="math-inline katex-inline"><span class="katex">/);
+  assert.ok(!inlineHtml.includes("<em>"), "underscores and asterisks inside inline math must not become <em>");
+  assert.ok(!inlineHtml.includes("<br/>"), "inline KaTeX must remain single-line");
+
+  const cjkBlock = katexMedia.renderMarkdown("$$\n\\text{准确率} = \\frac{\\text{正确数}}{\\text{总数}}\n$$");
+  assert.match(cjkBlock, /katex-rendered/);
+  assert.ok(cjkBlock.includes("准确率"), "CJK \\text{} inside LaTeX must be preserved");
+
+  const matrixBlock = katexMedia.renderMarkdown("\\[\nA = \\begin{pmatrix} 1 & 2 \\\\ 3 & 4 \\end{pmatrix}\n\\]");
+  assert.match(matrixBlock, /katex-rendered/);
+  assert.match(matrixBlock, /mtable/);
+});
+
+test("inline math protects currency strings and code spans, and falls back gracefully on invalid LaTeX", () => {
+  const katexMedia = loadMediaRuntimeWithKatex();
+
+  const currency = katexMedia.renderMarkdown("价格从 $10 涨到了 $20，预算在 $100 to $200 之间，另有 \\$50 折扣。");
+  assert.ok(!currency.includes("katex"), `currency strings must not trigger KaTeX, got: ${currency}`);
+  assert.ok(currency.includes("$10") && currency.includes("$20"));
+
+  const codeSpan = katexMedia.renderMarkdown("源码 `$\\frac{a}{b}$` 与\n```latex\n$$\\frac{1}{2}$$\n```\n保持原样");
+  assert.ok(!codeSpan.includes("katex-rendered"), `fenced code must not trigger KaTeX, got: ${codeSpan}`);
+  assert.ok(!codeSpan.includes("katex-inline"), `inline code must not trigger KaTeX, got: ${codeSpan}`);
+  assert.ok(codeSpan.includes('<code class="inline-code">$\\frac{a}{b}$</code>'));
+
+  // Streaming / incomplete LaTeX syntax must never show raw KaTeX error text; falls back cleanly
+  const broken = katexMedia.renderMarkdown("$$\n\\frac{a+b}{c+d\n$$");
+  assert.ok(!broken.includes("katex-error"), "broken LaTeX must fall back instead of showing KaTeX error");
+  assert.match(broken, /<div class="math-display-block">/);
+
+  // Fallback without KaTeX runtime keeps parenthesized fraction semantics
+  const fallbackFrac = media.renderMarkdown("公式 $\\frac{a+b}{c+d}$ 与 $\\frac{1}{2}$");
+  assert.ok(fallbackFrac.includes("(a+b) / (c+d)"), `expected parenthesized fraction fallback, got: ${fallbackFrac}`);
+  assert.ok(fallbackFrac.includes("1 / 2"));
+});

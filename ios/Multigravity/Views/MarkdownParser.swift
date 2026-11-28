@@ -129,9 +129,22 @@ public enum MarkdownParser {
                 }
             }
             
+            // Single-line display math block: $$ ... $$ or \[ ... \]
+            if (trimmed.hasPrefix("$$") && trimmed.hasSuffix("$$") && trimmed.count > 4 && !trimmed.dropFirst(2).dropLast(2).contains("$$")) ||
+               (trimmed.hasPrefix(#"\["#) && trimmed.hasSuffix(#"\]"#) && trimmed.count > 4 && !trimmed.dropFirst(2).dropLast(2).contains(#"\]"#)) {
+                let inner = String(trimmed.dropFirst(2).dropLast(2)).trimmingCharacters(in: .whitespacesAndNewlines)
+                if !inner.isEmpty {
+                    blocks.append(.mathBlock(id: "block-\(blockIdx)", latex: inner))
+                    blockIdx += 1
+                    i += 1
+                    continue
+                }
+            }
+            
             // Multi-line display math block: $$ ... $$ or \[ ... \]
             if (trimmed.hasPrefix("$$") && (trimmed == "$$" || !trimmed.dropFirst(2).contains("$$"))) ||
                (trimmed.hasPrefix(#"\["#) && !trimmed.dropFirst(2).contains(#"\]"#)) {
+                let openToken = trimmed.hasPrefix("$$") ? "$$" : #"\["#
                 let closeToken = trimmed.hasPrefix("$$") ? "$$" : #"\]"#
                 var mathLines: [String] = [line]
                 i += 1
@@ -143,9 +156,18 @@ public enum MarkdownParser {
                         break
                     }
                 }
-                let mathText = mathLines.joined(separator: "\n")
-                blocks.append(.paragraph(id: "block-\(blockIdx)", text: mathText))
-                blockIdx += 1
+                var inner = mathLines.joined(separator: "\n").trimmingCharacters(in: .whitespacesAndNewlines)
+                if inner.hasPrefix(openToken) {
+                    inner = String(inner.dropFirst(openToken.count))
+                }
+                if inner.hasSuffix(closeToken) {
+                    inner = String(inner.dropLast(closeToken.count))
+                }
+                inner = inner.trimmingCharacters(in: .whitespacesAndNewlines)
+                if !inner.isEmpty {
+                    blocks.append(.mathBlock(id: "block-\(blockIdx)", latex: inner))
+                    blockIdx += 1
+                }
                 continue
             }
             

@@ -1,8 +1,11 @@
-const CACHE_NAME = "antigravity-mobile-v92";
+const CACHE_NAME = "antigravity-mobile-v93";
 const ASSETS = [
   "/",
   "/index.html",
-  "/style.css?v=75",
+  "/js/vendor/katex/katex.min.css?v=1",
+  "/js/vendor/katex/katex.min.js?v=1",
+  "/js/vendor/katex/mhchem.min.js?v=1",
+  "/style.css?v=76",
   "/js/i18n.js?v=16",
   "/js/e2ee.js?v=1",
   "/js/core.js?v=45",
@@ -10,7 +13,7 @@ const ASSETS = [
   "/js/wechat_archive.js?v=1",
   "/js/chat.js?v=50",
   "/js/actions.js?v=44",
-  "/js/media.js?v=41",
+  "/js/media.js?v=42",
   "/js/cockpit.js?v=40",
   "/js/scan.js?v=2",
   "/js/msgmenu.js?v=7",

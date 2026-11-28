@@ -33,8 +33,58 @@ extension MarkdownContentView {
         }
     }
     
-    public static func renderRichText(_ rawText: String, size: CGFloat = 15, weight: Font.Weight = .regular, colorScheme: ColorScheme? = nil) -> Text {
-        var text = MathSymbolProcessor.process(rawText)
+    public static func renderRichText(
+        _ rawText: String,
+        size: CGFloat = 15,
+        weight: Font.Weight = .regular,
+        colorScheme: ColorScheme? = nil,
+        inlineMathImages: [String: RenderedMathFormula] = [:]
+    ) -> Text {
+        struct ExtractedInlineMath {
+            let token: String
+            let latex: String
+            let isDisplay: Bool
+            let fallback: String
+        }
+        
+        var extractedMath: [ExtractedInlineMath] = []
+        var text = rawText
+        if rawText.contains("$") || rawText.contains(#"\("#) || rawText.contains(#"\["#) {
+            let segments = MathSymbolProcessor.splitInlineMathPreservingCodeSpans(in: rawText)
+            var rebuilt = ""
+            rebuilt.reserveCapacity(rawText.count)
+            for seg in segments {
+                switch seg {
+                case .text(let s):
+                    if s.contains("\\") {
+                        if s.contains("`") {
+                            let codeSegs = splitCodeSpans(in: s)
+                            rebuilt.append(codeSegs.map { $0.isCode ? $0.content : MathSymbolProcessor.processBareLatex($0.content) }.joined())
+                        } else {
+                            rebuilt.append(MathSymbolProcessor.processBareLatex(s))
+                        }
+                    } else {
+                        rebuilt.append(s)
+                    }
+                case .math(let latex, let isDisplay):
+                    let trimmed = latex.trimmingCharacters(in: .whitespacesAndNewlines)
+                    let token = "\u{E020}M\(extractedMath.count)\u{E021}"
+                    let normalizedForFallback = isDisplay ? trimmed.replacingOccurrences(of: #"\\\\"#, with: "\n") : trimmed
+                    let fallback = MathSymbolProcessor.cleanMathExpression(normalizedForFallback)
+                    extractedMath.append(ExtractedInlineMath(token: token, latex: trimmed, isDisplay: isDisplay, fallback: fallback))
+                    rebuilt.append(token)
+                }
+            }
+            text = rebuilt
+        } else if rawText.contains("\\") {
+            if rawText.contains("`") {
+                let codeSegs = splitCodeSpans(in: rawText)
+                text = codeSegs.map { $0.isCode ? $0.content : MathSymbolProcessor.processBareLatex($0.content) }.joined()
+            } else {
+                text = MathSymbolProcessor.processBareLatex(rawText)
+            }
+        }
+        
         text = replaceHtmlBreaks(in: text)
         text = unwrapBacktickBold(in: text)
         
@@ -93,65 +143,141 @@ extension MarkdownContentView {
             }
         }
         
-        let attr = renderInlineMarkdownNormalized(text, size: size, weight: weight, colorScheme: colorScheme)
+        var attr = renderInlineMarkdownNormalized(text, size: size, weight: weight, colorScheme: colorScheme)
         
-        // Fast-path: If text does not contain markdown link signature `](` or URL scheme, return Text(attr) directly
-        guard (text.contains("[") && text.contains("](")) || text.contains("http://") || text.contains("https://") || text.contains("file://") else {
-            return Text(attr)
-        }
-        
-        var iconInsertions: [(icon: String, index: AttributedString.Index)] = []
-        var currentLinkUrl: URL? = nil
-        var currentLinkRunsText = ""
-        var currentLinkStartIndex: AttributedString.Index? = nil
-        
-        func finishCurrentLink() {
-            guard let url = currentLinkUrl, let startIdx = currentLinkStartIndex else { return }
-            let linkText = currentLinkRunsText.trimmingCharacters(in: .whitespacesAndNewlines)
-            if let icon = FileIconResolver.resolveIcon(for: linkText) ?? FileIconResolver.resolveIcon(for: url.absoluteString) {
-                iconInsertions.append((icon: icon, index: startIdx))
+        enum InlineOverlayOp {
+            case icon(name: String, at: AttributedString.Index)
+            case mathImage(formula: RenderedMathFormula, range: Range<AttributedString.Index>)
+            
+            var sortIndex: AttributedString.Index {
+                switch self {
+                case .icon(_, let idx): return idx
+                case .mathImage(_, let range): return range.lowerBound
+                }
             }
-            currentLinkUrl = nil
-            currentLinkRunsText = ""
-            currentLinkStartIndex = nil
         }
         
-        for run in attr.runs {
-            if let link = run.link {
-                if let activeUrl = currentLinkUrl, activeUrl == link {
-                    currentLinkRunsText += String(attr[run.range].characters)
+        var overlayOps: [InlineOverlayOp] = []
+        
+        if !extractedMath.isEmpty {
+            let isDark = (colorScheme == .dark)
+            let mathFontSize = size * 1.04
+            for item in extractedMath {
+                guard let tokenRange = attr.range(of: item.token) else { continue }
+                let shouldUseRich = item.isDisplay || MathSymbolProcessor.needsRichMathRendering(item.latex)
+                if shouldUseRich {
+                    let key = KaTeXRenderEngine.cacheKey(
+                        latex: item.latex,
+                        displayMode: item.isDisplay,
+                        fontSize: mathFontSize,
+                        isDark: isDark
+                    )
+                    let formula = inlineMathImages[key] ?? KaTeXRenderEngine.shared.cached(
+                        latex: item.latex,
+                        displayMode: item.isDisplay,
+                        fontSize: mathFontSize,
+                        isDark: isDark
+                    )
+                    if let formula {
+                        overlayOps.append(.mathImage(formula: formula, range: tokenRange))
+                        continue
+                    }
+                }
+                // Simple formula or fallback while rendering: replace in-place keeping surrounding bold/link attributes
+                let existingAttrs = attr[tokenRange].runs.first?.attributes ?? AttributeContainer()
+                let replacement = AttributedString(item.fallback, attributes: existingAttrs)
+                attr.replaceSubrange(tokenRange, with: replacement)
+            }
+        }
+        
+        // Re-locate math image ranges after in-place text replacements shifted AttributedString indices
+        if !overlayOps.isEmpty {
+            overlayOps.removeAll(keepingCapacity: true)
+            let isDark = (colorScheme == .dark)
+            let mathFontSize = size * 1.04
+            for item in extractedMath {
+                guard let tokenRange = attr.range(of: item.token) else { continue }
+                let key = KaTeXRenderEngine.cacheKey(
+                    latex: item.latex,
+                    displayMode: item.isDisplay,
+                    fontSize: mathFontSize,
+                    isDark: isDark
+                )
+                if let formula = inlineMathImages[key] ?? KaTeXRenderEngine.shared.cached(
+                    latex: item.latex,
+                    displayMode: item.isDisplay,
+                    fontSize: mathFontSize,
+                    isDark: isDark
+                ) {
+                    overlayOps.append(.mathImage(formula: formula, range: tokenRange))
+                }
+            }
+        }
+        
+        // File link icon insertions
+        if (text.contains("[") && text.contains("](")) || text.contains("http://") || text.contains("https://") || text.contains("file://") {
+            var currentLinkUrl: URL? = nil
+            var currentLinkRunsText = ""
+            var currentLinkStartIndex: AttributedString.Index? = nil
+            
+            func finishCurrentLink() {
+                guard let url = currentLinkUrl, let startIdx = currentLinkStartIndex else { return }
+                let linkText = currentLinkRunsText.trimmingCharacters(in: .whitespacesAndNewlines)
+                if let icon = FileIconResolver.resolveIcon(for: linkText) ?? FileIconResolver.resolveIcon(for: url.absoluteString) {
+                    overlayOps.append(.icon(name: icon, at: startIdx))
+                }
+                currentLinkUrl = nil
+                currentLinkRunsText = ""
+                currentLinkStartIndex = nil
+            }
+            
+            for run in attr.runs {
+                if let link = run.link {
+                    if let activeUrl = currentLinkUrl, activeUrl == link {
+                        currentLinkRunsText += String(attr[run.range].characters)
+                    } else {
+                        finishCurrentLink()
+                        currentLinkUrl = link
+                        currentLinkRunsText = String(attr[run.range].characters)
+                        currentLinkStartIndex = run.range.lowerBound
+                    }
                 } else {
                     finishCurrentLink()
-                    currentLinkUrl = link
-                    currentLinkRunsText = String(attr[run.range].characters)
-                    currentLinkStartIndex = run.range.lowerBound
                 }
-            } else {
-                finishCurrentLink()
             }
+            finishCurrentLink()
         }
-        finishCurrentLink()
         
-        if iconInsertions.isEmpty {
+        if overlayOps.isEmpty {
             return Text(attr)
         }
+        
+        overlayOps.sort { $0.sortIndex < $1.sortIndex }
         
         var combined = Text("")
         var currentIndex = attr.startIndex
         let iconOffset: CGFloat = (size <= 13) ? -2.2 : -2.0
         
-        for ins in iconInsertions {
-            if ins.index > currentIndex {
-                let leading = AttributedString(attr[currentIndex..<ins.index])
-                combined = combined + Text(leading)
+        for op in overlayOps {
+            switch op {
+            case .icon(let iconName, let idx):
+                if idx > currentIndex {
+                    combined = combined + Text(AttributedString(attr[currentIndex..<idx]))
+                }
+                combined = combined + Text(Image(iconName)).baselineOffset(iconOffset) + Text("\u{2009}")
+                if idx > currentIndex { currentIndex = idx }
+            case .mathImage(let formula, let range):
+                guard range.lowerBound >= currentIndex else { continue }
+                if range.lowerBound > currentIndex {
+                    combined = combined + Text(AttributedString(attr[currentIndex..<range.lowerBound]))
+                }
+                combined = combined + Text(Image(uiImage: formula.image)).baselineOffset(-formula.baselineFromBottom)
+                currentIndex = range.upperBound
             }
-            combined = combined + Text(Image(ins.icon)).baselineOffset(iconOffset) + Text("\u{2009}")
-            currentIndex = ins.index
         }
         
         if currentIndex < attr.endIndex {
-            let trailing = AttributedString(attr[currentIndex..<attr.endIndex])
-            combined = combined + Text(trailing)
+            combined = combined + Text(AttributedString(attr[currentIndex..<attr.endIndex]))
         }
         
         return combined

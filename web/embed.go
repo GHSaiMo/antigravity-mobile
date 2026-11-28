@@ -153,7 +153,14 @@ func loadAsset(path string) (*staticAsset, bool) {
 	ext := strings.ToLower(filepath.Ext(path))
 	ctype := mime.TypeByExtension(ext)
 	if ctype == "" {
-		ctype = http.DetectContentType(raw)
+		switch ext {
+		case ".woff2":
+			ctype = "font/woff2"
+		case ".woff":
+			ctype = "font/woff"
+		default:
+			ctype = http.DetectContentType(raw)
+		}
 	}
 	a = &staticAsset{
 		name:  path,

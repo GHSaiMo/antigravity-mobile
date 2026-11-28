@@ -42,6 +42,7 @@ object MarkdownPlainText {
                 is MarkdownBlock.Heading -> inline(block.text)
                 is MarkdownBlock.Divider -> "────────"
                 is MarkdownBlock.CodeBlock -> block.code.trim('\n')
+                is MarkdownBlock.MathBlock -> MathSymbolProcessor.cleanMathExpression(block.latex.replace("\\\\", "\n"))
                 is MarkdownBlock.Table -> (listOf(block.headers) + block.rows)
                     .joinToString("\n") { row -> row.joinToString("\t") { inline(it) } }
                 is MarkdownBlock.BulletList -> block.items.mapIndexed { idx, it ->

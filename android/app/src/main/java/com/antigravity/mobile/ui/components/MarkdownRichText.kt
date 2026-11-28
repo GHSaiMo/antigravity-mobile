@@ -4,6 +4,7 @@ import com.antigravity.mobile.ui.util.loc
 import android.content.Intent
 import android.net.Uri
 import java.net.URLDecoder
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectTapGestures
@@ -15,9 +16,11 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.ColorFilter
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.text.*
@@ -130,16 +133,70 @@ internal fun RichTextRenderer(
     onPlanClick: ((String, String) -> Unit)? = null
 ) {
     val context = LocalContext.current
+    val density = LocalDensity.current
     val focusManager = LocalFocusManager.current
     val haptic = LocalHapticFeedback.current
     val isSelectable = LocalMarkdownSelectable.current
+    val isExport = LocalShareExport.current
     val onLongPress = if (isSelectable) null else LocalMarkdownLongPress.current
-    val renderData = remember(text, colors, baseFontSize, baseFontWeight) {
+
+    val mathFontSizeSp = baseFontSize.value * 1.04f
+    val complexFormulas = remember(text) { MathSymbolProcessor.complexInlineFormulas(text) }
+    var inlineMathMap by remember(text, mathFontSizeSp, colors.isDark) {
+        val initial: Map<String, RenderedMathFormula> = if (complexFormulas.isEmpty()) {
+            emptyMap()
+        } else {
+            buildMap {
+                for ((latex, isDisplay) in complexFormulas) {
+                    val hit = KaTeXRenderEngine.cached(
+                        latex = latex,
+                        displayMode = isDisplay,
+                        fontSizeSp = mathFontSizeSp,
+                        isDark = colors.isDark
+                    )
+                    if (hit != null) {
+                        put(KaTeXRenderEngine.cacheKey(latex, isDisplay, mathFontSizeSp, colors.isDark), hit)
+                    }
+                }
+            }
+        }
+        mutableStateOf(initial)
+    }
+
+    if (complexFormulas.isNotEmpty() && !isExport) {
+        LaunchedEffect(text, mathFontSizeSp, colors.isDark) {
+            val updated = inlineMathMap.toMutableMap()
+            var changed = false
+            for ((latex, isDisplay) in complexFormulas) {
+                val key = KaTeXRenderEngine.cacheKey(latex, isDisplay, mathFontSizeSp, colors.isDark)
+                if (updated.containsKey(key)) continue
+                val rendered = KaTeXRenderEngine.render(
+                    context = context,
+                    latex = latex,
+                    displayMode = isDisplay,
+                    fontSizeSp = mathFontSizeSp,
+                    density = density.density,
+                    isDark = colors.isDark
+                )
+                if (rendered != null) {
+                    updated[key] = rendered
+                    changed = true
+                }
+            }
+            if (changed) {
+                inlineMathMap = updated
+            }
+        }
+    }
+
+    val renderData = remember(text, colors, baseFontSize, baseFontWeight, inlineMathMap, density.fontScale) {
         buildRichTextRenderData(
             rawText = text,
             colors = colors,
             baseFontSize = baseFontSize,
-            baseFontWeight = baseFontWeight
+            baseFontWeight = baseFontWeight,
+            inlineMathImages = inlineMathMap,
+            fontScale = density.fontScale
         )
     }
 
@@ -274,16 +331,80 @@ internal val INLINE_TOKEN_REGEX = Regex(
     """(?<!\!)\[([^\]]+)\]\(([^)]+)\)|`([^`]+)`|\*\*\*([^\n]+?)\*\*\*|(?<![A-Za-z0-9_])___([^\n]+?)___(?![A-Za-z0-9_])|\*\*([^\n]+?)\*\*|(?<![A-Za-z0-9_])__([^\n]+?)__(?![A-Za-z0-9_])|(?<!\*)\*([^*\n]+?)\*(?!\*)|(?<![A-Za-z0-9_\\\{\}])_([^_\n\{\}]+?)_(?![A-Za-z0-9_\{])|~~([^\n]+?)~~"""
 )
 
+private val INLINE_MATH_TOKEN_REGEX = Regex("""\uE020M(\d+)\uE021""")
+
 internal fun buildRichTextRenderData(
     rawText: String,
     colors: AppColors,
     baseFontSize: TextUnit,
-    baseFontWeight: FontWeight
+    baseFontWeight: FontWeight,
+    inlineMathImages: Map<String, RenderedMathFormula> = emptyMap(),
+    fontScale: Float = 1f
 ): RichTextRenderData {
-    var processed = MathSymbolProcessor.process(rawText)
+    data class ExtractedInlineMath(
+        val token: String,
+        val latex: String,
+        val isDisplay: Boolean,
+        val fallback: String
+    )
+
+    val extractedMath = ArrayList<ExtractedInlineMath>()
+    var processed = if (rawText.contains('$') || rawText.contains("\\(") || rawText.contains("\\[")) {
+        val segments = MathSymbolProcessor.splitInlineMathPreservingCodeSpans(rawText)
+        val sb = StringBuilder(rawText.length)
+        for (seg in segments) {
+            when (seg) {
+                is MathSymbolProcessor.InlineMathSegment.Text -> {
+                    val s = seg.value
+                    if (s.contains('\\')) {
+                        if (s.contains('`')) {
+                            for ((content, isCode) in splitCodeSpans(s)) {
+                                sb.append(if (isCode) content else MathSymbolProcessor.processBareLatex(content))
+                            }
+                        } else {
+                            sb.append(MathSymbolProcessor.processBareLatex(s))
+                        }
+                    } else {
+                        sb.append(s)
+                    }
+                }
+                is MathSymbolProcessor.InlineMathSegment.Math -> {
+                    val trimmed = seg.latex.trim()
+                    val token = "\uE020M${extractedMath.size}\uE021"
+                    val normalizedForFallback = if (seg.isDisplay) trimmed.replace("\\\\", "\n") else trimmed
+                    val fallback = MathSymbolProcessor.cleanMathExpression(normalizedForFallback)
+                    extractedMath.add(ExtractedInlineMath(token, trimmed, seg.isDisplay, fallback))
+                    sb.append(token)
+                }
+            }
+        }
+        sb.toString()
+    } else if (rawText.contains('\\')) {
+        if (rawText.contains('`')) {
+            val sb = StringBuilder(rawText.length)
+            for ((content, isCode) in splitCodeSpans(rawText)) {
+                sb.append(if (isCode) content else MathSymbolProcessor.processBareLatex(content))
+            }
+            sb.toString()
+        } else {
+            MathSymbolProcessor.processBareLatex(rawText)
+        }
+    } else {
+        rawText
+    }
     processed = replaceHtmlBreaks(processed)
     processed = unwrapBacktickBold(processed)
     processed = normalizeBoldSpaces(processed)
+
+    val mathFontSizeSp = baseFontSize.value * 1.04f
+    val safeFontScale = fontScale.coerceAtLeast(0.5f)
+    fun expandMathTokensToPlain(s: String): String {
+        if (extractedMath.isEmpty() || !s.contains('\uE020')) return s
+        return INLINE_MATH_TOKEN_REGEX.replace(s) { m ->
+            val idx = m.groupValues[1].toIntOrNull() ?: return@replace m.value
+            extractedMath.getOrNull(idx)?.fallback ?: m.value
+        }
+    }
 
     // Auto-link bare implementation_plan.md, walkthrough.md, task.md if not already in markdown link and outside code spans
     if (processed.contains("implementation_plan.md") || processed.contains("walkthrough.md") || processed.contains("task.md")) {
@@ -327,7 +448,9 @@ internal fun buildRichTextRenderData(
     var iconIndex = 0
 
     val annotatedString = buildAnnotatedString {
-        fun appendStyledText(
+        var mathInlineIndex = 0
+
+        fun appendPlainRun(
             plain: String,
             isBold: Boolean,
             isItalic: Boolean,
@@ -347,6 +470,65 @@ internal fun buildRichTextRenderData(
                     start,
                     length
                 )
+            }
+        }
+
+        fun appendStyledText(
+            plain: String,
+            isBold: Boolean,
+            isItalic: Boolean,
+            isStrike: Boolean
+        ) {
+            if (plain.isEmpty()) return
+            if (extractedMath.isEmpty() || !plain.contains('\uE020')) {
+                appendPlainRun(plain, isBold, isItalic, isStrike)
+                return
+            }
+            var cursor = 0
+            for (match in INLINE_MATH_TOKEN_REGEX.findAll(plain)) {
+                val range = match.range
+                if (range.first > cursor) {
+                    appendPlainRun(plain.substring(cursor, range.first), isBold, isItalic, isStrike)
+                }
+                val idx = match.groupValues[1].toIntOrNull()
+                val item = idx?.let { extractedMath.getOrNull(it) }
+                if (item != null) {
+                    val shouldUseRich = item.isDisplay || MathSymbolProcessor.needsRichMathRendering(item.latex)
+                    val formula = if (shouldUseRich) {
+                        val key = KaTeXRenderEngine.cacheKey(item.latex, item.isDisplay, mathFontSizeSp, colors.isDark)
+                        inlineMathImages[key] ?: KaTeXRenderEngine.cached(item.latex, item.isDisplay, mathFontSizeSp, colors.isDark)
+                    } else {
+                        null
+                    }
+                    if (formula != null) {
+                        val inlineId = "math_${mathInlineIndex++}"
+                        appendInlineContent(id = inlineId, alternateText = item.fallback.ifEmpty { " " })
+                        val tintFilter = if (formula.isMonochrome) ColorFilter.tint(colors.textPrimary) else null
+                        inlineContentMap[inlineId] = InlineTextContent(
+                            placeholder = Placeholder(
+                                width = (formula.widthDp / safeFontScale).sp,
+                                height = (formula.heightDp / safeFontScale).sp,
+                                placeholderVerticalAlign = PlaceholderVerticalAlign.TextCenter
+                            )
+                        ) {
+                            Image(
+                                bitmap = formula.imageBitmap,
+                                contentDescription = item.fallback,
+                                contentScale = ContentScale.Fit,
+                                colorFilter = tintFilter,
+                                modifier = Modifier.fillMaxSize()
+                            )
+                        }
+                    } else {
+                        appendPlainRun(item.fallback, isBold, isItalic, isStrike)
+                    }
+                } else {
+                    appendPlainRun(match.value, isBold, isItalic, isStrike)
+                }
+                cursor = range.last + 1
+            }
+            if (cursor < plain.length) {
+                appendPlainRun(plain.substring(cursor), isBold, isItalic, isStrike)
             }
         }
 
@@ -392,8 +574,8 @@ internal fun buildRichTextRenderData(
                     linkText != null && linkUrl != null -> {
                         val isInnerBold = (linkText.startsWith("**") && linkText.endsWith("**") && linkText.length >= 4) ||
                                 (linkText.startsWith("__") && linkText.endsWith("__") && linkText.length >= 4)
-                        val rawCleanTitle = linkText.trim('`', '\'', '"', '*', '_', ' ').ifEmpty {
-                            linkUrl.substringAfterLast('/').ifEmpty { linkText }
+                        val rawCleanTitle = expandMathTokensToPlain(linkText).trim('`', '\'', '"', '*', '_', ' ').ifEmpty {
+                            linkUrl.substringAfterLast('/').ifEmpty { expandMathTokensToPlain(linkText) }
                         }
                         val cleanTitle = FileIconResolver.strippingWeChatDisplayPrefix(rawCleanTitle)
                         val effectiveBold = isBold || isInnerBold

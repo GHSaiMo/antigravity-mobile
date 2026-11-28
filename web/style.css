@@ -1299,17 +1299,55 @@ code.inline-code, .markdown-body code:not(.code-block-pre code) {
 .code-block-pre .tok-diff-del { color: var(--tok-diff-del); background: rgba(255, 69, 58, 0.10); display: inline-block; width: 100%; }
 
 .math-display-block {
+  position: relative;
   margin: 10px 0;
-  padding: 10px 14px;
+  padding: 12px 16px;
   background-color: var(--ios-tertiary-bg);
-  border-left: 3px solid var(--ios-indigo);
-  border-radius: 8px;
+  border: 0.5px solid var(--ios-separator);
+  border-radius: 10px;
   font-family: "STIX Two Math", "Cambria Math", "Apple Symbols", ui-serif, Georgia, serif;
   font-size: 15px;
   line-height: 1.55;
   white-space: pre-wrap;
   overflow-x: auto;
+  overflow-y: hidden;
+  -webkit-overflow-scrolling: touch;
   color: var(--ios-label);
+}
+
+.math-display-block.katex-rendered {
+  font-family: inherit;
+  white-space: normal;
+  text-align: center;
+  padding: 12px 14px;
+}
+
+.math-display-block.katex-rendered .katex-display {
+  margin: 0;
+  padding: 2px 0;
+  overflow-x: auto;
+  overflow-y: hidden;
+  -webkit-overflow-scrolling: touch;
+}
+
+.math-display-block.katex-rendered .katex {
+  font-size: 1.08em;
+  color: inherit;
+}
+
+.math-inline {
+  position: relative;
+  display: inline;
+  font-family: "STIX Two Math", "Cambria Math", "Apple Symbols", ui-serif, Georgia, serif;
+}
+
+.math-inline.katex-inline {
+  font-family: inherit;
+}
+
+.math-inline.katex-inline .katex {
+  font-size: 1.04em;
+  color: inherit;
 }
 
 /* Agent Embed Card (Generative UI Interactive Card) */

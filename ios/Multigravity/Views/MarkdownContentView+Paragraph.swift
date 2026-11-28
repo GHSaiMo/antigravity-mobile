@@ -1,5 +1,77 @@
 import SwiftUI
 
+/// Renders inline Markdown rich text while asynchronously upgrading any complex inline
+/// LaTeX formulas (fractions, radicals, limits, matrices, etc.) via KaTeXRenderEngine.
+/// Plain paragraphs without complex inline math incur zero Task or State overhead.
+struct MathAwareInlineTextView: View {
+    let text: String
+    let size: CGFloat
+    let weight: Font.Weight
+    let colorScheme: ColorScheme
+
+    @Environment(\.isShareExport) private var isShareExport
+    @State private var inlineMathImages: [String: RenderedMathFormula] = [:]
+
+    init(text: String, size: CGFloat = 15, weight: Font.Weight = .regular, colorScheme: ColorScheme) {
+        self.text = text
+        self.size = size
+        self.weight = weight
+        self.colorScheme = colorScheme
+    }
+
+    var body: some View {
+        let complexFormulas = MathSymbolProcessor.complexInlineFormulas(in: text)
+        if complexFormulas.isEmpty {
+            MarkdownContentView.renderRichText(text, size: size, weight: weight, colorScheme: colorScheme)
+        } else {
+            let isDark = (colorScheme == .dark)
+            let mathFontSize = size * 1.04
+            let taskKey = "\(text)|\(mathFontSize)|\(isDark)"
+            MarkdownContentView.renderRichText(
+                text,
+                size: size,
+                weight: weight,
+                colorScheme: colorScheme,
+                inlineMathImages: inlineMathImages
+            )
+            .task(id: taskKey) {
+                if isShareExport { return }
+                var updated = inlineMathImages
+                var changed = false
+                for item in complexFormulas {
+                    let key = KaTeXRenderEngine.cacheKey(
+                        latex: item.latex,
+                        displayMode: item.isDisplay,
+                        fontSize: mathFontSize,
+                        isDark: isDark
+                    )
+                    if updated[key] != nil { continue }
+                    if let hit = KaTeXRenderEngine.shared.cached(
+                        latex: item.latex,
+                        displayMode: item.isDisplay,
+                        fontSize: mathFontSize,
+                        isDark: isDark
+                    ) {
+                        updated[key] = hit
+                        changed = true
+                    } else if let rendered = await KaTeXRenderEngine.shared.render(
+                        latex: item.latex,
+                        displayMode: item.isDisplay,
+                        fontSize: mathFontSize,
+                        isDark: isDark
+                    ) {
+                        updated[key] = rendered
+                        changed = true
+                    }
+                }
+                if changed {
+                    inlineMathImages = updated
+                }
+            }
+        }
+    }
+}
+
 struct EquatableMarkdownParagraphView: View, Equatable {
     let text: String
     let size: CGFloat
@@ -9,7 +81,7 @@ struct EquatableMarkdownParagraphView: View, Equatable {
         let cleanText = MarkdownContentView.replaceHtmlBreaks(in: text).trimmingCharacters(in: .whitespacesAndNewlines)
         let segments = MarkdownContentView.parsePlanSegments(cleanText)
         if segments.count <= 1 && (segments.first?.isPlanButton != true) {
-            MarkdownContentView.renderRichText(cleanText, size: size, colorScheme: colorScheme)
+            MathAwareInlineTextView(text: cleanText, size: size, colorScheme: colorScheme)
                 .font(.system(size: size))
                 .lineSpacing(3)
                 .fixedSize(horizontal: false, vertical: true)
@@ -20,7 +92,7 @@ struct EquatableMarkdownParagraphView: View, Equatable {
                     case .text(_, let content):
                         let trimmed = content.trimmingCharacters(in: .whitespacesAndNewlines)
                         if !trimmed.isEmpty {
-                            MarkdownContentView.renderRichText(trimmed, size: size, colorScheme: colorScheme)
+                            MathAwareInlineTextView(text: trimmed, size: size, colorScheme: colorScheme)
                                 .font(.system(size: size))
                                 .lineSpacing(3)
                         }

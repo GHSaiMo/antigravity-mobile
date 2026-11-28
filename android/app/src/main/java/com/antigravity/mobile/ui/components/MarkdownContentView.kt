@@ -86,6 +86,13 @@ fun MarkdownContentView(
                     }
                 }
 
+                is MarkdownBlock.MathBlock -> {
+                    MathBlockView(
+                        latex = block.latex,
+                        colors = colors
+                    )
+                }
+
                 is MarkdownBlock.Table -> {
                     val columns = maxOf(block.headers.size, block.rows.maxOfOrNull { it.size } ?: 0)
                     if (isExport && (columns >= 4 || block.rows.size > 12)) {

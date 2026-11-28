@@ -346,7 +346,7 @@ function unwrapTextAndFontCommands(str) {
   str = str.replace(/([_^])\\(?:text|textbf|textit|textrm|textsf|texttt|textsc|mathrm|mathbf|mathit|mathsf|mathtt|mathbbm|operatorname\*?|pmb|boldsymbol|bm|bold|emph|mbox|hbox)\{([^{}]*(?:\{[^{}]*\}[^{}]*)*)\}/g, "$1{$2}");
   str = str.replace(/\\(?:textcolor|color)\{[^{}]*\}\{([^{}]*)\}|\\color\{[^{}]*\}/g, "$1");
   for (let pass = 0; pass < 4; pass++) {
-    const next = str.replace(/\\(?:text|textbf|textit|textrm|textsf|texttt|textsc|mathrm|mathbf|mathit|mathsf|mathtt|mathbbm|operatorname\*?|pmb|boldsymbol|bm|bold|emph|mbox|hbox)\{([^{}]*)\}/g, "$1");
+    const next = str.replace(/\\(?:text|textbf|textit|textrm|textsf|texttt|textsc|mathrm|mathbf|mathit|mathsf|mathtt|mathbbm|operatorname\*?|pmb|boldsymbol|bm|bold|emph|mbox|hbox|ce|pu)\{([^{}]*)\}/g, "$1");
     if (next === str) break;
     str = next;
   }
@@ -400,6 +400,27 @@ function replaceExtensibleArrows(str) {
   });
 }
 
+function formatFractionPart(raw) {
+  const t = String(raw || "").trim();
+  if (!t) return "";
+  if (t.length <= 2) return t;
+  if (!(/[+\-=\/]/.test(t) || /\s/.test(t))) return t;
+  if (t.startsWith("(") && t.endsWith(")")) {
+    let depth = 0;
+    let wrapped = true;
+    for (let i = 0; i < t.length; i++) {
+      if (t[i] === "(") depth++;
+      else if (t[i] === ")") depth--;
+      if (depth === 0 && i < t.length - 1) {
+        wrapped = false;
+        break;
+      }
+    }
+    if (wrapped && depth === 0) return t;
+  }
+  return `(${t})`;
+}
+
 function replaceStructuralMathCommands(str) {
   if (!str || !str.includes("\\")) return str;
   if (str.includes("\\not")) {
@@ -437,7 +458,9 @@ function replaceStructuralMathCommands(str) {
     str = next;
   }
   for (let pass = 0; pass < 3; pass++) {
-    const next = str.replace(/\\(?:d|t|c)?frac\{([^{}]*(?:\{[^{}]*\}[^{}]*)*)\}\{([^{}]*(?:\{[^{}]*\}[^{}]*)*)\}/g, "$1 / $2");
+    const next = str.replace(/\\(?:d|t|c)?frac\{([^{}]*(?:\{[^{}]*\}[^{}]*)*)\}\{([^{}]*(?:\{[^{}]*\}[^{}]*)*)\}/g, (_, num, den) => {
+      return `${formatFractionPart(num)} / ${formatFractionPart(den)}`;
+    });
     if (next === str) break;
     str = next;
   }
@@ -580,6 +603,209 @@ function cleanMathExpr(str) {
   return str.trim();
 }
 
+function processBareLatexSymbols(text) {
+  if (!text || !text.includes("\\")) return text;
+  text = unwrapTextAndFontCommands(text);
+  text = replaceUnderOverBraces(text);
+  text = replaceExtensibleArrows(text);
+  text = replaceStructuralMathCommands(text);
+  text = cleanSizingAndDelimiters(text, false);
+  text = replaceSymbolsSinglePass(text);
+  text = text.replace(/\\(?:mathcal|mathscr|mathbb|mathfrak|mathbbm)\{([^{}]*)\}/g, "$1");
+  text = replaceBareOperatorLimits(text);
+  return text;
+}
+
+const katexRenderCache = new Map();
+const KATEX_CACHE_LIMIT = 400;
+
+function renderKatexMarkup(latex, displayMode) {
+  const raw = String(latex || "").trim();
+  if (!raw) return null;
+  const katexObj = typeof katex !== "undefined"
+    ? katex
+    : (typeof window !== "undefined" ? window.katex : null);
+  if (!katexObj || typeof katexObj.renderToString !== "function") return null;
+  const cacheKey = (displayMode ? "D:" : "I:") + raw;
+  if (katexRenderCache.has(cacheKey)) {
+    return katexRenderCache.get(cacheKey);
+  }
+  try {
+    const rendered = katexObj.renderToString(raw, {
+      displayMode: !!displayMode,
+      throwOnError: true,
+      strict: "ignore",
+      trust: false,
+      output: "htmlAndMathml",
+      maxSize: 50,
+      maxExpand: 300
+    }).replace(/\r?\n/g, "");
+    if (katexRenderCache.size >= KATEX_CACHE_LIMIT) {
+      const oldestKey = katexRenderCache.keys().next().value;
+      katexRenderCache.delete(oldestKey);
+    }
+    katexRenderCache.set(cacheKey, rendered);
+    return rendered;
+  } catch (_) {
+    return null;
+  }
+}
+
+function buildDisplayMathBlockHtml(rawLatex) {
+  const trimmed = String(rawLatex || "").trim();
+  if (!trimmed) return "";
+  const katexHtml = renderKatexMarkup(trimmed, true);
+  if (katexHtml) {
+    return `<div class="math-display-block katex-rendered">${katexHtml}</div>`;
+  }
+  const fallback = cleanMathExpr(trimmed);
+  return fallback ? `<div class="math-display-block">${escapeHtml(fallback)}</div>` : "";
+}
+
+function buildInlineMathHtml(rawLatex, displayMode) {
+  const trimmed = String(rawLatex || "").trim();
+  if (!trimmed) return "";
+  const katexHtml = renderKatexMarkup(trimmed, !!displayMode);
+  if (katexHtml) {
+    if (displayMode) {
+      return `<div class="math-display-block katex-rendered">${katexHtml}</div>`;
+    }
+    return `<span class="math-inline katex-inline">${katexHtml}</span>`;
+  }
+  const fallback = cleanMathExpr(trimmed);
+  if (displayMode) {
+    return fallback ? `<div class="math-display-block">${escapeHtml(fallback)}</div>` : "";
+  }
+  return `<span class="math-inline">${escapeHtml(fallback)}</span>`;
+}
+
+function isEscapedAt(str, idx) {
+  let backslashes = 0;
+  for (let k = idx - 1; k >= 0 && str[k] === "\\"; k--) {
+    backslashes++;
+  }
+  return (backslashes % 2) === 1;
+}
+
+function isLikelyCurrencyMath(inner, nextChar) {
+  if (nextChar && nextChar >= "0" && nextChar <= "9") return true;
+  if (/^\d[\d,.]*\s+/.test(inner) && !/[\\^_{}=<>+\-*/×÷±∑∫]/.test(inner)) {
+    return true;
+  }
+  return false;
+}
+
+function extractInlineMathSpans(text, onMath) {
+  if (!text || (!text.includes("$") && !text.includes("\\(") && !text.includes("\\["))) {
+    return text;
+  }
+  let out = "";
+  let i = 0;
+  const len = text.length;
+
+  while (i < len) {
+    // 1. Escaped delimiter \$
+    if (text[i] === "\\" && i + 1 < len && text[i + 1] === "$") {
+      out += "\\$";
+      i += 2;
+      continue;
+    }
+
+    // 2. \( ... \) inline math
+    if (text[i] === "\\" && i + 1 < len && text[i + 1] === "(" && !isEscapedAt(text, i)) {
+      let closeIdx = -1;
+      for (let j = i + 2; j < len - 1; j++) {
+        if (text[j] === "\\" && text[j + 1] === ")" && !isEscapedAt(text, j)) {
+          closeIdx = j;
+          break;
+        }
+      }
+      if (closeIdx > i + 2) {
+        const inner = text.slice(i + 2, closeIdx);
+        if (inner.trim()) {
+          out += onMath(inner, false);
+          i = closeIdx + 2;
+          continue;
+        }
+      }
+    }
+
+    // 3. \[ ... \] display math inside inline/blockquote context
+    if (text[i] === "\\" && i + 1 < len && text[i + 1] === "[" && !isEscapedAt(text, i)) {
+      let closeIdx = -1;
+      for (let j = i + 2; j < len - 1; j++) {
+        if (text[j] === "\\" && text[j + 1] === "]" && !isEscapedAt(text, j)) {
+          closeIdx = j;
+          break;
+        }
+      }
+      if (closeIdx > i + 2) {
+        const inner = text.slice(i + 2, closeIdx);
+        if (inner.trim()) {
+          out += onMath(inner, true);
+          i = closeIdx + 2;
+          continue;
+        }
+      }
+    }
+
+    // 4. $$ ... $$ display math inside inline/blockquote context
+    if (text[i] === "$" && i + 1 < len && text[i + 1] === "$" && !isEscapedAt(text, i)) {
+      let closeIdx = -1;
+      for (let j = i + 2; j < len - 1; j++) {
+        if (text[j] === "$" && text[j + 1] === "$" && !isEscapedAt(text, j)) {
+          closeIdx = j;
+          break;
+        }
+      }
+      if (closeIdx > i + 2) {
+        const inner = text.slice(i + 2, closeIdx);
+        if (inner.trim()) {
+          out += onMath(inner, true);
+          i = closeIdx + 2;
+          continue;
+        }
+      }
+    }
+
+    // 5. $ ... $ inline math (single-line, currency-safe)
+    if (text[i] === "$" && !isEscapedAt(text, i) && (i + 1 < len && text[i + 1] !== "$")) {
+      const prev = i > 0 ? text[i - 1] : "";
+      const next = text[i + 1];
+      const prevIsAlphaNum = prev && /[A-Za-z0-9]/.test(prev);
+      if (!prevIsAlphaNum && !/\s/.test(next)) {
+        let closeIdx = -1;
+        for (let j = i + 1; j < len; j++) {
+          if (text[j] === "\n") break;
+          if (text[j] === "$" && !isEscapedAt(text, j)) {
+            if (j + 1 < len && text[j + 1] === "$") break;
+            if (j > i + 1 && !/\s/.test(text[j - 1])) {
+              const candidate = text.slice(i + 1, j);
+              const afterClose = j + 1 < len ? text[j + 1] : "";
+              if (!isLikelyCurrencyMath(candidate, afterClose)) {
+                closeIdx = j;
+              }
+            }
+            break;
+          }
+        }
+        if (closeIdx > i + 1) {
+          const inner = text.slice(i + 1, closeIdx);
+          if (inner.trim()) {
+            out += onMath(inner, false);
+            i = closeIdx + 1;
+            continue;
+          }
+        }
+      }
+    }
+
+    out += text[i];
+    i++;
+  }
+  return out;
+}
+
 function processMathSymbols(text) {
   if (!text) return "";
   if (!text.includes("\\") && !text.includes("$")) return text;
@@ -595,21 +821,8 @@ function processMathSymbols(text) {
     return `XXAGYINLINETOKEN${inlineCodes.length - 1}XX`;
   });
 
-  text = text.replace(/\$\$([\s\S]*?)\$\$/g, (_, m) => cleanMathExpr(m));
-  text = text.replace(/\\\[([\s\S]*?)\\\]/g, (_, m) => cleanMathExpr(m));
-  text = text.replace(/(?<!\\)\$(?!\s)([^$\n]+?)(?<!\s)(?<!\\)\$/g, (_, m) => cleanMathExpr(m));
-  text = text.replace(/\\\(([\s\S]*?)\\\)/g, (_, m) => cleanMathExpr(m));
-
-  if (text.includes("\\")) {
-    text = unwrapTextAndFontCommands(text);
-    text = replaceUnderOverBraces(text);
-    text = replaceExtensibleArrows(text);
-    text = replaceStructuralMathCommands(text);
-    text = cleanSizingAndDelimiters(text, false);
-    text = replaceSymbolsSinglePass(text);
-    text = text.replace(/\\(?:mathcal|mathscr|mathbb|mathfrak|mathbbm)\{([^{}]*)\}/g, "$1");
-    text = replaceBareOperatorLimits(text);
-  }
+  text = extractInlineMathSpans(text, (inner) => cleanMathExpr(inner));
+  text = processBareLatexSymbols(text);
 
   inlineCodes.forEach((c, idx) => {
     text = text.replace(`XXAGYINLINETOKEN${idx}XX`, c);
@@ -1235,6 +1448,24 @@ function renderInlineMarkdown(text) {
   };
   text = extractInlineCodeSpans(text, stashInlineCode);
 
+  // Protect rendered component HTML blocks (inline math, image cards, embed cards) so later
+  // HTML escaping and markdown emphasis/strike/highlight regexes never mutate their internals.
+  const protectedHtmlBlocks = [];
+  const stashHtmlBlock = (markup, plainText = "") => {
+    const idx = protectedHtmlBlocks.length;
+    protectedHtmlBlocks.push({ html: markup, text: plainText });
+    return `\uE014HTML${idx}\uE015`;
+  };
+
+  if (text.includes("$") || text.includes("\\")) {
+    text = extractInlineMathSpans(text, (inner, isDisplay) => {
+      return stashHtmlBlock(buildInlineMathHtml(inner, isDisplay), cleanMathExpr(inner));
+    });
+    if (text.includes("\\")) {
+      text = processBareLatexSymbols(text);
+    }
+  }
+
   if (text.includes("implementation_plan.md") && !text.includes("[implementation_plan.md]") && !text.includes("](implementation_plan.md)")) {
     text = text.replace(/implementation_plan\.md/g, "[implementation_plan.md](implementation_plan.md)");
   }
@@ -1296,14 +1527,7 @@ function renderInlineMarkdown(text) {
     .replace(/___HTML_SUB_OPEN___/g, "<sub>")
     .replace(/___HTML_SUB_CLOSE___/g, "</sub>");
 
-  // Protect rendered component HTML blocks (image cards, embed cards) so later markdown
-  // regexes never mutate filenames, URLs, or attributes inside them.
-  const protectedHtmlBlocks = [];
-  const stashHtmlBlock = (markup, plainText = "") => {
-    const idx = protectedHtmlBlocks.length;
-    protectedHtmlBlocks.push({ html: markup, text: plainText });
-    return `\uE014HTML${idx}\uE015`;
-  };
+  // Helper to decode protected inline code and HTML placeholders back to plain text
   const decodeFragmentToRaw = (fragment) => {
     let raw = htmlUnescape(fragment);
     if (renderedCodeSpans.length > 0 && raw.includes("\uE010CODE")) {
@@ -1999,13 +2223,13 @@ function extractDisplayMathBlocks(md) {
     fences.push(m);
     return `XXAGYMATHFENCE${fences.length - 1}XX`;
   });
-  masked = masked.replace(/(?:^|\n)\s*\$\$([\s\S]+?)\$\$\s*(?=\n|$)/g, (_, inner) => {
-    const cleaned = cleanMathExpr(inner);
-    return cleaned ? `\n\n:::math-block ${encodeURIComponent(cleaned)}:::\n\n` : "";
+  masked = masked.replace(/(?:^|\n)[ \t]*\$\$((?:(?!\$\$)[\s\S])+?)\$\$[ \t]*(?=\n|$)/g, (_, inner) => {
+    const raw = String(inner || "").trim();
+    return raw ? `\n\n:::math-block ${encodeURIComponent(raw)}:::\n\n` : "";
   });
-  masked = masked.replace(/(?:^|\n)\s*\\\[([\s\S]+?)\\\]\s*(?=\n|$)/g, (_, inner) => {
-    const cleaned = cleanMathExpr(inner);
-    return cleaned ? `\n\n:::math-block ${encodeURIComponent(cleaned)}:::\n\n` : "";
+  masked = masked.replace(/(?:^|\n)[ \t]*\\\[((?:(?!\\\])[\s\S])+?)\\\][ \t]*(?=\n|$)/g, (_, inner) => {
+    const raw = String(inner || "").trim();
+    return raw ? `\n\n:::math-block ${encodeURIComponent(raw)}:::\n\n` : "";
   });
   fences.forEach((f, idx) => {
     masked = masked.split(`XXAGYMATHFENCE${idx}XX`).join(f);
@@ -2037,7 +2261,6 @@ function renderMarkdown(md, options = {}) {
   const isContinuation = !!options.isContinuation;
   const skipUnclosedCodeCache = !!options.skipUnclosedCodeCache;
   md = extractDisplayMathBlocks(md);
-  md = processMathSymbols(md);
 
   // Plugin card custom tag support (Antigravity 2.31+)
   md = md.replace(/<plugin-card\s+catalog-id=["']([^"']+)["'][^>]*>(?:<\/plugin-card>)?/gi, (match, id) => {
@@ -2118,7 +2341,8 @@ function renderMarkdown(md, options = {}) {
       if (m && m[1]) {
         let decoded = "";
         try { decoded = decodeURIComponent(m[1]); } catch (_) { decoded = m[1]; }
-        blocks.push(`<div class="math-display-block">${escapeHtml(decoded)}</div>`);
+        const blockHtml = buildDisplayMathBlockHtml(decoded);
+        if (blockHtml) blocks.push(blockHtml);
         i++;
         continue;
       }
@@ -2494,6 +2718,8 @@ function renderMarkdown(md, options = {}) {
           matchStandaloneImageLine(nTrimmed) ||
           /^<agent-embed\b/i.test(nTrimmed) ||
           nTrimmed.toLowerCase().startsWith("<details") ||
+          nTrimmed.startsWith(":::math-block ") ||
+          nTrimmed.startsWith(":::plugin-card") ||
           nTrimmed.startsWith("```") ||
           nTrimmed.startsWith("~~~") ||
           nTrimmed.startsWith("#") ||

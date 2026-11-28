@@ -199,10 +199,23 @@ object MarkdownParser {
                 }
             }
 
+            // 1a. Single-line display math block: $$ ... $$ or \[ ... \]
+            if ((trimmed.startsWith("$$") && trimmed.endsWith("$$") && trimmed.length > 4 && !trimmed.substring(2, trimmed.length - 2).contains("$$")) ||
+                (trimmed.startsWith("\\[") && trimmed.endsWith("\\]") && trimmed.length > 4 && !trimmed.substring(2, trimmed.length - 2).contains("\\]"))
+            ) {
+                val inner = trimmed.substring(2, trimmed.length - 2).trim()
+                if (inner.isNotEmpty()) {
+                    blocks.add(MarkdownBlock.MathBlock("block-${blockIdx++}", inner))
+                    i++
+                    continue
+                }
+            }
+
             // 1b. Multi-line display math block: $$ ... $$ or \[ ... \]
             if ((trimmed.startsWith("$$") && (trimmed == "$$" || !trimmed.drop(2).contains("$$"))) ||
                 (trimmed.startsWith("\\[") && !trimmed.drop(2).contains("\\]"))
             ) {
+                val openToken = if (trimmed.startsWith("$$")) "$$" else "\\["
                 val closeToken = if (trimmed.startsWith("$$")) "$$" else "\\]"
                 val mathLines = mutableListOf(line)
                 i++
@@ -214,7 +227,13 @@ object MarkdownParser {
                         break
                     }
                 }
-                blocks.add(MarkdownBlock.Paragraph("block-${blockIdx++}", mathLines.joinToString("\n")))
+                var inner = mathLines.joinToString("\n").trim()
+                if (inner.startsWith(openToken)) inner = inner.removePrefix(openToken)
+                if (inner.endsWith(closeToken)) inner = inner.removeSuffix(closeToken)
+                inner = inner.trim()
+                if (inner.isNotEmpty()) {
+                    blocks.add(MarkdownBlock.MathBlock("block-${blockIdx++}", inner))
+                }
                 continue
             }
 

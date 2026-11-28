@@ -21,6 +21,8 @@ public enum MarkdownPlainText {
                 parts.append("────────")
             case .codeBlock(_, _, let code):
                 parts.append(code.trimmingCharacters(in: .newlines))
+            case .mathBlock(_, let latex):
+                parts.append(MathSymbolProcessor.cleanMathExpression(latex.replacingOccurrences(of: #"\\\\"#, with: "\n")))
             case .table(_, let headers, let rows, _):
                 var lines = [headers.map(inline).joined(separator: "\t")]
                 lines += rows.map { $0.map(inline).joined(separator: "\t") }

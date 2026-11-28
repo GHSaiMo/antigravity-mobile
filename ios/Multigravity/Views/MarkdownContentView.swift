@@ -123,6 +123,9 @@ public struct MarkdownContentView: View {
                 codeBlockView(lang: lang, code: code, codeScale: codeScale)
             }
             
+        case .mathBlock(_, let latex):
+            MathBlockView(latex: latex, bodyScale: bodyScale)
+            
         case .table(_, let headers, let rows, let alignments):
             let columns = max(headers.count, rows.map(\.count).max() ?? 0)
             if isShareExport && (columns >= 4 || rows.count > 12) {

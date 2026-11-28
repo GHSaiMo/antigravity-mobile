@@ -30,6 +30,7 @@ sealed class MarkdownBlock {
     data class Heading(override val id: String, val level: Int, val text: String) : MarkdownBlock()
     data class Divider(override val id: String) : MarkdownBlock()
     data class CodeBlock(override val id: String, val lang: String, val code: String) : MarkdownBlock()
+    data class MathBlock(override val id: String, val latex: String) : MarkdownBlock()
     data class Table(
         override val id: String,
         val headers: List<String>,

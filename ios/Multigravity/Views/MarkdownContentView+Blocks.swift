@@ -17,7 +17,7 @@ extension MarkdownContentView {
         let resolvedScale = bodyScale ?? ((isShareExport ? 1.0 : AppSettings.shared.fontSizeScale.bodyScale) * markdownFontScaleMultiplier)
         let size = baseSize * resolvedScale
         
-        Self.renderRichText(text, size: size, weight: .bold, colorScheme: colorScheme)
+        MathAwareInlineTextView(text: text, size: size, weight: .bold, colorScheme: colorScheme)
             .font(.system(size: size, weight: .bold))
             .foregroundColor(.primary)
             .padding(.top, level <= 2 ? 6 : 2)
@@ -121,7 +121,7 @@ extension MarkdownContentView {
                 if !headers.isEmpty {
                     ForEach(0..<columnCount, id: \.self) { colIdx in
                         let colAlignment = colIdx < alignments.count ? alignments[colIdx] : .leading
-                        Self.renderRichText(colIdx < headers.count ? headers[colIdx] : "", size: cellFontSize, weight: .bold, colorScheme: colorScheme)
+                        MathAwareInlineTextView(text: colIdx < headers.count ? headers[colIdx] : "", size: cellFontSize, weight: .bold, colorScheme: colorScheme)
                             .font(.system(size: cellFontSize, weight: .bold))
                             .foregroundColor(.primary)
                             .multilineTextAlignment(colAlignment.textAlignment)
@@ -144,7 +144,7 @@ extension MarkdownContentView {
                 ForEach(Array(rows.enumerated()), id: \.offset) { rowIdx, row in
                     ForEach(0..<columnCount, id: \.self) { colIdx in
                         let colAlignment = colIdx < alignments.count ? alignments[colIdx] : .leading
-                        Self.renderRichText(colIdx < row.count ? row[colIdx] : "", size: cellFontSize, colorScheme: colorScheme)
+                        MathAwareInlineTextView(text: colIdx < row.count ? row[colIdx] : "", size: cellFontSize, colorScheme: colorScheme)
                             .font(.system(size: cellFontSize))
                             .foregroundColor(.primary.opacity(0.9))
                             .multilineTextAlignment(colAlignment.textAlignment)
