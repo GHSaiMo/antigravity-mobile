@@ -61,10 +61,11 @@ type SlashCommandsResponse struct {
 }
 
 type slashCommandCache struct {
-	mu         sync.Mutex
-	fetchedAt  time.Time
-	options    []SlashCommandOption
-	infoByName map[string]json.RawMessage // authoritative SlashCommandInfo per command name (hidden ones included)
+	mu               sync.Mutex
+	fetchedAt        time.Time
+	options          []SlashCommandOption
+	infoByName       map[string]json.RawMessage // authoritative SlashCommandInfo per command name (hidden ones included)
+	systemInfoByName map[string]json.RawMessage // visible upstream system commands (lowercased key) eligible for plain-text leading /cmd upgrade
 }
 
 func (c *slashCommandCache) fresh() bool {
@@ -80,7 +81,13 @@ type upstreamSlashCommand struct {
 
 // buildSlashCommandTables turns the raw upstream commands into the visible menu and the info lookup.
 func buildSlashCommandTables(raw []upstreamSlashCommand) ([]SlashCommandOption, map[string]json.RawMessage) {
+	options, infoByName, _ := buildSlashCommandTablesWithSystem(raw)
+	return options, infoByName
+}
+
+func buildSlashCommandTablesWithSystem(raw []upstreamSlashCommand) ([]SlashCommandOption, map[string]json.RawMessage, map[string]json.RawMessage) {
 	infoByName := map[string]json.RawMessage{}
+	systemInfoByName := map[string]json.RawMessage{}
 	var options []SlashCommandOption
 	for _, c := range raw {
 		var info struct {
@@ -102,6 +109,8 @@ func buildSlashCommandTables(raw []upstreamSlashCommand) ([]SlashCommandOption, 
 		kind := "system"
 		if strings.Contains(info.Type, "SKILL") {
 			kind = "skill"
+		} else {
+			systemInfoByName[strings.ToLower(info.Name)] = c.Info
 		}
 		title := c.Title
 		if title == "" {
@@ -155,7 +164,7 @@ func buildSlashCommandTables(raw []upstreamSlashCommand) ([]SlashCommandOption, 
 		}
 		return options[i].Name < options[j].Name
 	})
-	return options, infoByName
+	return options, infoByName, systemInfoByName
 }
 
 // fetchSlashCommands queries GetSlashCommands, which requires a model in the cascade config.
@@ -201,17 +210,22 @@ func (p *Proxy) fetchSlashCommands(ctx context.Context, port int, token string) 
 
 // slashCommandsSnapshot returns the cached menu and info table, refreshing when stale (or when force).
 func (p *Proxy) slashCommandsSnapshot(ctx context.Context, force bool) ([]SlashCommandOption, map[string]json.RawMessage, error) {
+	options, infoByName, _, err := p.slashCommandsSnapshotFull(ctx, force)
+	return options, infoByName, err
+}
+
+func (p *Proxy) slashCommandsSnapshotFull(ctx context.Context, force bool) ([]SlashCommandOption, map[string]json.RawMessage, map[string]json.RawMessage, error) {
 	p.slashCache.mu.Lock()
 	defer p.slashCache.mu.Unlock()
 	if !force && p.slashCache.fresh() {
-		return p.slashCache.options, p.slashCache.infoByName, nil
+		return p.slashCache.options, p.slashCache.infoByName, p.slashCache.systemInfoByName, nil
 	}
 	port, token := p.ActiveUpstream()
 	if port == 0 {
 		if p.slashCache.infoByName != nil {
-			return p.slashCache.options, p.slashCache.infoByName, nil // 上游暂时不可用：继续用旧缓存
+			return p.slashCache.options, p.slashCache.infoByName, p.slashCache.systemInfoByName, nil // 上游暂时不可用：继续用旧缓存
 		}
-		return nil, nil, fmt.Errorf("no active Antigravity upstream")
+		return nil, nil, nil, fmt.Errorf("no active Antigravity upstream")
 	}
 	ctx, cancel := context.WithTimeout(ctx, slashCommandsTimeout)
 	defer cancel()
@@ -219,13 +233,13 @@ func (p *Proxy) slashCommandsSnapshot(ctx context.Context, force bool) ([]SlashC
 	if err != nil {
 		if p.slashCache.infoByName != nil {
 			slog.Warn("[Slash] refresh failed, serving cached commands", "err", err)
-			return p.slashCache.options, p.slashCache.infoByName, nil
+			return p.slashCache.options, p.slashCache.infoByName, p.slashCache.systemInfoByName, nil
 		}
-		return nil, nil, err
+		return nil, nil, nil, err
 	}
-	p.slashCache.options, p.slashCache.infoByName = buildSlashCommandTables(raw)
+	p.slashCache.options, p.slashCache.infoByName, p.slashCache.systemInfoByName = buildSlashCommandTablesWithSystem(raw)
 	p.slashCache.fetchedAt = time.Now()
-	return p.slashCache.options, p.slashCache.infoByName, nil
+	return p.slashCache.options, p.slashCache.infoByName, p.slashCache.systemInfoByName, nil
 }
 
 func localizeSlashCommandsForLang(options []SlashCommandOption, lang string) []SlashCommandOption {
@@ -295,8 +309,45 @@ func slashCommandName(itemMap map[string]interface{}) (name string, slash map[st
 	return strings.TrimSpace(name), slash, true
 }
 
+// extractLeadingSlashCommand parses a leading "/<cmd>" token from plain user text.
+// Only strict ASCII command tokens ([a-zA-Z0-9_-]+) followed by whitespace or end-of-string
+// match, so Unix file paths (e.g. "/Users/foo") and mid-sentence mentions never match.
+func extractLeadingSlashCommand(text string) (name string, rest string, ok bool) {
+	trimmedLeft := strings.TrimLeft(text, " \t")
+	if !strings.HasPrefix(trimmedLeft, "/") {
+		return "", "", false
+	}
+	afterSlash := trimmedLeft[1:]
+	if afterSlash == "" {
+		return "", "", false
+	}
+	end := strings.IndexAny(afterSlash, " \t\n\r")
+	var cand string
+	if end == -1 {
+		cand = afterSlash
+		rest = ""
+	} else {
+		cand = afterSlash[:end]
+		rest = afterSlash[end:]
+	}
+	if cand == "" {
+		return "", "", false
+	}
+	for i := 0; i < len(cand); i++ {
+		c := cand[i]
+		isAlpha := (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z')
+		isDigit := c >= '0' && c <= '9'
+		if !isAlpha && !isDigit && c != '-' && c != '_' {
+			return "", "", false
+		}
+	}
+	return strings.ToLower(cand), rest, true
+}
+
 // expandSlashCommands replaces every slash-command item's info with the authoritative one.
-// It reports whether anything was changed and rejects unknown command names.
+// When no structured slash-command item is present, it also upgrades plain-text messages
+// starting with a known upstream system command (e.g. "/compact", "/plan ...") so older
+// clients and manually typed system commands trigger native upstream behavior.
 func (p *Proxy) expandSlashCommands(ctx context.Context, rawMap map[string]interface{}) (bool, error) {
 	items, _ := rawMap["items"].([]interface{})
 	hasSlash := false
@@ -309,7 +360,7 @@ func (p *Proxy) expandSlashCommands(ctx context.Context, rawMap map[string]inter
 		}
 	}
 	if !hasSlash {
-		return false, nil
+		return p.upgradeLeadingPlainTextSystemSlash(ctx, rawMap, items)
 	}
 
 	_, infoByName, err := p.slashCommandsSnapshot(ctx, false)
@@ -347,5 +398,60 @@ func (p *Proxy) expandSlashCommands(ctx context.Context, rawMap map[string]inter
 		}
 		slash["info"] = decoded
 	}
+	return true, nil
+}
+
+// upgradeLeadingPlainTextSystemSlash upgrades a leading plain-text "/<system-cmd>"
+// (such as "/compact" from older clients or manually typed "/plan ...") into a structured
+// slashCommand item. Unknown commands, skills, paths, and upstream errors silently fall
+// back to leaving the original plain text untouched.
+func (p *Proxy) upgradeLeadingPlainTextSystemSlash(ctx context.Context, rawMap map[string]interface{}, items []interface{}) (bool, error) {
+	if len(items) == 0 {
+		return false, nil
+	}
+	firstMap, ok := items[0].(map[string]interface{})
+	if !ok {
+		return false, nil
+	}
+	firstText, ok := firstMap["text"].(string)
+	if !ok {
+		return false, nil
+	}
+	cand, rest, matched := extractLeadingSlashCommand(firstText)
+	if !matched {
+		return false, nil
+	}
+
+	_, _, systemInfoByName, err := p.slashCommandsSnapshotFull(ctx, false)
+	if err != nil || len(systemInfoByName) == 0 {
+		return false, nil
+	}
+	info, known := systemInfoByName[cand]
+	if !known {
+		return false, nil
+	}
+	var decoded interface{}
+	if err := json.Unmarshal(info, &decoded); err != nil {
+		return false, nil
+	}
+
+	upgraded := make([]interface{}, 0, len(items)+1)
+	upgraded = append(upgraded, map[string]interface{}{
+		"item": map[string]interface{}{
+			"slashCommand": map[string]interface{}{
+				"info": decoded,
+			},
+		},
+	})
+	if strings.TrimSpace(rest) != "" {
+		upgraded = append(upgraded, map[string]interface{}{
+			"text": rest,
+		})
+	}
+	if len(items) > 1 {
+		upgraded = append(upgraded, items[1:]...)
+	}
+	rawMap["items"] = upgraded
+	slog.Info("[Slash] Upgraded leading plain-text system command", "command", cand)
 	return true, nil
 }
